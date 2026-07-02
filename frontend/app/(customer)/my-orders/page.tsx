@@ -108,37 +108,49 @@ export default function OrdersPage() {
     }
   };
 
-  // Aynisini sepete ekle: siparis kalemlerini mevcut sepet store'u ile tekrar ekler
+  // Aynisini sepete ekle: siparis kalemlerini mevcut sepet store'u ile tekrar ekler.
+  // Urun kimligi once item.product.id'den, yoksa item.productId'den alinir; tek kalem
+  // hatasi digerlerini durdurmaz, sonuc tek toastta ozetlenir.
   const handleReorder = async (order: Order) => {
     setReorderingId(order.id);
+    let added = 0;
+    const failed: string[] = [];
     try {
-      let added = 0;
-      const skipped: string[] = [];
       for (const item of order.items) {
-        const productId = (item as any).product?.id as string | undefined;
+        const productId = ((item as any).product?.id ?? (item as any).productId) as string | undefined;
+        const label = item.productName || (item as any).product?.name || item.mikroCode || 'Ürün';
         if (!productId) {
-          skipped.push(item.productName || (item as any).product?.name || item.mikroCode || 'Ürün');
+          failed.push(label);
           continue;
         }
-        await addToCart({
-          productId,
-          quantity: item.quantity,
-          priceType: item.priceType,
-          priceMode: (item as any).priceMode ?? 'LIST',
-        });
-        added += 1;
+        try {
+          await addToCart({
+            productId,
+            quantity: item.quantity,
+            priceType: item.priceType,
+            priceMode: (item as any).priceMode ?? 'LIST',
+          });
+          added += 1;
+        } catch {
+          failed.push(label);
+        }
+      }
+      if (added > 0 && failed.length === 0) {
+        toast.success(`${added} ürün sepete eklendi`);
+      } else if (added > 0) {
+        toast.success(`${added} ürün sepete eklendi, ${failed.length} ürün eklenemedi`, { duration: 5000 });
+        toast.error(`Eklenemeyenler:\n${failed.join('\n')}`, { duration: 6000 });
+      } else {
+        toast.error(
+          failed.length > 0
+            ? `Bu siparişteki ürünler sepete eklenemedi:\n${failed.join('\n')}`
+            : 'Bu siparişteki ürünler sepete eklenemedi.',
+          { duration: 6000 }
+        );
       }
       if (added > 0) {
-        toast.success(`${added} ürün sepete eklendi`);
-        if (skipped.length > 0) {
-          toast.error(`Bazı kalemler eklenemedi:\n${skipped.join('\n')}`, { duration: 6000 });
-        }
         router.push('/cart');
-      } else {
-        toast.error('Bu siparişteki ürünler sepete eklenemedi.');
       }
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Sepete eklenirken hata oluştu');
     } finally {
       setReorderingId(null);
     }

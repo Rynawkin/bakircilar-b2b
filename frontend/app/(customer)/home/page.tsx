@@ -11,6 +11,7 @@ import { PersonalRecommendations } from '@/components/customer/PersonalRecommend
 import { GiftCampaignBanner } from '@/components/customer/GiftCampaignBanner';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { formatCurrency } from '@/lib/utils/format';
+import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import {
   Percent,
   Clock,
@@ -188,6 +189,11 @@ export default function CustomerHomePage() {
         ? `/products?search=${encodeURIComponent(banner.productCode)}`
         : null;
 
+  // Banner tik olcumu: mevcut musteri aktivite olay altyapisi (best-effort, hata yutulur)
+  const logBannerClick = (banner: Banner) => {
+    trackCustomerActivity({ type: 'CLICK', meta: { bannerId: banner.id, position: banner.position } });
+  };
+
   // "Sizin icin koleksiyonlar" — gercek hedeflere bagli (admin kuralli koleksiyon backend'i sonra)
   const collections = [
     { t: 'İndirimli Fırsatlar', d: 'Net fiyat avantajları', href: '/discounted-products', g: 'linear-gradient(150deg,#047857,#0a9d6b)', fg: '#c7f1de' },
@@ -262,7 +268,15 @@ export default function CustomerHomePage() {
                     );
                     const cls = `absolute inset-0 transition-opacity duration-700 ${index === heroIndex ? 'opacity-100' : 'pointer-events-none opacity-0'}`;
                     return href ? (
-                      <Link key={banner.id} href={href} className={cls} aria-hidden={index !== heroIndex}>{inner}</Link>
+                      <Link
+                        key={banner.id}
+                        href={href}
+                        className={cls}
+                        aria-hidden={index !== heroIndex}
+                        onClick={() => logBannerClick(banner)}
+                      >
+                        {inner}
+                      </Link>
                     ) : (
                       <div key={banner.id} className={cls} aria-hidden={index !== heroIndex}>{inner}</div>
                     );
@@ -338,7 +352,11 @@ export default function CustomerHomePage() {
                 </>
               );
               return (
-                <Link href={href || '/products'} className="relative hidden h-[384px] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[#12305c] lg:block">
+                <Link
+                  href={href || '/products'}
+                  onClick={side ? () => logBannerClick(side) : undefined}
+                  className="relative hidden h-[384px] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[#12305c] lg:block"
+                >
                   {inner}
                 </Link>
               );
@@ -374,7 +392,13 @@ export default function CustomerHomePage() {
                 )}
               </div>
             );
-            return href ? <Link key={banner.id} href={href}>{content}</Link> : <div key={banner.id}>{content}</div>;
+            return href ? (
+              <Link key={banner.id} href={href} onClick={() => logBannerClick(banner)}>
+                {content}
+              </Link>
+            ) : (
+              <div key={banner.id}>{content}</div>
+            );
           })}
 
           {/* ── SIZIN ICIN KOLEKSIYONLAR ────────────────────────────── */}

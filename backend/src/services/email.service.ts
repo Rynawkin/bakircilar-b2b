@@ -85,6 +85,7 @@ type MarginSummaryBucket = {
   totalRecords: number;
   totalDocuments: number;
   totalRevenue: number;
+  totalCost: number;
   totalProfit: number;
   entryProfit: number;
   avgMargin: number;
@@ -102,6 +103,7 @@ type MarginAlertRow = {
   unit: string;
   quantityLabel: string;
   unitPrice: number;
+  unitCost: number;
   revenue: number;
   profit: number;
   entryProfit: number;
@@ -129,6 +131,7 @@ type MarginAggregateRow = {
   key: string;
   name: string;
   revenue: number;
+  cost: number;
   profit: number;
   entryProfit: number;
   avgMargin: number;
@@ -164,6 +167,7 @@ type MarginComplianceEmailSummary = {
   totalRecords: number;
   totalDocuments: number;
   totalRevenue: number;
+  totalCost: number;
   totalProfit: number;
   entryProfit: number;
   avgMargin: number;
@@ -1106,394 +1110,382 @@ class EmailService {
       return;
     }
 
-    const formatCurrency = (value: number) =>
+    const summary = params.summary;
+
+    // ---- Formatlayicilar (tr-TR) ----
+    const formatMoney = (value: number, fractionDigits = 2) =>
       new Intl.NumberFormat('tr-TR', {
         style: 'currency',
         currency: 'TRY',
+        minimumFractionDigits: fractionDigits,
+        maximumFractionDigits: fractionDigits,
       }).format(value || 0);
 
-    const formatPercent = (value: number) => `${(value || 0).toFixed(2)}%`;
+    const formatMoneyShort = (value: number) => formatMoney(value, 0);
 
-    const formatCount = (value: number) =>
-      new Intl.NumberFormat('tr-TR').format(value || 0);
+    const formatPercent = (value: number) =>
+      `%${new Intl.NumberFormat('tr-TR', {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      }).format(value || 0)}`;
 
-    const formatDate = (date: Date) =>
+    const formatCount = (value: number) => new Intl.NumberFormat('tr-TR').format(value || 0);
+
+    const formatFullDate = (date: Date) =>
       new Intl.DateTimeFormat('tr-TR', {
         day: '2-digit',
         month: 'long',
         year: 'numeric',
+        weekday: 'long',
+        timeZone: 'UTC',
       }).format(date);
 
-    const calcEntryMargin = (bucket: { totalRevenue: number; entryProfit: number }) =>
-      bucket.totalRevenue > 0 ? (bucket.entryProfit / bucket.totalRevenue) * 100 : 0;
+    const formatShortDate = (date: Date) =>
+      new Intl.DateTimeFormat('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        timeZone: 'UTC',
+      }).format(date);
 
-    const renderBucketRow = (label: string, value: string) => `
+    const formatRangeDate = (date: Date) =>
+      new Intl.DateTimeFormat('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(new Date(date));
+
+    // Son giris marji: kar / (ciro - kar) = kar / maliyet.
+    const entryMarginOf = (bucket: { totalRevenue: number; entryProfit: number }) => {
+      const entryCost = bucket.totalRevenue - bucket.entryProfit;
+      if (entryCost > 0) return (bucket.entryProfit / entryCost) * 100;
+      return bucket.totalRevenue > 0 ? (bucket.entryProfit / bucket.totalRevenue) * 100 : 0;
+    };
+
+    // ---- Veri hazirligi: sorunlu satirlar ----
+    type WorstRow = MarginAlertRow & { severity: 'negative' | 'low' | 'high'; source: string };
+
+    const tagRows = (rows: MarginAlertRow[], severity: WorstRow['severity'], source: string): WorstRow[] =>
+      (rows || []).map((row) => ({ ...row, severity, source }));
+
+    const negativeRows = [
+      ...tagRows(summary.alerts.sales.current.negative, 'negative', 'Satış'),
+      ...tagRows(summary.alerts.order.current.negative, 'negative', 'Sipariş'),
+    ].sort((a, b) => a.profit - b.profit);
+
+    const lowRows = [
+      ...tagRows(summary.alerts.sales.current.low, 'low', 'Satış'),
+      ...tagRows(summary.alerts.order.current.low, 'low', 'Sipariş'),
+    ].sort((a, b) => a.avgMargin - b.avgMargin);
+
+    const highRows = [
+      ...tagRows(summary.alerts.sales.current.high, 'high', 'Satış'),
+      ...tagRows(summary.alerts.order.current.high, 'high', 'Sipariş'),
+    ].sort((a, b) => b.avgMargin - a.avgMargin);
+
+    const totalLoss = Math.abs(negativeRows.reduce((acc, row) => acc + Math.min(row.profit, 0), 0));
+
+    const WORST_LIMIT = 15;
+    const worstRows = [...negativeRows, ...lowRows].slice(0, WORST_LIMIT);
+    const highlightRows = highRows.slice(0, 5);
+
+    // ---- Konu satiri: tek bakista gunun durumu ----
+    const baseSubject = (params.subject || '').trim() || 'Marj Raporu';
+    const subjectDetail = negativeRows.length > 0
+      ? `${formatCount(negativeRows.length)} maliyet-altı satır, ${formatMoneyShort(totalLoss)} zarar`
+      : lowRows.length > 0
+        ? `maliyet-altı satır yok, ${formatCount(lowRows.length)} düşük marjlı satır`
+        : `maliyet-altı satır yok, ort. marj ${formatPercent(summary.avgMargin)}`;
+    const subject = `${baseSubject} ${formatShortDate(params.reportDate)} — ${subjectDetail}`;
+
+    // ---- HTML parcalari (e-posta uyumlu: tablo bazli + inline stil) ----
+    const font = 'font-family: Arial, Helvetica, sans-serif;';
+
+    const thStyle = (align: 'left' | 'right' | 'center' = 'left') =>
+      `${font} padding: 8px 6px; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 2px solid #e5e7eb; text-align: ${align}; white-space: nowrap;`;
+
+    const tdStyle = (align: 'left' | 'right' | 'center' = 'left', extra = '') =>
+      `${font} padding: 7px 6px; font-size: 12px; color: #111827; border-bottom: 1px solid #f3f4f6; text-align: ${align}; ${extra}`;
+
+    const sectionTitle = (title: string, subtitle?: string) => `
       <tr>
-        <td style="padding: 6px 0; color: #6b7280;">${label}</td>
-        <td style="padding: 6px 0; text-align: right; font-weight: 600;">${value}</td>
+        <td style="padding: 24px 24px 8px 24px;">
+          <div style="${font} font-size: 15px; font-weight: 700; color: #111827;">${title}</div>
+          ${subtitle ? `<div style="${font} font-size: 12px; color: #6b7280; padding-top: 2px;">${subtitle}</div>` : ''}
+        </td>
       </tr>
     `;
 
-    const renderBucket = (title: string, bucket: {
-      totalRecords: number;
-      totalDocuments: number;
-      totalRevenue: number;
-      totalProfit: number;
-      entryProfit: number;
-      avgMargin: number;
-      negativeLines: number;
-      negativeDocuments: number;
-    }) => `
-      <div style="margin-top: 16px;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">${title}</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-          ${renderBucketRow('Toplam Satir', formatCount(bucket.totalRecords))}
-          ${renderBucketRow('Toplam Evrak', formatCount(bucket.totalDocuments))}
-          ${renderBucketRow('Ciro (KDV Haric)', formatCurrency(bucket.totalRevenue))}
-          ${renderBucketRow('Kar (Guncel, KDV Haric)', formatCurrency(bucket.totalProfit))}
-          ${renderBucketRow('Kar (Son Giris, KDV Haric)', formatCurrency(bucket.entryProfit))}
-          ${renderBucketRow('Kar % (Guncel)', formatPercent(bucket.avgMargin))}
-          ${renderBucketRow('Kar % (Son Giris)', formatPercent(calcEntryMargin(bucket)))}
-          ${renderBucketRow('Zararli Evrak', formatCount(bucket.negativeDocuments))}
-          ${renderBucketRow('Zararli Satir', formatCount(bucket.negativeLines))}
-        </table>
-      </div>
-    `;
-
-    const renderAlertTable = (rows: MarginAlertRow[], options: { useEntry: boolean }) => {
-      if (!rows || rows.length === 0) {
-        return '<p style="margin: 0; font-size: 12px; color: #6b7280;">Kayit yok.</p>';
-      }
-
-      const profitLabel = options.useEntry
-        ? 'Kar (Son Giris)'
-        : 'Kar (Guncel)';
-      const marginLabel = options.useEntry
-        ? 'Kar % (Son Giris)'
-        : 'Kar % (Guncel)';
-
-      const body = rows
-        .map((row) => {
-          const profitValue = options.useEntry ? row.entryProfit : row.profit;
-          const marginValue = options.useEntry ? row.entryMargin : row.avgMargin;
-          return `
-            <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">${row.documentNo}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">${row.documentType}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">${row.customerName}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">${row.productCode}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">${row.productName}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${row.quantityLabel}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(row.unitPrice)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(row.revenue)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(profitValue)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(marginValue)}</td>
-            </tr>
-          `;
-        })
-        .join('');
-
-      return `
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-          <thead>
-            <tr>
-              <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Evrak</th>
-              <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Tip</th>
-              <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Cari</th>
-              <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Stok</th>
-              <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Urun</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Miktar</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Birim Fiyat</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Tutar</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">${profitLabel}</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">${marginLabel}</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${body}
-          </tbody>
-        </table>
-      `;
-    };
-
-    const renderAlertSection = (title: string, set: MarginAlertSet, options: { useEntry: boolean }) => `
-      <div style="margin-top: 12px;">
-        <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #111827;">${title}</h4>
-        <div style="margin-bottom: 10px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px; color: #b91c1c;">Zararli Satirlar</h5>
-          ${renderAlertTable(set.negative, options)}
-        </div>
-        <div style="margin-bottom: 10px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px; color: #f97316;">%5 AltÄ± Kar Satirlar</h5>
-          ${renderAlertTable(set.low, options)}
-        </div>
-        <div>
-          <h5 style="margin: 0 0 4px 0; font-size: 12px; color: #16a34a;">%70 Ustu Kar Satirlar</h5>
-          ${renderAlertTable(set.high, options)}
-        </div>
-      </div>
-    `;
-
-    const renderTopBottomTable = (rows: MarginAggregateRow[]) => {
-      if (!rows || rows.length === 0) {
-        return '<p style="margin: 0; font-size: 12px; color: #6b7280;">Kayit yok.</p>';
-      }
-      const body = rows
-        .map((row) => `
+    const card = (label: string, value: string, sub: string, valueColor: string) => `
+      <td width="50%" valign="top" style="padding: 6px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px;">
           <tr>
-            <td style="padding: 6px; border-top: 1px solid #e5e7eb;">${row.name}</td>
-            <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(row.revenue)}</td>
-            <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(row.profit)}</td>
-            <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(row.avgMargin)}</td>
-            <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(row.entryProfit)}</td>
-            <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(row.entryMargin)}</td>
-            <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCount(row.count)}</td>
+            <td style="padding: 14px 16px;">
+              <div style="${font} font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">${label}</div>
+              <div style="${font} font-size: 22px; font-weight: 700; color: ${valueColor}; padding-top: 6px;">${value}</div>
+              <div style="${font} font-size: 12px; color: #6b7280; padding-top: 6px;">${sub}</div>
+            </td>
           </tr>
-        `)
-        .join('');
-
-      return `
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-          <thead>
-            <tr>
-              <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Ad</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Ciro</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Guncel)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Guncel)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Son Giris)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Son Giris)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Satir</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${body}
-          </tbody>
         </table>
-      `;
-    };
-
-    const renderTopBottomSection = (title: string, group: MarginTopBottomGroup) => `
-      <div style="margin-top: 12px;">
-        <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #111827;">${title}</h4>
-        <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En KarlÄ± Urunler</h5>
-          ${renderTopBottomTable(group.products.top)}
-        </div>
-        <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk MarjlÄ± Urunler</h5>
-          ${renderTopBottomTable(group.products.bottom)}
-        </div>
-        <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En KarlÄ± Musteriler</h5>
-          ${renderTopBottomTable(group.customers.top)}
-        </div>
-        <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk MarjlÄ± Musteriler</h5>
-          ${renderTopBottomTable(group.customers.bottom)}
-        </div>
-        <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En KarlÄ± Satis Personeli</h5>
-          ${renderTopBottomTable(group.salespeople.top)}
-        </div>
-        <div>
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk MarjlÄ± Satis Personeli</h5>
-          ${renderTopBottomTable(group.salespeople.bottom)}
-        </div>
-      </div>
+      </td>
     `;
 
-    const renderSevenDaySummary = (summary: MarginSevenDaySummary) => {
-      const overallEntryMargin = calcEntryMargin(summary.overall);
-      const orderEntryMargin = calcEntryMargin(summary.orders);
-      const salesEntryMargin = calcEntryMargin(summary.sales);
+    const summaryCards = `
+      <tr>
+        <td style="padding: 12px 18px 0 18px; background: #f9fafb;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              ${card(
+                'Satış Cirosu (KDV Hariç)',
+                formatMoneyShort(summary.salesSummary.totalRevenue),
+                `Bekleyen sipariş tutarı: ${formatMoneyShort(summary.orderSummary.totalRevenue)}`,
+                '#111827'
+              )}
+              ${card(
+                'İncelenen Satır',
+                formatCount(summary.totalRecords),
+                `${formatCount(summary.totalDocuments)} evrak · Ortalama marj ${formatPercent(summary.avgMargin)}`,
+                '#111827'
+              )}
+            </tr>
+            <tr>
+              ${card(
+                'Maliyet Altı Satır',
+                formatCount(negativeRows.length),
+                negativeRows.length > 0
+                  ? `Toplam zarar: <strong style="color: #b91c1c;">${formatMoneyShort(totalLoss)}</strong>`
+                  : 'Bugün maliyet altı satış yok',
+                negativeRows.length > 0 ? '#b91c1c' : '#16a34a'
+              )}
+              ${card(
+                'Düşük Marjlı Satır (%5 altı)',
+                formatCount(lowRows.length),
+                `Şüpheli yüksek marj (%70 üstü): ${formatCount(highRows.length)} satır`,
+                lowRows.length > 0 ? '#b45309' : '#16a34a'
+              )}
+            </tr>
+          </table>
+        </td>
+      </tr>
+    `;
+
+    const severityMeta: Record<'negative' | 'low' | 'high', { bg: string; color: string }> = {
+      negative: { bg: '#fef2f2', color: '#b91c1c' },
+      low: { bg: '#fffbeb', color: '#b45309' },
+      high: { bg: '#f0fdf4', color: '#15803d' },
+    };
+
+    const renderAlertRow = (row: WorstRow) => {
+      const meta = severityMeta[row.severity];
       return `
-        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-          <thead>
-            <tr>
-              <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Metrik</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Genel</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Siparis</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Satis</th>
-            </tr>
-          </thead>
+        <tr style="background: ${meta.bg};">
+          <td style="${tdStyle('left')}">
+            <div style="font-weight: 600;">${escapeHtml(row.productName || '-')}</div>
+            <div style="${font} font-size: 10px; color: #6b7280;">${escapeHtml(row.productCode || '')}</div>
+          </td>
+          <td style="${tdStyle('left')}">${escapeHtml(row.customerName || '-')}</td>
+          <td style="${tdStyle('left')}">
+            ${escapeHtml(row.source)}
+            <div style="${font} font-size: 10px; color: #6b7280;">${escapeHtml(row.documentNo || '')}</div>
+          </td>
+          <td style="${tdStyle('right', 'white-space: nowrap;')}">${escapeHtml(row.quantityLabel || '')}</td>
+          <td style="${tdStyle('right', 'white-space: nowrap;')}">${formatMoney(row.unitPrice)}</td>
+          <td style="${tdStyle('right', 'white-space: nowrap;')}">${formatMoney(row.unitCost)}</td>
+          <td style="${tdStyle('right', `white-space: nowrap; font-weight: 700; color: ${meta.color};`)}">${formatPercent(row.avgMargin)}</td>
+          <td style="${tdStyle('right', `white-space: nowrap; font-weight: 700; color: ${meta.color};`)}">${formatMoney(row.profit)}</td>
+        </tr>
+      `;
+    };
+
+    const alertTableHeader = `
+      <tr>
+        <th style="${thStyle('left')}">Ürün</th>
+        <th style="${thStyle('left')}">Müşteri</th>
+        <th style="${thStyle('left')}">Tür / Evrak</th>
+        <th style="${thStyle('right')}">Miktar</th>
+        <th style="${thStyle('right')}">Birim Satış</th>
+        <th style="${thStyle('right')}">Birim Maliyet</th>
+        <th style="${thStyle('right')}">Marj</th>
+        <th style="${thStyle('right')}">Kâr / Zarar</th>
+      </tr>
+    `;
+
+    const worstTable = worstRows.length === 0
+      ? `<div style="${font} font-size: 13px; color: #16a34a; padding: 4px 0 8px 0;">Bugün maliyet altı veya %5 altı marjlı satır yok.</div>`
+      : `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+          <thead>${alertTableHeader}</thead>
           <tbody>
-            <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Ciro (KDV Haric)</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.overall.totalRevenue)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.orders.totalRevenue)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.totalRevenue)}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (Guncel, KDV Haric)</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.overall.totalProfit)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.orders.totalProfit)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.totalProfit)}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (Son Giris, KDV Haric)</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.overall.entryProfit)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.orders.entryProfit)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.entryProfit)}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (Guncel)</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.overall.avgMargin)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.orders.avgMargin)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.sales.avgMargin)}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (Son Giris)</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(overallEntryMargin)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(orderEntryMargin)}</td>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(salesEntryMargin)}</td>
-            </tr>
+            ${worstRows.map((row) => renderAlertRow(row)).join('')}
+          </tbody>
+        </table>
+        ${negativeRows.length + lowRows.length > worstRows.length
+          ? `<div style="${font} font-size: 11px; color: #6b7280; padding-top: 6px;">Toplam ${formatCount(negativeRows.length + lowRows.length)} sorunlu satırın en kötü ${formatCount(worstRows.length)} tanesi gösteriliyor; tam liste ekteki Excel dosyasındadır.</div>`
+          : ''}
+      `;
+
+    const highTable = highlightRows.length === 0
+      ? `<div style="${font} font-size: 13px; color: #6b7280; padding: 4px 0 8px 0;">%70 üzeri marjlı satır yok.</div>`
+      : `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+          <thead>${alertTableHeader}</thead>
+          <tbody>
+            ${highlightRows.map((row) => renderAlertRow(row)).join('')}
           </tbody>
         </table>
       `;
-    };
-    const subject = params.subject || 'Kar Marji Raporu';
 
-    const salespersonRows = (params.summary.salespersonSummary || []).map((entry) => `
-      <tr>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; font-weight: 600;">${entry.sectorCode}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(entry.orderSummary.totalRevenue)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(entry.orderSummary.totalProfit)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(entry.orderSummary.avgMargin)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCount(entry.orderSummary.negativeDocuments)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCount(entry.orderSummary.negativeLines)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(entry.salesSummary.totalRevenue)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(entry.salesSummary.totalProfit)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(entry.salesSummary.avgMargin)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCount(entry.salesSummary.negativeDocuments)}</td>
-        <td style="padding: 8px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCount(entry.salesSummary.negativeLines)}</td>
-      </tr>
-    `).join('');
+    const salespersonRows = (summary.salespersonSummary || [])
+      .filter((entry) => entry.salesSummary.totalRecords > 0 || entry.orderSummary.totalRecords > 0)
+      .map((entry) => {
+        const negativeTotal = entry.salesSummary.negativeLines + entry.orderSummary.negativeLines;
+        return `
+          <tr>
+            <td style="${tdStyle('left', 'font-weight: 600;')}">${escapeHtml(entry.sectorCode)}</td>
+            <td style="${tdStyle('right')}">${formatMoneyShort(entry.salesSummary.totalRevenue)}</td>
+            <td style="${tdStyle('right')}">${formatMoneyShort(entry.salesSummary.totalProfit)}</td>
+            <td style="${tdStyle('right')}">${formatPercent(entry.salesSummary.avgMargin)}</td>
+            <td style="${tdStyle('right')}">${formatMoneyShort(entry.orderSummary.totalRevenue)}</td>
+            <td style="${tdStyle('right')}">${formatPercent(entry.orderSummary.avgMargin)}</td>
+            <td style="${tdStyle('right', negativeTotal > 0 ? 'color: #b91c1c; font-weight: 700;' : '')}">${formatCount(negativeTotal)}</td>
+          </tr>
+        `;
+      })
+      .join('');
 
-    const salespersonTable = salespersonRows.length > 0
+    const salespersonTable = salespersonRows
       ? `
-        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
           <thead>
             <tr>
-              <th rowspan="2" style="text-align: left; padding: 8px; border-bottom: 1px solid #e5e7eb;">Satis Personeli</th>
-              <th colspan="5" style="text-align: center; padding: 8px; border-bottom: 1px solid #e5e7eb;">Siparis</th>
-              <th colspan="5" style="text-align: center; padding: 8px; border-bottom: 1px solid #e5e7eb;">Satis</th>
-            </tr>
-            <tr>
-              <th style="padding: 6px; text-align: right;">Ciro</th>
-              <th style="padding: 6px; text-align: right;">Kar (Guncel)</th>
-              <th style="padding: 6px; text-align: right;">Kar % (Guncel)</th>
-              <th style="padding: 6px; text-align: right;">Zararli Evrak</th>
-              <th style="padding: 6px; text-align: right;">Zararli Satir</th>
-              <th style="padding: 6px; text-align: right;">Ciro</th>
-              <th style="padding: 6px; text-align: right;">Kar (Guncel)</th>
-              <th style="padding: 6px; text-align: right;">Kar % (Guncel)</th>
-              <th style="padding: 6px; text-align: right;">Zararli Evrak</th>
-              <th style="padding: 6px; text-align: right;">Zararli Satir</th>
+              <th style="${thStyle('left')}">Personel</th>
+              <th style="${thStyle('right')}">Satış Ciro</th>
+              <th style="${thStyle('right')}">Satış Kâr</th>
+              <th style="${thStyle('right')}">Satış Marj</th>
+              <th style="${thStyle('right')}">Sipariş Ciro</th>
+              <th style="${thStyle('right')}">Sipariş Marj</th>
+              <th style="${thStyle('right')}">Zararlı Satır</th>
             </tr>
           </thead>
-          <tbody>
-            ${salespersonRows}
-          </tbody>
+          <tbody>${salespersonRows}</tbody>
         </table>
       `
-      : '<p style="margin: 0; font-size: 13px; color: #6b7280;">Satis personeli ozeti icin kayit yok.</p>';
+      : `<div style="${font} font-size: 13px; color: #6b7280;">Satış personeli özeti için kayıt yok.</div>`;
 
-    const alertsHtml = `
-      <div style="margin-top: 12px;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Siparis Uyarilari</h3>
-        ${renderAlertSection('Guncel', params.summary.alerts.order.current, { useEntry: false })}
-        ${renderAlertSection('Son Giris', params.summary.alerts.order.entry, { useEntry: true })}
-      </div>
-      <div style="margin-top: 16px;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Satis Uyarilari</h3>
-        ${renderAlertSection('Guncel', params.summary.alerts.sales.current, { useEntry: false })}
-        ${renderAlertSection('Son Giris', params.summary.alerts.sales.entry, { useEntry: true })}
-      </div>
+    const seven = summary.sevenDaySummary;
+    const sevenRow = (label: string, bucket: MarginSummaryBucket) => `
+      <tr>
+        <td style="${tdStyle('left', 'font-weight: 600;')}">${label}</td>
+        <td style="${tdStyle('right')}">${formatMoneyShort(bucket.totalRevenue)}</td>
+        <td style="${tdStyle('right')}">${formatMoneyShort(bucket.totalProfit)}</td>
+        <td style="${tdStyle('right')}">${formatPercent(bucket.avgMargin)}</td>
+        <td style="${tdStyle('right')}">${formatPercent(entryMarginOf(bucket))}</td>
+        <td style="${tdStyle('right', bucket.negativeLines > 0 ? 'color: #b91c1c; font-weight: 700;' : '')}">${formatCount(bucket.negativeLines)}</td>
+      </tr>
     `;
 
-    const topBottomHtml = `
-      <div style="margin-top: 12px;">
-        ${renderTopBottomSection('Siparis Top / Bottom', params.summary.topBottom.orders)}
-      </div>
-      <div style="margin-top: 16px;">
-        ${renderTopBottomSection('Satis Top / Bottom', params.summary.topBottom.sales)}
-      </div>
+    const sevenDayTable = `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="${thStyle('left')}">&nbsp;</th>
+            <th style="${thStyle('right')}">Ciro</th>
+            <th style="${thStyle('right')}">Kâr</th>
+            <th style="${thStyle('right')}">Marj</th>
+            <th style="${thStyle('right')}">Marj (Son Giriş)</th>
+            <th style="${thStyle('right')}">Zararlı Satır</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sevenRow('Genel', seven.overall)}
+          ${sevenRow('Satış', seven.sales)}
+          ${sevenRow('Sipariş', seven.orders)}
+        </tbody>
+      </table>
     `;
 
-    const sevenDayHtml = `
-      <div style="margin-top: 12px;">
-        <p style="margin: 0 0 8px 0; font-size: 12px; color: #6b7280;">
-          ${formatDate(params.summary.sevenDaySummary.startDate)} - ${formatDate(params.summary.sevenDaySummary.endDate)}
-        </p>
-        ${renderSevenDaySummary(params.summary.sevenDaySummary)}
-      </div>
+    const footnotes = `
+      <tr>
+        <td style="padding: 20px 24px 8px 24px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px;">
+            <tr>
+              <td style="padding: 14px 16px;">
+                <div style="${font} font-size: 12px; font-weight: 700; color: #374151; padding-bottom: 6px;">Bu rapor nasıl hesaplanır?</div>
+                <ul style="${font} font-size: 11px; color: #6b7280; line-height: 1.7; margin: 0; padding-left: 16px;">
+                  <li><strong>Maliyet:</strong> Her satırda güncel maliyet ile son giriş maliyetinin <strong>büyük olanı</strong> kullanılır (teklif maliyet koruması kuralıyla aynı taban).</li>
+                  <li><strong>KDV:</strong> Faturalı satırlarda tüm tutarlar KDV hariçtir. Beyaz (vergisiz) satırlarda satış KDV'siz alınır, maliyete yarım KDV yükü eklenir.</li>
+                  <li><strong>Marj %:</strong> Kâr / Maliyet oranıdır (satış fiyatına değil, maliyete göre hesaplanır).</li>
+                  <li><strong>Kapsam:</strong> Yalnızca evrak tarihi ${formatRangeDate(params.reportDate)} olan satırlar dahildir; eski tarihli veya geriye dönük girilen satırlar bu rapora girmez.</li>
+                  <li><strong>Hariç tutulanlar:</strong> İade/iptal satırları, "Fiyat Farkı" tipi özel kodlar (B100963, B100964, B105959, MUHTELİF vb.) ve TOPLU sorumluluk merkezi satırları.</li>
+                  <li><strong>Satış / Sipariş:</strong> "Satış" kesilen fatura ve irsaliyeleri, "Sipariş" henüz faturalaşmamış bekleyen siparişleri ifade eder.</li>
+                  <li>Satır bazında tam liste ekteki Excel dosyasındadır.</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
     `;
+
+    const panelUrl = `${(process.env.FRONTEND_URL || '').replace(/\/$/, '')}/reports/margin-compliance`;
 
     const htmlContent = `
       <!DOCTYPE html>
-      <html>
+      <html lang="tr">
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${escapeHtml(subject)}</title>
       </head>
-      <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
-        <div style="max-width: 720px; margin: 0 auto; padding: 24px;">
-          <div style="background: #1e40af; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0; font-size: 22px;">Kar Marji Raporu</h1>
-            <p style="margin: 8px 0 0 0; font-size: 14px; opacity: 0.9;">Rapor Tarihi: ${formatDate(params.reportDate)}</p>
-          </div>
-
-          <div style="background: white; padding: 20px; border-radius: 0 0 8px 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-            <h2 style="margin-top: 0; font-size: 16px; color: #111827;">Genel Ozet</h2>
-            <table style="width: 100%; border-collapse: collapse;">
-              ${renderBucketRow('Toplam Satir', formatCount(params.summary.totalRecords))}
-              ${renderBucketRow('Toplam Evrak', formatCount(params.summary.totalDocuments))}
-              ${renderBucketRow('Satis Cirosu (KDV Haric)', formatCurrency(params.summary.salesSummary.totalRevenue))}
-              ${renderBucketRow('Bekleyen Siparis Tutari (KDV Haric)', formatCurrency(params.summary.orderSummary.totalRevenue))}
-              ${renderBucketRow('Toplam Kar (Guncel, KDV Haric)', formatCurrency(params.summary.totalProfit))}
-              ${renderBucketRow('Toplam Kar (Son Giris, KDV Haric)', formatCurrency(params.summary.entryProfit))}
-              ${renderBucketRow('Kar % (Guncel)', formatPercent(params.summary.avgMargin))}
-              ${renderBucketRow('Kar % (Son Giris)', formatPercent(calcEntryMargin(params.summary)))}
-            </table>
-
-            <div style="margin-top: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px;">
-              <p style="margin: 0; font-size: 13px; color: #374151;">
-                Yuksek: <strong>${formatCount(params.summary.highMarginCount)}</strong> | Dusuk: <strong>${formatCount(params.summary.lowMarginCount)}</strong> | Zarar: <strong>${formatCount(params.summary.negativeMarginCount)}</strong>
-              </p>
-              <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
-                "Guncel" alanlari satis tutari ile A.Teklif maliyetinden yeniden hesaplanir; "Son Giris" alanlari ise SÖ kolonlarindan hesaplanir.
-              </p>
-            </div>
-
-            ${renderBucket('Siparis Ozeti', params.summary.orderSummary)}
-            ${renderBucket('Satis Ozeti', params.summary.salesSummary)}
-
-            <div style="margin-top: 18px;">
-              <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Satis Personeli Ozeti</h3>
-              ${salespersonTable}
-            </div>
-
-            <div style="margin-top: 20px;">
-              <h2 style="margin: 0 0 8px 0; font-size: 15px; color: #111827;">Uyari Listeleri</h2>
-              ${alertsHtml}
-            </div>
-
-            <div style="margin-top: 20px;">
-              <h2 style="margin: 0 0 8px 0; font-size: 15px; color: #111827;">Top / Bottom Ozetler</h2>
-              ${topBottomHtml}
-            </div>
-
-            <div style="margin-top: 20px;">
-              <h2 style="margin: 0 0 8px 0; font-size: 15px; color: #111827;">Son 7 Gun Mini Ozet</h2>
-              ${sevenDayHtml}
-            </div>
-
-            <div style="margin-top: 18px; font-size: 13px; color: #6b7280;">
-              Detaylara erismek icin B2B panelinden raporu acabilirsiniz.
-              <a href="${process.env.FRONTEND_URL || '#'}" style="color: #2563eb; text-decoration: none;">Panel</a>
-            </div>
-          </div>
-        </div>
+      <body style="margin: 0; padding: 0; background-color: #f3f4f6;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6;">
+          <tr>
+            <td align="center" style="padding: 24px 8px;">
+              <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="max-width: 680px; width: 100%; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb;">
+                <tr>
+                  <td style="background: #111c3f; padding: 22px 24px;">
+                    <div style="${font} font-size: 20px; font-weight: 700; color: #ffffff;">Kâr Marjı Günlük Raporu</div>
+                    <div style="${font} font-size: 13px; color: #c7d2fe; padding-top: 6px;">${formatFullDate(params.reportDate)} — günün satışları ve bekleyen siparişleri</div>
+                  </td>
+                </tr>
+                ${summaryCards}
+                ${sectionTitle('Günün En Kötü Satırları', 'Kırmızı: maliyet altı (zarar) · Sarı: %5 altı marj — en yüksek zarardan sıralı')}
+                <tr>
+                  <td style="padding: 0 24px;">
+                    ${worstTable}
+                  </td>
+                </tr>
+                ${sectionTitle('Şüpheli Yüksek Marjlar (%70 üstü)', 'Çoğu zaman eski veya eksik maliyet bilgisine işaret eder — maliyet kartını kontrol edin')}
+                <tr>
+                  <td style="padding: 0 24px;">
+                    ${highTable}
+                  </td>
+                </tr>
+                ${sectionTitle('Satış Personeli Özeti', 'Sektör koduna göre; ciro ve kâr KDV hariç')}
+                <tr>
+                  <td style="padding: 0 24px;">
+                    ${salespersonTable}
+                  </td>
+                </tr>
+                ${sectionTitle('Son 7 Gün', `${formatRangeDate(seven.startDate)} – ${formatRangeDate(seven.endDate)}`)}
+                <tr>
+                  <td style="padding: 0 24px;">
+                    ${sevenDayTable}
+                  </td>
+                </tr>
+                ${footnotes}
+                <tr>
+                  <td style="padding: 12px 24px 22px 24px;">
+                    <div style="${font} font-size: 12px; color: #6b7280;">
+                      Detaylı inceleme için <a href="${panelUrl}" style="color: #2563eb; text-decoration: none; font-weight: 600;">B2B panelindeki Kâr Marjı raporunu</a> açabilirsiniz.
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <div style="${font} font-size: 11px; color: #9ca3af; padding-top: 12px;">Bakırcılar B2B otomatik raporu</div>
+            </td>
+          </tr>
+        </table>
       </body>
       </html>
     `;
@@ -1503,6 +1495,9 @@ class EmailService {
     sendSmtpEmail.to = recipients.map((email) => ({ email }));
     sendSmtpEmail.subject = subject;
     sendSmtpEmail.htmlContent = htmlContent;
+    sendSmtpEmail.headers = {
+      'Content-Type': 'text/html; charset=UTF-8',
+    };
     if (params.attachment) {
       sendSmtpEmail.attachment = [params.attachment];
     }

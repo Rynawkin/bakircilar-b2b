@@ -15,6 +15,7 @@ import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
 import reportsService from '../services/reports.service';
+import minMaxService from '../services/minmax.service';
 import orderProductChangeRequestService from '../services/order-product-change-request.service';
 import customer360Service from '../services/customer360.service';
 import fieldSalesService from '../services/field-sales.service';
@@ -4807,7 +4808,8 @@ export class AdminController {
   async getUcarerIncomingOrderDetails(req: Request, res: Response, next: NextFunction) {
     try {
       const productCode = String(req.query.productCode || '').trim();
-      const data = await reportsService.getUcarerIncomingOrderDetails(productCode);
+      const depot = String(req.query.depot || 'MERKEZ').toUpperCase() === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
+      const data = await reportsService.getUcarerIncomingOrderDetails(productCode, depot);
       res.json({ success: true, data });
     } catch (error) {
       next(error);
@@ -4972,6 +4974,111 @@ export class AdminController {
         resetMinMaxValues: Boolean(resetMinMaxValues),
         depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
         userId: req.user?.userId || null,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/minmax/preview?depot=MERKEZ|TOPCA
+   * Min-Max v2 onizleme (B2B hesap motoru; Mikro'ya yazmaz)
+   */
+  async getMinMaxV2Preview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await minMaxService.previewMinMax(String(req.query.depot || 'MERKEZ'));
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/minmax/apply
+   * Secilen satirlari kullanici onayiyla Mikro STOK_DEPO_DETAYLARI'na yazar
+   */
+  async applyMinMaxV2(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await minMaxService.applyMinMax({
+        depot: String(req.body?.depot || 'MERKEZ'),
+        items: Array.isArray(req.body?.items) ? req.body.items : [],
+        userId: req.user?.userId || null,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/minmax/overrides
+   */
+  async getMinMaxV2Overrides(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rows = await minMaxService.listOverrides();
+      res.json({ success: true, data: { rows, total: rows.length } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/minmax/overrides
+   */
+  async createMinMaxV2Override(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await minMaxService.createOverride({
+        scopeType: req.body?.scopeType,
+        productCode: req.body?.productCode,
+        supplierCode: req.body?.supplierCode,
+        depot: req.body?.depot,
+        lookbackDays: req.body?.lookbackDays,
+        minDays: req.body?.minDays,
+        maxDays: req.body?.maxDays,
+        note: req.body?.note,
+        userId: req.user?.userId || null,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /api/admin/minmax/overrides/:id
+   */
+  async deleteMinMaxV2Override(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await minMaxService.deleteOverride(String(req.params.id || ''));
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/minmax/settings
+   */
+  async getMinMaxV2Settings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await minMaxService.getSettings();
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/admin/minmax/settings
+   */
+  async updateMinMaxV2Settings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await minMaxService.updateSettings({
+        lookbackDays: req.body?.lookbackDays,
+        minDays: req.body?.minDays,
+        maxDays: req.body?.maxDays,
+        salesScope: req.body?.salesScope,
       });
       res.json({ success: true, data });
     } catch (error) {

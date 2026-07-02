@@ -73,6 +73,7 @@ export interface QuoteProduct {
   lastEntryDate?: string | null;
   currentCost?: number | null;
   currentCostDate?: string | null;
+  excessStock?: number | null;
   warehouseStocks?: Record<string, number>;
   category?: { id: string; name: string } | null;
   mikroPriceLists?: Record<number, number> | Record<string, number>;
@@ -581,7 +582,7 @@ export function useTeklifOlustur() {
         lastEntryPrice: it.lastEntryPrice ?? null,
         marginBlocked: mi ? mi.blocked : null,
         lineDescription: it.lineDescription || null,
-        lastSale: ls ? { date: (ls as any).date, price: (ls as any).price, quantity: (ls as any).quantity } : null,
+        lastSale: ls ? { date: ls.saleDate, price: ls.unitPrice, quantity: ls.quantity } : null,
       };
     }),
     totals,
@@ -820,10 +821,20 @@ export function useTeklifOlustur() {
     setLastOrderMap({});
   }, [isOrderMode]);
 
+  // Cari degisimini yakalamak icin son yuklenen musteri id'si tutulur; cari
+  // DEGISIRSE satirlardaki eski cariye ait son-satis onerileri tazelenir.
+  const purchasedCustomerIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     setSelectedPurchasedCodes(new Set());
-    if (!selectedCustomer) return;
-    fetchPurchasedProducts(selectedCustomer.id, lastSalesCount);
+    if (!selectedCustomer) {
+      purchasedCustomerIdRef.current = null;
+      return;
+    }
+    const prevCustomerId = purchasedCustomerIdRef.current;
+    purchasedCustomerIdRef.current = selectedCustomer.id;
+    const isCustomerSwitch = Boolean(prevCustomerId && prevCustomerId !== selectedCustomer.id);
+    fetchPurchasedProducts(selectedCustomer.id, lastSalesCount, isCustomerSwitch);
   }, [selectedCustomer, lastSalesCount]);
 
   useEffect(() => {
@@ -1084,6 +1095,37 @@ export function useTeklifOlustur() {
     };
   }, [quoteProductCodes.join('|')]);
 
+  // ===== Tamamlayici oneriler: musteri farkindaligi + yatan stok onceligi =====
+  const purchasedLastSaleByCode = useMemo(() => {
+    const map = new Map<string, string | null>();
+    purchasedProducts.forEach((product) => {
+      map.set(product.mikroCode, product.lastSales?.[0]?.saleDate || null);
+    });
+    return map;
+  }, [purchasedProducts]);
+
+  // Secili musterinin alim gecmisine gore oneri rozeti: hic almamis / X aydir almiyor.
+  const getRecommendationCustomerBadge = (product: QuoteProduct): string | null => {
+    if (!selectedCustomer) return null;
+    if (!purchasedLastSaleByCode.has(product.mikroCode)) {
+      return 'Bu musteri hic almamis';
+    }
+    const months = monthsSinceDate(purchasedLastSaleByCode.get(product.mikroCode) || null);
+    if (months !== null && months >= 1) {
+      return `${Math.round(months)} aydir almiyor`;
+    }
+    return null;
+  };
+
+  // Yatan stogu (excessStock > 0) olan oneriler one alinir; grup ici populerlik sirasi korunur.
+  const sortedRecommendations = useMemo(() => {
+    return [...recommendations].sort((a, b) => {
+      const aExcess = Number(a.excessStock) > 0 ? 1 : 0;
+      const bExcess = Number(b.excessStock) > 0 ? 1 : 0;
+      return bExcess - aExcess;
+    });
+  }, [recommendations]);
+
   const loadInitialData = async () => {
     // NOT: Musteri listesi artik ONYUKLENMIYOR (performans). Picker sunucu-tarafli arar;
     // secili musteri ise duzenleme verisinden / URL parametresinden hedefli cekilir.
@@ -1179,16 +1221,58 @@ export function useTeklifOlustur() {
     }
   };
 
-  const fetchPurchasedProducts = async (customerId: string, limit: number) => {
+  // Cari degisince mevcut satirlardaki son-satis/son-teklif verileri ESKI
+  // cariden kalmasin: yeni carinin verisiyle degistirilir, eslesmeyen
+  // urunlerde temizlenir. Son satistan gelen fiyat secimi de sifirlanir.
+  const applyCustomerDataToItems = (products: QuoteProduct[]) => {
+    const byCode = new Map(products.map((product) => [product.mikroCode, product]));
+    setQuoteItems((prev) =>
+      prev.map((item) => {
+        if (item.isManualLine) return item;
+        const match = byCode.get(item.productCode);
+        const next: QuoteItemForm = {
+          ...item,
+          lastSales: match?.lastSales || [],
+          lastQuotes: match?.lastQuotes || [],
+          categoryLastPurchase: match ? getCategoryLastPurchaseInfo(match) : null,
+          categoryLastPurchaseDate: match?.categoryLastPurchaseDate ?? null,
+          categoryMonthsSinceLastPurchase: match?.categoryMonthsSinceLastPurchase ?? null,
+        };
+        if (item.priceSource === 'LAST_SALE') {
+          // Eski carinin son satisi yeni cari icin gecerli degil: secim sifirlanir.
+          next.selectedSaleIndex = undefined;
+          next.unitPrice = undefined;
+          next.vatZeroed = false;
+        }
+        return next;
+      })
+    );
+  };
+
+  const fetchPurchasedProducts = async (
+    customerId: string,
+    limit: number,
+    refreshQuoteItems = false
+  ) => {
     try {
       const { products } = await adminApi.getCustomerPurchasedProducts(customerId, limit);
       setPurchasedProducts(products || []);
       setSelectedPurchasedCodes(new Set());
+      if (refreshQuoteItems) {
+        applyCustomerDataToItems(products || []);
+        if (quoteItems.some((item) => !item.isManualLine)) {
+          toast.success('Fiyat onerileri yeni musteriye gore guncellendi.');
+        }
+      }
     } catch (error) {
       console.error('Daha once alinan urunler alinmadi:', error);
       toast.error('Daha once alinan urunler alinmadi.');
       setPurchasedProducts([]);
       setSelectedPurchasedCodes(new Set());
+      if (refreshQuoteItems) {
+        // Yeni carinin verisi cekilemedi; eski cariye ait oneriler yaniltmasin.
+        applyCustomerDataToItems([]);
+      }
     }
   };
 
@@ -2526,10 +2610,15 @@ export function useTeklifOlustur() {
     // Maliyet korumasi: taban DAIMA yuksek olan maliyet (guncel vs son giris). Tarihe
     // bakilmaz, hep pahali olan korunur. Backend ile birebir ayni mantik.
     const baseCost = Math.max(currentCost, lastEntry);
-    const blocked = baseCost > 0 && unitPrice < baseCost * 1.05;
-    const vatRate = item.vatRate || 0;
-    const lastEntryWithVat = lastEntry > 0 ? lastEntry * (1 + vatRate) : null;
-    const openPurchase = lastEntry > 0 && lastEntryWithVat !== null && Math.abs(lastEntryWithVat - lastEntry) < 0.01;
+    // Beyaz (KDV sifirlanmis) satirda maliyete yarim KDV yuku eklenir
+    // (yarim-KDV kurali) -> taban = maliyet * (1 + kdv/2). Backend ile ayni.
+    const vatZeroedLine = Boolean(vatZeroed || item.vatZeroed);
+    const effectiveBaseCost = vatZeroedLine
+      ? baseCost * (1 + (item.vatRate || 0) / 2)
+      : baseCost;
+    const blocked = effectiveBaseCost > 0 && unitPrice < effectiveBaseCost * 1.05;
+    // Minimum satilabilir fiyat: taban x 1.05, kurus yukari yuvarli.
+    const minPrice = effectiveBaseCost > 0 ? roundUp2(effectiveBaseCost * 1.05) : 0;
 
     return {
       blocked,
@@ -2537,7 +2626,7 @@ export function useTeklifOlustur() {
       currentCost,
       lastEntryDiff,
       currentCostDiff,
-      openPurchase,
+      minPrice,
     };
   };
 
@@ -2615,7 +2704,59 @@ export function useTeklifOlustur() {
 
   const hasBlockedPreview = useMemo(() => {
     return quoteItems.some((item) => getMarginInfo(item)?.blocked);
-  }, [quoteItems]);
+  }, [quoteItems, vatZeroed]);
+
+  // ===== Tabana cek: blok satirin fiyatini minimum satilabilir fiyata ceker =====
+  const buildMinPricePatch = (item: QuoteItemForm): Partial<QuoteItemForm> | null => {
+    const info = getMarginInfo(item);
+    if (!info || !info.minPrice || info.minPrice <= 0) return null;
+    return {
+      priceSource: 'MANUAL',
+      unitPrice: info.minPrice,
+      manualPriceInput: formatManualPriceInput(
+        convertPriceFromBaseUnit(
+          info.minPrice,
+          getSelectedUnit(item),
+          item.unit,
+          item.unit2,
+          item.unit2Factor
+        )
+      ),
+      priceListNo: undefined,
+      selectedSaleIndex: undefined,
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
+    };
+  };
+
+  const applyMinPriceToItem = (id: string) => {
+    const target = quoteItems.find((item) => item.id === id);
+    if (!target) return;
+    const patch = buildMinPricePatch(target);
+    if (!patch) {
+      toast.error('Taban fiyat hesaplanamadi.');
+      return;
+    }
+    updateItem(id, patch);
+    toast.success('Satir tabana cekildi.');
+  };
+
+  const applyMinPriceToBlockedItems = () => {
+    const blockedCount = quoteItems.filter((item) => getMarginInfo(item)?.blocked).length;
+    if (blockedCount === 0) {
+      toast.error('Blok satir yok.');
+      return;
+    }
+    setQuoteItems((prev) =>
+      prev.map((item) => {
+        const info = getMarginInfo(item);
+        if (!info?.blocked) return item;
+        const patch = buildMinPricePatch(item);
+        return patch ? { ...item, ...patch } : item;
+      })
+    );
+    toast.success(`${blockedCount} satir tabana cekildi.`);
+  };
 
   const orderHasInvoiced = useMemo(() => {
     return quoteItems.some((item) => (item.priceType || 'INVOICED') !== 'WHITE');
@@ -2922,6 +3063,8 @@ export function useTeklifOlustur() {
     applyFamilySplit,
     applyFamilySwap,
     applyLastSaleToAll,
+    applyMinPriceToBlockedItems,
+    applyMinPriceToItem,
     applyPriceListToAll,
     applyResponsibilityCenterToAll,
     autoScrollForDrag,
@@ -2964,6 +3107,7 @@ export function useTeklifOlustur() {
     getPoolColorClass,
     getPoolQuantityInputValue,
     getPoolQuantityValue,
+    getRecommendationCustomerBadge,
     handleColumnDragEnd,
     handleColumnDragOver,
     handleColumnDragStart,
@@ -3175,6 +3319,7 @@ export function useTeklifOlustur() {
     showTableScrollBar,
     sortPoolProducts,
     sortedPurchasedProducts,
+    sortedRecommendations,
     sortedSearchResults,
     startColumnResize,
     stockDataMap,

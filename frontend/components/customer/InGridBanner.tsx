@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import customerApi, { Banner } from '@/lib/api/customer';
+import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 
 /**
  * Ürün ızgarası içi (GRID) banner — Tüm Ürünler'de span-2 kart. Admin 'GRID' banner'ından
@@ -29,8 +30,14 @@ export function InGridBanner() {
     ? banner.linkUrl || (banner.productCode ? `/products?search=${encodeURIComponent(banner.productCode)}` : '/discounted-products')
     : '/discounted-products';
 
+  // Banner tik olcumu (best-effort; hata trackCustomerActivity icinde yutulur)
+  const handleClick = () => {
+    if (!banner) return;
+    trackCustomerActivity({ type: 'CLICK', meta: { bannerId: banner.id, position: banner.position || 'GRID' } });
+  };
+
   return (
-    <Link href={href} className="relative col-span-2 flex min-h-[150px] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white">
+    <Link href={href} onClick={handleClick} className="relative col-span-2 flex min-h-[150px] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white">
       {banner?.imageUrl ? (
         <>
           <img src={banner.imageUrl} alt={banner.title} className="absolute inset-0 h-full w-full object-cover" />

@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { Minus, Plus, ShoppingCart, Check, CalendarDays } from 'lucide-react';
+import { Minus, Plus, ShoppingCart, Check, CalendarDays, Repeat, X } from 'lucide-react';
 import { Product } from '@/types';
+import customerApi from '@/lib/api/customer';
 import { formatCurrency } from '@/lib/utils/format';
-import { getUnitConversionLabel } from '@/lib/utils/unit';
+import { formatUnitFactor, getUnit2BaseQuantity, getUnitConversionLabel } from '@/lib/utils/unit';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
@@ -33,6 +34,8 @@ interface ProductCardProps {
   variant?: 'default' | 'discounted' | 'agreement';
   /** Daha Once Aldiklarim: kartta "Son alis" satiri + "Son 5 Alis" butonu */
   lastBuy?: { date?: string | null; belge?: string | null } | null;
+  /** Depo filtresi seciliyse stok rozeti SADECE bu deponun stogunu gosterir */
+  selectedWarehouse?: string;
   onHistory?: () => void;
   onAdd: (args: ProductCardAddArgs) => Promise<void>;
 }
@@ -64,6 +67,7 @@ export function ProductCard({
   vatDisplayPreference,
   variant = 'default',
   lastBuy,
+  selectedWarehouse,
   onHistory,
   onAdd,
 }: ProductCardProps) {
@@ -72,6 +76,13 @@ export function ProductCard({
   const [priceType, setPriceType] = useState<PriceType>(defaultPriceType);
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
+  // 2. birim (KOLI/PAKET) ile siparis: true ise girilen miktar 2. birim sayilir,
+  // sepete BAZ birime cevrilerek gonderilir (backend hep baz birim bekler).
+  const [useUnit2, setUseUnit2] = useState(false);
+  // Esdeger urunler (ayni stok ailesi): ilk tikta fetch + cache; bos donerse buton gizlenir.
+  const [alternatives, setAlternatives] = useState<Product[] | null>(null);
+  const [altOpen, setAltOpen] = useState(false);
+  const [altLoading, setAltLoading] = useState(false);
 
   useEffect(() => {
     if (!allowedPriceTypes.includes(priceType)) {
@@ -82,13 +93,32 @@ export function ProductCard({
 
   const showPriceTypeSelector = allowedPriceTypes.length > 1;
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+  // 1 ikinci birim = kac baz birim? (sadece 2. birim baz birimden buyukse secici gosterilir)
+  const unit2BaseQty = getUnit2BaseQuantity(product.unit, product.unit2, product.unit2Factor);
+  const unit2Active = useUnit2 && unit2BaseQty !== null;
+  const selectedUnitName = unit2Active ? (product.unit2 as string) : product.unit;
+  // Sepete gidecek BAZ birim miktari
+  const baseQty = unit2Active ? qty * (unit2BaseQty as number) : qty;
   const vatPercent = Math.round((Number(product.vatRate) || 0) * 100);
-  const displayStock = Number(getDisplayStock(product));
+  const displayStock = Number(getDisplayStock(product, selectedWarehouse));
   const isSupply = displayStock <= 0;
   // Stok rozeti: ondalik artiklarini gizle (218.00336667 -> 218), binlik ayrac
   const stockBadgeText = Math.round(displayStock).toLocaleString('tr-TR');
   const hasAgreement = Boolean(product.agreement);
   const isDiscountedVariant = variant === 'discounted';
+  // Min miktarli anlasma: kartta LISTE fiyati gosterilir, anlasma fiyati sepette
+  // min miktara ulasilinca uygulanir -> "X+ birim alimda ₺Y" rozeti gosterilir.
+  const agreementMinQty = Number(product.agreement?.minQuantity) || 1;
+  const agreementBadgeRaw =
+    hasAgreement && agreementMinQty > 1
+      ? priceType === 'INVOICED'
+        ? product.agreement?.priceInvoiced
+        : product.agreement?.priceWhite
+      : undefined;
+  const agreementBadgePrice =
+    typeof agreementBadgeRaw === 'number' && agreementBadgeRaw > 0
+      ? getDisplayPrice(agreementBadgeRaw, product.vatRate, priceType, vatDisplayPreference)
+      : undefined;
 
   // ── Varyant-farkindalı fiyat hesabi (mevcut sayfa mantiklari birebir) ──
   let baseInvoiced: number | undefined;
@@ -133,6 +163,28 @@ export function ProductCard({
   const vatLabel = getVatLabel(priceType, vatDisplayPreference);
   const agreementValidTo = formatAgreementDate(product.agreement?.validTo);
 
+  // Detay linki: indirimli baglamda (indirimli sayfa varyanti veya excess indirimi
+  // gorunen kart) detay sayfasi da indirimli modda acilsin.
+  const detailHref =
+    isDiscountedVariant || discInvoiced !== undefined || discWhite !== undefined
+      ? `/products/${product.id}?mode=discounted`
+      : `/products/${product.id}`;
+
+  // "Ilk N adet indirimli" bilgisi: sepetteki indirim limiti TOPLAM fazla stoktan
+  // uygulanir; depo filtresi seciliyken payload'daki excessStock depo bazli geldigi
+  // icin toplami depo kirilimindan hesapla.
+  const totalExcessStock = (() => {
+    // Backend depo filtreli modda ham toplami totalExcessStock alaninda gonderir;
+    // varsa once o kullanilir (depo kirilimindaki floor kaybini onler).
+    const payloadTotal = Number((product as Product & { totalExcessStock?: number }).totalExcessStock);
+    if (Number.isFinite(payloadTotal) && payloadTotal > 0) return payloadTotal;
+    const base = Number(product.excessStock) || 0;
+    if (!selectedWarehouse) return base;
+    const map = product.warehouseExcessStocks || {};
+    const sum = Object.values(map).reduce((acc, value) => acc + (Number(value) || 0), 0);
+    return sum > 0 ? sum : base;
+  })();
+
   const handleAdd = async () => {
     const priceMode: 'LIST' | 'EXCESS' = isDiscountedVariant ? 'EXCESS' : hasDiscount ? 'EXCESS' : 'LIST';
     setAdding(true);
@@ -141,14 +193,14 @@ export function ProductCard({
         priceMode === 'EXCESS'
           ? Math.max(getMaxOrderQuantity(product, 'LIST'), Number(product.excessStock) || 0)
           : getMaxOrderQuantity(product, 'LIST');
-      if (qty > maxQty) {
-        const confirmed = await confirmBackorder({ requestedQty: qty, availableQty: maxQty, unit: product.unit });
+      if (baseQty > maxQty) {
+        const confirmed = await confirmBackorder({ requestedQty: baseQty, availableQty: maxQty, unit: product.unit });
         if (!confirmed) {
           setAdding(false);
           return;
         }
       }
-      await onAdd({ productId: product.id, quantity: qty, priceType, priceMode });
+      await onAdd({ productId: product.id, quantity: baseQty, priceType, priceMode });
       setQty(1);
       setQtyInput('1');
       setAdded(true);
@@ -169,6 +221,29 @@ export function ProductCard({
     setQtyInput(String(next));
   };
 
+  // Esdeger urunleri ilk tikta getir (cache'le); bos donerse buton gizlenir.
+  const handleShowAlternatives = async () => {
+    if (alternatives) {
+      if (alternatives.length > 0) setAltOpen(true);
+      return;
+    }
+    setAltLoading(true);
+    try {
+      const { products } = await customerApi.getProductAlternatives(product.id);
+      const list = Array.isArray(products) ? products : [];
+      setAlternatives(list);
+      if (list.length > 0) {
+        setAltOpen(true);
+      } else {
+        toast('Bu ürün için eşdeğer ürün bulunamadı', { duration: 2500 });
+      }
+    } catch {
+      toast.error('Eşdeğer ürünler yüklenemedi');
+    } finally {
+      setAltLoading(false);
+    }
+  };
+
   const segClass = (active: boolean) =>
     `flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
       active
@@ -177,10 +252,11 @@ export function ProductCard({
     }`;
 
   return (
+    <>
     <div className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-white transition-all duration-200 hover:border-[var(--line-strong)] hover:shadow-[0_8px_22px_rgba(20,34,59,0.10)]">
       {/* ── Gorsel ──────────────────────────────────────────────── */}
       <Link
-        href={`/products/${product.id}`}
+        href={detailHref}
         prefetch
         className="relative block aspect-square overflow-hidden border-b border-[var(--line)] bg-[var(--surface-0)]"
       >
@@ -227,7 +303,7 @@ export function ProductCard({
         </div>
 
         <Link
-          href={`/products/${product.id}`}
+          href={detailHref}
           prefetch
           className="line-clamp-2 min-h-[36px] text-[13.5px] font-medium leading-snug text-[var(--ink-1)] transition-colors hover:text-primary-700"
           title={product.name}
@@ -260,6 +336,11 @@ export function ProductCard({
                 </span>
               )}
             </div>
+            {agreementBadgePrice !== undefined && (
+              <div className="mt-0.5 text-[10.5px] font-semibold text-emerald-700">
+                {agreementMinQty}+ {product.unit} alımda {formatCurrency(agreementBadgePrice)}
+              </div>
+            )}
             {variant === 'agreement' && agreementValidTo && (
               <div className="mt-0.5 text-[10.5px] text-[var(--ink-2)]">Geçerli: {agreementValidTo}</div>
             )}
@@ -293,6 +374,18 @@ export function ProductCard({
           </div>
         )}
 
+        {isSupply && !(alternatives !== null && alternatives.length === 0) && (
+          <button
+            type="button"
+            onClick={handleShowAlternatives}
+            disabled={altLoading}
+            className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-primary-100 bg-primary-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-primary-700 transition-colors hover:bg-primary-100 disabled:opacity-60"
+          >
+            <Repeat className="h-3.5 w-3.5" />
+            {altLoading ? 'Aranıyor…' : 'Eşdeğer ürünler'}
+          </button>
+        )}
+
         {/* ── Fiyat ─────────────────────────────────────────────── */}
         <div className="mt-auto">
           {showPriceTypeSelector && (
@@ -323,14 +416,53 @@ export function ProductCard({
             </div>
           )}
 
+          {unit2Active && (
+            <div className="mt-0.5 text-[11px] font-medium text-[var(--ink-2)]">
+              {product.unit2} fiyatı: {formatCurrency(displayShown * (unit2BaseQty as number))} {vatLabel}
+            </div>
+          )}
+
           <div className="mt-1 min-h-[15px]">
-            {hasDiscount && product.excessStock > 0 && (
+            {hasDiscount && totalExcessStock > 0 && (
               <span className="text-[11px] text-amber-700">
-                İlk {product.excessStock} {product.unit} indirimli fiyattan
+                İlk {totalExcessStock} {product.unit} indirimli fiyattan
               </span>
             )}
           </div>
         </div>
+
+        {/* ── Birim secici (ADET | KOLI) ────────────────────────── */}
+        {unit2BaseQty !== null && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex rounded-lg bg-[var(--surface-0)] p-0.5">
+              <button
+                type="button"
+                onClick={() => setUseUnit2(false)}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  !useUnit2
+                    ? 'bg-white text-primary-700 shadow-sm ring-1 ring-[var(--line-strong)]'
+                    : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
+                }`}
+              >
+                {product.unit}
+              </button>
+              <button
+                type="button"
+                onClick={() => setUseUnit2(true)}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  useUnit2
+                    ? 'bg-white text-primary-700 shadow-sm ring-1 ring-[var(--line-strong)]'
+                    : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
+                }`}
+              >
+                {product.unit2}
+              </button>
+            </div>
+            <span className="text-[10.5px] text-[var(--ink-3)]">
+              1 {product.unit2} = {formatUnitFactor(unit2BaseQty)} {product.unit}
+            </span>
+          </div>
+        )}
 
         {/* ── Miktar + Sepete Ekle ──────────────────────────────── */}
         <div className="flex items-center gap-2">
@@ -370,7 +502,7 @@ export function ProductCard({
               <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
             </button>
           </div>
-          <span className="w-9 flex-shrink-0 text-[11px] font-medium text-[var(--ink-3)]">{product.unit}</span>
+          <span className="w-9 flex-shrink-0 text-[11px] font-medium text-[var(--ink-3)]">{selectedUnitName}</span>
           <button
             type="button"
             onClick={handleAdd}
@@ -389,6 +521,57 @@ export function ProductCard({
         </div>
       </div>
     </div>
+
+    {/* ── Esdeger urunler modali ─────────────────────────────────── */}
+    {altOpen && alternatives && alternatives.length > 0 && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        onClick={() => setAltOpen(false)}
+      >
+        <div
+          className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-3)]">
+                Eşdeğer Ürünler
+              </div>
+              <h3 className="mt-0.5 truncate text-base font-semibold text-[var(--ink-1)]" title={product.name}>
+                {product.name}
+              </h3>
+              <div className="mt-0.5 text-[11.5px] text-[var(--ink-3)]">
+                Aynı aileden, stokta olan alternatifler
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAltOpen(false)}
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--line)] text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+              aria-label="Kapat"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="max-h-[65vh] overflow-auto p-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {alternatives.map((alt) => (
+                <ProductCard
+                  key={alt.id}
+                  product={alt}
+                  allowedPriceTypes={allowedPriceTypes}
+                  defaultPriceType={defaultPriceType}
+                  vatDisplayPreference={vatDisplayPreference}
+                  variant="default"
+                  onAdd={onAdd}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

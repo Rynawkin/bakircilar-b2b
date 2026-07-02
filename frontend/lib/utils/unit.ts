@@ -108,6 +108,22 @@ export const convertPriceFromBaseUnit = (
   return factor > 0 ? value / absFactor : value * absFactor;
 };
 
+/**
+ * Musteri tarafi birim secici (KOLI/PAKET gibi BUYUK ikinci birim): 1 ikinci birim
+ * kac ana birim eder? Mikro katsayi isaret kuralini convertQuantityToBaseUnit uzerinden
+ * kullanir (negatif katsayi: 1 unit2 = |katsayi| ana birim). Ikinci birim ana birimden
+ * buyuk degilse (sonuc <= 1) null doner — secici gosterilmez.
+ */
+export const getUnit2BaseQuantity = (
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+): number | null => {
+  if (!hasSecondaryUnit(unit, unit2, unit2Factor)) return null;
+  const perUnit2 = convertQuantityToBaseUnit(1, unit2, unit, unit2, unit2Factor);
+  return Number.isFinite(perUnit2) && perUnit2 > 1 ? perUnit2 : null;
+};
+
 export const getUnitConversionLabel = (
   unit?: string | null,
   unit2?: string | null,

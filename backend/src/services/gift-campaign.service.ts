@@ -296,7 +296,7 @@ class GiftCampaignService {
       mikroCode: string;
       quantity: number;
       unitPrice: number;
-      priceType: 'INVOICED';
+      priceType: 'INVOICED' | 'WHITE';
       lineNote: string;
       isGift: true;
     }>
@@ -311,7 +311,7 @@ class GiftCampaignService {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, mikroCariCode: true, sectorCode: true },
+      select: { id: true, mikroCariCode: true, sectorCode: true, priceVisibility: true },
     });
     if (!user) return [];
 
@@ -345,13 +345,18 @@ class GiftCampaignService {
     });
     const map = new Map(products.map((p) => [p.id, p]));
 
+    // WHITE_ONLY musteride hediye satiri BEYAZ (KDV 0) yazilir; aksi halde 0,1 ₺'lik
+    // ayri bir FATURALI Mikro evraki olusur. BOTH/INVOICED_ONLY'de faturali kalir.
+    const giftPriceType: 'INVOICED' | 'WHITE' =
+      user.priceVisibility === 'WHITE_ONLY' ? 'WHITE' : 'INVOICED';
+
     const lines: Array<{
       productId: string;
       productName: string;
       mikroCode: string;
       quantity: number;
       unitPrice: number;
-      priceType: 'INVOICED';
+      priceType: 'INVOICED' | 'WHITE';
       lineNote: string;
       isGift: true;
     }> = [];
@@ -364,7 +369,7 @@ class GiftCampaignService {
         mikroCode: p.mikroCode,
         quantity: 1,
         unitPrice: GIFT_UNIT_PRICE,
-        priceType: 'INVOICED',
+        priceType: giftPriceType,
         lineNote: `KAMPANYA HEDIYESI: ${campaign.title}`,
         isGift: true,
       });
@@ -408,6 +413,7 @@ class GiftCampaignService {
       scopeCategoryIds: string[];
       scopeProductIds: string[];
       thresholdVatIncluded: boolean;
+      thresholdPriceType?: PriceType | null;
     }
   ): Promise<number> {
     const cart = await prisma.cart.findUnique({
@@ -417,7 +423,16 @@ class GiftCampaignService {
           select: {
             quantity: true,
             unitPrice: true,
-            product: { select: { id: true, categoryId: true, vatRate: true } },
+            priceType: true,
+            product: {
+              select: {
+                id: true,
+                categoryId: true,
+                vatRate: true,
+                active: true,
+                hiddenFromCustomers: true,
+              },
+            },
           },
         },
       },
@@ -450,6 +465,10 @@ class GiftCampaignService {
     for (const item of items) {
       const product = item.product;
       if (!product) continue;
+      // Gizli/pasif urun satirlari baraja sayilmaz (siparise de gecmezler).
+      if (!product.active || product.hiddenFromCustomers) continue;
+      // Baraj fiyat tipi tanimliysa yalniz o tipteki satirlar sayilir.
+      if (campaign.thresholdPriceType && item.priceType !== campaign.thresholdPriceType) continue;
       let inScope = false;
       if (scopeAll) {
         inScope = true;
@@ -464,7 +483,9 @@ class GiftCampaignService {
       if (!inScope) continue;
 
       const vatRate = typeof product.vatRate === 'number' ? product.vatRate : 0;
-      const vatFactor = campaign.thresholdVatIncluded ? 1 + vatRate : 1;
+      // KDV carpani yalniz FATURALI satira uygulanir; beyaz satis KDV'siz kesin fiyattir.
+      const vatFactor =
+        campaign.thresholdVatIncluded && item.priceType === PriceType.INVOICED ? 1 + vatRate : 1;
       total += (item.unitPrice || 0) * (item.quantity || 0) * vatFactor;
     }
     return total;
@@ -475,8 +496,9 @@ class GiftCampaignService {
     if (cached) return new Set(cached);
 
     const codeSet = new Set<string>();
+    // Reddedilen siparisler satin alma gecmisi sayilmaz (PENDING alim niyeti oldugu icin dahil).
     const localRows = await prisma.orderItem.findMany({
-      where: { order: { userId: user.id } },
+      where: { order: { userId: user.id, status: { not: 'REJECTED' } } },
       select: { mikroCode: true },
       orderBy: { createdAt: 'desc' },
       take: 5000,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Product } from '@/types';
 import customerApi from '@/lib/api/customer';
@@ -9,9 +9,10 @@ import { useCartStore } from '@/lib/store/cartStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Button } from '@/components/ui/Button';
 import { ProductRecommendations } from '@/components/customer/ProductRecommendations';
+import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
-import { getUnitConversionLabel } from '@/lib/utils/unit';
+import { formatUnitFactor, getUnit2BaseQuantity, getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
@@ -29,12 +30,19 @@ import {
   AlertTriangle,
   ShoppingCart,
   Search,
+  Bell,
+  BellRing,
 } from 'lucide-react';
 
 export default function ProductDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const { addToCart } = useCartStore();
+
+  // Indirimli listeden gelen tiklamalarda detay da indirimli (excess) modda acilir.
+  const modeParam = searchParams?.get('mode');
+  const detailMode = modeParam === 'discounted' || modeParam === 'excess' ? ('discounted' as const) : undefined;
   const { user, loadUserFromStorage } = useAuthStore();
 
   const [product, setProduct] = useState<Product | null>(null);
@@ -47,6 +55,13 @@ export default function ProductDetailPage() {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isReportingImageIssue, setIsReportingImageIssue] = useState(false);
   const [imageIssueReported, setImageIssueReported] = useState(false);
+  // 2. birim (KOLI/PAKET) ile siparis: girilen miktar 2. birim sayilir, sepete baz birim gider.
+  const [useUnit2, setUseUnit2] = useState(false);
+  // Stok alarmi ("stoga gelince haber ver") — sadece stok 0 iken
+  const [stockAlertActive, setStockAlertActive] = useState<boolean | null>(null);
+  const [stockAlertBusy, setStockAlertBusy] = useState(false);
+  // Esdeger urunler (ayni stok ailesi) — sadece stok 0 iken
+  const [alternatives, setAlternatives] = useState<Product[]>([]);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -66,9 +81,9 @@ export default function ProductDetailPage() {
 
   useEffect(() => {
     if (params.id) {
-      fetchProduct(params.id as string);
+      fetchProduct(params.id as string, detailMode);
     }
-  }, [params.id]);
+  }, [params.id, detailMode]);
 
   useEffect(() => {
     if (!product?.id) return;
@@ -88,20 +103,50 @@ export default function ProductDetailPage() {
     }
   }, [params.id]);
 
+  // Stok 0 ise: stok alarmi durumu + esdeger urunleri getir
+  useEffect(() => {
+    setStockAlertActive(null);
+    setAlternatives([]);
+    if (!product?.id) return;
+    const stock =
+      product.pricingMode === 'EXCESS'
+        ? Number(product.excessStock ?? 0)
+        : Number(getDisplayStock(product));
+    if (stock > 0) return;
+    let mounted = true;
+    customerApi
+      .getStockAlert(product.id)
+      .then((res) => {
+        if (mounted) setStockAlertActive(Boolean(res?.active));
+      })
+      .catch(() => {});
+    customerApi
+      .getProductAlternatives(product.id)
+      .then(({ products }) => {
+        if (mounted) setAlternatives(Array.isArray(products) ? products : []);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product?.id]);
+
   useEffect(() => {
     if (!allowedPriceTypes.includes(priceType)) {
       setPriceType(defaultPriceType);
     }
   }, [allowedPriceTypes.join('|'), defaultPriceType]);
 
-  const fetchProduct = async (id: string) => {
+  const fetchProduct = async (id: string, mode?: 'discounted' | 'excess') => {
     setIsLoading(true);
     try {
-      const data = await customerApi.getProductById(id);
+      const data = await customerApi.getProductById(id, mode);
       setProduct(data);
       setIsZoomed(false);
       setImageIssueReported(false);
       setQuantity(1);
+      setUseUnit2(false);
     } catch (error) {
       console.error('Urun yukleme hatasi:', error);
     } finally {
@@ -123,9 +168,9 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = async () => {
     if (!product) return;
-    if (quantity > maxQuantity) {
+    if (baseQuantity > maxQuantity) {
       const confirmed = await confirmBackorder({
-        requestedQty: quantity,
+        requestedQty: baseQuantity,
         availableQty: maxQuantity,
         unit: product.unit,
       });
@@ -139,7 +184,7 @@ export default function ProductDetailPage() {
       const safePriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
       await addToCart({
         productId: product.id,
-        quantity,
+        quantity: baseQuantity,
         priceType: safePriceType,
         priceMode,
       });
@@ -167,6 +212,32 @@ export default function ProductDetailPage() {
       toast.success('Urun sepete eklendi!');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Sepete eklenirken hata olustu');
+    }
+  };
+
+  // Esdeger urun kartlarindan sepete ekleme (ProductCard onAdd sozlesmesi)
+  const handleAlternativeAdd = async (args: ProductCardAddArgs) => {
+    await addToCart(args);
+  };
+
+  // Stok alarmi ac/kapat
+  const handleToggleStockAlert = async () => {
+    if (!product) return;
+    setStockAlertBusy(true);
+    try {
+      if (stockAlertActive) {
+        const res = await customerApi.removeStockAlert(product.id);
+        setStockAlertActive(Boolean(res?.active));
+        toast.success('Stok alarmı kaldırıldı');
+      } else {
+        const res = await customerApi.createStockAlert(product.id);
+        setStockAlertActive(Boolean(res?.active));
+        toast.success('Ürün stoğa gelince size haber vereceğiz');
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'İşlem tamamlanamadı');
+    } finally {
+      setStockAlertBusy(false);
     }
   };
 
@@ -240,12 +311,34 @@ export default function ProductDetailPage() {
   const whiteDiscount = calcDiscount(listWhite, product.prices.white);
   const excessInvoicedDiscount = calcDiscount(product.prices.invoiced, excessInvoiced);
   const excessWhiteDiscount = calcDiscount(product.prices.white, excessWhite);
+  // "Indirimli: X" teaseri sadece excess fiyat normal fiyattan GERCEKTEN dusukse gosterilir.
+  const hasCheaperExcessInvoiced =
+    typeof excessInvoiced === 'number' && excessInvoiced > 0 && excessInvoiced < product.prices.invoiced;
+  const hasCheaperExcessWhite =
+    typeof excessWhite === 'number' && excessWhite > 0 && excessWhite < product.prices.white;
   const shouldShowDiscounts = !hasAgreement;
   const selectedPriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
   const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const selectedListPrice = selectedPriceType === 'INVOICED' ? listInvoiced : listWhite;
   const selectedDiscount = selectedPriceType === 'INVOICED' ? invoicedDiscount : whiteDiscount;
-  const totalPrice = selectedPrice * quantity;
+  // Min miktarli anlasma: detayda LISTE fiyati gosterilir; anlasma fiyati sepette
+  // min miktara ulasilinca uygulanir -> "X+ birim alimda ₺Y" rozeti.
+  const agreementUnitPriceRaw =
+    selectedPriceType === 'INVOICED' ? product.agreement?.priceInvoiced : product.agreement?.priceWhite;
+  const displayAgreementMinPrice =
+    hasAgreement &&
+    agreementMinQuantity > 1 &&
+    typeof agreementUnitPriceRaw === 'number' &&
+    agreementUnitPriceRaw > 0
+      ? getDisplayPrice(agreementUnitPriceRaw, product.vatRate, selectedPriceType, vatDisplayPreference)
+      : undefined;
+  // 2. birim secici: 1 ikinci birim = kac baz birim (sadece 2. birim daha buyukse)
+  const unit2BaseQty = getUnit2BaseQuantity(product.unit, product.unit2, product.unit2Factor);
+  const unit2Active = useUnit2 && unit2BaseQty !== null;
+  const selectedUnitName = unit2Active ? (product.unit2 as string) : product.unit;
+  // Sepete gidecek BAZ birim miktari (backend hep baz birim bekler)
+  const baseQuantity = unit2Active ? quantity * (unit2BaseQty as number) : quantity;
+  const totalPrice = selectedPrice * baseQuantity;
   const displaySelectedPrice = getDisplayPrice(
     selectedPrice,
     product.vatRate,
@@ -472,6 +565,11 @@ export default function ProductDetailPage() {
                     </div>
                   </div>
                 </div>
+                {displayAgreementMinPrice !== undefined && (
+                  <div className="mt-2 rounded-lg bg-white/70 px-2.5 py-1.5 text-[12px] font-semibold text-emerald-700">
+                    {agreementMinQuantity}+ {product.unit} alımda {formatCurrency(displayAgreementMinPrice)} — altındaki miktarlarda liste fiyatı uygulanır.
+                  </div>
+                )}
               </div>
             )}
 
@@ -505,7 +603,7 @@ export default function ProductDetailPage() {
                       </span>
                     )}
                   </div>
-                  {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessInvoiced !== undefined && (
+                  {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && hasCheaperExcessInvoiced && displayExcessInvoiced !== undefined && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
                       <span>İndirimli: {formatCurrency(displayExcessInvoiced)}</span>
                       {excessInvoicedDiscount && (
@@ -545,7 +643,7 @@ export default function ProductDetailPage() {
                       </span>
                     )}
                   </div>
-                  {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessWhite !== undefined && (
+                  {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && hasCheaperExcessWhite && displayExcessWhite !== undefined && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
                       <span>İndirimli: {formatCurrency(displayExcessWhite)}</span>
                       {excessWhiteDiscount && (
@@ -570,6 +668,13 @@ export default function ProductDetailPage() {
               </div>
             )}
 
+            {/* Indirimli miktar limiti: sadece ilk N adet indirimli fiyattan */}
+            {isDiscounted && Number(product.excessStock) > 0 && (
+              <div className="rounded-xl border border-amber-100 bg-amber-50 px-3.5 py-2.5 text-[12px] font-medium text-amber-800">
+                İlk {product.excessStock} {product.unit} indirimli fiyattan — kalan miktar normal fiyattan hesaplanır.
+              </div>
+            )}
+
             {/* Stok yetersiz - tedarik uyarısı */}
             {!stockInStock && (
               <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
@@ -577,6 +682,64 @@ export default function ProductDetailPage() {
                 <span className="text-[12px] leading-relaxed text-amber-800">
                   Stokta yok — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez. Stok üstü
                   miktarlar tedarik/backorder onayına tabidir.
+                </span>
+              </div>
+            )}
+
+            {/* Stok alarmi: stoga gelince haber ver */}
+            {!stockInStock && (
+              <button
+                type="button"
+                onClick={handleToggleStockAlert}
+                disabled={stockAlertBusy}
+                className={`inline-flex w-fit items-center gap-2 rounded-xl border px-3.5 py-2.5 text-[13px] font-semibold transition-colors disabled:opacity-60 ${
+                  stockAlertActive
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : 'border-[var(--line-strong)] bg-white text-[var(--ink-1)] hover:bg-[var(--surface-0)]'
+                }`}
+              >
+                {stockAlertActive ? (
+                  <BellRing className="h-4 w-4" />
+                ) : (
+                  <Bell className="h-4 w-4" />
+                )}
+                {stockAlertBusy
+                  ? 'İşleniyor…'
+                  : stockAlertActive
+                  ? 'Haber verilecek ✓'
+                  : 'Stoğa gelince haber ver'}
+              </button>
+            )}
+
+            {/* Birim secici (ADET | KOLI) */}
+            {unit2BaseQty !== null && (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-lg bg-[var(--surface-1)] p-0.5 ring-1 ring-inset ring-[var(--line)]">
+                  <button
+                    type="button"
+                    onClick={() => setUseUnit2(false)}
+                    className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                      !useUnit2
+                        ? 'bg-white text-primary-700 shadow-sm ring-1 ring-[var(--line-strong)]'
+                        : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
+                    }`}
+                  >
+                    {product.unit}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUseUnit2(true)}
+                    className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                      useUnit2
+                        ? 'bg-white text-primary-700 shadow-sm ring-1 ring-[var(--line-strong)]'
+                        : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
+                    }`}
+                  >
+                    {product.unit2}
+                  </button>
+                </div>
+                <span className="text-[11.5px] text-[var(--ink-3)]">
+                  1 {product.unit2} = {formatUnitFactor(unit2BaseQty)} {product.unit}
                 </span>
               </div>
             )}
@@ -629,8 +792,15 @@ export default function ProductDetailPage() {
                 <div className="text-[11px] text-[var(--ink-3)]">Toplam ({product.unit})</div>
                 <div className="text-xl font-semibold tracking-tight text-[var(--ink-1)]">{formatCurrency(displayTotalPrice)}</div>
                 <div className="mt-0.5 text-[11px] font-medium text-primary-600">
-                  {quantity} {product.unit} × {formatCurrency(displaySelectedPrice)} · {selectedPriceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
+                  {quantity} {selectedUnitName} ×{' '}
+                  {formatCurrency(unit2Active ? displaySelectedPrice * (unit2BaseQty as number) : displaySelectedPrice)} ·{' '}
+                  {selectedPriceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
                 </div>
+                {unit2Active && (
+                  <div className="text-[10.5px] text-[var(--ink-3)]">
+                    = {formatUnitFactor(baseQuantity)} {product.unit}
+                  </div>
+                )}
               </div>
 
               <Button
@@ -652,6 +822,29 @@ export default function ProductDetailPage() {
             )}
           </div>
         </div>
+
+        {/* Eşdeğer Ürünler (stok 0 iken, aynı stok ailesinden stokta olanlar) */}
+        {!stockInStock && alternatives.length > 0 && (
+          <div className="mt-9">
+            <h2 className="mb-1 text-[17px] font-semibold text-[var(--ink-1)]">Eşdeğer Ürünler</h2>
+            <p className="mb-3.5 text-[12.5px] text-[var(--ink-3)]">
+              Bu ürün stokta yok — aynı aileden stokta olan alternatifler
+            </p>
+            <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4">
+              {alternatives.map((alt) => (
+                <ProductCard
+                  key={alt.id}
+                  product={alt}
+                  allowedPriceTypes={allowedPriceTypes}
+                  defaultPriceType={defaultPriceType}
+                  vatDisplayPreference={vatDisplayPreference}
+                  variant="default"
+                  onAdd={handleAlternativeAdd}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Tamamlayıcı Ürünler */}
         {isLoadingRecommendations ? (

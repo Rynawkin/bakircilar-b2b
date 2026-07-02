@@ -684,7 +684,11 @@ class OrderService {
       ? (customer.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
       : (customer.priceVisibility as PriceVisibilityValue | null | undefined);
 
-    const listItems = cart.items.filter((item) => (item as any).priceMode !== 'EXCESS');
+    // excludeFromDiscount: bayrakli urun sepette EXCESS satirda kalmis olsa bile
+    // siparise DAIMA liste fiyatiyla yazilir (indirim bypass korumasi).
+    const isExcessItem = (item: any) =>
+      item.priceMode === 'EXCESS' && !item.product?.excludeFromDiscount;
+    const listItems = cart.items.filter((item) => !isExcessItem(item));
     const productCodes = Array.from(
       new Set(listItems.map((item) => String(item.product?.mikroCode || '').trim()).filter(Boolean))
     );
@@ -765,7 +769,7 @@ class OrderService {
       );
 
       let unitPrice = 0;
-      if ((item as any).priceMode === 'EXCESS') {
+      if (isExcessItem(item)) {
         unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
       } else {
         const priceStats = priceStatsMap.get(product.mikroCode) || null;
@@ -1119,6 +1123,8 @@ class OrderService {
         quantity,
         unitPrice,
         vatRate,
+        // Faturali satirda KDV=0 secildiyse kalici isaretle; guncellemede KDV geri gelmesin.
+        vatZeroed: priceType !== 'WHITE' && vatRate === 0,
         priceType,
         lineDescription,
         responsibilityCenter: item.responsibilityCenter?.trim() || undefined,
@@ -1129,68 +1135,19 @@ class OrderService {
     const invoicedItems = normalizedItems.filter((item) => item.priceType === 'INVOICED');
     const whiteItems = normalizedItems.filter((item) => item.priceType === 'WHITE');
 
-    const mikroOrderIds: string[] = [];
-    let invoicedOrderId: string | null = null;
-    let whiteOrderId: string | null = null;
-
-    if (invoicedItems.length > 0) {
-      if (!invoicedSeries) {
-        throw new Error('Invoiced order series is required');
-      }
-      invoicedOrderId = await mikroService.writeOrder({
-        cariCode: customer.mikroCariCode,
-        items: invoicedItems.map((item) => ({
-          productCode: item.productCode,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          vatRate: item.vatRate,
-          lineDescription: item.lineDescription || undefined,
-          responsibilityCenter: item.responsibilityCenter || undefined,
-          reserveQty: item.reserveQty || 0,
-        })),
-        applyVAT: true,
-        description: description?.trim() || 'B2B Manuel Siparis',
-        documentDescription: documentDescription?.trim() || undefined,
-        documentNo: documentNo?.trim() || undefined,
-        evrakSeri: String(invoicedSeries).trim(),
-        evrakSira: Number.isFinite(Number(invoicedSira)) ? Number(invoicedSira) : undefined,
-        warehouseNo: warehouseValue,
-        paymentPlanNo: customer.paymentPlanNo ?? undefined,
-      });
-      if (invoicedOrderId) {
-        mikroOrderIds.push(invoicedOrderId);
-      }
+    // Seri kontrolleri Mikro/DB yazimindan ONCE yapilir; hatali istek iz birakmaz.
+    if (invoicedItems.length > 0 && !invoicedSeries) {
+      throw new Error('Invoiced order series is required');
+    }
+    if (whiteItems.length > 0 && !whiteSeries) {
+      throw new Error('White order series is required');
     }
 
-    if (whiteItems.length > 0) {
-      if (!whiteSeries) {
-        throw new Error('White order series is required');
-      }
-      whiteOrderId = await mikroService.writeOrder({
-        cariCode: customer.mikroCariCode,
-        items: whiteItems.map((item) => ({
-          productCode: item.productCode,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          vatRate: 0,
-          lineDescription: item.lineDescription || undefined,
-          responsibilityCenter: item.responsibilityCenter || undefined,
-          reserveQty: item.reserveQty || 0,
-        })),
-        applyVAT: false,
-        description: description?.trim() || 'B2B Manuel Siparis',
-        documentDescription: documentDescription?.trim() || undefined,
-        documentNo: documentNo?.trim() || undefined,
-        evrakSeri: String(whiteSeries).trim(),
-        evrakSira: Number.isFinite(Number(whiteSira)) ? Number(whiteSira) : undefined,
-        warehouseNo: warehouseValue,
-        paymentPlanNo: customer.paymentPlanNo ?? undefined,
-      });
-      if (whiteOrderId) {
-        mikroOrderIds.push(whiteOrderId);
-      }
-    }
-
+    // MUKERRER EVRAK KORUMASI: B2B siparis kaydi Mikro yazimindan ONCE olusturulur
+    // (status PENDING + bos mikroOrderIds). Her basarili writeOrder sonrasi
+    // mikroOrderIds ve ilgili kalemler ANINDA guncellenir. Boylece beyaz yazim veya
+    // DB kaydi patlarsa Mikro'daki evrak izsiz kalmaz; ayni siparis onay akisina
+    // tekrar geldiginde yazilmis taraf atlanir (idempotent).
     const lastOrder = await prisma.order.findFirst({
       orderBy: { createdAt: 'desc' },
       select: { orderNumber: true },
@@ -1207,10 +1164,9 @@ class OrderService {
         orderNumber,
         userId: customerId,
         requestedById: requestedById || undefined,
-        status: 'APPROVED',
+        status: 'PENDING',
         totalAmount,
-        mikroOrderIds,
-        approvedAt: new Date(),
+        mikroOrderIds: [],
         customerOrderNumber: documentNo?.trim() || undefined,
         adminNote: description?.trim() || undefined,
         items: {
@@ -1228,18 +1184,126 @@ class OrderService {
             totalPrice: item.unitPrice * item.quantity,
             lineNote: item.lineDescription || undefined,
             responsibilityCenter: item.responsibilityCenter || undefined,
-            status: 'APPROVED',
-            approvedQuantity: item.quantity,
-            mikroOrderId:
-              item.priceType === 'WHITE'
-                ? whiteOrderId || undefined
-                : invoicedOrderId || undefined,
+            status: 'PENDING',
+            vatRate: item.vatRate,
+            vatZeroed: item.vatZeroed,
           })),
         },
       },
+      include: {
+        items: { select: { id: true, priceType: true, quantity: true } },
+      },
     });
 
-    return { mikroOrderIds, orderId: order.id, orderNumber: order.orderNumber };
+    const mikroOrderIds: string[] = [];
+
+    // Basarili Mikro yazimini ANINDA kaydet: order.mikroOrderIds + ilgili kalemler.
+    const persistWrittenSide = async (priceType: PriceType, mikroOrderId: string) => {
+      const sideItems = (order.items || []).filter((item) => item.priceType === priceType);
+      await prisma.$transaction([
+        prisma.order.update({
+          where: { id: order.id },
+          data: { mikroOrderIds: Array.from(new Set(mikroOrderIds)) },
+        }),
+        ...sideItems.map((item) =>
+          prisma.orderItem.update({
+            where: { id: item.id },
+            data: { status: 'APPROVED', approvedQuantity: item.quantity, mikroOrderId },
+          })
+        ),
+      ]);
+    };
+
+    try {
+      if (invoicedItems.length > 0) {
+        const invoicedOrderId = await mikroService.writeOrder({
+          cariCode: customer.mikroCariCode,
+          items: invoicedItems.map((item) => ({
+            productCode: item.productCode,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            vatRate: item.vatRate,
+            lineDescription: item.lineDescription || undefined,
+            responsibilityCenter: item.responsibilityCenter || undefined,
+            reserveQty: item.reserveQty || 0,
+          })),
+          applyVAT: true,
+          description: description?.trim() || 'B2B Manuel Siparis',
+          documentDescription: documentDescription?.trim() || undefined,
+          documentNo: documentNo?.trim() || undefined,
+          evrakSeri: String(invoicedSeries).trim(),
+          evrakSira: Number.isFinite(Number(invoicedSira)) ? Number(invoicedSira) : undefined,
+          warehouseNo: warehouseValue,
+          paymentPlanNo: customer.paymentPlanNo ?? undefined,
+        });
+        if (invoicedOrderId) {
+          mikroOrderIds.push(invoicedOrderId);
+          await persistWrittenSide('INVOICED', invoicedOrderId);
+        }
+      }
+
+      if (whiteItems.length > 0) {
+        const whiteOrderId = await mikroService.writeOrder({
+          cariCode: customer.mikroCariCode,
+          items: whiteItems.map((item) => ({
+            productCode: item.productCode,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            vatRate: 0,
+            lineDescription: item.lineDescription || undefined,
+            responsibilityCenter: item.responsibilityCenter || undefined,
+            reserveQty: item.reserveQty || 0,
+          })),
+          applyVAT: false,
+          description: description?.trim() || 'B2B Manuel Siparis',
+          documentDescription: documentDescription?.trim() || undefined,
+          documentNo: documentNo?.trim() || undefined,
+          evrakSeri: String(whiteSeries).trim(),
+          evrakSira: Number.isFinite(Number(whiteSira)) ? Number(whiteSira) : undefined,
+          warehouseNo: warehouseValue,
+          paymentPlanNo: customer.paymentPlanNo ?? undefined,
+        });
+        if (whiteOrderId) {
+          mikroOrderIds.push(whiteOrderId);
+          await persistWrittenSide('WHITE', whiteOrderId);
+        }
+      }
+
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { status: 'APPROVED', approvedAt: new Date() },
+      });
+
+      return { mikroOrderIds, orderId: order.id, orderNumber: order.orderNumber };
+    } catch (error: any) {
+      console.error('Manuel siparis Mikro yazimi tamamlanamadi:', order.orderNumber, error);
+      const partialInfo =
+        mikroOrderIds.length > 0
+          ? `MIKRO_PARTIAL: yazilan evrak(lar) ${mikroOrderIds.join(', ')}`
+          : 'MIKRO_PARTIAL: Mikro evraki yazilamadi';
+      try {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: {
+            adminNote: [description?.trim(), partialInfo].filter(Boolean).join(' | '),
+          },
+        });
+      } catch (persistErr) {
+        console.error('KRITIK: MIKRO_PARTIAL isareti kaydedilemedi:', order.id, persistErr);
+      }
+
+      if (mikroOrderIds.length > 0) {
+        throw new Error(
+          `Siparis Mikro'ya KISMEN yazildi (${mikroOrderIds.join(', ')}). ` +
+          `B2B siparisi ${order.orderNumber} beklemede birakildi; siparis tekrar onaylandiginda ` +
+          `yazilmis evraklar ATLANIR, cift evrak olusmaz. Detay: ${error.message}`
+        );
+      }
+      throw new Error(
+        `Siparis Mikro'ya yazilamadi. B2B siparisi ${order.orderNumber} beklemede; ` +
+        `kontrol edip siparis onay ekranindan tekrar deneyebilirsiniz. Detay: ${error.message}`
+      );
+    }
   }
 
   /**
@@ -1270,6 +1334,7 @@ class OrderService {
           include: {
             product: {
               select: {
+                id: true,
                 name: true,
                 mikroCode: true,
                 imageUrl: true,
@@ -1528,7 +1593,65 @@ class OrderService {
     }
 
     const shouldUpdateMikro = order.status === 'APPROVED' && workingMikroOrderIds.length > 0;
-    let existingItems: Array<any> = [];
+    // Mevcut kalemler HER durumda okunur: kalem durumu (REJECTED/APPROVED), hediye (isGift),
+    // KDV (vatZeroed/vatRate) ve Mikro eslesme bilgisi silinip yeniden yaratmada tasinir.
+    const existingItems: Array<any> = await prisma.orderItem.findMany({
+      where: { orderId },
+      include: { product: { select: { vatRate: true } } },
+    });
+
+    // Yeni kalem listesi <-> mevcut kalem eslestirmesi (once productId, sonra mikroCode).
+    const existingByProductId = new Map<string, Array<any>>();
+    existingItems.forEach((item) => {
+      if (!item.productId) return;
+      const key = String(item.productId);
+      const list = existingByProductId.get(key) || [];
+      list.push(item);
+      existingByProductId.set(key, list);
+    });
+    const existingByMikroCode = new Map<string, Array<any>>();
+    existingItems.forEach((item) => {
+      const code = String(item.mikroCode || '').trim();
+      if (!code) return;
+      const list = existingByMikroCode.get(code) || [];
+      list.push(item);
+      existingByMikroCode.set(code, list);
+    });
+
+    const seenExistingItemIds = new Set<string>();
+    const matchedExistingByIndex = new Map<number, any>();
+    normalizedItems.forEach((item, index) => {
+      let existing: any | undefined;
+      const byProduct = existingByProductId.get(item.productId) || [];
+      existing = byProduct.find((candidate) => !seenExistingItemIds.has(candidate.id));
+      if (!existing) {
+        const byCode = existingByMikroCode.get(item.mikroCode) || [];
+        existing = byCode.find((candidate) => !seenExistingItemIds.has(candidate.id));
+      }
+      // 3.1: ESKI KOR FALLBACK KALDIRILDI.
+      // Onceden, urun/kod ile eslesemeyen kalem, ilgisiz HERHANGI bir mevcut satira
+      // koru koruna eslestiriliyor ve o satirin uzerine yaziliyordu (yanlis urun/fiyat,
+      // yanlis satir kapatma). Artik eslesmeyen kalemler extraItems'a dusup
+      // Mikro'ya YENI satir olarak ekleniyor. Boylece gercek musteri siparisindeki
+      // ilgisiz satirlar asla ezilmiyor.
+      if (existing) {
+        seenExistingItemIds.add(existing.id);
+        matchedExistingByIndex.set(index, existing);
+      }
+    });
+
+    // Mevcut kalemdeki kalici KDV bilgisi: vatZeroed=true ise KDV=0 KORUNUR (beyaz/KDV-sifir
+    // satir guncellemede KDV'ye geri donmez); ozel vatRate girildiyse o da korunur.
+    const resolveExistingVatRate = (existing: any, item: { priceType: PriceType; vatRate: number }): number => {
+      if (item.priceType === 'WHITE' || existing?.vatZeroed === true) {
+        return 0;
+      }
+      if (existing && typeof existing.vatRate === 'number' && Number.isFinite(existing.vatRate)) {
+        return existing.vatRate;
+      }
+      return Number(existing?.product?.vatRate ?? item.vatRate ?? 0.2);
+    };
+
     const mikroOrderIdByLineIndex = new Map<number, string | null>();
     const appendedMikroOrderIds: string[] = [];
     const renamedMikroOrderIds = new Map<string, string>();
@@ -1537,11 +1660,6 @@ class OrderService {
       return renamedMikroOrderIds.get(orderIdValue) || orderIdValue;
     };
     if (shouldUpdateMikro) {
-      existingItems = await prisma.orderItem.findMany({
-        where: { orderId },
-        include: { product: { select: { vatRate: true } } },
-      });
-
       const pickCurrentMikroOrderId = (priceType: PriceType): string => {
         const fromItems = existingItems
           .map((item) => ({
@@ -1591,22 +1709,6 @@ class OrderService {
       await renameByPriceType('WHITE', input.whiteSeries, input.whiteSira);
       workingMikroOrderIds = Array.from(new Set(workingMikroOrderIds.map(resolveMikroOrderId).filter(Boolean)));
 
-      const existingByProductId = new Map<string, Array<any>>();
-      existingItems.forEach((item) => {
-        if (!item.productId) return;
-        const key = String(item.productId);
-        const list = existingByProductId.get(key) || [];
-        list.push(item);
-        existingByProductId.set(key, list);
-      });
-      const existingByMikroCode = new Map<string, Array<any>>();
-      existingItems.forEach((item) => {
-        const code = String(item.mikroCode || '').trim();
-        if (!code) return;
-        const list = existingByMikroCode.get(code) || [];
-        list.push(item);
-        existingByMikroCode.set(code, list);
-      });
       const mikroUpdates = new Map<string, Array<{
         existingProductCode?: string;
         productCode: string;
@@ -1616,35 +1718,24 @@ class OrderService {
         lineDescription?: string;
       }>>();
 
-      const seenExistingItemIds = new Set<string>();
       const extraItems: Array<{ index: number; item: (typeof normalizedItems)[number] }> = [];
 
       normalizedItems.forEach((item, index) => {
-        let existing: any | undefined;
-        const byProduct = existingByProductId.get(item.productId) || [];
-        existing = byProduct.find((candidate) => !seenExistingItemIds.has(candidate.id));
-        if (!existing) {
-          const byCode = existingByMikroCode.get(item.mikroCode) || [];
-          existing = byCode.find((candidate) => !seenExistingItemIds.has(candidate.id));
-        }
-        // 3.1: ESKI KOR FALLBACK KALDIRILDI.
-        // Onceden, urun/kod ile eslesemeyen kalem, ilgisiz HERHANGI bir mevcut satira
-        // koru koruna eslestiriliyor ve o satirin uzerine yaziliyordu (yanlis urun/fiyat,
-        // yanlis satir kapatma). Artik eslesmeyen kalemler asagidaki extraItems'a dusup
-        // Mikro'ya YENI satir olarak ekleniyor (mevcut, dogru akis). Boylece gercek
-        // musteri siparisindeki ilgisiz satirlar asla ezilmiyor.
+        const existing = matchedExistingByIndex.get(index);
         if (!existing) {
           extraItems.push({ index, item });
           return;
         }
-        seenExistingItemIds.add(existing.id);
+        if (existing.status === 'REJECTED') {
+          // Reddedilmis kalemin Mikro'da karsiligi yok; guncelleme gonderilmez ve
+          // kalem asagida REJECTED olarak korunur (sessizce onaylanmaz).
+          mikroOrderIdByLineIndex.set(index, null);
+          return;
+        }
         const matchedMikroOrderId = resolveMikroOrderId(existing.mikroOrderId);
         mikroOrderIdByLineIndex.set(index, matchedMikroOrderId || null);
         const mikroOrderId = matchedMikroOrderId || (workingMikroOrderIds[0] || '');
-        const vatRate =
-          item.priceType === 'WHITE'
-            ? 0
-            : Number(existing.product?.vatRate ?? item.vatRate ?? 0.2);
+        const vatRate = resolveExistingVatRate(existing, item);
         const payload = {
           existingProductCode: String(existing.mikroCode || '').trim() || item.mikroCode,
           productCode: item.mikroCode,
@@ -1661,9 +1752,13 @@ class OrderService {
       // Removed items -> close in Mikro
       existingItems.forEach((item) => {
         if (!seenExistingItemIds.has(item.id)) {
+          if (item.status === 'REJECTED') {
+            // Reddedilmis kalem Mikro'ya hic yazilmadi; kapatma satiri gonderilmez.
+            return;
+          }
           const mikroOrderId = resolveMikroOrderId(item.mikroOrderId) || (workingMikroOrderIds[0] || '');
           const vatRate =
-            item.priceType === 'WHITE'
+            item.priceType === 'WHITE' || item.vatZeroed === true
               ? 0
               : Number(item.product?.vatRate || 0.2);
           const payload = {
@@ -1758,10 +1853,14 @@ class OrderService {
       }
     }
 
-    const totalAmount = normalizedItems.reduce(
-      (sum, item) => sum + item.unitPrice * item.quantity,
-      0
-    );
+    // Hediye (isGift) satirlari siparis olusturmadaki kuralla ayni sekilde
+    // musteri toplamina DAHIL EDILMEZ.
+    const totalAmount = normalizedItems.reduce((sum, item, index) => {
+      if (matchedExistingByIndex.get(index)?.isGift === true) {
+        return sum;
+      }
+      return sum + item.unitPrice * item.quantity;
+    }, 0);
 
     await prisma.$transaction(async (tx) => {
       await tx.orderItem.deleteMany({
@@ -1786,15 +1885,41 @@ class OrderService {
 
       await tx.orderItem.createMany({
         data: normalizedItems.map((item, index) => {
+          const existing = matchedExistingByIndex.get(index);
           const mikroOrderId = shouldUpdateMikro
             ? (mikroOrderIdByLineIndex.get(index) || undefined)
-            : undefined;
-          const approved = order.status === 'APPROVED';
-          const { vatRate: _vatRate, ...itemForCreate } = item as any;
+            : (existing?.mikroOrderId ? String(existing.mikroOrderId) : undefined);
+
+          // Kalem durumu mevcut kalemden TASINIR:
+          // - REJECTED kalem sessizce APPROVED olmaz (Mikro'da karsiligi yok).
+          // - Kismi onayla APPROVED olmus kalem (siparis PENDING kalsa da) onayli kalir.
+          // - Yeni eklenen kalem Mikro'ya yazilmadiysa PENDING dogar.
+          // - Onayli siparisteki mevcut kalemler onayli kalir (tam onay yolunda
+          //   kalem statusu PENDING kalmis olabilir; Mikro'da yazilidir).
+          let status: 'PENDING' | 'APPROVED' | 'REJECTED' = 'PENDING';
+          if (existing?.status === 'REJECTED') {
+            status = 'REJECTED';
+          } else if (existing?.status === 'APPROVED') {
+            status = 'APPROVED';
+          } else if (order.status === 'APPROVED') {
+            status = existing || mikroOrderId ? 'APPROVED' : 'PENDING';
+          }
+
+          const vatZeroed = existing?.vatZeroed === true;
+          const vatRate = resolveExistingVatRate(existing, item);
+
+          const { vatRate: _vatRate, status: _status, ...itemForCreate } = item as any;
           return {
             ...itemForCreate,
-            status: approved ? 'APPROVED' : 'PENDING',
-            approvedQuantity: approved ? item.quantity : undefined,
+            status,
+            approvedQuantity:
+              status === 'APPROVED'
+                ? (shouldUpdateMikro ? item.quantity : existing?.approvedQuantity ?? item.quantity)
+                : undefined,
+            rejectionReason: status === 'REJECTED' ? existing?.rejectionReason ?? undefined : undefined,
+            isGift: existing?.isGift === true,
+            vatRate,
+            vatZeroed,
             mikroOrderId,
           };
         }),
@@ -1841,6 +1966,7 @@ class OrderService {
           include: {
             product: {
               select: {
+                id: true,
                 name: true,
                 mikroCode: true,
                 imageUrl: true,
@@ -1907,16 +2033,54 @@ class OrderService {
       throw new Error('User does not have Mikro cari code');
     }
 
-    // Siparişi faturalı ve beyaz olarak ayır
-    const invoicedItems = order.items.filter((item: any) => item.priceType === 'INVOICED');
-    const whiteItems = order.items.filter((item: any) => item.priceType === 'WHITE');
+    // IDEMPOTENTLIK: Daha once (yarim kalan onay / manuel giris) Mikro'ya yazilmis
+    // kalemler (mikroOrderId dolu veya status APPROVED) TEKRAR YAZILMAZ; REJECTED
+    // kalemler Mikro'ya hic gonderilmez. Sadece bekleyen kalemler yazilir.
+    const writableItems = order.items.filter(
+      (item: any) => item.status === 'PENDING' && !item.mikroOrderId
+    );
 
-    const mikroOrderIds: string[] = [];
-    let invoicedOrderId: string | null = null;
-    let whiteOrderId: string | null = null;
+    // Siparişi faturalı ve beyaz olarak ayır
+    const invoicedItems = writableItems.filter((item: any) => item.priceType === 'INVOICED');
+    const whiteItems = writableItems.filter((item: any) => item.priceType === 'WHITE');
+
+    const mikroOrderIds: string[] = Array.from(
+      new Set(
+        (order.mikroOrderIds || [])
+          .map((id: any) => String(id || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (writableItems.length === 0 && mikroOrderIds.length === 0) {
+      throw new Error('Onaylanacak bekleyen kalem yok');
+    }
+
+    const newlyWrittenIds: string[] = [];
     const normalizeSeries = (value: string | undefined, fallback: string) => {
       const trimmed = String(value || '').trim();
       return trimmed ? trimmed.slice(0, 20) : fallback;
+    };
+    // Teslimat yeri Mikro evrakina belge aciklamasi olarak yazilir (duzenleme yolundaki gibi).
+    const deliveryDescription = order.deliveryLocation
+      ? String(order.deliveryLocation).trim()
+      : '';
+
+    // Basarili Mikro yazimini ANINDA kaydet; hata olursa yazilan taraf izli kalir
+    // ve tekrar onaylamada atlanir.
+    const persistWrittenSide = async (items: any[], mikroOrderId: string) => {
+      await prisma.$transaction([
+        prisma.order.update({
+          where: { id: orderId },
+          data: { mikroOrderIds: Array.from(new Set(mikroOrderIds)) },
+        }),
+        ...items.map((item: any) =>
+          prisma.orderItem.update({
+            where: { id: item.id },
+            data: { status: 'APPROVED', approvedQuantity: item.quantity, mikroOrderId },
+          })
+        ),
+      ]);
     };
 
     try {
@@ -1940,19 +2104,22 @@ class OrderService {
             productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            vatRate: item.product?.vatRate || 0.2,
+            vatRate: this.resolveItemVatRate(item),
             lineDescription: item.lineNote || undefined,
           })),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı${adminNote ? ` | ${adminNote}` : ''}`,
+          documentDescription: deliveryDescription || undefined,
           evrakSeri: invoicedSeries,
           paymentPlanNo: order.user.paymentPlanNo ?? undefined,
         });
 
         mikroOrderIds.push(invoicedOrderId);
+        newlyWrittenIds.push(invoicedOrderId);
+        await persistWrittenSide(invoicedItems, invoicedOrderId);
       }
-      // 2. Beyaz sipari? (varsa)
+      // 2. Beyaz sipariş (varsa)
       if (whiteItems.length > 0) {
         const whiteSeries = normalizeSeries(series?.white, 'B2BB');
         const whiteOrderId = await mikroService.writeOrder({
@@ -1961,25 +2128,29 @@ class OrderService {
             productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            vatRate: 0, // Beyaz i?in KDV=0
+            vatRate: 0, // Beyaz için KDV=0
             lineDescription: item.lineNote || undefined,
           })),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
-          description: `B2B Sipari? ${order.orderNumber} - Beyaz${adminNote ? ` | ${adminNote}` : ''}`,
+          description: `B2B Sipariş ${order.orderNumber} - Beyaz${adminNote ? ` | ${adminNote}` : ''}`,
+          documentDescription: deliveryDescription || undefined,
           evrakSeri: whiteSeries,
           paymentPlanNo: order.user.paymentPlanNo ?? undefined,
         });
 
         mikroOrderIds.push(whiteOrderId);
+        newlyWrittenIds.push(whiteOrderId);
+        await persistWrittenSide(whiteItems, whiteOrderId);
       }
 
       // 3. Sipariş durumunu güncelle
+      const uniqueMikroOrderIds = Array.from(new Set(mikroOrderIds));
       await prisma.order.update({
         where: { id: orderId },
         data: {
           status: 'APPROVED',
-          mikroOrderIds,
+          mikroOrderIds: uniqueMikroOrderIds,
           approvedAt: new Date(),
           adminNote,
         },
@@ -1987,31 +2158,53 @@ class OrderService {
 
       return {
         success: true,
-        mikroOrderIds,
+        mikroOrderIds: uniqueMikroOrderIds,
       };
     } catch (error: any) {
       console.error('❌ Mikro\'ya sipariş yazma hatası:', error);
-      // 3.4: Mikro'da evrak olustuysa, retry'da mukerrer yazimi onlemek icin durumu
-      // APPROVED'a cek ve operatore acik uyari ver (tekrar onaylamasin, Mikro'yu kontrol etsin).
-      if (mikroOrderIds.length > 0) {
+      // Mikro'da evrak olustuysa: yazilan taraf kalem bazinda isaretlendi (mikroOrderId),
+      // siparis PENDING kalir; tekrar onaylamada yazilmis taraf ATLANIR (idempotent).
+      if (newlyWrittenIds.length > 0) {
         try {
           await prisma.order.update({
             where: { id: orderId },
-            data: { status: 'APPROVED', mikroOrderIds, approvedAt: new Date(), adminNote },
+            data: {
+              adminNote: [
+                adminNote?.trim(),
+                `MIKRO_PARTIAL: yazilan evrak(lar) ${newlyWrittenIds.join(', ')}`,
+              ]
+                .filter(Boolean)
+                .join(' | '),
+            },
           });
         } catch (persistErr) {
-          console.error('‼️ KRITIK: Mikro evrak(lar)i olustu ama B2B kaydedilemedi:', mikroOrderIds, persistErr);
+          console.error('‼️ KRITIK: MIKRO_PARTIAL isareti kaydedilemedi:', newlyWrittenIds, persistErr);
         }
         throw new Error(
-          `Mikro'da siparis evraki olustu (${mikroOrderIds.join(', ')}) ancak islem tam bitmedi. ` +
-          `TEKRAR ONAYLAMAYIN; siparisi Mikro'da kontrol edin. Detay: ${error.message}`
+          `Mikro'ya kismi yazim yapildi (${newlyWrittenIds.join(', ')}) ancak islem tamamlanamadi. ` +
+          `Siparis beklemede birakildi; tekrar onayladiginizda yazilmis evraklar ATLANIR. Detay: ${error.message}`
         );
       }
-      throw new Error(`Failed to write order to Mikro: ${error.message}`);
+      throw new Error(`Siparis Mikro'ya yazilamadi: ${error.message}`);
     }
     } finally {
       releaseLock();
     }
+  }
+
+  /**
+   * Kalem KDV orani: vatZeroed isaretli satir KDV=0 kalir; kalici vatRate varsa o,
+   * yoksa urunun guncel KDV orani (varsayilan 0.2) kullanilir.
+   */
+  private resolveItemVatRate(item: any): number {
+    if (item?.vatZeroed === true) {
+      return 0;
+    }
+    if (typeof item?.vatRate === 'number' && Number.isFinite(item.vatRate)) {
+      return item.vatRate;
+    }
+    const productVat = Number(item?.product?.vatRate);
+    return Number.isFinite(productVat) && productVat > 0 ? productVat : 0.2;
   }
 
   /**
@@ -2051,12 +2244,14 @@ class OrderService {
     const whiteItems = itemsToApprove.filter((item: any) => item.priceType === 'WHITE');
 
     const mikroOrderIds: string[] = [];
-    let invoicedOrderId: string | null = null;
-    let whiteOrderId: string | null = null;
     const normalizeSeries = (value: string | undefined, fallback: string) => {
       const trimmed = String(value || '').trim();
       return trimmed ? trimmed.slice(0, 20) : fallback;
     };
+    // Teslimat yeri Mikro evrakina belge aciklamasi olarak yazilir.
+    const deliveryDescription = order.deliveryLocation
+      ? String(order.deliveryLocation).trim()
+      : '';
 
     try {
       // 0. Cari hesap kontrolü ve oluşturma
@@ -2079,12 +2274,13 @@ class OrderService {
             productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            vatRate: item.product?.vatRate || 0.2,
+            vatRate: this.resolveItemVatRate(item),
             lineDescription: item.lineNote || undefined,
           })),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
+          documentDescription: deliveryDescription || undefined,
           evrakSeri: invoicedSeries,
           paymentPlanNo: order.user.paymentPlanNo ?? undefined,
         });
@@ -2118,6 +2314,7 @@ class OrderService {
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
           description: `B2B Sipariş ${order.orderNumber} - Beyaz (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
+          documentDescription: deliveryDescription || undefined,
           evrakSeri: whiteSeries,
           paymentPlanNo: order.user.paymentPlanNo ?? undefined,
         });

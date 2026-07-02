@@ -60,7 +60,10 @@ export default function PreviouslyPurchasedPage() {
   const [documentNoFilter, setDocumentNoFilter] = useState('');
   const [lastPurchaseSort, setLastPurchaseSort] = useState<LastPurchaseSort>('date-desc');
   const debouncedSearch = useDebounce(documentNoFilter, 300);
+  // Urun adi/kodu aramasi: backend getProducts search parametresini destekler
+  const debouncedNameSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
+  const lastNameSearchRef = useRef('');
   const reqRef = useRef<AbortController | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('');
   const selectedCategoryIds = useMemo(
@@ -83,6 +86,13 @@ export default function PreviouslyPurchasedPage() {
     lastSearchRef.current = term;
     trackCustomerActivity({ type: 'SEARCH', meta: { query: term, source: 'previously-purchased' } });
   }, [debouncedSearch]);
+
+  useEffect(() => {
+    const term = debouncedNameSearch.trim();
+    if (!term || term === lastNameSearchRef.current) return;
+    lastNameSearchRef.current = term;
+    trackCustomerActivity({ type: 'SEARCH', meta: { query: term, source: 'previously-purchased-name' } });
+  }, [debouncedNameSearch]);
 
   const loadStatic = useCallback(async () => {
     try {
@@ -122,6 +132,7 @@ export default function PreviouslyPurchasedPage() {
             categoryId: selectedCategory || undefined,
             categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
             warehouse: warehouse || undefined,
+            search: debouncedNameSearch.trim() || undefined,
             mode: 'purchased',
             sort: 'lastPurchasedDesc',
             limit: PAGE_SIZE,
@@ -148,7 +159,7 @@ export default function PreviouslyPurchasedPage() {
         }
       }
     },
-    [selectedCategory, selectedCategoryIds, warehouse]
+    [selectedCategory, selectedCategoryIds, warehouse, debouncedNameSearch]
   );
 
   useEffect(() => {
@@ -156,7 +167,7 @@ export default function PreviouslyPurchasedPage() {
     setOffset(0);
     setHasMore(true);
     fetchProducts({ reset: true, offset: 0 });
-  }, [selectedCategory, warehouse, isStaticLoaded, fetchProducts]);
+  }, [selectedCategory, warehouse, debouncedNameSearch, isStaticLoaded, fetchProducts]);
 
   const filteredProducts = useMemo(() => {
     let next = applyProductFilters(products, advancedFilters);
@@ -284,7 +295,11 @@ export default function PreviouslyPurchasedPage() {
               ? `Toplam ${totalCount} üründen ${filteredProducts.length}`
               : `${filteredProducts.length} ürün`}
           </span>
-          <div className="relative w-full sm:ml-auto sm:w-auto sm:min-w-[200px]">
+          <div className="relative w-full sm:ml-auto sm:w-auto sm:min-w-[220px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-3)]" />
+            <Input placeholder="Ürün adı / kodu ara…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 w-full pl-9" />
+          </div>
+          <div className="relative w-full sm:w-auto sm:min-w-[200px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-3)]" />
             <Input placeholder="Belge no ile filtrele…" value={documentNoFilter} onChange={(e) => setDocumentNoFilter(e.target.value)} className="h-9 w-full pl-9" />
           </div>
@@ -296,15 +311,15 @@ export default function PreviouslyPurchasedPage() {
         ) : filteredProducts.length === 0 ? (
           <Card>
             <EmptyState
-              icon={documentNoFilter || selectedCategory || warehouse ? 'search' : 'products'}
-              title={documentNoFilter || selectedCategory || warehouse ? 'Ürün bulunamadı' : 'Daha önce aldığınız ürün bulunamadı'}
+              icon={search || documentNoFilter || selectedCategory || warehouse ? 'search' : 'products'}
+              title={search || documentNoFilter || selectedCategory || warehouse ? 'Ürün bulunamadı' : 'Daha önce aldığınız ürün bulunamadı'}
               description={
-                documentNoFilter || selectedCategory || warehouse
+                search || documentNoFilter || selectedCategory || warehouse
                   ? 'Arama veya filtre kriterlerini değiştirip tekrar deneyebilirsiniz.'
                   : 'Bu cari hesap için daha önce satın alınan ürün kaydı bulunamadı.'
               }
-              actionLabel={documentNoFilter || selectedCategory || warehouse ? 'Filtreleri Temizle' : undefined}
-              onAction={documentNoFilter || selectedCategory || warehouse ? clearFilters : undefined}
+              actionLabel={search || documentNoFilter || selectedCategory || warehouse ? 'Filtreleri Temizle' : undefined}
+              onAction={search || documentNoFilter || selectedCategory || warehouse ? clearFilters : undefined}
             />
           </Card>
         ) : (

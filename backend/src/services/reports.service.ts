@@ -847,6 +847,62 @@ const pickCurrentCostBasis = (data: Record<string, any>): number => {
   return hasNumericValue(withoutVat) && withoutVat > 0 ? withoutVat : withVat / halfVatFactor;
 };
 
+const findValueByExactNormalizedToken = (data: Record<string, any>, token: string): unknown => {
+  const normalizedToken = normalizeKeyToken(token);
+  const key = Object.keys(data).find((candidate) => normalizeKeyToken(candidate) === normalizedToken);
+  return key ? data[key] : null;
+};
+
+// Son giris (SO-...) birim maliyet kolonlarini okur. 'sobirimmaliyet' token'i
+// 'sobirimmaliyetkdv' icinde de gectigi icin once exact-normalized esleme kullanilir.
+const pickEntryUnitCostNet = (data: Record<string, any>): number => {
+  const exact = pickValueByKeys(data, ['SÖ-BirimMaliyet', 'SO-BirimMaliyet']);
+  if (exact !== null && exact !== undefined) return toNumber(exact);
+  const normalized = findValueByExactNormalizedToken(data, 'sobirimmaliyet');
+  if (normalized !== null && normalized !== undefined) return toNumber(normalized);
+  const key = Object.keys(data).find((candidate) => {
+    const token = normalizeKeyToken(candidate);
+    return token.includes('birimmaliyet') && !token.includes('kdv');
+  });
+  return key ? toNumber(data[key]) : 0;
+};
+
+const pickEntryUnitCostWithVat = (data: Record<string, any>): number => {
+  const exact = pickValueByKeys(data, ['Sö-BirimMaliyetKdv', 'SÖ-BirimMaliyetKdv', 'SO-BirimMaliyetKdv']);
+  if (exact !== null && exact !== undefined) return toNumber(exact);
+  const key = Object.keys(data).find((candidate) => {
+    const token = normalizeKeyToken(candidate);
+    return token.includes('birimmaliyet') && token.includes('kdv');
+  });
+  return key ? toNumber(data[key]) : 0;
+};
+
+// Son giris maliyetini satirin KDV durumuna gore kar hesap bazina cevirir:
+// faturali satirda KDV haric net maliyet, beyaz satirda yarim KDV yuklu maliyet.
+const pickEntryUnitCostBasis = (data: Record<string, any>): number => {
+  const net = pickEntryUnitCostNet(data);
+  const withVat = pickEntryUnitCostWithVat(data);
+  const halfVatFactor = pickHalfVatFactor(data);
+  const fullVatFactor = 1 + (halfVatFactor - 1) * 2;
+
+  if (isNoVatSaleRow(data)) {
+    if (net > 0) return net * halfVatFactor;
+    if (withVat > 0 && fullVatFactor > 0) return (withVat / fullVatFactor) * halfVatFactor;
+    return 0;
+  }
+
+  if (net > 0) return net;
+  if (withVat > 0 && fullVatFactor > 0) return withVat / fullVatFactor;
+  return 0;
+};
+
+// Kar hesabinda kullanilan maliyet tabani: teklif maliyet korumasi kuralina uygun olarak
+// guncel maliyet ile son giris maliyetinin BUYUK olani (max kurali). Guncel maliyet bos/0
+// ise otomatik olarak son giris maliyetine duser.
+const pickMarginCostBasis = (data: Record<string, any>): number => {
+  return Math.max(pickCurrentCostBasis(data), pickEntryUnitCostBasis(data));
+};
+
 const pickCurrentRevenueBasis = (data: Record<string, any>): number => {
   const noVatSale = isNoVatSaleRow(data);
   const withoutVat = resolveDataValueByCandidates(data, ['Tutar'], 'tutar');
@@ -873,21 +929,27 @@ const pickCurrentUnitRevenueBasis = (data: Record<string, any>): number => {
   return toNumber(withVat);
 };
 
-const calculateCurrentProfit = (data: Record<string, any>): { unitProfit: number; totalProfit: number; margin: number; costBasis: number; revenueBasis: number } => {
+const calculateCurrentProfit = (data: Record<string, any>): { unitProfit: number; totalProfit: number; margin: number; costBasis: number; revenueBasis: number; totalCost: number } => {
   const quantity = pickQuantity(data);
-  const costBasis = pickCurrentCostBasis(data);
+  // Kar hesap tabani: max(guncel maliyet, son giris maliyeti) - teklif kuraliyla tutarli.
+  const costBasis = pickMarginCostBasis(data);
   const revenueBasis = pickCurrentRevenueBasis(data);
   const unitRevenue = pickCurrentUnitRevenueBasis(data);
   const unitProfit = unitRevenue - costBasis;
   const totalProfit = revenueBasis - costBasis * quantity;
   const totalCost = costBasis * quantity;
   const margin = totalCost > 0 ? (totalProfit / totalCost) * 100 : revenueBasis > 0 ? (totalProfit / revenueBasis) * 100 : 0;
-  return { unitProfit, totalProfit, margin, costBasis, revenueBasis };
+  return { unitProfit, totalProfit, margin, costBasis, revenueBasis, totalCost };
 };
 
 const pickTotalProfit = (row: Record<string, any>): number => {
   if (!row || typeof row !== 'object') return 0;
   return calculateCurrentProfit(row).totalProfit;
+};
+
+const pickTotalCost = (row: Record<string, any>): number => {
+  if (!row || typeof row !== 'object') return 0;
+  return calculateCurrentProfit(row).totalCost;
 };
 
 const formatExportValue = (value: unknown): string | number | null => {
@@ -998,7 +1060,8 @@ const pickEntryProfit = (data: Record<string, any>): number => {
 };
 
 const pickCurrentCost = (data: Record<string, any>): number => {
-  return pickCurrentCostBasis(data);
+  // Kar hesabinda fiilen kullanilan maliyet (max: guncel / son giris).
+  return pickMarginCostBasis(data);
 };
 
 const pickEntryMargin = (data: Record<string, any>, revenue?: number): number => {
@@ -1114,6 +1177,14 @@ const pickRevenue = (data: Record<string, any>): number => {
   return toNumber(fallback);
 };
 
+// Mikro '01.01.1900' gibi placeholder tarihler gonderebiliyor; bunlari gecersiz say.
+const MARGIN_MIN_VALID_YEAR = 1990;
+
+const guardMarginRowDate = (date: Date | null): Date | null => {
+  if (!date || Number.isNaN(date.getTime())) return null;
+  return date.getUTCFullYear() >= MARGIN_MIN_VALID_YEAR ? date : null;
+};
+
 const pickMarginRowDate = (data: Record<string, any>): Date | null => {
   const raw = resolveDataValueByCandidates(
     data,
@@ -1123,19 +1194,31 @@ const pickMarginRowDate = (data: Record<string, any>): Date | null => {
   if (!raw) return null;
 
   if (raw instanceof Date) {
-    return parseDateKeyToUtcDate(formatDateKeyInTimeZone(raw, config.cronTimezone));
+    return guardMarginRowDate(parseDateKeyToUtcDate(formatDateKeyInTimeZone(raw, config.cronTimezone)));
   }
 
   const text = String(raw).trim();
   const plainDateMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (plainDateMatch) {
-    return parseDateKeyToUtcDate(`${plainDateMatch[1]}-${plainDateMatch[2]}-${plainDateMatch[3]}`);
+    return guardMarginRowDate(parseDateKeyToUtcDate(`${plainDateMatch[1]}-${plainDateMatch[2]}-${plainDateMatch[3]}`));
+  }
+
+  // Mikro rapor fonksiyonlari tarihi cogunlukla gun.ay.yil (dd.MM.yyyy) metni olarak dondurur.
+  // Bu metni new Date()'e birakmak ABD formati (ay.gun.yil) gibi yorumlanmasina ve ay/gun
+  // takasina yol aciyordu; eski tarihli satirlarin gunun raporuna sizmasinin kok nedeni buydu.
+  const dayFirstMatch = text.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})(?:[ T].*)?$/);
+  if (dayFirstMatch) {
+    const day = Number(dayFirstMatch[1]);
+    const month = Number(dayFirstMatch[2]);
+    const year = Number(dayFirstMatch[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return guardMarginRowDate(new Date(Date.UTC(year, month - 1, day)));
   }
 
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return null;
 
-  return parseDateKeyToUtcDate(formatDateKeyInTimeZone(parsed, config.cronTimezone));
+  return guardMarginRowDate(parseDateKeyToUtcDate(formatDateKeyInTimeZone(parsed, config.cronTimezone)));
 };
 
 const pickUnitPrice = (data: Record<string, any>): number => {
@@ -1179,13 +1262,16 @@ const buildMarginAlertRow = (
   row: { avgMargin?: number | null; data?: unknown }
 ): MarginAlertRow => {
   const data = getRowData(row);
+  const computed = calculateCurrentProfit(data);
   const revenue = pickRevenue(data);
-  const profit = pickTotalProfit(data);
+  const profit = computed.totalProfit;
   const entryProfit = pickEntryProfit(data);
-  const avgMargin = pickAvgMargin(data);
+  const avgMargin = computed.margin;
   const entryMargin = pickEntryMargin(data, revenue);
   const quantity = pickQuantity(data);
   const unit = pickUnit(data);
+  // Birim fiyat, marj hesabinda kullanilan gelir bazi ile ayni KDV duzleminde gosterilir.
+  const unitRevenue = pickCurrentUnitRevenueBasis(data);
 
   return {
     documentNo: resolveDocumentKey(data) || '',
@@ -1196,7 +1282,8 @@ const buildMarginAlertRow = (
     quantity,
     unit,
     quantityLabel: unit ? `${quantity} ${unit}` : `${quantity}`,
-    unitPrice: pickUnitPrice(data),
+    unitPrice: unitRevenue > 0 ? unitRevenue : pickUnitPrice(data),
+    unitCost: computed.costBasis,
     revenue,
     profit,
     entryProfit,
@@ -1284,12 +1371,14 @@ const aggregateRows = (
     if (!key) return;
     const name = nameResolver(row, data) || key;
     const revenue = pickRevenue(data);
-    const profit = pickTotalProfit(data);
+    const computed = calculateCurrentProfit(data);
+    const profit = computed.totalProfit;
     const entryProfit = pickEntryProfit(data);
     const current = map.get(key) || {
       key,
       name,
       revenue: 0,
+      cost: 0,
       profit: 0,
       entryProfit: 0,
       avgMargin: 0,
@@ -1297,6 +1386,7 @@ const aggregateRows = (
       count: 0,
     };
     current.revenue += revenue;
+    current.cost += computed.totalCost;
     current.profit += profit;
     current.entryProfit += entryProfit;
     current.count += 1;
@@ -1304,8 +1394,18 @@ const aggregateRows = (
   });
 
   const results = Array.from(map.values()).map((entry) => {
-    const avgMargin = entry.revenue > 0 ? (entry.profit / entry.revenue) * 100 : 0;
-    const entryMargin = entry.revenue > 0 ? (entry.entryProfit / entry.revenue) * 100 : 0;
+    // Marj tanimi satir bazi ile ayni: kar / maliyet.
+    const avgMargin = entry.cost > 0
+      ? (entry.profit / entry.cost) * 100
+      : entry.revenue > 0
+      ? (entry.profit / entry.revenue) * 100
+      : 0;
+    const entryCost = entry.revenue - entry.entryProfit;
+    const entryMargin = entryCost > 0
+      ? (entry.entryProfit / entryCost) * 100
+      : entry.revenue > 0
+      ? (entry.entryProfit / entry.revenue) * 100
+      : 0;
     return {
       ...entry,
       avgMargin,
@@ -1328,7 +1428,36 @@ const buildTopBottom = (
   return { top, bottom };
 };
 
+// "Fiyat Farki" tipi ozel (sahte) urun kodlari: gercek urun degildir, marj analizini kirletir.
+const MARGIN_EXCLUDED_STOCK_CODES = new Set(['B100963', 'B100964', 'B105959']);
+
+// Stok adi bu token'lardan birini iceriyorsa ozel satir kabul edilir (normalize edilmis halde).
+const MARGIN_EXCLUDED_NAME_TOKENS = ['fiyatfarki', 'ciroprimi', 'muhtelif'];
+
 const shouldExcludeMarginRow = (data: Record<string, any>): boolean => {
+  if (!data || typeof data !== 'object') return false;
+
+  // Iade / iptal satirlari kar marji analizine dahil edilmez.
+  const tip = normalizeKeyToken(pickDocumentType(data));
+  if (tip.includes('iade') || tip.includes('iptal')) return true;
+
+  // Negatif miktarli satirlar (iade/duzeltme) marj hesabini bozar.
+  if (pickQuantity(data) < 0) return true;
+
+  // "Fiyat Farki" turu ozel urun kodlari.
+  const stockCode = pickStockCode(data).trim().toUpperCase();
+  if (stockCode && MARGIN_EXCLUDED_STOCK_CODES.has(stockCode)) return true;
+
+  const stockNameToken = normalizeKeyToken(pickStockName(data));
+  if (stockNameToken && MARGIN_EXCLUDED_NAME_TOKENS.some((token) => stockNameToken.includes(token))) return true;
+
+  // TOPLU sorumluluk merkezi (ic transfer) satirlari min-max/marj analizlerine girmez.
+  const srmValue =
+    findValueByNormalizedToken(data, 'sorumlulukmerkezi') ??
+    findValueByNormalizedToken(data, 'sormerk') ??
+    findValueByNormalizedToken(data, 'srmrk');
+  if (normalizeKeyToken(srmValue) === 'toplu') return true;
+
   return false;
 };
 
@@ -1414,19 +1543,19 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     resolve: (data) => resolveDataValueByCandidates(data, ['TutarKDV'], 'tutarkdv'),
   },
   avgCost: {
-    label: 'Guncel Maliyet (Kar Hesap Bazi)',
+    label: 'Maliyet (Kar Hesap Bazi: Guncel/Son Giris buyugu)',
     resolve: (data) => pickCurrentCost(data),
   },
   unitProfit: {
-    label: 'Birim Kar (Guncel)',
+    label: 'Birim Kar',
     resolve: (data) => pickUnitProfit(data),
   },
   totalProfit: {
-    label: 'Toplam Kar (Guncel)',
+    label: 'Toplam Kar',
     resolve: (data) => pickTotalProfit(data),
   },
   margin: {
-    label: 'Kar % (Guncel)',
+    label: 'Kar % (Kar/Maliyet)',
     resolve: (data) => pickAvgMargin(data),
   },
   TeklifAdetKar: {
@@ -1474,6 +1603,7 @@ type MarginSummaryBucket = {
   totalRecords: number;
   totalDocuments: number;
   totalRevenue: number;
+  totalCost: number;
   totalProfit: number;
   entryProfit: number;
   avgMargin: number;
@@ -1485,6 +1615,7 @@ type MarginComplianceSummary = {
   totalRecords: number;
   totalDocuments: number;
   totalRevenue: number;
+  totalCost: number;
   totalProfit: number;
   entryProfit: number;
   avgMargin: number;
@@ -1510,6 +1641,7 @@ type MarginAlertRow = {
   unit: string;
   quantityLabel: string;
   unitPrice: number;
+  unitCost: number;
   revenue: number;
   profit: number;
   entryProfit: number;
@@ -1537,6 +1669,7 @@ type MarginAggregateRow = {
   key: string;
   name: string;
   revenue: number;
+  cost: number;
   profit: number;
   entryProfit: number;
   avgMargin: number;
@@ -1620,6 +1753,7 @@ const buildMarginSummaryBucket = (
   const useTypePrefix = options.useTypePrefix === true;
   const docMap = new Map<string, { profit: number; revenue: number }>();
   let totalRevenue = 0;
+  let totalCost = 0;
   let totalProfit = 0;
   let entryProfit = 0;
   let negativeLines = 0;
@@ -1627,9 +1761,11 @@ const buildMarginSummaryBucket = (
   rows.forEach((row) => {
     const data = getRowData(row);
     const revenue = pickRevenue(data);
-    const profit = pickTotalProfit(data);
+    const computed = calculateCurrentProfit(data);
+    const profit = computed.totalProfit;
     const entryProfitValue = pickEntryProfit(data);
     totalRevenue += revenue;
+    totalCost += computed.totalCost;
     totalProfit += profit;
     entryProfit += entryProfitValue;
     if (profit < 0) {
@@ -1654,12 +1790,18 @@ const buildMarginSummaryBucket = (
     }
   }
 
-  const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  // Satir bazindaki marj tanimi ile ayni: kar / maliyet (maliyet yoksa ciroya duser).
+  const avgMargin = totalCost > 0
+    ? (totalProfit / totalCost) * 100
+    : totalRevenue > 0
+    ? (totalProfit / totalRevenue) * 100
+    : 0;
 
   return {
     totalRecords: rows.length,
     totalDocuments: docMap.size,
     totalRevenue,
+    totalCost,
     totalProfit,
     entryProfit,
     avgMargin,
@@ -1724,6 +1866,7 @@ const buildMarginComplianceSummary = (
     totalRecords: overallSummary.totalRecords,
     totalDocuments: overallSummary.totalDocuments,
     totalRevenue: overallSummary.totalRevenue,
+    totalCost: overallSummary.totalCost,
     totalProfit: overallSummary.totalProfit,
     entryProfit: overallSummary.entryProfit,
     avgMargin: overallSummary.avgMargin,
@@ -6406,6 +6549,70 @@ export class ReportsService {
     }
 
     const normalizedRows = Array.isArray(rows) ? rows : [];
+
+    // "Kac gunluk stok kaldi" kolonlari: son 120 gun satisindan urun basina gunluk ortalama.
+    // Tek TOPLU sorgu (N+1 yok); TOPLU srm ve mevcut exclusion kosullari haric tutulur.
+    if (normalizedRows.length > 0) {
+      try {
+        const lookbackDays = 120;
+        const baseConditions = [
+          'sth.sth_cins = 0',
+          'sth.sth_tip = 1',
+          'ISNULL(sth.sth_normal_iade, 0) = 0',
+          'sth.sth_evraktip IN (1, 4)',
+          '(sth.sth_iptal = 0 OR sth.sth_iptal IS NULL)',
+          'sth.sth_stok_kod IS NOT NULL',
+          "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+        ];
+        const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+        const whereClause = [
+          ...baseConditions,
+          ...exclusionConditions,
+          `sth.sth_tarih >= DATEADD(DAY, -${lookbackDays}, CAST(GETDATE() AS date))`,
+          'ISNULL(sth.sth_miktar, 0) > 0',
+          "UPPER(LTRIM(RTRIM(ISNULL(sth.sth_stok_srm_merkezi, '')))) <> 'TOPLU'",
+        ].join(' AND ');
+
+        const salesRows = await mikroService.executeQuery(`
+          SELECT
+            UPPER(LTRIM(RTRIM(sth.sth_stok_kod))) AS productCode,
+            SUM(CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT)) AS totalQuantity
+          FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+          WHERE ${whereClause}
+          GROUP BY UPPER(LTRIM(RTRIM(sth.sth_stok_kod)))
+        `);
+
+        const dailyAvgByCode = new Map<string, number>();
+        (Array.isArray(salesRows) ? salesRows : []).forEach((row: any) => {
+          const code = String(row?.productCode || '').trim().toUpperCase();
+          const total = Number(row?.totalQuantity || 0);
+          if (code && Number.isFinite(total) && total > 0) {
+            dailyAvgByCode.set(code, total / lookbackDays);
+          }
+        });
+
+        const sampleKeys = Object.keys(normalizedRows[0] || {});
+        const codeKey = sampleKeys.find((key) => normalizeKeyToken(key).includes('stokkodu'));
+        const depotToken = depot === 'TOPCA' ? 'topcadepo' : 'merkezdepo';
+        const depotQtyKey =
+          sampleKeys.find((key) => normalizeKeyToken(key) === `${depotToken}miktari`) ||
+          sampleKeys.find((key) => normalizeKeyToken(key) === depotToken);
+        if (codeKey) {
+          normalizedRows.forEach((row) => {
+            const code = String(row?.[codeKey] || '').trim().toUpperCase();
+            const dailyAvg = dailyAvgByCode.get(code) || 0;
+            const depotQtyRaw = depotQtyKey ? Number(row?.[depotQtyKey]) : NaN;
+            const depotQty = Number.isFinite(depotQtyRaw) ? Math.max(0, depotQtyRaw) : 0;
+            row['Gunluk Ortalama Satis (120g)'] = dailyAvg > 0 ? Math.round(dailyAvg * 100) / 100 : 0;
+            row['Kalan Stok Gunu'] = dailyAvg > 0 ? Math.round((depotQty / dailyAvg) * 10) / 10 : null;
+          });
+        }
+      } catch (error: any) {
+        // Stok gunu kolonlari hesaplanamazsa rapor yine de donsun.
+        console.warn('Ucarer depo stok gunu kolonlari hesaplanamadi:', error?.message || error);
+      }
+    }
+
     const columns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0] || {}) : [];
     const limitedRows = returnAll ? normalizedRows : normalizedRows.slice(0, limit);
 
@@ -6418,7 +6625,10 @@ export class ReportsService {
     };
   }
 
-  async getUcarerIncomingOrderDetails(productCodeInput: string): Promise<{
+  async getUcarerIncomingOrderDetails(
+    productCodeInput: string,
+    depotInput?: 'MERKEZ' | 'TOPCA' | string | null
+  ): Promise<{
     productCode: string;
     rows: Array<{
       customerCode: string;
@@ -6433,24 +6643,38 @@ export class ReportsService {
       unitPrice: number;
     }>;
     total: number;
+    depot: 'MERKEZ' | 'TOPCA';
   }> {
     const productCode = String(productCodeInput || '').trim().toUpperCase();
     if (!productCode) {
       throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
     }
+    const depot = String(depotInput || 'MERKEZ').trim().toUpperCase() === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
+    const warehouseNo = depot === 'TOPCA' ? 6 : 1;
     const escapedCode = productCode.replace(/'/g, "''");
     const rawRows = await mikroService.executeQuery(`
-      SELECT TOP 750 *
+      SELECT TOP 750
+        sip_musteri_kod,
+        sip_evrakno_seri,
+        sip_evrakno_sira,
+        sip_satirno,
+        sip_tarih,
+        sip_miktar,
+        sip_teslim_miktar,
+        sip_b_fiyat
       FROM SIPARISLER WITH (NOLOCK)
       WHERE sip_tip = 0
         AND ISNULL(sip_kapat_fl, 0) = 0
+        AND ISNULL(sip_iptal, 0) = 0
+        AND ISNULL(sip_depono, ${warehouseNo}) = ${warehouseNo}
         AND LTRIM(RTRIM(ISNULL(sip_stok_kod, ''))) = '${escapedCode}'
         AND ISNULL(sip_miktar, 0) > ISNULL(sip_teslim_miktar, 0)
+      ORDER BY sip_tarih DESC, sip_evrakno_sira DESC, sip_satirno DESC
     `);
 
     const rows = Array.isArray(rawRows) ? rawRows : [];
     if (rows.length === 0) {
-      return { productCode, rows: [], total: 0 };
+      return { productCode, rows: [], total: 0, depot };
     }
 
     const readByTokens = (row: Record<string, any>, tokens: string[]): any => {
@@ -6533,6 +6757,7 @@ export class ReportsService {
       productCode,
       rows: responseRows,
       total: responseRows.length,
+      depot,
     };
   }
 
@@ -8132,7 +8357,9 @@ export class ReportsService {
       orderNumber: string;
       itemCount: number;
       totalQuantity: number;
+      warning?: string | null;
     }>;
+    failedOrders: Array<{ supplierCode: string; supplierName: string | null; error: string }>;
     missingSupplierProducts: Array<{ productCode: string; quantity: number }>;
     skippedInvalid: Array<{ familyId: string | null; productCode: string; quantity: number }>;
   }> {
@@ -8431,6 +8658,25 @@ export class ReportsService {
       `);
     }
 
+    // KRITIK: Mikro'ya evrak yazmaya baslamadan ONCE tum tedarikcilerin seri konfigurasyonu
+    // topluca dogrulanir. Eski akista seri kontrolu dongu icindeydi; 1. tedarikcinin evragi
+    // yazildiktan sonra 2. tedarikcide seri hatasi olusunca kismi basari kayboluyor ve tekrar
+    // deneme CIFT evrak uretiyordu.
+    const missingSeriesSuppliers: string[] = [];
+    for (const supplierCode of supplierItems.keys()) {
+      const cfg = supplierConfigs[supplierCode] || {};
+      if (!String(cfg.series || '').trim()) {
+        missingSeriesSuppliers.push(supplierCode);
+      }
+    }
+    if (missingSeriesSuppliers.length > 0) {
+      throw new AppError(
+        `Siparis serisi zorunludur: ${missingSeriesSuppliers.slice(0, 10).join(', ')}`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+
     const today = new Date();
     const day = String(today.getDate()).padStart(2, '0');
     const month = String(today.getMonth() + 1).padStart(2, '0');
@@ -8441,115 +8687,165 @@ export class ReportsService {
       orderNumber: string;
       itemCount: number;
       totalQuantity: number;
+      warning?: string | null;
     }> = [];
+    const failedOrders: Array<{ supplierCode: string; supplierName: string | null; error: string }> = [];
 
     for (const [supplierCode, items] of supplierItems.entries()) {
       const cfg = supplierConfigs[supplierCode] || {};
       const series = String(cfg.series || '').trim().toUpperCase();
-      if (!series) {
-        throw new AppError(`Siparis serisi zorunludur (${supplierCode}).`, 400, ErrorCode.BAD_REQUEST);
-      }
       const applyVAT = Boolean(cfg.applyVAT);
       const deliveryType = String(cfg.deliveryType || '').trim().slice(0, 25);
       const deliveryDate = cfg.deliveryDate ? String(cfg.deliveryDate) : null;
       const totalQuantity = items.reduce((sum, row) => sum + row.quantity, 0);
-      const orderNumber = await mikroService.writeOrder({
-        cariCode: supplierCode,
-        items: items.map((item) => ({
-          productCode: item.productCode,
-          quantity: item.quantity,
-          unitPrice: productCostMap.get(item.productCode)?.unitPrice || 0,
-          vatRate: productCostMap.get(item.productCode)?.vatRate || 0,
-          lineDescription: `Ucarer aile dagitimi ${depot}`,
-        })),
-        applyVAT,
-        description: `Ucarer Aile Dagitimi ${depot}`,
-        documentDescription: `Ucarer aile dagitimi ${depot} ${day}.${month}.${year}`,
-        evrakSeri: series,
-        warehouseNo,
-        deliveryType,
-        deliveryDate,
-        buyerCode: '195.01.069',
-      });
+      const supplierName = supplierNameMap.get(supplierCode) || null;
 
-      const match = String(orderNumber).match(/^(.*)-(\d+)$/);
-      if (match) {
-        const seri = match[1];
-        const sira = Number(match[2]);
-        if (seri && Number.isFinite(sira)) {
-          const fallbackApproverRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
-          const fallbackApprover =
-            Number.isFinite(fallbackApproverRaw) && fallbackApproverRaw > 0
-              ? Math.trunc(fallbackApproverRaw)
-              : 1;
-          const approverRows = await mikroService.executeQuery(`
-            SELECT TOP 1 ISNULL(sip_OnaylayanKulNo, 0) AS approverNo
-            FROM SIPARISLER WITH (NOLOCK)
-            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
-              AND ISNULL(sip_OnaylayanKulNo, 0) > 0
-            ORDER BY sip_lastup_date DESC, sip_create_date DESC
-          `);
-          let approverNoRaw = Number(approverRows?.[0]?.approverNo || 0);
-          if (!Number.isFinite(approverNoRaw) || approverNoRaw <= 0) {
-            const globalApproverRows = await mikroService.executeQuery(`
-              SELECT TOP 1 ISNULL(sip_OnaylayanKulNo, 0) AS approverNo
-              FROM SIPARISLER WITH (NOLOCK)
-              WHERE sip_tip = 1
-                AND ISNULL(sip_OnaylayanKulNo, 0) > 0
-              ORDER BY sip_lastup_date DESC, sip_create_date DESC
-            `);
-            approverNoRaw = Number(globalApproverRows?.[0]?.approverNo || 0);
-          }
-          const approverNo =
-            Number.isFinite(approverNoRaw) && approverNoRaw > 0
-              ? Math.trunc(approverNoRaw)
-              : fallbackApprover;
-          await mikroService.executeQuery(`
-            UPDATE SIPARISLER
-            SET
-              sip_tip = 1,
-              sip_OnaylayanKulNo = CASE
-                WHEN ISNULL(sip_OnaylayanKulNo, 0) = 0 THEN ${approverNo}
-                ELSE sip_OnaylayanKulNo
-              END,
-              sip_lastup_user = CASE
-                WHEN ISNULL(sip_lastup_user, 0) = 0 THEN ${approverNo}
-                ELSE sip_lastup_user
-              END,
-              sip_lastup_date = GETDATE()
-            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
-              AND sip_evrakno_sira = ${sira}
-          `);
-          const verify = await mikroService.executeQuery(`
-            SELECT COUNT(*) AS cnt
-            FROM SIPARISLER
-            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
-              AND sip_evrakno_sira = ${sira}
-              AND sip_tip = 1
-          `);
-          const confirmedCount = Number(verify?.[0]?.cnt || 0);
-          if (!Number.isFinite(confirmedCount) || confirmedCount <= 0) {
-            throw new AppError(
-              `Verilen siparis fisi formati dogrulanamadi (${seri}-${sira}).`,
-              500,
-              ErrorCode.INTERNAL_SERVER_ERROR
-            );
-          }
-        }
+      let orderNumber = '';
+      try {
+        orderNumber = await mikroService.writeOrder({
+          cariCode: supplierCode,
+          items: items.map((item) => ({
+            productCode: item.productCode,
+            quantity: item.quantity,
+            unitPrice: productCostMap.get(item.productCode)?.unitPrice || 0,
+            vatRate: productCostMap.get(item.productCode)?.vatRate || 0,
+            lineDescription: `Ucarer aile dagitimi ${depot}`,
+          })),
+          applyVAT,
+          description: `Ucarer Aile Dagitimi ${depot}`,
+          documentDescription: `Ucarer aile dagitimi ${depot} ${day}.${month}.${year}`,
+          evrakSeri: series,
+          warehouseNo,
+          deliveryType,
+          deliveryDate,
+          buyerCode: '195.01.069',
+        });
+      } catch (error: any) {
+        // Kismi basari: kalan tedarikcilerle devam et, hatayi failedOrders'a yaz.
+        failedOrders.push({
+          supplierCode,
+          supplierName,
+          error: String(error?.message || 'Siparis Mikro tarafina yazilamadi'),
+        });
+        continue;
       }
 
-      createdOrders.push({
+      const createdOrder = {
         supplierCode,
-        supplierName: supplierNameMap.get(supplierCode) || null,
+        supplierName,
         orderNumber,
         itemCount: items.length,
         totalQuantity,
+        warning: null as string | null,
+      };
+      createdOrders.push(createdOrder);
+
+      // Basarili her evragi ANINDA kalici logla; sonraki tedarikcide hata olsa bile
+      // hangi evraklarin OLUSTUGU islem gecmisinden gorulebilsin.
+      await this.logUcarerOperation({
+        operationType: 'SUPPLIER_ORDER_CREATE',
+        title: 'Ucarer tedarikci siparisi olusturuldu',
+        depot,
+        supplierCode,
+        supplierName,
+        orderNumbers: [orderNumber],
+        newValues: { order: { ...createdOrder }, items },
+        userId: input.userId || null,
       });
+
+      try {
+        const match = String(orderNumber).match(/^(.*)-(\d+)$/);
+        if (match) {
+          const seri = match[1];
+          const sira = Number(match[2]);
+          if (seri && Number.isFinite(sira)) {
+            const fallbackApproverRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+            const fallbackApprover =
+              Number.isFinite(fallbackApproverRaw) && fallbackApproverRaw > 0
+                ? Math.trunc(fallbackApproverRaw)
+                : 1;
+            const approverRows = await mikroService.executeQuery(`
+              SELECT TOP 1 ISNULL(sip_OnaylayanKulNo, 0) AS approverNo
+              FROM SIPARISLER WITH (NOLOCK)
+              WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+                AND ISNULL(sip_OnaylayanKulNo, 0) > 0
+              ORDER BY sip_lastup_date DESC, sip_create_date DESC
+            `);
+            let approverNoRaw = Number(approverRows?.[0]?.approverNo || 0);
+            if (!Number.isFinite(approverNoRaw) || approverNoRaw <= 0) {
+              const globalApproverRows = await mikroService.executeQuery(`
+                SELECT TOP 1 ISNULL(sip_OnaylayanKulNo, 0) AS approverNo
+                FROM SIPARISLER WITH (NOLOCK)
+                WHERE sip_tip = 1
+                  AND ISNULL(sip_OnaylayanKulNo, 0) > 0
+                ORDER BY sip_lastup_date DESC, sip_create_date DESC
+              `);
+              approverNoRaw = Number(globalApproverRows?.[0]?.approverNo || 0);
+            }
+            const approverNo =
+              Number.isFinite(approverNoRaw) && approverNoRaw > 0
+                ? Math.trunc(approverNoRaw)
+                : fallbackApprover;
+            await mikroService.executeQuery(`
+              UPDATE SIPARISLER
+              SET
+                sip_tip = 1,
+                sip_OnaylayanKulNo = CASE
+                  WHEN ISNULL(sip_OnaylayanKulNo, 0) = 0 THEN ${approverNo}
+                  ELSE sip_OnaylayanKulNo
+                END,
+                sip_lastup_user = CASE
+                  WHEN ISNULL(sip_lastup_user, 0) = 0 THEN ${approverNo}
+                  ELSE sip_lastup_user
+                END,
+                sip_lastup_date = GETDATE()
+              WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+                AND sip_evrakno_sira = ${sira}
+            `);
+            const verify = await mikroService.executeQuery(`
+              SELECT COUNT(*) AS cnt
+              FROM SIPARISLER
+              WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+                AND sip_evrakno_sira = ${sira}
+                AND sip_tip = 1
+            `);
+            const confirmedCount = Number(verify?.[0]?.cnt || 0);
+            if (!Number.isFinite(confirmedCount) || confirmedCount <= 0) {
+              throw new AppError(
+                `Verilen siparis fisi formati dogrulanamadi (${seri}-${sira}).`,
+                500,
+                ErrorCode.INTERNAL_SERVER_ERROR
+              );
+            }
+          }
+        }
+      } catch (error: any) {
+        // Evrak Mikro'da OLUSTU; sadece verilen-siparis formati dogrulanamadi.
+        // Tekrar deneme cift evrak uretecegi icin hata firlatmak yerine uyari donuyoruz.
+        createdOrder.warning = `Evrak olustu (${orderNumber}) ancak verilen siparis formati dogrulanamadi: ${String(
+          error?.message || error
+        )}`;
+      }
+    }
+
+    if (createdOrders.length === 0) {
+      const detail = failedOrders
+        .slice(0, 5)
+        .map((row) => `${row.supplierCode}: ${row.error}`)
+        .join(' | ');
+      throw new AppError(
+        `Hicbir tedarikci siparisi olusturulamadi. ${detail}`.trim(),
+        500,
+        ErrorCode.INTERNAL_SERVER_ERROR
+      );
     }
 
     await this.logUcarerOperation({
       operationType: 'SUPPLIER_ORDER_CREATE',
-      title: 'Ucarer tedarikci siparisleri olusturuldu',
+      title:
+        failedOrders.length > 0
+          ? 'Ucarer tedarikci siparisleri KISMEN olusturuldu'
+          : 'Ucarer tedarikci siparisleri olusturuldu',
       depot,
       orderNumbers: createdOrders.map((order) => order.orderNumber),
       newValues: {
@@ -8559,6 +8855,7 @@ export class ReportsService {
         allocationCount: normalizedRows.length,
         supplierCount: createdOrders.length,
         productCount: productCodes.length,
+        failedOrders,
         skippedInvalid,
         persistSupplierOverrides: Array.from(persistOverrideByProduct.entries())
           .filter(([, persist]) => persist)
@@ -8572,6 +8869,7 @@ export class ReportsService {
 
     return {
       createdOrders,
+      failedOrders,
       missingSupplierProducts: [],
       skippedInvalid,
     };

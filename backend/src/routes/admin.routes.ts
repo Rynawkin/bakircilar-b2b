@@ -634,6 +634,14 @@ router.post('/reports/ucarer-minmax/run', requirePermission('reports:ucarer-minm
 router.get('/reports/ucarer-minmax/status', requirePermission('reports:ucarer-minmax'), adminController.getUcarerMinMaxJobStatus);
 router.get('/reports/ucarer-minmax-excluded', requirePermission('reports:ucarer-depo'), adminController.getUcarerMinMaxExcludedProductsReport);
 router.post('/reports/ucarer-minmax-exclusion', requirePermission('reports:ucarer-depo'), adminController.setUcarerMinMaxExclusion);
+// Min-Max v2: B2B tarafinda paralel hesap motoru (SP'ye dokunmaz; yazma sadece kullanici onayli apply)
+router.get('/minmax/preview', requirePermission('reports:ucarer-minmax'), adminController.getMinMaxV2Preview);
+router.post('/minmax/apply', requirePermission('reports:ucarer-minmax'), adminController.applyMinMaxV2);
+router.get('/minmax/overrides', requirePermission('reports:ucarer-minmax'), adminController.getMinMaxV2Overrides);
+router.post('/minmax/overrides', requirePermission('reports:ucarer-minmax'), adminController.createMinMaxV2Override);
+router.delete('/minmax/overrides/:id', requirePermission('reports:ucarer-minmax'), adminController.deleteMinMaxV2Override);
+router.get('/minmax/settings', requirePermission('reports:ucarer-minmax'), adminController.getMinMaxV2Settings);
+router.put('/minmax/settings', requirePermission('reports:ucarer-minmax'), adminController.updateMinMaxV2Settings);
 router.get('/reports/product-families', requirePermission('reports:ucarer-depo'), adminController.getProductFamilies);
 router.post('/reports/product-families', requirePermission('reports:ucarer-depo'), adminController.createProductFamily);
 router.put('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.updateProductFamily);
@@ -679,6 +687,7 @@ router.put('/product-aliases/:id', requirePermission('admin:search-management'),
 // Banner yonetimi (musteri landing) - HEAD_ADMIN / ADMIN
 // Mutasyonlar musteri /banners cache'ini temizler
 router.get('/banners', requireAdmin, bannerController.listAll);
+router.get('/banners/stats', requireAdmin, bannerController.stats);
 router.post('/banners/upload', requireAdmin, upload.single('image'), bannerController.uploadImage);
 router.post('/banners', requireAdmin, invalidateCacheMiddleware(['banners:*']), bannerController.create);
 router.put('/banners/:id', requireAdmin, invalidateCacheMiddleware(['banners:*']), bannerController.update);

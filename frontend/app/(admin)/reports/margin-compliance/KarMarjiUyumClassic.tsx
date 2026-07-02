@@ -174,7 +174,7 @@ export default function KarMarjiUyumClassic() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Kar % (Guncel)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Kar % (Kar/Maliyet)</CardTitle>
                   <Percent className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -209,13 +209,13 @@ export default function KarMarjiUyumClassic() {
                       </TableRow>
                       <TableRow>
                         <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar (Guncel)</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar % (Guncel)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar %</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar (Guncel)</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar % (Guncel)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar %</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
                       </TableRow>

@@ -214,18 +214,49 @@ const getHalfVatFactor = (row: MarginAnalysisRow) => {
   return 1.1;
 };
 
+// Anahtar adini tam (normalize edilmis) eslestirir; 'sobirimmaliyet' token'i
+// 'sobirimmaliyetkdv' icinde de gectigi icin includes-bazli arama yaniltici olur.
+const getRowNumberByExactToken = (row: MarginAnalysisRow, token: string) => {
+  const normalizedToken = normalizeDataKey(token);
+  const key = Object.keys(row).find((candidate) => normalizeDataKey(candidate) === normalizedToken);
+  const value = key ? row[key] : undefined;
+  const parsed = typeof value === 'string' ? Number(value.replace(/\./g, '').replace(',', '.')) : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+// Son giris (SO) birim maliyetini satirin KDV durumuna gore kar hesap bazina cevirir.
+const getEntryUnitCostBasis = (row: MarginAnalysisRow) => {
+  const net = getRowNumberByExactToken(row, 'SÖ-BirimMaliyet');
+  const withVat = getRowNumberByExactToken(row, 'Sö-BirimMaliyetKdv');
+  const halfVatFactor = getHalfVatFactor(row);
+  const fullVatFactor = 1 + (halfVatFactor - 1) * 2;
+  if (isNoVatSaleRow(row)) {
+    if (net > 0) return net * halfVatFactor;
+    if (withVat > 0 && fullVatFactor > 0) return (withVat / fullVatFactor) * halfVatFactor;
+    return 0;
+  }
+  if (net > 0) return net;
+  if (withVat > 0 && fullVatFactor > 0) return withVat / fullVatFactor;
+  return 0;
+};
+
 const getCurrentCostBasis = (row: MarginAnalysisRow) => {
   const noVatSale = isNoVatSaleRow(row);
   const withoutVat = getRowNumber(row, ['A.Teklif+'], 'ateklif');
   const withVat = getRowNumber(row, ['A.TeklifDahil', 'A.Teklif KDV Dahil'], 'ateklifdahil');
   const halfVatFactor = getHalfVatFactor(row);
   const sameCost = areSameMoney(withoutVat, withVat);
-  if (noVatSale) {
-    if (sameCost) return withVat * halfVatFactor;
-    return withVat > 0 ? withVat : withoutVat * halfVatFactor;
-  }
-  if (sameCost) return withoutVat / halfVatFactor;
-  return withoutVat > 0 ? withoutVat : withVat / halfVatFactor;
+  const currentCost = (() => {
+    if (noVatSale) {
+      if (sameCost) return withVat * halfVatFactor;
+      return withVat > 0 ? withVat : withoutVat * halfVatFactor;
+    }
+    if (sameCost) return withoutVat / halfVatFactor;
+    return withoutVat > 0 ? withoutVat : withVat / halfVatFactor;
+  })();
+  // Kar hesap tabani: teklif maliyet korumasi kuraliyla ayni sekilde
+  // max(guncel maliyet, son giris maliyeti). Backend rapor/mail de ayni kurali kullanir.
+  return Math.max(currentCost, getEntryUnitCostBasis(row));
 };
 
 const getCurrentRevenueBasis = (row: MarginAnalysisRow) => {
@@ -534,7 +565,7 @@ export function useKarMarjiUyum() {
             <span className="font-semibold">{formatCurrency(bucket.totalRevenue)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar (Guncel, KDV Haric)</span>
+            <span className="text-gray-500">Kar (KDV Haric)</span>
             <span className="font-semibold">{formatCurrency(bucket.totalProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -542,7 +573,7 @@ export function useKarMarjiUyum() {
             <span className="font-semibold">{formatCurrency(bucket.entryProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar % (Guncel)</span>
+            <span className="text-gray-500">Kar % (Kar/Maliyet)</span>
             <span className="font-semibold">{formatPercent(bucket.avgMargin)}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -645,7 +676,7 @@ export function useKarMarjiUyum() {
     },
     {
       id: 'avgCost',
-      label: 'Guncel Maliyet (Kar Hesap Bazi)',
+      label: 'Maliyet (Kar Hesap Bazi: Guncel/Son Giris buyugu)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(getCurrentCostBasis(row)),
@@ -653,7 +684,7 @@ export function useKarMarjiUyum() {
     },
     {
       id: 'unitProfit',
-      label: 'Birim Kar (Guncel)',
+      label: 'Birim Kar',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(getCurrentUnitProfit(row)),
@@ -661,7 +692,7 @@ export function useKarMarjiUyum() {
     },
     {
       id: 'totalProfit',
-      label: 'Toplam Kar (Guncel)',
+      label: 'Toplam Kar',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right font-semibold whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(getCurrentTotalProfit(row)),
@@ -669,7 +700,7 @@ export function useKarMarjiUyum() {
     },
     {
       id: 'margin',
-      label: 'Kar % (Guncel)',
+      label: 'Kar % (Kar/Maliyet)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => getMarginBadge(getCurrentMarginPercent(row)),

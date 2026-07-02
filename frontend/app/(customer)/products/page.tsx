@@ -62,6 +62,7 @@ export default function ProductsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [warehouse, setWarehouse] = useState<string>('');
+  const [isStaticLoaded, setIsStaticLoaded] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -144,16 +145,18 @@ export default function ProductsPage() {
   }, []);
 
   const loadStaticData = useCallback(async () => {
-    try {
-      const [categoriesData, warehousesData] = await Promise.all([
-        customerApi.getCategories(),
-        customerApi.getWarehouses().catch(() => ({ warehouses: [] as string[] })),
-      ]);
-      setCategories(categoriesData.categories);
-      setWarehouses(warehousesData.warehouses || []);
-    } catch (error) {
-      console.error('Statik veri yükleme hatası:', error);
-    }
+    // Kategori/depo hatasi urun yuklemesini engellemesin: hata yutulur,
+    // bos listeyle devam edilir ve urunler bagimsiz yuklenir.
+    const [categoriesData, warehousesData] = await Promise.all([
+      customerApi.getCategories().catch((error) => {
+        console.error('Kategori yükleme hatası:', error);
+        return { categories: [] as Category[] };
+      }),
+      customerApi.getWarehouses().catch(() => ({ warehouses: [] as string[] })),
+    ]);
+    setCategories(categoriesData.categories);
+    setWarehouses(warehousesData.warehouses || []);
+    setIsStaticLoaded(true);
   }, []);
 
   const fetchProducts = useCallback(
@@ -204,12 +207,11 @@ export default function ProductsPage() {
   );
 
   useEffect(() => {
-    if (categories.length > 0) {
-      setOffset(0);
-      setHasMore(true);
-      fetchProducts({ reset: true, offset: 0 });
-    }
-  }, [selectedCategory, brandCodes, debouncedSearch, warehouse, categories, fetchProducts]);
+    if (!isStaticLoaded) return;
+    setOffset(0);
+    setHasMore(true);
+    fetchProducts({ reset: true, offset: 0 });
+  }, [selectedCategory, brandCodes, debouncedSearch, warehouse, isStaticLoaded, fetchProducts]);
 
   const handleLoadMore = () => {
     if (isSearching || isLoadingMore || !hasMore) return;
@@ -601,6 +603,7 @@ export default function ProductsPage() {
                   allowedPriceTypes={allowedPriceTypes}
                   defaultPriceType={defaultPriceType}
                   vatDisplayPreference={vatDisplayPreference}
+                  selectedWarehouse={warehouse || undefined}
                   onAdd={handleAdd}
                 />
               ))}

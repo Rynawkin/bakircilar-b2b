@@ -41,6 +41,7 @@ export type SuggestionSortKey =
   | 'packQty'
   | 'costExVat'
   | 'costIncVat'
+  | 'stockDays'
   | 'suggested'
   | 'allocation'
   | 'diff';
@@ -55,7 +56,20 @@ export type OpsExtraColumnKey =
   | 'currentCost'
   | 'packQty'
   | 'costExVat'
-  | 'costIncVat';
+  | 'costIncVat'
+  | 'stockDays';
+
+// 'Musteri bekliyor' triyaji: A = alinan/bekleyen musteri siparisi var,
+// B = acik siparis yok ama stok gunu kritik esigin altinda (yakinda bekletmeye baslar),
+// C = min-max tamamlama (ertelenebilir).
+export type SuggestionTriageClass = 'A' | 'B' | 'C';
+export type SuggestionTriageFilter = 'ALL' | SuggestionTriageClass;
+export const TRIAGE_SOON_DAYS = 14;
+export const TRIAGE_LABELS: Record<SuggestionTriageClass, string> = {
+  A: 'Musteri bekliyor',
+  B: 'Yakinda bekleyecek',
+  C: 'Min-max tamamlama',
+};
 
 export interface ProductFamily {
   id: string;
@@ -137,6 +151,13 @@ export interface CreatedSupplierOrderSummary {
   orderNumber: string;
   itemCount: number;
   totalQuantity: number;
+  warning?: string | null;
+}
+
+export interface FailedSupplierOrderSummary {
+  supplierCode: string;
+  supplierName: string | null;
+  error: string;
 }
 
 export interface CreatedSupplierOrderLine {
@@ -324,8 +345,18 @@ const formatOperationDate = (value: string | null | undefined) => {
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('tr-TR');
 };
 
+// Oneri modu aciklamalari. NOT: MinMax Haric (3. Sorun) modunun davranisi bilinçli olarak
+// AYNEN korunmustur ('hep boyle kullanildi'); bu metin sadece modun ne yaptigini aciklar.
+export const SUGGESTION_MODE_HELP: Record<SuggestionMode, string> = {
+  INCLUDE_MINMAX:
+    'MinMax Dahil (4. Sorun): Oneri, min-max hedefine gore hesaplanir (Max - Reel). Gelecek DSV dusulur; aile minimumu karsilaniyorsa oneri 0 olur.',
+  EXCLUDE_MINMAX:
+    'MinMax Haric (3. Sorun): Oneri kaynagi 3.SORUN kolonudur (REEL MIKTAR = depo + verilen siparis - alinan siparis) ve gelecek DSV dusulur. Min-max tanimli ve karsilanan urunlerde oneri 0 olur. Bu modda pozitif deger klasik "eksigi tamamla" onerisi degil, satinalma sonrasi eldeki reel miktara dayali degerdir; davranis bilerek boyle kullanilagelmistir.',
+};
+
 export const OPERATION_TYPE_LABELS: Record<string, string> = {
   MINMAX_RUN: 'MinMax',
+  MINMAX_V2_APPLY: 'MinMax v2 Yazma',
   MARK_TOPLU: 'TOPLU',
   MINMAX_EXCLUSION: 'MinMax Haric',
   PRODUCT_FAMILY_CREATE: 'Aile Olusturma',
@@ -382,6 +413,7 @@ export function useUcarerDepo() {
     packQty: true,
     costExVat: true,
     costIncVat: true,
+    stockDays: true,
   });
   const [packQtyByCode, setPackQtyByCode] = useState<Record<string, number>>({});
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
@@ -401,6 +433,7 @@ export function useUcarerDepo() {
   const [nonFamilySort, setNonFamilySort] = useState<SuggestionSortState>({ key: 'code', direction: 'none' });
   const [nonFamilyColorFilter, setNonFamilyColorFilter] = useState<NonFamilyColorFilter>('ALL');
   const [nonFamilyColorSort, setNonFamilyColorSort] = useState<NonFamilyColorSort>('NONE');
+  const [nonFamilyTriageFilter, setNonFamilyTriageFilter] = useState<SuggestionTriageFilter>('ALL');
   const [familyListSearch, setFamilyListSearch] = useState('');
   const [familyDetailSearch, setFamilyDetailSearch] = useState('');
   const [nonFamilySearch, setNonFamilySearch] = useState('');
@@ -542,6 +575,12 @@ export function useUcarerDepo() {
   const maxQtyColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('maximum miktar'));
   }, [visibleDepotColumns]);
+  const stockDaysColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('kalan stok gunu'));
+  }, [visibleDepotColumns]);
+  const dailySalesColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('gunluk ortalama satis'));
+  }, [visibleDepotColumns]);
   const rowByProductCode = useMemo(() => {
     const map = new Map<string, Record<string, any>>();
     if (!stockCodeColumn) return map;
@@ -566,7 +605,10 @@ export function useUcarerDepo() {
   const isRowOperationallyEmpty = (row?: Record<string, any>) => {
     if (!row) return true;
     let hasNumeric = false;
-    for (const value of Object.values(row)) {
+    for (const [key, value] of Object.entries(row)) {
+      // Bilgi amacli satis/stok-gunu kolonlari operasyonel bosluk kontrolune dahil edilmez.
+      const keyNorm = normalizeKey(key);
+      if (keyNorm.includes('gunluk ortalama satis') || keyNorm.includes('kalan stok gunu')) continue;
       const parsed = parseMaybeNumber(value);
       if (parsed === null) continue;
       hasNumeric = true;
@@ -592,10 +634,12 @@ export function useUcarerDepo() {
   }, [families]);
   const familySuggestions = useMemo(() => {
     return families.map((family) => {
-      let rawNeed = 0;
       const visibleItems = getVisibleFamilyItems(family);
       const familyCoverage = getFamilyCoverage(family);
       const familyCovered = isFamilyCoveredByMinimum(familyCoverage);
+      // Aile onerisi TOPLAM tavani ile sinirlanir (kardes urun fazlasi dusulur).
+      const cappedNeeds = computeFamilyCappedNeeds(family);
+      const rawNeed = cappedNeeds.totalNeed;
       const itemSignals: Array<{
         code: string;
         raw: number;
@@ -609,8 +653,7 @@ export function useUcarerDepo() {
         const row = rowByProductCode.get(code);
         if (!row) return;
         const naturalRaw = getRawSuggestedQty(row);
-        const raw = familyCovered ? 0 : naturalRaw;
-        rawNeed += raw;
+        const raw = cappedNeeds.perItem.get(code) || 0;
         const incomingOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row?.[incomingOrderColumn])) : 0;
         itemSignals.push({
           code,
@@ -687,6 +730,28 @@ export function useUcarerDepo() {
   function getSuggestedQty(row: Record<string, any>): number {
     return Math.max(0, getRawSuggestedQty(row));
   }
+  // 'Kalan Stok Gunu' kolonu (backend son 120 gun satisindan hesaplar; satis yoksa null).
+  function getDaysOfStock(row?: Record<string, any>): number | null {
+    if (!row || !stockDaysColumn) return null;
+    const parsed = parseMaybeNumber(row[stockDaysColumn]);
+    return parsed === null ? null : Math.max(0, parsed);
+  }
+  function getDailyAverageSales(row?: Record<string, any>): number | null {
+    if (!row || !dailySalesColumn) return null;
+    const parsed = parseMaybeNumber(row[dailySalesColumn]);
+    return parsed === null ? null : Math.max(0, parsed);
+  }
+  function getSuggestionTriage(row?: Record<string, any>): SuggestionTriageClass {
+    if (!row) return 'C';
+    const incoming = incomingOrderColumn ? toNumberFlexible(row[incomingOrderColumn]) : 0;
+    if (incoming > 0) return 'A';
+    const days = getDaysOfStock(row);
+    if (days !== null && days < TRIAGE_SOON_DAYS) return 'B';
+    return 'C';
+  }
+  function getTriageRank(triage: SuggestionTriageClass): number {
+    return triage === 'A' ? 0 : triage === 'B' ? 1 : 2;
+  }
   function isPriceListUpdateChecked(code: string): boolean {
     return updatePriceListsByCode[String(code || '').trim().toUpperCase()] !== false;
   }
@@ -729,6 +794,66 @@ export function useUcarerDepo() {
   }
   function isFamilyCoveredByMinimum(coverage: { minimum: number; effective: number }): boolean {
     return coverage.minimum > 0 && coverage.effective >= coverage.minimum;
+  }
+  // Patron kurali: aile toplam stok + bekleyen satinalma - alinan musteri siparisi,
+  // minimum TOPLAM mantigiyla degerlendirilir. Aile onerilen TOPLAMI icin tavan:
+  // max(0, aile toplam minimum - aile toplam efektif stok). Urun bazli dagitim kendi
+  // ihtiyacina orantili yapilir ama toplam bu tavani ASAMAZ (kardes urun fazlasi
+  // aile efektif toplami uzerinden dusulmus olur).
+  function computeFamilyCappedNeeds(family: ProductFamily): {
+    covered: boolean;
+    cap: number;
+    totalNeed: number;
+    perItem: Map<string, number>;
+  } {
+    const coverage = getFamilyCoverage(family);
+    const covered = isFamilyCoveredByMinimum(coverage);
+    const perItem = new Map<string, number>();
+    const visibleItems = getVisibleFamilyItems(family);
+    visibleItems.forEach((item) => {
+      perItem.set(String(item.productCode || '').trim().toUpperCase(), 0);
+    });
+    if (covered) {
+      return { covered, cap: 0, totalNeed: 0, perItem };
+    }
+    const cap =
+      coverage.minimum > 0 ? Math.max(0, Math.ceil(coverage.minimum - coverage.effective)) : Number.POSITIVE_INFINITY;
+    const needs: Array<{ code: string; need: number }> = [];
+    visibleItems.forEach((item) => {
+      const code = String(item.productCode || '').trim().toUpperCase();
+      const row = rowByProductCode.get(code);
+      const need = row ? Math.max(0, Math.trunc(getRawSuggestedQty(row))) : 0;
+      needs.push({ code, need });
+    });
+    const naturalTotal = needs.reduce((sum, entry) => sum + entry.need, 0);
+    if (naturalTotal <= 0) {
+      return { covered, cap: Number.isFinite(cap) ? cap : 0, totalNeed: 0, perItem };
+    }
+    if (naturalTotal <= cap) {
+      needs.forEach((entry) => perItem.set(entry.code, entry.need));
+      return { covered, cap: Number.isFinite(cap) ? cap : naturalTotal, totalNeed: naturalTotal, perItem };
+    }
+    // Toplam ihtiyac tavani asiyor: orantili dagit, kalan farki en buyuk kusurata ver.
+    const targetTotal = Math.max(0, Math.trunc(cap));
+    const scale = targetTotal / naturalTotal;
+    let allocatedSum = 0;
+    const fractions: Array<{ code: string; frac: number; need: number }> = [];
+    needs.forEach((entry) => {
+      const exact = entry.need * scale;
+      const base = Math.floor(exact);
+      perItem.set(entry.code, base);
+      allocatedSum += base;
+      fractions.push({ code: entry.code, frac: exact - base, need: entry.need });
+    });
+    let remainder = Math.max(0, targetTotal - allocatedSum);
+    fractions.sort((a, b) => (b.frac - a.frac) || (b.need - a.need));
+    for (const entry of fractions) {
+      if (remainder <= 0) break;
+      if (entry.need <= 0) continue;
+      perItem.set(entry.code, (perItem.get(entry.code) || 0) + 1);
+      remainder -= 1;
+    }
+    return { covered, cap: targetTotal, totalNeed: targetTotal, perItem };
   }
   const totalSuggestedQty = useMemo(
     () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
@@ -1455,15 +1580,8 @@ export function useUcarerDepo() {
   };
 
   const getFamilyNeed = (family: ProductFamily): number => {
-    const coverage = getFamilyCoverage(family);
-    if (isFamilyCoveredByMinimum(coverage)) return 0;
-    let total = 0;
-    getVisibleFamilyItems(family).forEach((item) => {
-      const code = String(item.productCode || '').trim().toUpperCase();
-      const row = rowByProductCode.get(code);
-      if (row) total += getRawSuggestedQty(row);
-    });
-    return Math.max(0, Math.trunc(total));
+    // Aile toplam tavani uygulanmis ihtiyac (kardes urun fazlasi dusulmus).
+    return Math.max(0, Math.trunc(computeFamilyCappedNeeds(family).totalNeed));
   };
 
   const applySingleAllocation = (family: ProductFamily) => {
@@ -1540,6 +1658,10 @@ export function useUcarerDepo() {
       return Number.isFinite(withVat) && withVat > 0
         ? withVat.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : '-';
+    }
+    if (key === 'stockDays') {
+      const days = getDaysOfStock(row);
+      return days === null ? '-' : `${days.toLocaleString('tr-TR')} gun`;
     }
     return '-';
   };
@@ -1663,7 +1785,7 @@ export function useUcarerDepo() {
     setIncomingOrdersModalOpen(true);
     setIncomingOrdersLoading(true);
     try {
-      const response = await adminApi.getUcarerIncomingOrderDetails(code);
+      const response = await adminApi.getUcarerIncomingOrderDetails(code, depot);
       setIncomingOrdersDetailRows(Array.isArray(response.data?.rows) ? response.data.rows : []);
     } catch (error: any) {
       setIncomingOrdersDetailRows([]);
@@ -1856,11 +1978,12 @@ export function useUcarerDepo() {
       supplierName: string;
       colorRank: number;
     }>;
-    const familyCovered = Boolean(activeFamilySuggestion?.coveredByFamilyMinimum);
+    // Aile tavanina gore orantili dagitilmis oneri (kardes urun fazlasi dusulmus).
+    const cappedNeeds = computeFamilyCappedNeeds(activeFamily);
     const rows = activeFamilyItems.map((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
-      const suggested = familyCovered ? 0 : row ? getRawSuggestedQty(row) : 0;
+      const suggested = cappedNeeds.perItem.get(code) || 0;
       const allocation = manualAllocations[activeFamily.id]?.[code] ?? 0;
       const diff = allocation - suggested;
       return {
@@ -1889,6 +2012,7 @@ export function useUcarerDepo() {
       if (familySort.key === 'realQty') return compareMixed(a.row?.[realQtyColumn || ''], b.row?.[realQtyColumn || ''], familySort.direction);
       if (familySort.key === 'minQty') return compareMixed(a.row?.[minQtyColumn || ''], b.row?.[minQtyColumn || ''], familySort.direction);
       if (familySort.key === 'maxQty') return compareMixed(a.row?.[maxQtyColumn || ''], b.row?.[maxQtyColumn || ''], familySort.direction);
+      if (familySort.key === 'stockDays') return compareMixed(getDaysOfStock(a.row), getDaysOfStock(b.row), familySort.direction);
       if (familySort.key === 'packQty') return compareMixed(packQtyByCode[a.code] || 0, packQtyByCode[b.code] || 0, familySort.direction);
       if (familySort.key === 'costExVat') return compareMixed(currentCostByCode[a.code] || 0, currentCostByCode[b.code] || 0, familySort.direction);
       if (familySort.key === 'costIncVat') {
@@ -1919,6 +2043,7 @@ export function useUcarerDepo() {
     packQtyByCode,
     realQtyColumn,
     rowByProductCode,
+    stockDaysColumn,
     suggestionMode,
     thirdIssueColumn,
     topcaDepoStockColumn,
@@ -1931,6 +2056,8 @@ export function useUcarerDepo() {
       const suggested = Math.max(0, Math.trunc(getSuggestedQty(row)));
       const rawAllocated = nonFamilyAllocations[code];
       const allocation = rawAllocated === '' || rawAllocated === undefined ? 0 : Math.max(0, Math.trunc(Number(rawAllocated)));
+      const triage = getSuggestionTriage(row);
+      const incomingQty = incomingOrderColumn ? Math.max(0, toNumberFlexible(row?.[incomingOrderColumn])) : 0;
       return {
         ...item,
         suggested,
@@ -1938,9 +2065,17 @@ export function useUcarerDepo() {
         supplierCode: getEffectiveSupplierCode(code),
         supplierName: getEffectiveSupplierName(code),
         colorRank: getRowColorRank(row),
+        triage,
+        incomingQty,
+        daysOfStock: getDaysOfStock(row),
       };
     });
-    if (nonFamilySort.direction === 'none') return rows;
+    if (nonFamilySort.direction === 'none') {
+      // Varsayilan siralama: A (musteri bekliyor) -> B (yakinda bekleyecek) -> C, sonra oneri buyukten kucuge.
+      return [...rows].sort(
+        (a, b) => (getTriageRank(a.triage) - getTriageRank(b.triage)) || (b.suggested - a.suggested)
+      );
+    }
     return [...rows].sort((a, b) => {
       if (nonFamilySort.key === 'color') return compareMixed(a.colorRank, b.colorRank, nonFamilySort.direction);
       if (nonFamilySort.key === 'code') return compareMixed(a.code, b.code, nonFamilySort.direction);
@@ -1954,6 +2089,7 @@ export function useUcarerDepo() {
       if (nonFamilySort.key === 'realQty') return compareMixed(a.row?.[realQtyColumn || ''], b.row?.[realQtyColumn || ''], nonFamilySort.direction);
       if (nonFamilySort.key === 'minQty') return compareMixed(a.row?.[minQtyColumn || ''], b.row?.[minQtyColumn || ''], nonFamilySort.direction);
       if (nonFamilySort.key === 'maxQty') return compareMixed(a.row?.[maxQtyColumn || ''], b.row?.[maxQtyColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'stockDays') return compareMixed(a.daysOfStock, b.daysOfStock, nonFamilySort.direction);
       if (nonFamilySort.key === 'packQty') return compareMixed(packQtyByCode[a.code] || 0, packQtyByCode[b.code] || 0, nonFamilySort.direction);
       if (nonFamilySort.key === 'costExVat') return compareMixed(currentCostByCode[a.code] || 0, currentCostByCode[b.code] || 0, nonFamilySort.direction);
       if (nonFamilySort.key === 'costIncVat') {
@@ -1981,6 +2117,7 @@ export function useUcarerDepo() {
     packQtyByCode,
     productNameColumn,
     realQtyColumn,
+    stockDaysColumn,
     suggestionMode,
     thirdIssueColumn,
     topcaDepoStockColumn,
@@ -2017,6 +2154,10 @@ export function useUcarerDepo() {
       });
     }
 
+    if (nonFamilyTriageFilter !== 'ALL') {
+      rows = rows.filter((entry) => entry.triage === nonFamilyTriageFilter);
+    }
+
     if (nonFamilyColorSort !== 'NONE') {
       rows.sort((a, b) => {
         const diff = a.colorRank - b.colorRank;
@@ -2025,7 +2166,26 @@ export function useUcarerDepo() {
     }
 
     return rows;
-  }, [nonFamilyRowsSorted, nonFamilySearch, productNameColumn, nonFamilyColorFilter, nonFamilyColorSort]);
+  }, [nonFamilyRowsSorted, nonFamilySearch, productNameColumn, nonFamilyColorFilter, nonFamilyColorSort, nonFamilyTriageFilter]);
+  // Triyaj ozetleri: sinif basina kalem sayisi, toplam oneri miktari ve KDV haric oneri tutari.
+  const nonFamilyTriageSummary = useMemo(() => {
+    const summary: Record<SuggestionTriageClass, { count: number; totalQty: number; totalAmount: number }> = {
+      A: { count: 0, totalQty: 0, totalAmount: 0 },
+      B: { count: 0, totalQty: 0, totalAmount: 0 },
+      C: { count: 0, totalQty: 0, totalAmount: 0 },
+    };
+    nonFamilyRowsSorted.forEach((entry) => {
+      const bucket = summary[entry.triage];
+      if (!bucket) return;
+      bucket.count += 1;
+      bucket.totalQty += entry.suggested;
+      const unitCost = Number(currentCostByCode[entry.code] || 0);
+      if (Number.isFinite(unitCost) && unitCost > 0) {
+        bucket.totalAmount += entry.suggested * unitCost;
+      }
+    });
+    return summary;
+  }, [nonFamilyRowsSorted, currentCostByCode]);
   const familySuggestionsFiltered = useMemo(() => {
     const query = normalizeKey(familyListSearch);
     const source = !query
@@ -2069,12 +2229,12 @@ export function useUcarerDepo() {
   );
   const fillActiveBySuggestions = () => {
     if (!activeFamily) return;
-    const familyCovered = Boolean(activeFamilySuggestion?.coveredByFamilyMinimum);
+    // Aile tavanina gore orantili dagitilmis oneri miktarlari kullanilir.
+    const cappedNeeds = computeFamilyCappedNeeds(activeFamily);
     const next: Record<string, number> = {};
     getVisibleFamilyItems(activeFamily).forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
-      const row = rowByProductCode.get(code);
-      next[code] = familyCovered ? 0 : row ? getSuggestedQty(row) : 0;
+      next[code] = Math.max(0, Math.trunc(cappedNeeds.perItem.get(code) || 0));
     });
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
   };
@@ -2486,6 +2646,7 @@ export function useUcarerDepo() {
         allocations: pendingAllocations,
       });
       const created = result.data?.createdOrders || [];
+      const failed = result.data?.failedOrders || [];
       if (created.length === 0) {
         toast.error('Siparis olusturulamadi.');
         return;
@@ -2495,20 +2656,75 @@ export function useUcarerDepo() {
       if (orderList) {
         toast(orderList, { duration: 9000 });
       }
+      created
+        .filter((row) => row.warning)
+        .forEach((row) => {
+          toast.error(`${row.supplierCode} ${row.orderNumber}: ${row.warning}`, { duration: 12000 });
+        });
+
+      const createdSupplierSet = new Set(
+        created.map((row) => String(row.supplierCode || '').trim().toUpperCase())
+      );
+      const createdAllocations = pendingAllocations.filter((row) =>
+        createdSupplierSet.has(String(row.supplierCodeOverride || '').trim().toUpperCase())
+      );
       setLastCreatedOrders(created);
-      setLastCreatedAllocations([...pendingAllocations]);
+      setLastCreatedAllocations(createdAllocations);
       const batch: CreatedSupplierOrderBatch = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         createdAt: new Date().toISOString(),
         depot,
         orders: created,
-        lines: buildCreatedOrderLines(pendingAllocations),
+        lines: buildCreatedOrderLines(createdAllocations),
       };
       setCreatedOrderHistory((prev) => [batch, ...prev].slice(0, 50));
       setCreatedOrdersModalOpen(true);
-      setSeriesModalOpen(false);
-      setPendingAllocations([]);
-      setSupplierOrderConfigs({});
+
+      if (failed.length > 0) {
+        // Kismi basari: olusan evraklarin dagitimlari listeden CIKARILIR, modal acik kalir;
+        // operator sadece hatali cariler icin tekrar dener (cift evrak riski onlenir).
+        const remainingAllocations = pendingAllocations.filter(
+          (row) => !createdSupplierSet.has(String(row.supplierCodeOverride || '').trim().toUpperCase())
+        );
+        setPendingAllocations(remainingAllocations);
+        // Olusan urunlerin dagitim girisleri de sifirlanir ki 'Toplu Siparis Olustur'
+        // tekrar calistirilirsa ayni urunler ikinci kez evraklasmasin.
+        const createdProductCodes = new Set(
+          createdAllocations.map((row) => String(row.productCode || '').trim().toUpperCase())
+        );
+        setManualAllocations((prev) => {
+          const next = { ...prev };
+          Object.keys(next).forEach((familyId) => {
+            const familyAlloc = { ...(next[familyId] || {}) };
+            Object.keys(familyAlloc).forEach((productCode) => {
+              if (createdProductCodes.has(String(productCode).toUpperCase())) familyAlloc[productCode] = 0;
+            });
+            next[familyId] = familyAlloc;
+          });
+          return next;
+        });
+        setNonFamilyAllocations((prev) => {
+          const next: Record<string, number | ''> = { ...prev };
+          Object.keys(next).forEach((productCode) => {
+            if (createdProductCodes.has(String(productCode).toUpperCase())) next[productCode] = '';
+          });
+          return next;
+        });
+        toast.error(
+          `Su cariler icin siparis OLUSMADI: ${failed
+            .map((row) => `${row.supplierCode} (${row.error})`)
+            .join(' | ')}`,
+          { duration: 15000 }
+        );
+        toast(
+          `Su evraklar OLUSTU, tekrar GONDERMEYIN: ${orderList}. Listede sadece hatali cariler birakildi.`,
+          { duration: 15000 }
+        );
+      } else {
+        setSeriesModalOpen(false);
+        setPendingAllocations([]);
+        setSupplierOrderConfigs({});
+      }
       refreshOperationLogsIfOpen();
     } catch (error: any) {
       toast.error(getApiErrorMessage(error, 'Tedarikci siparisleri olusturulamadi'));
@@ -2797,6 +3013,7 @@ export function useUcarerDepo() {
     nonFamilySort, setNonFamilySort,
     nonFamilyColorFilter, setNonFamilyColorFilter,
     nonFamilyColorSort, setNonFamilyColorSort,
+    nonFamilyTriageFilter, setNonFamilyTriageFilter,
     familyListSearch, setFamilyListSearch,
     familyDetailSearch, setFamilyDetailSearch,
     nonFamilySearch, setNonFamilySearch,
@@ -2887,6 +3104,7 @@ export function useUcarerDepo() {
     missingPriceCodeSet,
     pendingSupplierRows,
     pendingSupplierItemsByCode,
+    nonFamilyTriageSummary,
     // sticky degerleri
     stickySelectionWidth,
     stickyCodeWidth,
@@ -2897,6 +3115,11 @@ export function useUcarerDepo() {
     getVisibleFamilyItems,
     getRawSuggestedQty,
     getSuggestedQty,
+    getDaysOfStock,
+    getDailyAverageSales,
+    getSuggestionTriage,
+    getTriageRank,
+    computeFamilyCappedNeeds,
     isPriceListUpdateChecked,
     getFamilyItemMinimum,
     getFamilyItemNetQuantity,

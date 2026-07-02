@@ -90,6 +90,8 @@ export default function TeklifOlusturNew() {
     applyFamilySplit,
     applyFamilySwap,
     applyLastSaleToAll,
+    applyMinPriceToBlockedItems,
+    applyMinPriceToItem,
     applyPriceListToAll,
     applyResponsibilityCenterToAll,
     autoScrollForDrag,
@@ -132,6 +134,7 @@ export default function TeklifOlusturNew() {
     getPoolColorClass,
     getPoolQuantityInputValue,
     getPoolQuantityValue,
+    getRecommendationCustomerBadge,
     handleColumnDragEnd,
     handleColumnDragOver,
     handleColumnDragStart,
@@ -343,6 +346,7 @@ export default function TeklifOlusturNew() {
     showTableScrollBar,
     sortPoolProducts,
     sortedPurchasedProducts,
+    sortedRecommendations,
     sortedSearchResults,
     startColumnResize,
     stockDataMap,
@@ -1535,15 +1539,24 @@ export default function TeklifOlusturNew() {
                                         Kar {formatPercent(marginInfo.currentCostDiff)}
                                       </span>
                                     </span>
-                                    {marginInfo.openPurchase && (
-                                      <span className="rounded-full bg-[#dbeafe] px-2 py-1 font-semibold text-[#1d4ed8]">
-                                        Acik alis (KDV dahil = haric)
-                                      </span>
-                                    )}
                                     {marginInfo.blocked && (
-                                      <span className="rounded-full bg-[#fee2e2] px-2 py-1 font-semibold text-[#b91c1c]">
-                                        Blok: %5 altinda
-                                      </span>
+                                      <>
+                                        <span className="rounded-full bg-[#fee2e2] px-2 py-1 font-semibold text-[#b91c1c]">
+                                          Blok: %5 altinda
+                                        </span>
+                                        {marginInfo.minPrice > 0 && (
+                                          <span className="rounded-full border border-[#fecaca] bg-white px-2 py-1 text-[#b91c1c]">
+                                            Min satis: <span className="font-semibold">{formatCurrency(marginInfo.minPrice)}</span>
+                                          </span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => applyMinPriceToItem(item.id)}
+                                          className="rounded-full border border-[#b91c1c] bg-white px-2 py-1 font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+                                        >
+                                          Tabana cek
+                                        </button>
+                                      </>
                                     )}
                                   </div>
                                 </td>
@@ -1596,8 +1609,10 @@ export default function TeklifOlusturNew() {
                   <div className="text-[13px] text-[#8b97ac]">Uygun tamamlayici urun bulunamadi.</div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {recommendations.map((product) => {
+                    {sortedRecommendations.map((product) => {
                       const isAdded = quoteProductCodeSet.has(product.mikroCode);
+                      const customerBadge = getRecommendationCustomerBadge(product);
+                      const hasExcessStock = Number(product.excessStock) > 0;
                       return (
                         <div
                           key={product.id}
@@ -1617,6 +1632,20 @@ export default function TeklifOlusturNew() {
                             <div className="text-[12px] text-[#8b97ac]">{product.mikroCode}</div>
                             {product.recommendationNote && (
                               <div className="text-[11px] text-[#8b97ac]">{product.recommendationNote}</div>
+                            )}
+                            {(hasExcessStock || customerBadge) && (
+                              <div className="mt-1 flex flex-wrap items-center gap-1">
+                                {hasExcessStock && (
+                                  <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[10px] font-semibold text-[#92400e]">
+                                    Yatan stok
+                                  </span>
+                                )}
+                                {customerBadge && (
+                                  <span className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[10px] font-semibold text-[#3730a3]">
+                                    {customerBadge}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                           <button
@@ -1706,7 +1735,18 @@ export default function TeklifOlusturNew() {
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <p className="text-[12px] text-[#8b97ac]">{quoteItems.length} kalem secili</p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {hasBlockedPreview && (
+                      <button
+                        type="button"
+                        onClick={applyMinPriceToBlockedItems}
+                        disabled={submitting}
+                        title="Blok'lu satirlarin fiyatini minimum satilabilir fiyata (taban x 1,05) ceker"
+                        className="inline-flex items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-[13px] font-semibold text-[#b91c1c] hover:bg-[#fee2e2] disabled:opacity-50"
+                      >
+                        Tum blok satirlari tabana cek
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={openAiAnalysis}

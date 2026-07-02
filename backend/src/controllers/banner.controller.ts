@@ -104,6 +104,34 @@ class BannerController {
     } catch (e) { next(e); }
   }
 
+  /**
+   * Admin: banner tiklama istatistikleri.
+   * CustomerActivityEvent uzerinden eventType CLICK + meta.bannerId dolu olaylari sayar.
+   * GET /api/admin/banners/stats?days=30 -> { stats: [{ bannerId, clicks }] }
+   */
+  async stats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rawDays = Number(req.query.days);
+      const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(Math.trunc(rawDays), 365) : 30;
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      // meta JSON path sorgusu icin raw query (PostgreSQL)
+      const rows = await prisma.$queryRaw<Array<{ bannerId: string; clicks: number }>>`
+        SELECT e."meta"->>'bannerId' AS "bannerId", COUNT(*)::int AS "clicks"
+        FROM "CustomerActivityEvent" e
+        WHERE e."type" = 'CLICK'
+          AND e."createdAt" >= ${since}
+          AND e."meta"->>'bannerId' IS NOT NULL
+        GROUP BY e."meta"->>'bannerId'
+        ORDER BY COUNT(*) DESC
+      `;
+
+      res.json({
+        stats: rows.map((row) => ({ bannerId: row.bannerId, clicks: Number(row.clicks) })),
+      });
+    } catch (e) { next(e); }
+  }
+
   /** Admin: banner gorseli yukle (multipart "image") -> public URL doner */
   async uploadImage(req: Request, res: Response, next: NextFunction) {
     try {

@@ -19,6 +19,7 @@ import {
   Package,
   ArrowUpDown,
   Loader2,
+  MousePointerClick,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ImageCropUpload } from '@/components/admin/ImageCropUpload';
@@ -63,6 +64,7 @@ const labelClass = 'mb-1.5 block text-[12px] font-medium text-[#51607a]';
 export default function BannerlarNew() {
   const {
     banners,
+    bannerClicks,
     loading,
     saving,
     togglingId,
@@ -225,6 +227,13 @@ export default function BannerlarNew() {
                   </div>
 
                   <div className="space-y-1.5 text-[12px] text-[#51607a]">
+                    <div className="flex items-center gap-1.5">
+                      <MousePointerClick className="h-3.5 w-3.5 shrink-0 text-[#9aa6b8]" />
+                      <span>
+                        Tıklama (30g):{' '}
+                        <b className="font-semibold text-[#14223b]">{bannerClicks[banner.id] ?? 0}</b>
+                      </span>
+                    </div>
                     {banner.linkUrl && (
                       <div className="flex items-center gap-1.5">
                         <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[#9aa6b8]" />

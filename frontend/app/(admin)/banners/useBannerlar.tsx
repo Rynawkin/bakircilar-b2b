@@ -103,6 +103,8 @@ export function useBannerlar() {
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  // Son 30 gun tiklama sayilari (bannerId -> tik); yuklenemezse bos kalir
+  const [bannerClicks, setBannerClicks] = useState<Record<string, number>>({});
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editing, setEditing] = useState<AdminBanner | null>(null);
@@ -133,6 +135,17 @@ export function useBannerlar() {
       .then((s) => {
         const ms = Number(s?.heroBannerIntervalMs);
         if (Number.isFinite(ms) && ms >= 2000) setHeroIntervalSec(Math.round(ms / 1000));
+      })
+      .catch(() => {});
+    // Son 30 gun tiklama istatistikleri (best-effort)
+    adminApi
+      .getBannerStats(30)
+      .then(({ stats }) => {
+        const map: Record<string, number> = {};
+        (stats || []).forEach((row) => {
+          if (row?.bannerId) map[row.bannerId] = Number(row.clicks) || 0;
+        });
+        setBannerClicks(map);
       })
       .catch(() => {});
   }, []);
@@ -303,6 +316,7 @@ export function useBannerlar() {
   return {
     // veri / yuklenme durumlari
     banners,
+    bannerClicks,
     loading,
     saving,
     togglingId,

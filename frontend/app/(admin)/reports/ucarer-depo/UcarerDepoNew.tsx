@@ -21,18 +21,24 @@ import {
   ClipboardList,
 } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
+import MinMaxV2Panel from './MinMaxV2Panel';
 import {
   useUcarerDepo,
   normalizeValue,
   formatPdfMoney,
   formatOperationDate,
   OPERATION_TYPE_LABELS,
+  SUGGESTION_MODE_HELP,
+  TRIAGE_LABELS,
+  TRIAGE_SOON_DAYS,
   type UcarerOperationLogRow,
   type AllocationMode,
   type NonFamilyColorFilter,
   type NonFamilyColorSort,
   type DepotType,
   type SuggestionMode,
+  type SuggestionTriageClass,
+  type SuggestionTriageFilter,
 } from './useUcarerDepo';
 
 /**
@@ -97,6 +103,7 @@ export default function UcarerDepoNew() {
     nonFamilySort, setNonFamilySort,
     nonFamilyColorFilter, setNonFamilyColorFilter,
     nonFamilyColorSort, setNonFamilyColorSort,
+    nonFamilyTriageFilter, setNonFamilyTriageFilter,
     familyListSearch, setFamilyListSearch,
     familyDetailSearch, setFamilyDetailSearch,
     nonFamilySearch, setNonFamilySearch,
@@ -171,6 +178,7 @@ export default function UcarerDepoNew() {
     missingPriceCodeSet,
     pendingSupplierRows,
     pendingSupplierItemsByCode,
+    nonFamilyTriageSummary,
     stickySelectionWidth,
     stickyCodeWidth,
     stickyNameWidth,
@@ -201,6 +209,8 @@ export default function UcarerDepoNew() {
     getExtraColumnValue,
     getEffectiveSupplierCode,
     getEffectiveSupplierName,
+    getDaysOfStock,
+    getDailyAverageSales,
     updateProductCost,
     updateMainSupplier,
     setMinMaxExclusion,
@@ -229,6 +239,43 @@ export default function UcarerDepoNew() {
   const selCls =
     'rounded-lg border border-[#e3e8f0] bg-white px-2.5 h-9 text-[12.5px] text-[#14223b] outline-none focus:border-[#15356b] cursor-pointer';
 
+  // 'Kalan stok gunu' rozeti: 7 gun alti kirmizi, 14 gun alti sari.
+  const renderStockDaysBadge = (row?: Record<string, any>) => {
+    const days = getDaysOfStock(row);
+    if (days === null) return <span className="text-[#9aa6b8]">-</span>;
+    const dailyAvg = getDailyAverageSales(row);
+    const cls =
+      days < 7
+        ? 'bg-red-100 text-red-700'
+        : days < TRIAGE_SOON_DAYS
+        ? 'bg-amber-100 text-amber-800'
+        : 'bg-[#eef2fa] text-[#51607a]';
+    return (
+      <span
+        className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${cls}`}
+        title={dailyAvg !== null ? `Gunluk ort. satis (120g): ${dailyAvg.toLocaleString('tr-TR')}` : undefined}
+      >
+        {days.toLocaleString('tr-TR')} gun
+      </span>
+    );
+  };
+
+  // Triyaj rozeti: A = musteri bekliyor, B = yakinda bekleyecek, C = min-max tamamlama.
+  const renderTriageBadge = (triage: SuggestionTriageClass, incomingQty: number) => {
+    const cls =
+      triage === 'A'
+        ? 'bg-red-100 text-red-700'
+        : triage === 'B'
+        ? 'bg-amber-100 text-amber-800'
+        : 'bg-[#eef2fa] text-[#51607a]';
+    return (
+      <span className={`inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold ${cls}`}>
+        {triage} · {TRIAGE_LABELS[triage]}
+        {triage === 'A' && incomingQty > 0 ? ` (${incomingQty.toLocaleString('tr-TR')})` : ''}
+      </span>
+    );
+  };
+
   // ---- Operasyon kolonlari toggle satiri (yeni; ayni panelColumns state'i) ----
   const renderOperationColumnsToggle = () => (
     <div className={`${CARD} p-3`}>
@@ -246,6 +293,7 @@ export default function UcarerDepoNew() {
           ['packQty', 'Koli Ici'],
           ['costExVat', 'Maliyet KDV Haric'],
           ['costIncVat', 'Maliyet KDV Dahil'],
+          ['stockDays', 'Stok Gunu'],
         ] as Array<[keyof typeof panelColumns, string]>).map(([key, label]) => (
           <label key={key} className="inline-flex items-center gap-1.5">
             <input
@@ -469,6 +517,7 @@ export default function UcarerDepoNew() {
                 {panelColumns.realQty && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'realQty'))}>Reel Miktar{sortIndicator(familySort, 'realQty')}</th>}
                 {panelColumns.minQty && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'minQty'))}>Min{sortIndicator(familySort, 'minQty')}</th>}
                 {panelColumns.maxQty && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'maxQty'))}>Max{sortIndicator(familySort, 'maxQty')}</th>}
+                {panelColumns.stockDays && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'stockDays'))} title="Depo miktari / son 120 gun gunluk ortalama satis">Stok Gunu{sortIndicator(familySort, 'stockDays')}</th>}
                 {panelColumns.packQty && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'packQty'))}>Koli Ici{sortIndicator(familySort, 'packQty')}</th>}
                 {panelColumns.costExVat && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'costExVat'))}>Maliyet KDV Haric{sortIndicator(familySort, 'costExVat')}</th>}
                 {panelColumns.costIncVat && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'costIncVat'))}>Maliyet KDV Dahil{sortIndicator(familySort, 'costIncVat')}</th>}
@@ -585,6 +634,7 @@ export default function UcarerDepoNew() {
                     {panelColumns.realQty && <td className="px-2 py-2 text-right font-semibold">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
                     {panelColumns.minQty && <td className="px-2 py-2 text-right text-[#51607a]">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
                     {panelColumns.maxQty && <td className="px-2 py-2 text-right text-[#51607a]">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
+                    {panelColumns.stockDays && <td className="px-2 py-2 text-right">{renderStockDaysBadge(row)}</td>}
                     {panelColumns.packQty && <td className="px-2 py-2 text-right text-[#51607a]">{getExtraColumnValue(row || {}, code, 'packQty')}</td>}
                     {panelColumns.costExVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costExVat')}</td>}
                     {panelColumns.costIncVat && <td className="px-2 py-2 text-right text-[#51607a]">{getExtraColumnValue(row || {}, code, 'costIncVat')}</td>}
@@ -921,6 +971,7 @@ export default function UcarerDepoNew() {
                 <Play width={13} height={13} />
                 {minMaxLoading ? 'Calisiyor...' : 'MinMax Calistir'}
               </button>
+              <MinMaxV2Panel depot={depot} />
               <button type="button" className={btnSmGhost} onClick={exportMinMax} disabled={exportingMinMax || minMaxRows.length === 0}>
                 <Download width={13} height={13} />
                 {exportingMinMax ? 'Hazirlaniyor...' : "Excel'e Aktar"}
@@ -931,12 +982,18 @@ export default function UcarerDepoNew() {
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            <label className="flex items-center gap-1.5 text-[11.5px] text-[#8b97ac]">
+            <label className="flex items-center gap-1.5 text-[11.5px] text-[#8b97ac]" title={SUGGESTION_MODE_HELP[suggestionMode]}>
               Oneri Modu
-              <select value={suggestionMode} onChange={(e) => setSuggestionMode(e.target.value as SuggestionMode)} className={selCls + ' h-8 w-56'}>
+              <select value={suggestionMode} onChange={(e) => setSuggestionMode(e.target.value as SuggestionMode)} className={selCls + ' h-8 w-56'} title={SUGGESTION_MODE_HELP[suggestionMode]}>
                 <option value="INCLUDE_MINMAX">MinMax Dahil (4. Sorun)</option>
                 <option value="EXCLUDE_MINMAX">MinMax Haric (3. Sorun)</option>
               </select>
+              <span
+                className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-[#eef2fa] text-[10px] font-bold text-[#15356b]"
+                title={SUGGESTION_MODE_HELP[suggestionMode]}
+              >
+                ?
+              </span>
             </label>
             <p className="text-[12.5px] text-[#51607a]">
               Toplam: <strong className="text-[#14223b]">{depotTotal.toLocaleString('tr-TR')}</strong>
@@ -946,6 +1003,11 @@ export default function UcarerDepoNew() {
               Mod'a Gore Onerilen Toplam: <strong className="text-[#14223b]">{totalSuggestedQty.toLocaleString('tr-TR')}</strong>
             </p>
           </div>
+          {suggestionMode === 'EXCLUDE_MINMAX' && (
+            <p className="rounded-lg border border-[#e7ebf2] bg-[#fafbfd] px-3 py-2 text-[11.5px] text-[#51607a]">
+              {SUGGESTION_MODE_HELP.EXCLUDE_MINMAX}
+            </p>
+          )}
         </div>
 
         {/* Kart 2 — Aile Operasyon Paneli (sekmeler) */}
@@ -1132,6 +1194,41 @@ export default function UcarerDepoNew() {
                   <span className="text-[12px] text-[#51607a]">Kalem: <strong className="text-[#14223b]">{filteredNonFamilyRows.length.toLocaleString('tr-TR')}</strong></span>
                 </div>
               </div>
+              {/* Triyaj seridi: A -> B -> C (varsayilan siralama da bu sirayla) */}
+              <div className="flex flex-wrap items-center gap-2 border-b border-[#eef1f6] px-4 py-2.5">
+                {(['ALL', 'A', 'B', 'C'] as SuggestionTriageFilter[]).map((filterKey) => {
+                  const active = nonFamilyTriageFilter === filterKey;
+                  const bucket = filterKey === 'ALL' ? null : nonFamilyTriageSummary[filterKey];
+                  const label =
+                    filterKey === 'ALL'
+                      ? 'Tumu'
+                      : `${filterKey} · ${TRIAGE_LABELS[filterKey as SuggestionTriageClass]}`;
+                  return (
+                    <button
+                      key={filterKey}
+                      type="button"
+                      onClick={() => setNonFamilyTriageFilter(filterKey)}
+                      className={
+                        active
+                          ? 'rounded-lg bg-[#15356b] px-3 py-1.5 text-[11px] font-semibold text-white'
+                          : 'rounded-lg border border-[#d8e0ec] bg-white px-3 py-1.5 text-[11px] font-medium text-[#51607a] hover:bg-[#f4f6fa]'
+                      }
+                      title={
+                        bucket
+                          ? `Oneri: ${bucket.totalQty.toLocaleString('tr-TR')} adet / ${formatPdfMoney(bucket.totalAmount)} (KDV haric)`
+                          : 'Tum siniflar'
+                      }
+                    >
+                      {label}
+                      {bucket && (
+                        <span className="ml-1.5 font-normal">
+                          ({bucket.count.toLocaleString('tr-TR')} kalem · {formatPdfMoney(bucket.totalAmount)})
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
               <div className="overflow-x-auto overflow-y-auto max-h-[62vh]">
                 <table className="w-max min-w-[2200px] text-[11px]">
                   <thead className="bg-[#f8fafc] sticky top-0 z-20">
@@ -1157,6 +1254,7 @@ export default function UcarerDepoNew() {
                       >
                         Urun Adi{sortIndicator(nonFamilySort, 'name')}
                       </th>
+                      <th className="px-2 py-2.5 text-left" title="A = musteri bekliyor, B = yakinda bekleyecek, C = min-max tamamlama">Sinif</th>
                       <th className="px-2 py-2.5 text-left cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'supplierCode'))}>Saglayici Kodu{sortIndicator(nonFamilySort, 'supplierCode')}</th>
                       <th className="px-2 py-2.5 text-left cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'supplierName'))}>Saglayici Adi{sortIndicator(nonFamilySort, 'supplierName')}</th>
                       <th className="px-2 py-2.5 text-center">Ana Saglayici</th>
@@ -1169,6 +1267,7 @@ export default function UcarerDepoNew() {
                       {panelColumns.realQty && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'realQty'))}>Reel Miktar{sortIndicator(nonFamilySort, 'realQty')}</th>}
                       {panelColumns.minQty && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'minQty'))}>Min{sortIndicator(nonFamilySort, 'minQty')}</th>}
                       {panelColumns.maxQty && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'maxQty'))}>Max{sortIndicator(nonFamilySort, 'maxQty')}</th>}
+                      {panelColumns.stockDays && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'stockDays'))} title="Depo miktari / son 120 gun gunluk ortalama satis">Stok Gunu{sortIndicator(nonFamilySort, 'stockDays')}</th>}
                       {panelColumns.packQty && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'packQty'))}>Koli Ici{sortIndicator(nonFamilySort, 'packQty')}</th>}
                       {panelColumns.costExVat && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'costExVat'))}>Maliyet KDV Haric{sortIndicator(nonFamilySort, 'costExVat')}</th>}
                       {panelColumns.costIncVat && <th className="px-2 py-2.5 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'costIncVat'))}>Maliyet KDV Dahil{sortIndicator(nonFamilySort, 'costIncVat')}</th>}
@@ -1225,6 +1324,7 @@ export default function UcarerDepoNew() {
                           >
                             {productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}
                           </td>
+                          <td className="px-2 py-2">{renderTriageBadge(item.triage, item.incomingQty)}</td>
                           <td className="px-2 py-2">
                             <input
                               list="ucarer-supplier-cari-list"
@@ -1276,6 +1376,7 @@ export default function UcarerDepoNew() {
                           {panelColumns.realQty && <td className="px-2 py-2 text-right font-semibold">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
                           {panelColumns.minQty && <td className="px-2 py-2 text-right text-[#51607a]">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
                           {panelColumns.maxQty && <td className="px-2 py-2 text-right text-[#51607a]">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
+                          {panelColumns.stockDays && <td className="px-2 py-2 text-right">{renderStockDaysBadge(row)}</td>}
                           {panelColumns.packQty && <td className="px-2 py-2 text-right text-[#51607a]">{getExtraColumnValue(row || {}, code, 'packQty')}</td>}
                           {panelColumns.costExVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costExVat')}</td>}
                           {panelColumns.costIncVat && <td className="px-2 py-2 text-right text-[#51607a]">{getExtraColumnValue(row || {}, code, 'costIncVat')}</td>}

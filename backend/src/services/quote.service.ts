@@ -861,12 +861,20 @@ class QuoteService {
         // ama pahali bir alis da gecerli sayilmali. Tarihe bakilmaz, hep pahali olan
         // korunur -> "sattigimizi daha pahaliya almayalim".
         const baseCost = Math.max(currentCost, lastEntryPrice);
-        if (baseCost > 0 && unitPrice < baseCost * 1.05) {
+        // Beyaz (KDV sifirlanmis) satirda satis fiyati KDV'siz alinir ama maliyete
+        // yarim KDV yuku biner (yarim-KDV kurali) -> taban = maliyet * (1 + kdv/2).
+        const effectiveCost = vatZeroedLine
+          ? baseCost * (1 + vatRate / 2)
+          : baseCost;
+        if (effectiveCost > 0 && unitPrice < effectiveCost * 1.05) {
           isBlocked = true;
-          blockedReason =
+          const costReason =
             lastEntryPrice >= currentCost
               ? "Son giris maliyetine gore %5 alti fiyat"
               : "Guncel maliyete gore %5 alti fiyat";
+          blockedReason = vatZeroedLine
+            ? `${costReason} (beyaz yarim-KDV dahil)`
+            : costReason;
           hasBlockedItem = true;
         }
       }
@@ -1183,12 +1191,20 @@ class QuoteService {
         // ama pahali bir alis da gecerli sayilmali. Tarihe bakilmaz, hep pahali olan
         // korunur -> "sattigimizi daha pahaliya almayalim".
         const baseCost = Math.max(currentCost, lastEntryPrice);
-        if (baseCost > 0 && unitPrice < baseCost * 1.05) {
+        // Beyaz (KDV sifirlanmis) satirda satis fiyati KDV'siz alinir ama maliyete
+        // yarim KDV yuku biner (yarim-KDV kurali) -> taban = maliyet * (1 + kdv/2).
+        const effectiveCost = vatZeroedLine
+          ? baseCost * (1 + vatRate / 2)
+          : baseCost;
+        if (effectiveCost > 0 && unitPrice < effectiveCost * 1.05) {
           isBlocked = true;
-          blockedReason =
+          const costReason =
             lastEntryPrice >= currentCost
               ? "Son giris maliyetine gore %5 alti fiyat"
               : "Guncel maliyete gore %5 alti fiyat";
+          blockedReason = vatZeroedLine
+            ? `${costReason} (beyaz yarim-KDV dahil)`
+            : costReason;
           hasBlockedItem = true;
         }
       }
@@ -2135,6 +2151,46 @@ class QuoteService {
     });
     return updated;
   }
+  /**
+   * Mikro'da yazili teklif evraginin ACIK satirlarini kapatir.
+   * Satir listesi Mikro'dan okunur (B2B'de duzenlenmis satirlar Mikro
+   * evragindan farkli olabilir) ve sadece acik satirlar dar WHERE
+   * (seri + sira + satir no) ile kapatilir. Hata durumunda akisi bozmaz,
+   * failed=true doner; cagiran taraf uyari uretir.
+   */
+  private async closeMikroQuoteDocument(
+    mikroNumber: string | null | undefined,
+    reason: string,
+  ): Promise<{ closedCount: number; failed: boolean }> {
+    if (!mikroNumber) {
+      return { closedCount: 0, failed: false };
+    }
+    try {
+      const parsed = this.parseMikroNumber(mikroNumber);
+      if (!parsed) {
+        throw new Error("Invalid Mikro number format");
+      }
+      const mikroLines = await mikroService.getQuoteLines(parsed);
+      const openLines = (mikroLines || []).filter(
+        (line: any) => !line.isClosed,
+      );
+      if (openLines.length === 0) {
+        return { closedCount: 0, failed: false };
+      }
+      const closedCount = await mikroService.closeQuoteLines({
+        evrakSeri: parsed.evrakSeri,
+        evrakSira: parsed.evrakSira,
+        lines: openLines.map((line: any) => ({
+          satirNo: Number(line.satirNo),
+          reason,
+        })),
+      });
+      return { closedCount, failed: false };
+    } catch (error) {
+      console.error("Mikro quote close failed", { mikroNumber, error });
+      return { closedCount: 0, failed: true };
+    }
+  }
   async rejectQuote(quoteId: string, adminUserId: string, adminNote: string) {
     const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
     if (!quote) {
@@ -2143,12 +2199,35 @@ class QuoteService {
     if (quote.status !== "PENDING_APPROVAL") {
       throw new Error("Quote is not pending approval");
     }
+    // Reddedilen teklif Mikro'da yazili ise (onceden SENT_TO_MIKRO olup edit ile
+    // onaya dusen teklif) evrak satirlarini kapat; yoksa Mikro'da acik kalip
+    // siparise donebiliyordu.
+    const closeReason = "Fiyat kabul edilmedi";
+    const mikroClose = await this.closeMikroQuoteDocument(
+      quote.mikroNumber,
+      closeReason,
+    );
+    if (mikroClose.closedCount > 0) {
+      const statusNow = new Date();
+      await prisma.quoteItem.updateMany({
+        where: { quoteId, status: "OPEN" },
+        data: {
+          status: "CLOSED",
+          closedReason: closeReason,
+          closedAt: statusNow,
+          statusUpdatedAt: statusNow,
+        },
+      });
+    }
+    const resolvedAdminNote = mikroClose.failed
+      ? `${adminNote.trim()} | UYARI: Mikro'daki teklif evraki (${quote.mikroNumber}) kapatilamadi - elle kapatin`
+      : adminNote.trim();
     const updated = await prisma.quote.update({
       where: { id: quoteId },
       data: {
         updatedById: adminUserId,
         status: "REJECTED",
-        adminNote: adminNote.trim(),
+        adminNote: resolvedAdminNote,
         adminUserId,
         adminActionAt: new Date(),
       },
@@ -2159,8 +2238,16 @@ class QuoteService {
         quoteId: updated.id,
         action: "STATUS_CHANGED",
         actorId: adminUserId,
-        summary: "Teklif reddedildi",
-        payload: { status: updated.status },
+        summary: mikroClose.failed
+          ? "Teklif reddedildi - UYARI: Mikro evraki kapatilamadi, elle kapatin"
+          : mikroClose.closedCount > 0
+            ? "Teklif reddedildi ve Mikro evrak satirlari kapatildi"
+            : "Teklif reddedildi",
+        payload: {
+          status: updated.status,
+          mikroClosedCount: mikroClose.closedCount,
+          mikroCloseFailed: mikroClose.failed,
+        },
       },
     });
     return updated;
@@ -2969,6 +3056,44 @@ class QuoteService {
     }
     const newStatus =
       decision === "accept" ? "CUSTOMER_ACCEPTED" : "CUSTOMER_REJECTED";
+    if (decision === "reject") {
+      // Musteri reddedince Mikro'daki teklif evraki acik kalmasin (aksi halde
+      // reddedilmis teklif Mikro tarafinda siparise donebiliyordu).
+      const closeReason = "Musteri vazgecti";
+      const mikroClose = await this.closeMikroQuoteDocument(
+        quote.mikroNumber,
+        closeReason,
+      );
+      if (mikroClose.closedCount > 0) {
+        const statusNow = new Date();
+        await prisma.quoteItem.updateMany({
+          where: { quoteId, status: "OPEN" },
+          data: {
+            status: "CLOSED",
+            closedReason: closeReason,
+            closedAt: statusNow,
+            statusUpdatedAt: statusNow,
+          },
+        });
+      }
+      await prisma.quoteHistory.create({
+        data: {
+          quoteId,
+          action: "STATUS_CHANGED",
+          actorId: customerId,
+          summary: mikroClose.failed
+            ? "Musteri teklifi reddetti - UYARI: Mikro evraki kapatilamadi, elle kapatin"
+            : mikroClose.closedCount > 0
+              ? "Musteri teklifi reddetti - Mikro evrak satirlari kapatildi"
+              : "Musteri teklifi reddetti",
+          payload: {
+            status: newStatus,
+            mikroClosedCount: mikroClose.closedCount,
+            mikroCloseFailed: mikroClose.failed,
+          },
+        },
+      });
+    }
     return prisma.quote.update({
       where: { id: quoteId },
       data: { status: newStatus, customerRespondedAt: new Date() },

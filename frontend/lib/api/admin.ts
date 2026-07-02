@@ -52,6 +52,67 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
+// ==================== Min-Max v2 tipleri ====================
+export interface MinMaxV2Settings {
+  lookbackDays: number;
+  minDays: number;
+  maxDays: number;
+  salesScope: 'DEPOT' | 'COMPANY';
+}
+
+export interface MinMaxV2PreviewRow {
+  productCode: string;
+  productName: string;
+  supplierCode: string | null;
+  supplierName: string | null;
+  depot: 'MERKEZ' | 'TOPCA';
+  excluded: boolean;
+  hasDepotRecord: boolean;
+  salesQty: number;
+  dailySales: number;
+  lookbackUsed: number;
+  minDaysUsed: number;
+  maxDaysUsed: number;
+  currentMin: number;
+  currentMax: number;
+  newMin: number | null;
+  newMax: number | null;
+  diffMin: number | null;
+  diffMax: number | null;
+  overrideSource: 'urun' | 'tedarikci' | 'varsayilan' | 'haric';
+}
+
+export interface MinMaxV2PreviewResult {
+  depot: 'MERKEZ' | 'TOPCA';
+  salesScope: 'DEPOT' | 'COMPANY';
+  defaults: MinMaxV2Settings;
+  rows: MinMaxV2PreviewRow[];
+  total: number;
+  summary: {
+    changedCount: number;
+    excludedCount: number;
+    missingDepotRecordCount: number;
+    overrideProductCount: number;
+    overrideSupplierCount: number;
+  };
+  generatedAt: string;
+}
+
+export interface MinMaxV2Override {
+  id: string;
+  scopeType: 'PRODUCT' | 'SUPPLIER';
+  productCode: string | null;
+  productName: string | null;
+  supplierCode: string | null;
+  supplierName: string | null;
+  depot: 'MERKEZ' | 'TOPCA' | null;
+  lookbackDays: number | null;
+  minDays: number | null;
+  maxDays: number | null;
+  note: string | null;
+  createdAt: string;
+}
+
 export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID';
 
 export interface AdminBanner {
@@ -3191,7 +3252,7 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/reports/ucarer-depo/operation-logs${query ? `?${query}` : ''}`);
     return response.data;
   },
-  getUcarerIncomingOrderDetails: async (productCode: string): Promise<{
+  getUcarerIncomingOrderDetails: async (productCode: string, depot?: 'MERKEZ' | 'TOPCA'): Promise<{
     success: boolean;
     data: {
       productCode: string;
@@ -3208,10 +3269,12 @@ export const adminApi = {
         unitPrice: number;
       }>;
       total: number;
+      depot?: 'MERKEZ' | 'TOPCA';
     };
   }> => {
     const queryParams = new URLSearchParams();
     queryParams.append('productCode', productCode);
+    if (depot) queryParams.append('depot', depot);
     const response = await apiClient.get(`/admin/reports/ucarer-incoming-order-details?${queryParams.toString()}`);
     return response.data;
   },
@@ -3417,6 +3480,68 @@ export const adminApi = {
     };
   }> => {
     const response = await apiClient.post('/admin/reports/ucarer-minmax-exclusion', payload);
+    return response.data;
+  },
+
+  // ==================== Min-Max v2 (B2B hesap motoru) ====================
+  getMinMaxV2Settings: async (): Promise<{
+    success: boolean;
+    data: MinMaxV2Settings;
+  }> => {
+    const response = await apiClient.get('/admin/minmax/settings');
+    return response.data;
+  },
+  updateMinMaxV2Settings: async (payload: Partial<MinMaxV2Settings>): Promise<{
+    success: boolean;
+    data: MinMaxV2Settings;
+  }> => {
+    const response = await apiClient.put('/admin/minmax/settings', payload);
+    return response.data;
+  },
+  getMinMaxV2Preview: async (depot: 'MERKEZ' | 'TOPCA'): Promise<{
+    success: boolean;
+    data: MinMaxV2PreviewResult;
+  }> => {
+    const response = await apiClient.get(`/admin/minmax/preview?depot=${encodeURIComponent(depot)}`);
+    return response.data;
+  },
+  applyMinMaxV2: async (payload: {
+    depot: 'MERKEZ' | 'TOPCA';
+    items: Array<{ productCode: string; newMin: number; newMax: number }>;
+  }): Promise<{
+    success: boolean;
+    data: {
+      depot: 'MERKEZ' | 'TOPCA';
+      requested: number;
+      updated: Array<{ productCode: string; oldMin: number; oldMax: number; newMin: number; newMax: number }>;
+      skipped: Array<{ productCode: string; reason: string }>;
+    };
+  }> => {
+    const response = await apiClient.post('/admin/minmax/apply', payload);
+    return response.data;
+  },
+  getMinMaxV2Overrides: async (): Promise<{
+    success: boolean;
+    data: { rows: MinMaxV2Override[]; total: number };
+  }> => {
+    const response = await apiClient.get('/admin/minmax/overrides');
+    return response.data;
+  },
+  createMinMaxV2Override: async (payload: {
+    scopeType: 'PRODUCT' | 'SUPPLIER';
+    productCode?: string | null;
+    supplierCode?: string | null;
+    depot?: 'MERKEZ' | 'TOPCA' | null;
+    lookbackDays?: number | null;
+    minDays?: number | null;
+    maxDays?: number | null;
+    note?: string | null;
+  }): Promise<{ success: boolean; data: { id: string } }> => {
+    const response = await apiClient.post('/admin/minmax/overrides', payload);
+    return response.data;
+  },
+  deleteMinMaxV2Override: async (id: string): Promise<{ success: boolean; data: { id: string } }> => {
+    const response = await apiClient.delete(`/admin/minmax/overrides/${encodeURIComponent(id)}`);
     return response.data;
   },
 
@@ -3644,7 +3769,9 @@ export const adminApi = {
         orderNumber: string;
         itemCount: number;
         totalQuantity: number;
+        warning?: string | null;
       }>;
+      failedOrders?: Array<{ supplierCode: string; supplierName: string | null; error: string }>;
       missingSupplierProducts: Array<{ productCode: string; quantity: number }>;
       skippedInvalid: Array<{ familyId: string | null; productCode: string; quantity: number }>;
     };
@@ -4464,6 +4591,12 @@ export const adminApi = {
   // Banners (Bannerlar)
   getBanners: async (): Promise<{ banners: AdminBanner[] }> => {
     const response = await apiClient.get('/admin/banners');
+    return response.data;
+  },
+
+  // Banner tiklama istatistikleri (musteri aktivite CLICK olaylarindan)
+  getBannerStats: async (days = 30): Promise<{ stats: Array<{ bannerId: string; clicks: number }> }> => {
+    const response = await apiClient.get('/admin/banners/stats', { params: { days } });
     return response.data;
   },
 

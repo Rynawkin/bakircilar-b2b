@@ -19,6 +19,7 @@ import {
   Package,
   ArrowUpDown,
   Loader2,
+  MousePointerClick,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -43,6 +44,7 @@ import {
 export default function BannerlarClassic() {
   const {
     banners,
+    bannerClicks,
     loading,
     saving,
     togglingId,
@@ -161,6 +163,13 @@ export default function BannerlarClassic() {
                   </div>
 
                   <div className="space-y-1.5 text-xs text-gray-600">
+                    <div className="flex items-center gap-1.5">
+                      <MousePointerClick className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span>
+                        Tıklama (30g):{' '}
+                        <b className="font-semibold text-gray-900">{bannerClicks[banner.id] ?? 0}</b>
+                      </span>
+                    </div>
                     {banner.linkUrl && (
                       <div className="flex items-center gap-1.5">
                         <ExternalLink className="h-3.5 w-3.5 shrink-0 text-slate-400" />

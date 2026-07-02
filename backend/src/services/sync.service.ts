@@ -205,6 +205,9 @@ class SyncService {
         },
       });
 
+      // 5. Stok alarmi bildirimleri (best-effort; senkron sonucunu etkilemez)
+      await this.processStockAlerts();
+
       console.log('🎉 Senkronizasyon tamamlandı!');
 
       return {
@@ -454,6 +457,76 @@ class SyncService {
     }
 
     return count;
+  }
+
+  /**
+   * Stok alarmi bildirimleri: bekleyen alarmlardan (notifiedAt null) urunu
+   * stoga girenlere (depo 1+6 toplam stok > 0) Turkce in-app bildirim uretir;
+   * push varsa notification service uzerinden best-effort gonderilir.
+   * Senkron akisini yavaslatmamak icin tek toplu sorgu + try/catch ile calisir.
+   */
+  private async processStockAlerts(): Promise<void> {
+    try {
+      const alerts = await prisma.productStockAlert.findMany({
+        where: {
+          notifiedAt: null,
+          product: { active: true, hiddenFromCustomers: false },
+        },
+        select: {
+          id: true,
+          userId: true,
+          productId: true,
+          product: {
+            select: { name: true, warehouseStocks: true },
+          },
+        },
+      });
+      if (alerts.length === 0) return;
+
+      // Depo 1 (merkez) + depo 6 (Topca) toplam stogu > 0 olan urunlerin alarmlari
+      const inStockAlerts = alerts.filter((alert) => {
+        const stocks = (alert.product?.warehouseStocks || {}) as Record<string, number>;
+        return (Number(stocks['1']) || 0) + (Number(stocks['6']) || 0) > 0;
+      });
+      if (inStockAlerts.length === 0) return;
+
+      // Ayni urunu bekleyen kullanicilara tek seferde bildir
+      const byProduct = new Map<string, { name: string; userIds: string[]; alertIds: string[] }>();
+      for (const alert of inStockAlerts) {
+        const entry = byProduct.get(alert.productId) || {
+          name: alert.product?.name || 'Urun',
+          userIds: [],
+          alertIds: [],
+        };
+        entry.userIds.push(alert.userId);
+        entry.alertIds.push(alert.id);
+        byProduct.set(alert.productId, entry);
+      }
+
+      const notifiedAlertIds: string[] = [];
+      for (const [productId, entry] of byProduct) {
+        try {
+          await notificationService.createForUsers(entry.userIds, {
+            title: 'Beklediginiz urun stokta',
+            body: `${entry.name} urunu stoga girdi — hemen siparis verebilirsiniz.`,
+            linkUrl: `/products/${productId}`,
+          });
+          notifiedAlertIds.push(...entry.alertIds);
+        } catch (error) {
+          console.error(`Stok alarmi bildirimi gonderilemedi (${productId}):`, error);
+        }
+      }
+
+      if (notifiedAlertIds.length > 0) {
+        await prisma.productStockAlert.updateMany({
+          where: { id: { in: notifiedAlertIds } },
+          data: { notifiedAt: new Date() },
+        });
+        console.log(`✅ ${notifiedAlertIds.length} stok alarmi bildirildi`);
+      }
+    } catch (error) {
+      console.error('Stok alarmi bildirimleri islenemedi:', error);
+    }
   }
 
   /**

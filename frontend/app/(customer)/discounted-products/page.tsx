@@ -296,6 +296,7 @@ export default function DiscountedProductsPage() {
                   defaultPriceType={defaultPriceType}
                   vatDisplayPreference={vatDisplayPreference}
                   variant="discounted"
+                  selectedWarehouse={warehouse || undefined}
                   onAdd={handleAdd}
                 />
               ))}

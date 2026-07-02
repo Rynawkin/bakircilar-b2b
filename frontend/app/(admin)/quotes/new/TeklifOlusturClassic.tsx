@@ -102,7 +102,10 @@ export default function TeklifOlusturClassic() {
     filteredPurchasedProducts,
     filteredSearchResults,
     getColumnWidth,
+    applyMinPriceToBlockedItems,
+    applyMinPriceToItem,
     getMarginInfo,
+    getRecommendationCustomerBadge,
     getPoolColorClass,
     getPoolQuantityInputValue,
     getPoolQuantityValue,
@@ -317,6 +320,7 @@ export default function TeklifOlusturClassic() {
     showTableScrollBar,
     sortPoolProducts,
     sortedPurchasedProducts,
+    sortedRecommendations,
     sortedSearchResults,
     startColumnResize,
     stockDataMap,
@@ -1371,15 +1375,24 @@ export default function TeklifOlusturClassic() {
                                     Kar {formatPercent(marginInfo.currentCostDiff)}
                                   </span>
                                 </span>
-                                {marginInfo.openPurchase && (
-                                  <span className="rounded-full bg-blue-100 px-2 py-1 font-semibold text-blue-700">
-                                    Acik alis (KDV dahil = haric)
-                                  </span>
-                                )}
                                 {marginInfo.blocked && (
-                                  <span className="rounded-full bg-red-100 px-2 py-1 font-semibold text-red-700">
-                                    Blok: %5 altinda
-                                  </span>
+                                  <>
+                                    <span className="rounded-full bg-red-100 px-2 py-1 font-semibold text-red-700">
+                                      Blok: %5 altinda
+                                    </span>
+                                    {marginInfo.minPrice > 0 && (
+                                      <span className="rounded-full border border-red-200 bg-white px-2 py-1 text-red-700">
+                                        Min satis: <span className="font-semibold">{formatCurrency(marginInfo.minPrice)}</span>
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => applyMinPriceToItem(item.id)}
+                                      className="rounded-full border border-red-600 bg-white px-2 py-1 font-semibold text-red-700 hover:bg-red-50"
+                                    >
+                                      Tabana cek
+                                    </button>
+                                  </>
                                 )}
                               </div>
                             </td>
@@ -1431,8 +1444,10 @@ export default function TeklifOlusturClassic() {
               <div className="text-sm text-gray-500">Uygun tamamlayici urun bulunamadi.</div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {recommendations.map((product) => {
+                {sortedRecommendations.map((product) => {
                   const isAdded = quoteProductCodeSet.has(product.mikroCode);
+                  const customerBadge = getRecommendationCustomerBadge(product);
+                  const hasExcessStock = Number(product.excessStock) > 0;
                   return (
                     <div key={product.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
                       {product.imageUrl ? (
@@ -1449,6 +1464,20 @@ export default function TeklifOlusturClassic() {
                         <div className="text-xs text-gray-500">{product.mikroCode}</div>
                         {product.recommendationNote && (
                           <div className="text-[11px] text-gray-500">{product.recommendationNote}</div>
+                        )}
+                        {(hasExcessStock || customerBadge) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {hasExcessStock && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                Yatan stok
+                              </span>
+                            )}
+                            {customerBadge && (
+                              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-800">
+                                {customerBadge}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                       <Button
@@ -1522,7 +1551,17 @@ export default function TeklifOlusturClassic() {
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-xs text-gray-500">{quoteItems.length} kalem secili</p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {hasBlockedPreview && (
+                  <Button
+                    variant="secondary"
+                    onClick={applyMinPriceToBlockedItems}
+                    disabled={submitting}
+                    title="Blok'lu satirlarin fiyatini minimum satilabilir fiyata (taban x 1,05) ceker"
+                  >
+                    Tum blok satirlari tabana cek
+                  </Button>
+                )}
                 <Button
                   variant="secondary"
                   onClick={openAiAnalysis}

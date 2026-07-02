@@ -369,6 +369,7 @@ model User {
   taskAttachments    TaskAttachment[] @relation("TaskAttachmentUploader")
   taskStatusChanges  TaskStatusHistory[] @relation("TaskStatusChanger")
   notifications      Notification[]
+  stockAlerts        ProductStockAlert[]
   vadeBalance        VadeBalance?
   vadeNotes          VadeNote[]       @relation("VadeNoteCustomer")
   vadeNotesAuthored  VadeNote[]       @relation("VadeNoteAuthor")
@@ -573,6 +574,15 @@ model Settings {
 
   // Vitrin: HERO banner otomatik gecis suresi (ms). Admin bannerlar ekranindan degistirilir.
   heroBannerIntervalMs      Int                     @default(6000)
+
+  // Min-Max v2 hesap motoru varsayilanlari (Ucarer depo)
+  // dailySales = son minmaxLookbackDays gun satisi / minmaxLookbackDays
+  // min = dailySales * minmaxMinDays, max(hedef) = dailySales * minmaxMaxDays
+  minmaxLookbackDays        Int                     @default(90)
+  minmaxMinDays             Int                     @default(15)
+  minmaxMaxDays             Int                     @default(45)
+  // Satis kapsami: DEPOT = sadece ilgili deponun cikislari, COMPANY = tum sirket satisi
+  minmaxSalesScope          String                  @default("DEPOT")
 
   // Son senkronizasyon
   lastSyncAt                DateTime?
@@ -841,6 +851,7 @@ model Product {
   complementManualRelated ProductComplementManual[] @relation("ProductComplementManualRelated")
   activityEvents          CustomerActivityEvent[]
   hotSaleItems            HotSaleTransactionItem[]
+  stockAlerts             ProductStockAlert[]
 
   @@index([mikroCode])
   @@index([foreignName])
@@ -1467,6 +1478,11 @@ model OrderItem {
   // Hediyeli kampanya (GWP) satiri — Mikro'ya 0,1 ₺ olarak yazilir
   isGift          Boolean           @default(false)
 
+  // KDV bilgisi: vatZeroed=true ise satir faturali (INVOICED) olsa da Mikro'ya KDV=0
+  // yazilmistir. Guncelleme/yeniden yazma yollarinda KDV'nin geri gelmemesi icin kalicidir.
+  vatRate         Float?
+  vatZeroed       Boolean           @default(false)
+
   // Mikro'ya yazılan sipariş ID (item bazında)
   mikroOrderId    String?
 
@@ -2047,6 +2063,28 @@ model UcarerOperationLog {
   @@index([familyId])
   @@index([userId])
   @@index([createdAt])
+}
+
+// Min-Max v2: urun veya tedarikci bazinda gun parametresi override'lari.
+// scopeType: PRODUCT (productCode dolu) | SUPPLIER (supplierCode dolu)
+// depot: null = her iki depo, 'MERKEZ' | 'TOPCA' = sadece o depo
+model MinMaxOverride {
+  id           String   @id @default(uuid())
+  scopeType    String   // PRODUCT | SUPPLIER
+  productCode  String?
+  supplierCode String?
+  depot        String?  // null | MERKEZ | TOPCA
+  lookbackDays Int?     // satis penceresi (gun)
+  minDays      Int?     // min = gunluk satis * minDays
+  maxDays      Int?     // max = gunluk satis * maxDays
+  note         String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([scopeType])
+  @@index([productCode])
+  @@index([supplierCode])
 }
 
 model WarehouseOrderWorkflow {
@@ -2638,6 +2676,22 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([createdAt])
+}
+
+// Musteri stok alarmi: "stoga gelince haber ver". Bildirim gonderilince
+// notifiedAt dolar; ayni alarm icin tekrar bildirim gonderilmez.
+model ProductStockAlert {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  notifiedAt DateTime?
+
+  @@unique([userId, productId])
+  @@index([notifiedAt])
+  @@index([productId])
 }
 
 model OrderProductChangeRequest {

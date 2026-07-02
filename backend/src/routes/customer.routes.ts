@@ -167,6 +167,14 @@ router.post(
   customerController.reportProductImageIssue
 );
 
+// Esdeger urunler (ayni stok ailesindeki, depo 1+6 stogu olan kardes urunler)
+router.get('/products/:id/alternatives', requireCustomer, customerController.getProductAlternatives);
+
+// Stok alarmi ("stoga gelince haber ver")
+router.get('/products/:id/stock-alert', requireCustomer, customerController.getStockAlert);
+router.post('/products/:id/stock-alert', requireCustomer, customerController.createStockAlert);
+router.delete('/products/:id/stock-alert', requireCustomer, customerController.deleteStockAlert);
+
 // Categories (with cache - 30 minutes TTL)
 router.get(
   '/categories',

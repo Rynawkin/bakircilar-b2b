@@ -200,6 +200,7 @@ if (config.enableCron) {
         console.error('Margin compliance report sync failed:', syncResult.error);
         return;
       }
+      console.log(`Margin compliance report synced: ${syncResult.rowCount} rows for ${syncResult.reportDate}`);
 
       const settings = await prisma.settings.findFirst({
         orderBy: [

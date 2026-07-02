@@ -1,19 +1,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Gift, ArrowRight } from 'lucide-react';
 import { customerApi, GiftCampaignActive } from '@/lib/api/customer';
+import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils/format';
+import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
+
+// Kapsam PRODUCT_IDS iken banner altinda mini serit gosterilecek azami urun sayisi
+const MAX_SCOPE_STRIP_PRODUCTS = 8;
 
 /**
  * Anasayfa hediyeli kampanya (GWP) banner'i. /gift-campaign/active'ten beslenir.
  * Aktif kampanya yoksa (veya hedef disi) HICBIR SEY render etmez. Salt gosterim +
- * ilerleme cubugu; hediye SECIMI sepette yapilir.
+ * ilerleme cubugu; hediye SECIMI sepette yapilir. CTA kapsam turune gore hedeflenir:
+ * CATEGORY_IDS -> ilk kategorinin urun listesi, PRODUCT_IDS -> mini urun seridi.
  */
 export function GiftCampaignBanner() {
   const router = useRouter();
   const [campaign, setCampaign] = useState<GiftCampaignActive | null>(null);
+  const [scopeProducts, setScopeProducts] = useState<Product[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -28,6 +36,22 @@ export function GiftCampaignBanner() {
     };
   }, []);
 
+  // Kapsam PRODUCT_IDS ve urun sayisi makulse mini serit icin urunleri getir
+  useEffect(() => {
+    setScopeProducts([]);
+    if (!campaign?.active || campaign.qualifyingScope?.type !== 'PRODUCT_IDS') return;
+    const ids = campaign.qualifyingScope.productIds || [];
+    if (ids.length === 0 || ids.length > MAX_SCOPE_STRIP_PRODUCTS) return;
+    let mounted = true;
+    Promise.all(ids.map((id) => customerApi.getProductById(id).catch(() => null))).then((list) => {
+      if (mounted) setScopeProducts(list.filter(Boolean) as Product[]);
+    });
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaign?.id]);
+
   if (!campaign || !campaign.active) return null;
 
   const threshold = campaign.threshold || 0;
@@ -36,6 +60,26 @@ export function GiftCampaignBanner() {
   const qualified = !!campaign.qualified;
   const remaining = campaign.remaining || 0;
   const gifts = campaign.gifts || [];
+
+  // CTA hedefi: kapsam turune gore
+  const scopeType = campaign.qualifyingScope?.type || 'ALL';
+  const firstCategoryId = campaign.qualifyingScope?.categoryIds?.[0];
+  const ctaHref =
+    scopeType === 'CATEGORY_IDS' && firstCategoryId
+      ? `/products?categoryId=${encodeURIComponent(firstCategoryId)}`
+      : '/products';
+  const ctaText = campaign.buttonText || 'Kampanya ürünlerini gör';
+
+  // Banner tik olcumu (best-effort; hata yutulur)
+  const logBannerClick = () => {
+    if (!campaign.id) return;
+    trackCustomerActivity({ type: 'CLICK', meta: { bannerId: campaign.id, position: 'GWP' } });
+  };
+
+  const handleCtaClick = () => {
+    logBannerClick();
+    router.push(ctaHref);
+  };
 
   return (
     <section className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-[#0f2a57] to-[#15356b] p-4 sm:p-5 text-white">
@@ -110,14 +154,46 @@ export function GiftCampaignBanner() {
           )}
           <button
             type="button"
-            onClick={() => router.push('/products')}
+            onClick={handleCtaClick}
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-[13px] font-semibold text-white hover:bg-emerald-600 transition-colors"
           >
-            {campaign.buttonText || 'Kampanya ürünlerini gör'}
+            {ctaText}
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
       </div>
+
+      {/* Kapsam PRODUCT_IDS: kampanya urunleri mini seridi */}
+      {scopeProducts.length > 0 && (
+        <div className="relative z-10 mt-4 border-t border-white/15 pt-3">
+          <div className="mb-2 text-[11.5px] font-semibold tracking-wide text-white/70">
+            KAMPANYA KAPSAMINDAKİ ÜRÜNLER
+          </div>
+          <div className="flex gap-2.5 overflow-x-auto pb-1">
+            {scopeProducts.map((p) => (
+              <Link
+                key={p.id}
+                href={`/products/${p.id}`}
+                onClick={logBannerClick}
+                className="flex w-[168px] flex-none items-center gap-2 rounded-lg bg-white/95 p-2 transition-colors hover:bg-white"
+              >
+                <div className="h-11 w-11 flex-shrink-0 overflow-hidden rounded-md bg-white">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt={p.name} className="h-full w-full object-contain" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[#15356b]">
+                      <Gift className="h-4 w-4" />
+                    </div>
+                  )}
+                </div>
+                <span className="line-clamp-2 text-[11px] font-medium leading-snug text-[#14223b]">
+                  {p.name}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

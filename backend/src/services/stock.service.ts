@@ -310,6 +310,8 @@ class StockService {
         id: true,
         name: true,
         mikroCode: true,
+        // Marka bazli CustomerPriceListRule cozumu icin gerekli (liste/eski fiyat referansi)
+        brandCode: true,
         unit: true,
         unit2: true,
         unit2Factor: true,

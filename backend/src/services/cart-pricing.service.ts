@@ -25,6 +25,7 @@ type CartProductForPricing = {
   currentCost?: number | null;
   lastEntryPrice?: number | null;
   excessStock?: number | null;
+  excludeFromDiscount?: boolean | null;
   prices: unknown;
 };
 
@@ -257,7 +258,11 @@ export const resolveCartUnitPrices = async (params: {
     excessUnitPrice = resolveAgreementPrice(agreement, priceType, excessUnitPrice);
   }
 
-  const excessQuantityLimit = Math.max(0, normalizeQuantity(Number(product.excessStock || 0)));
+  // excludeFromDiscount: yonetici bu urunu indirime sokmamayi sectiyse fazla stok
+  // olsa bile sepette/siparise DAIMA liste fiyati uygulanir (indirim kotasi 0).
+  const excessQuantityLimit = product.excludeFromDiscount
+    ? 0
+    : Math.max(0, normalizeQuantity(Number(product.excessStock || 0)));
   const hasExcessDiscount =
     excessQuantityLimit > 0 &&
     Number.isFinite(listUnitPrice) &&
@@ -320,9 +325,25 @@ export const rebalanceCartProductPriceType = async (params: {
     totalQuantity,
   });
 
-  const excessQuantity = prices.hasExcessDiscount
-    ? Math.min(totalQuantity, prices.excessQuantityLimit)
-    : 0;
+  // Indirim kotasi urun bazindadir: BOTH gorunurluklu musteri faturali+beyaz satirlarla
+  // limitin 2 katini indirimli alamasin diye diger fiyat tipine tahsis edilen EXCESS
+  // miktari toplam kotadan dusulur (tahsis sirasi mevcut akisla ayni kalir).
+  let excessQuantity = 0;
+  if (prices.hasExcessDiscount) {
+    const otherPriceType: CartPriceType = priceType === 'INVOICED' ? 'WHITE' : 'INVOICED';
+    const otherTypeExcess = await prisma.cartItem.aggregate({
+      where: {
+        cartId,
+        productId,
+        priceType: otherPriceType,
+        priceMode: 'EXCESS',
+      },
+      _sum: { quantity: true },
+    });
+    const otherAllocated = normalizeQuantity(Number(otherTypeExcess._sum.quantity || 0));
+    const remainingLimit = Math.max(0, prices.excessQuantityLimit - otherAllocated);
+    excessQuantity = Math.min(totalQuantity, remainingLimit);
+  }
   const listQuantity = Math.max(0, totalQuantity - excessQuantity);
   const fallbackNote =
     lineNotePatch?.value ??

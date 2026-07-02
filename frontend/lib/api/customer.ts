@@ -158,12 +158,36 @@ export const customerApi = {
     return response.data;
   },
 
-  getProductById: async (id: string): Promise<Product> => {
-    const response = await apiClient.get(`/products/${id}`);
+  getProductById: async (id: string, mode?: 'discounted' | 'excess'): Promise<Product> => {
+    const response = await apiClient.get(`/products/${id}`, {
+      params: mode ? { mode } : undefined,
+    });
     return response.data;
   },
   getProductRecommendations: async (id: string): Promise<{ products: Product[] }> => {
     const response = await apiClient.get(`/products/${id}/recommendations`);
+    return response.data;
+  },
+
+  // Esdeger urunler: ayni stok ailesindeki, stokta olan alternatifler
+  getProductAlternatives: async (id: string): Promise<{ products: Product[] }> => {
+    const response = await apiClient.get(`/products/${id}/alternatives`);
+    return response.data;
+  },
+
+  // Stok alarmi: "stoga gelince haber ver"
+  getStockAlert: async (id: string): Promise<{ active: boolean }> => {
+    const response = await apiClient.get(`/products/${id}/stock-alert`);
+    return response.data;
+  },
+
+  createStockAlert: async (id: string): Promise<{ active: boolean }> => {
+    const response = await apiClient.post(`/products/${id}/stock-alert`);
+    return response.data;
+  },
+
+  removeStockAlert: async (id: string): Promise<{ active: boolean }> => {
+    const response = await apiClient.delete(`/products/${id}/stock-alert`);
     return response.data;
   },
   reportProductImageIssue: async (
