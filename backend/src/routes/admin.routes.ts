@@ -655,6 +655,10 @@ router.get('/reports/toplu-candidates', requirePermission('reports:ucarer-depo')
 router.post('/reports/toplu-candidates/mark', requirePermission('reports:ucarer-depo'), adminController.markTopluCandidateLines);
 // Borc-mal takasi radari: vadesi gecmis cariler x satin alma ihtiyaci kesisimi (SALT OKUMA)
 router.get('/reports/barter-radar', requirePermission('reports:ucarer-depo'), adminController.getBarterRadar);
+// Talep deseni (A6): urunleri Syntetos-Boylan dortlusune siniflar + tek-cari payi (SALT OKUMA);
+// apply-order-to-order topakli+tek-cari urunlere min=0 yazar + haric listesine ekler (MIKRO YAZMA, loglu)
+router.get('/reports/demand-pattern', requirePermission('reports:ucarer-depo'), adminController.getDemandPatternReport);
+router.post('/reports/demand-pattern/apply-order-to-order', requirePermission('reports:ucarer-depo'), adminController.applyDemandPatternOrderToOrder);
 // Karsi depo min/max sorgusu (transfer kapisi rozeti icin; salt okuma)
 router.get('/reports/ucarer-depot-minmax', requirePermission('reports:ucarer-depo'), adminController.getUcarerDepotMinMax);
 router.post('/reports/ucarer-minmax/run', requirePermission('reports:ucarer-minmax'), adminController.runUcarerMinMaxReport);

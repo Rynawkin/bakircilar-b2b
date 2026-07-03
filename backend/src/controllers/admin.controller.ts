@@ -34,6 +34,7 @@ import familyCandidateService from '../services/family-candidate.service';
 import familyReportService from '../services/family-report.service';
 import stickyDiscountService from '../services/sticky-discount.service';
 import minMaxExclusionService from '../services/minmax-exclusion.service';
+import demandPatternService from '../services/demand-pattern.service';
 import scheduledJobsService from '../services/scheduled-jobs.service';
 import priceListSuggestionService from '../services/price-list-suggestion.service';
 import { cacheService } from '../services/cache.service';
@@ -6209,6 +6210,45 @@ export class AdminController {
   removeMinMaxExclusion = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = await minMaxExclusionService.remove(String(req.params.id || ''));
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // ==================== Talep Deseni (Demand Pattern) — A6 ====================
+
+  /**
+   * GET /api/admin/reports/demand-pattern?depot=MERKEZ|TOPCA&lookbackWeeks=52
+   * Urunleri talep desenine (SMOOTH/ERRATIC/INTERMITTENT/LUMPY) siniflar + tek-cari payi.
+   * SALT OKUMA.
+   */
+  getDemandPatternReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await demandPatternService.getDemandPatternReport({
+        depot: String(req.query.depot || 'MERKEZ'),
+        lookbackWeeks: req.query.lookbackWeeks as string | undefined,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/reports/demand-pattern/apply-order-to-order
+   * body: { depot, productCodes: string[] }
+   * MIKRO YAZMA: her urun icin once min=0/max=0 yazilir, sonra min-max haric listesine eklenir.
+   */
+  applyDemandPatternOrderToOrder = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userName = await this.resolveActorName(req.user?.userId);
+      const data = await demandPatternService.applyOrderToOrder({
+        depot: String(req.body?.depot || 'MERKEZ'),
+        productCodes: Array.isArray(req.body?.productCodes) ? req.body.productCodes : [],
+        userId: req.user?.userId || null,
+        userName,
+      });
       res.json({ success: true, data });
     } catch (error) {
       next(error);

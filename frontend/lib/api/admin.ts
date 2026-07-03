@@ -3845,6 +3845,35 @@ export const adminApi = {
     return response.data;
   },
 
+  // ==================== Talep Deseni Dortlusu (A6) ====================
+  // Urunleri Syntetos-Boylan ceyregine (SMOOTH/INTERMITTENT/ERRATIC/LUMPY) + tek-cari
+  // payina gore siniflar. Yanit zarfi { success, data:{ depot, lookbackWeeks, rows, summary } }.
+  // (Sayfa yerel tiplerini kendisi tutar; burada gevsek `data: any`.)
+  getDemandPattern: async (params: {
+    depot: 'MERKEZ' | 'TOPCA';
+    lookbackWeeks?: number;
+  }): Promise<{ success: boolean; data: any }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('depot', params.depot);
+    if (params.lookbackWeeks !== undefined) queryParams.append('lookbackWeeks', String(params.lookbackWeeks));
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/demand-pattern${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  // Secili urunleri "siparise getir" yapar: Mikro'ya min=0/max=0 yazar (applyMinMax) ve
+  // ardindan min-max hesaplama disi birakma listesine ekler. Mikro yazma. Loglu.
+  applyDemandPatternOrderToOrder: async (payload: {
+    depot: 'MERKEZ' | 'TOPCA';
+    productCodes: string[];
+  }): Promise<{
+    success: boolean;
+    data: { applied: string[]; skipped: Array<{ productCode: string; reason: string }> };
+  }> => {
+    const response = await apiClient.post('/admin/reports/demand-pattern/apply-order-to-order', payload);
+    return response.data;
+  },
+
   // ==================== MinMax hesaplama disi birakma ====================
   getMinMaxExclusions: async (): Promise<{
     success: boolean;

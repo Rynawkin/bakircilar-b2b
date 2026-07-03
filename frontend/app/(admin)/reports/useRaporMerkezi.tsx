@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Activity,
   AlertTriangle,
   BarChart3,
   CircleDot,
@@ -142,6 +143,17 @@ export const reports: ReportCard[] = [
     category: 'stock',
     badge: 'Yeni',
     tags: ['TOPLU', 'MinMax', 'Denetim'],
+    permission: 'reports:ucarer-depo',
+  },
+  {
+    id: 'demand-pattern',
+    title: 'Talep Deseni',
+    description: 'Urunleri talep desenine (duzenli/kesikli/dalgali/topakli) gore siniflar; topakli+tek-cari urunlere siparise-getir onerir',
+    icon: <Activity className="h-5 w-5" />,
+    href: '/reports/demand-pattern',
+    category: 'stock',
+    badge: 'Yeni',
+    tags: ['Stok', 'Talep', 'Nakit'],
     permission: 'reports:ucarer-depo',
   },
   {

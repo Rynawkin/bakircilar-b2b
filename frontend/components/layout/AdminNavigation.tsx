@@ -42,7 +42,8 @@ import {
   Truck,
   Search,
   Gift,
-  LayoutGrid
+  LayoutGrid,
+  Activity
 } from 'lucide-react';
 
 export interface NavItem {
@@ -118,6 +119,7 @@ export const navItems: NavItem[] = [
     ],
   },
   { name: 'TOPLU Denetim', href: '/reports/toplu-audit', icon: BarChart3, description: 'Ritmik TOPLU alimlari', permission: 'reports:ucarer-depo' },
+  { name: 'Talep Deseni', href: '/reports/demand-pattern', icon: Activity, description: 'Talep deseni dortlusu + siparise-getir', permission: 'reports:ucarer-depo' },
   { name: 'Aile Yönetimi', href: '/reports/family-management', icon: LayoutGrid, description: 'Stok ailesi oneri, kume ve aykiri denetimi', permission: 'reports:ucarer-depo' },
   { name: 'Borc-Mal Takasi', href: '/reports/barter-radar', icon: HandCoins, description: 'Vadesi gecmis cari x ihtiyac', permission: 'reports:ucarer-depo' },
   { name: 'Yapiskan Iskonto', href: '/reports/sticky-discounts', icon: Percent, description: 'Eriyen son-satis fiyatlari', permission: 'reports:margin-compliance' },
