@@ -71,6 +71,10 @@ export interface MinMaxV2PreviewRow {
   salesQty: number;
   dailySales: number;
   lookbackUsed: number;
+  effectiveDays: number; // min(pencere, bugun - pencere icindeki ilk satis + 1)
+  firstSaleDate: string | null; // pencere icindeki ilk satis tarihi (YYYY-MM-DD)
+  isShortWindow: boolean; // efektif gun < pencere (urun pencere ortasinda satisa baslamis)
+  pendingOrderQty: number; // acik (alinan) musteri siparisi kalan miktari
   minDaysUsed: number;
   maxDaysUsed: number;
   currentMin: number;
@@ -79,7 +83,7 @@ export interface MinMaxV2PreviewRow {
   newMax: number | null;
   diffMin: number | null;
   diffMax: number | null;
-  overrideSource: 'urun' | 'tedarikci' | 'varsayilan' | 'haric';
+  overrideSource: 'urun' | 'tedarikci' | 'varsayilan' | 'haric' | 'SIPARIS';
 }
 
 export interface MinMaxV2PreviewResult {
@@ -94,6 +98,8 @@ export interface MinMaxV2PreviewResult {
     missingDepotRecordCount: number;
     overrideProductCount: number;
     overrideSupplierCount: number;
+    missingWithSalesCount: number; // sicilsiz (depo kaydi yok) + penceresinde satisi olan urun sayisi
+    missingWithSalesDaily: number; // bu urunlerin gunluk satis toplami
   };
   generatedAt: string;
 }
@@ -112,6 +118,142 @@ export interface MinMaxV2Override {
   note: string | null;
   createdAt: string;
 }
+
+// ==================== TOPLU Denetim raporu tipleri ====================
+export interface TopluAuditMonth {
+  month: string; // 'YYYY-MM'
+  quantity: number;
+  amount: number;
+}
+
+export interface TopluAuditRow {
+  cariCode: string;
+  cariName: string;
+  productCode: string;
+  productName: string;
+  months: TopluAuditMonth[];
+  monthsCount: number;
+  totalQuantity: number;
+  totalAmount: number;
+  lastSaleDate: string | null;
+  isRhythmic: boolean;
+}
+
+export interface TopluAuditResult {
+  months: number;
+  minRepeatMonths: number;
+  rows: TopluAuditRow[];
+  total: number;
+  truncated: boolean;
+  summary: {
+    totalGroups: number;
+    rhythmicGroups: number;
+    rhythmicTotalAmount: number;
+  };
+  generatedAt: string;
+  // Raporun gercek tarih penceresi ('YYYY-MM-DD', Mikro sunucu saatiyle hesaplanir).
+  // Unmark islemi bu araligi kullanir ki rapor penceresinden dar kalmasin.
+  windowFrom: string;
+  windowTo: string;
+}
+
+// ==================== Borc-Mal Takasi (Barter Radar) tipleri ====================
+export interface BarterRadarDepotNeed {
+  min: number;
+  stock: number;
+  need: number;
+}
+
+export interface BarterRadarProduct {
+  productCode: string;
+  productName: string;
+  isMainSupplier: boolean;
+  hasPastOrders: boolean;
+  merkez: BarterRadarDepotNeed;
+  topca: BarterRadarDepotNeed;
+  needQuantity: number;
+  unitCost: number;
+  amount: number;
+}
+
+export interface BarterRadarRow {
+  cariCode: string;
+  cariName: string;
+  pastDueBalance: number;
+  pastDueDate: string | null;
+  products: BarterRadarProduct[];
+  productCount: number;
+  barterPotential: number; // urun ihtiyaclarinin toplam tutari
+  cappedPotential: number; // min(vadesi gecmis bakiye, barterPotential)
+}
+
+export interface BarterRadarResult {
+  minPastDue: number;
+  rows: BarterRadarRow[];
+  summary: {
+    matchedCustomerCount: number;
+    totalPotential: number; // capped toplami
+    totalPastDue: number;
+  };
+  generatedAt: string;
+}
+
+// ==================== Yapiskan Iskonto (sticky discounts) tipleri ====================
+export interface StickyDiscountRow {
+  cariKodu: string;
+  cariAdi: string;
+  stokKodu: string;
+  stokAdi: string;
+  sonFiyat: number;
+  sonSatisTarihi: string; // ISO tarih
+  fiyatYasiGun: number;
+  listeNo: number;
+  listeFiyati: number;
+  gapPercent: number;
+  son90GunAdet: number;
+  aylikKayipTL: number;
+}
+
+export interface StickyDiscountsResult {
+  rows: StickyDiscountRow[]; // aylikKayipTL DESC sirali
+  summary: {
+    rowCount: number;
+    customerCount: number;
+    totalMonthlyLossTL: number;
+    worstCustomers: Array<{
+      cariKodu: string;
+      cariAdi: string;
+      aylikKayipTL: number;
+      satirSayisi: number;
+    }>;
+    params: {
+      minGapPercent: number;
+      lookbackDays: number;
+    };
+    generatedAt: string;
+  };
+}
+
+// ==================== Aday aile motoru tipleri ====================
+export interface FamilyCandidateSuggestion {
+  familyId: string;
+  familyName: string;
+  score: number;
+  matchedProductName: string;
+}
+
+// ==================== Fiyat listesi onerisi (musteri) ====================
+// Customer tipi @/types'ta tanimli; oneri/manuel alanlar yalnizca admin musteri
+// listesinde dondugu icin intersection ile burada genisletilir.
+export type CustomerWithListSuggestion = Customer & {
+  suggestedInvoicedListNo?: number | null;
+  suggestedRetailListNo?: number | null;
+  suggestedListBasis?: string | null;
+  suggestedListComputedAt?: string | null;
+  manualInvoicedListNo?: number | null;
+  manualRetailListNo?: number | null;
+  manualListNote?: string | null;
+};
 
 export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID';
 
@@ -846,7 +988,7 @@ export const adminApi = {
     search?: string;
     page?: number;
     pageSize?: number;
-  }): Promise<{ customers: Customer[]; pagination?: PaginationMeta }> => {
+  }): Promise<{ customers: CustomerWithListSuggestion[]; pagination?: PaginationMeta }> => {
     const query: Record<string, any> = {};
     if (params?.active && params.active !== 'all') query.active = params.active;
     if (params?.search) query.search = params.search;
@@ -3560,6 +3702,8 @@ export const adminApi = {
   applyMinMaxV2: async (payload: {
     depot: 'MERKEZ' | 'TOPCA';
     items: Array<{ productCode: string; newMin: number; newMax: number }>;
+    // Sicilsiz urunler (STOK_DEPO_DETAYLARI kaydi olmayan) icin kullanici onayli INSERT izni
+    allowInsert?: boolean;
   }): Promise<{
     success: boolean;
     data: {
@@ -3567,6 +3711,8 @@ export const adminApi = {
       requested: number;
       updated: Array<{ productCode: string; oldMin: number; oldMax: number; newMin: number; newMax: number }>;
       skipped: Array<{ productCode: string; reason: string }>;
+      // allowInsert=true ile STOK_DEPO_DETAYLARI'na yeni acilan kayitlarin stok kodlari
+      inserted: string[];
     };
   }> => {
     const response = await apiClient.post('/admin/minmax/apply', payload);
@@ -3594,6 +3740,142 @@ export const adminApi = {
   },
   deleteMinMaxV2Override: async (id: string): Promise<{ success: boolean; data: { id: string } }> => {
     const response = await apiClient.delete(`/admin/minmax/overrides/${encodeURIComponent(id)}`);
+    return response.data;
+  },
+
+  // ==================== TOPLU Denetim raporu ====================
+  getTopluAudit: async (params?: { months?: number; minRepeatMonths?: number }): Promise<{
+    success: boolean;
+    data: TopluAuditResult;
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.months !== undefined) queryParams.append('months', String(params.months));
+    if (params?.minRepeatMonths !== undefined) queryParams.append('minRepeatMonths', String(params.minRepeatMonths));
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/toplu-audit${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  // Bir cari x urun grubunun TOPLU isaretlerini tarih araliginda kaldirir (Mikro yazma, loglu)
+  unmarkTopluGroup: async (payload: {
+    cariCode: string;
+    productCode: string;
+    fromDate: string;
+    toDate: string;
+  }): Promise<{
+    success: boolean;
+    data: {
+      affected: number;
+      cariCode: string;
+      productCode: string;
+      fromDate: string;
+      toDate: string;
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/toplu-audit/unmark', payload);
+    return response.data;
+  },
+
+  // ==================== Borc-Mal Takasi Radari (SALT OKUMA) ====================
+  getBarterRadar: async (params?: { minPastDue?: number }): Promise<{
+    success: boolean;
+    data: BarterRadarResult;
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.minPastDue !== undefined) queryParams.append('minPastDue', String(params.minPastDue));
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/barter-radar${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  // ==================== Yapiskan Iskonto raporu ====================
+  getStickyDiscounts: async (params?: { minGapPercent?: number; lookbackDays?: number }): Promise<{
+    success: boolean;
+    data: StickyDiscountsResult;
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.minGapPercent !== undefined) queryParams.append('minGapPercent', String(params.minGapPercent));
+    if (params?.lookbackDays !== undefined) queryParams.append('lookbackDays', String(params.lookbackDays));
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/sticky-discounts${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  // ==================== Aday aile motoru ====================
+  // Ailesiz urun kodlari icin en benzer aktif aileyi onerir (pg_trgm benzerligi)
+  getFamilyCandidates: async (productCodes: string[]): Promise<{
+    success: boolean;
+    data: Record<string, FamilyCandidateSuggestion | null>;
+  }> => {
+    const response = await apiClient.post('/admin/stock-family/candidates', { productCodes });
+    return response.data;
+  },
+
+  // Aday aile onerisini uygular (ProductFamilyItem ekler; Mikro yazma YOK)
+  addProductToFamily: async (
+    familyId: string,
+    payload: { productCode: string; productName?: string }
+  ): Promise<{
+    success: boolean;
+    data: { item: any; family: { id: string; name: string } };
+  }> => {
+    const response = await apiClient.post(`/admin/stock-family/${encodeURIComponent(familyId)}/add-product`, payload);
+    return response.data;
+  },
+
+  // Ucarer: verilen stok kodlari icin Merkez(1)/Topca(6) min-max degerleri (en fazla 200 kod)
+  getUcarerDepotMinMax: async (codes: string[]): Promise<{
+    success: boolean;
+    data: Record<string, { '1': { min: number; max: number }; '6': { min: number; max: number } }>;
+  }> => {
+    const response = await apiClient.get(
+      `/admin/reports/ucarer-depot-minmax?codes=${encodeURIComponent(codes.join(','))}`
+    );
+    return response.data;
+  },
+
+  // ==================== Fiyat listesi onerisi motoru ====================
+  // Tum musteriler icin oneri hesaplar ve User.suggested* alanlarina yazar (PostgreSQL; Mikro yazma YOK)
+  runPriceListSuggestions: async (): Promise<{
+    success: boolean;
+    data: { processed: number; suggested: number };
+  }> => {
+    const response = await apiClient.post('/admin/price-list-suggestions/run');
+    return response.data;
+  },
+
+  // Manuel liste override'i (null = temizle). Faturali 6-10, perakende 1-5.
+  setCustomerPriceListSuggestion: async (
+    customerId: string,
+    payload: {
+      manualInvoicedListNo?: number | null;
+      manualRetailListNo?: number | null;
+      manualListNote?: string | null;
+    }
+  ): Promise<{ success: boolean; data: any }> => {
+    const response = await apiClient.put(
+      `/admin/customers/${encodeURIComponent(customerId)}/price-list-suggestion`,
+      payload
+    );
+    return response.data;
+  },
+
+  // ==================== Urun olculeri (product-dimensions) ====================
+  // Not: /product-dimensions ekrani (useUrunOlculeri) apiClient'i dogrudan kullanir;
+  // bu metodlar diger ekranlardan erisim icin eklendi. Yanit zarfi { product, history }.
+  getProductDimensionUnits: async (productCode: string): Promise<{ product: any; history?: any[] }> => {
+    const response = await apiClient.get(`/admin/product-dimensions/products/${encodeURIComponent(productCode)}`);
+    return response.data;
+  },
+
+  updateProductDimensionUnits: async (
+    productCode: string,
+    payload: any
+  ): Promise<{ product: any; history?: any[] }> => {
+    const response = await apiClient.put(
+      `/admin/product-dimensions/products/${encodeURIComponent(productCode)}`,
+      payload
+    );
     return response.data;
   },
 

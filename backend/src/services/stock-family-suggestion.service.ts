@@ -15,6 +15,39 @@
 
 import { prisma } from '../utils/prisma';
 
+// Mikro'da ayni birimin farkli kisaltmalari kullanilabiliyor (PK/PAKET, AD/ADET...).
+// Birim guvenligi karsilastirmasi kanonik ada gore yapilir.
+const UNIT_SYNONYMS: Record<string, string> = {
+  AD: 'ADET',
+  ADET: 'ADET',
+  PK: 'PAKET',
+  PKT: 'PAKET',
+  PAKET: 'PAKET',
+  KT: 'KUTU',
+  KUTU: 'KUTU',
+  KL: 'KOLI',
+  KOLI: 'KOLI',
+  RL: 'RULO',
+  RULO: 'RULO',
+  CFT: 'CIFT',
+  CIFT: 'CIFT',
+};
+
+export function normalizeUnitName(unit: unknown): string {
+  const raw = String(unit || '')
+    .trim()
+    .toUpperCase()
+    // Turkce karakterleri sadelestir (KOLİ -> KOLI, ÇİFT -> CIFT)
+    .replace(/İ/g, 'I')
+    .replace(/Ç/g, 'C')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/\./g, '');
+  return UNIT_SYNONYMS[raw] || raw;
+}
+
 function totalIncludedStock(
   warehouseStocks: any,
   includedWarehouses: string[]
@@ -102,7 +135,7 @@ class StockFamilySuggestionService {
     const shortfall = Math.max(0, qty - enteredAvail);
     const coversRequested = shortfall <= 0;
     const enteredExcess = entered.excessStock || 0;
-    const enteredUnit = String(entered.unit || '').trim().toUpperCase();
+    const enteredUnit = normalizeUnitName(entered.unit);
 
     const productShape = {
       code: entered.mikroCode,
@@ -162,8 +195,9 @@ class StockFamilySuggestionService {
 
     const alternatives: FamilyAlternative[] = siblings
       // Birim guvenligi: ana birimi girilen urunden farkli kardesler aday olamaz
-      // (miktar cevrimi yapilmadigi icin yanlis miktar olusur)
-      .filter((p) => String(p.unit || '').trim().toUpperCase() === enteredUnit)
+      // (miktar cevrimi yapilmadigi icin yanlis miktar olusur).
+      // Es-anlamlilar ayni sayilir: PK=PAKET, AD=ADET, KT=KUTU vb (normalizeUnitName).
+      .filter((p) => normalizeUnitName(p.unit) === enteredUnit)
       .map((p) => {
         const available = Math.max(
           0,

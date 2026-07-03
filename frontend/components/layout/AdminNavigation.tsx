@@ -23,7 +23,6 @@ import {
   BarChart3,
   Folder,
   Tag,
-  Ban,
   FileText,
   ListTodo,
   Clock,
@@ -118,6 +117,9 @@ export const navItems: NavItem[] = [
       'admin:supplier-costs',
     ],
   },
+  { name: 'TOPLU Denetim', href: '/reports/toplu-audit', icon: BarChart3, description: 'Ritmik TOPLU alimlari', permission: 'reports:ucarer-depo' },
+  { name: 'Borc-Mal Takasi', href: '/reports/barter-radar', icon: HandCoins, description: 'Vadesi gecmis cari x ihtiyac', permission: 'reports:ucarer-depo' },
+  { name: 'Yapiskan Iskonto', href: '/reports/sticky-discounts', icon: Percent, description: 'Eriyen son-satis fiyatlari', permission: 'reports:margin-compliance' },
 ];
 
 navItems.splice(6, 0, {
@@ -132,7 +134,6 @@ navItems.splice(6, 0, {
 export const settingsItems: NavItem[] = [
   { name: 'Urun Override', href: '/product-overrides', icon: Tag, description: 'Ozel fiyatlar', permission: 'admin:price-rules' },
   { name: 'Tedarikci Iskonto', href: '/supplier-price-list-settings', icon: Percent, description: 'Tedarikci iskonto ayarlari', permission: 'admin:supplier-price-lists' },
-  { name: 'Haric Tutma', href: '/exclusions', icon: Ban, description: 'Rapor filtreleme', permission: 'admin:exclusions' },
   { name: 'Arama Yonetimi', href: '/search-management', icon: Search, description: 'Bulunamayan aramalar ve es-anlamlar', permission: 'admin:search-management' },
   { name: 'Personel', href: '/staff', icon: Users, description: 'Personel yonetimi', permission: 'admin:staff' },
   { name: 'Ayarlar', href: '/settings', icon: Settings, description: 'Sistem ayarlari', permission: 'admin:settings' },

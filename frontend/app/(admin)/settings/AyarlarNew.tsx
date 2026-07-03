@@ -321,6 +321,26 @@ export default function AyarlarNew() {
                 kullanılır. Liste ataması ve kategori kuralları müşteri kartından yönetilir.
               </p>
             </div>
+
+            {/* Son satis fiyati liste endeksleme */}
+            <div className="mt-[14px] border-t border-[#eef1f6] pt-[14px]">
+              <label className="flex items-center gap-[9px] text-[12.5px] font-semibold text-[#14223b] cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="w-[16px] h-[16px] accent-[#15356b]"
+                  checked={settings.lastPriceIndexationEnabled ?? false}
+                  onChange={(e) =>
+                    setSettings({ ...settings, lastPriceIndexationEnabled: e.target.checked })
+                  }
+                />
+                Son satış fiyatını liste değişimine endeksle
+              </label>
+              <p className="text-[11px] text-[#8b97ac] mt-[6px] ml-[25px] m-0 leading-[1.55]">
+                Açıkken: "son satış fiyatı kullan" carilerde eski satış fiyatı, satış anındaki liste
+                konumuna göre güncel listeye endekslenir (zam sonrası kâr erimesini durdurur). Fiyat
+                asla eski fiyatın altına inmez.
+              </p>
+            </div>
           </div>
 
           {/* Kart 3 — Rapor Mail Bildirimleri */}

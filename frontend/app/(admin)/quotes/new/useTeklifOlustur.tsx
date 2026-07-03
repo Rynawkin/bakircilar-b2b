@@ -482,6 +482,96 @@ export const getPercentTone = (value?: number | null) => {
   return value >= 0 ? 'text-emerald-700' : 'text-red-600';
 };
 
+// ===== Beyaz yarim-KDV maliyet yuku =====
+// Beyaz (KDV sifirlanmis) satirda maliyete yarim KDV yuku eklenir (yarim-KDV kurali)
+// -> maliyet * (1 + kdv/2). getMarginInfo'daki taban/minPrice hesabi ile TEK kaynak.
+export const applyWhiteHalfVatToCost = (
+  cost: number,
+  vatRate?: number | null,
+  isWhiteLine?: boolean
+) => (isWhiteLine ? cost * (1 + (vatRate || 0) / 2) : cost);
+
+// marj% = (birimFiyat - maliyet) / maliyet * 100; beyaz satirda maliyet yarim-KDV yuklu.
+// Fiyat veya maliyet yoksa null (gosterimde "maliyet yok" / "-" ayrimi cagirana kalir).
+export const computeMarginPercent = (
+  unitPrice?: number | null,
+  cost?: number | null,
+  vatRate?: number | null,
+  isWhiteLine?: boolean
+): number | null => {
+  const price = roundUp2(unitPrice || 0);
+  const rawCost = Number(cost) || 0;
+  if (!price || rawCost <= 0) return null;
+  const effectiveCost = applyWhiteHalfVatToCost(rawCost, vatRate, isWhiteLine);
+  if (effectiveCost <= 0) return null;
+  return ((price - effectiveCost) / effectiveCost) * 100;
+};
+
+// Degistir/Bol onay modali marj renk tonu: negatif kirmizi, %5 alti amber, digerleri yesil.
+export const getFamilyMarginToneClass = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return 'text-gray-500';
+  if (value < 0) return 'text-red-600';
+  if (value < 5) return 'text-amber-600';
+  return 'text-emerald-600';
+};
+
+// StockFamilySuggestion'in onSwap/onSplit callback'lerinden gelen oneri sekli.
+export interface FamilyActionRecommendation {
+  productCode: string;
+  productName?: string;
+  unit?: string;
+  fromAlt?: number;
+  fromEntered?: number;
+}
+
+// ===== Cari fiyat listesi ONERISI rozeti =====
+// Backend getCustomers payload'ina eklenen alanlar (lib/api/admin.ts'e dokunmadan local tip).
+export interface CustomerPriceListSuggestionFields {
+  suggestedInvoicedListNo?: number | null;
+  suggestedRetailListNo?: number | null;
+  suggestedListBasis?: string | null;
+  suggestedListComputedAt?: string | null;
+  manualInvoicedListNo?: number | null;
+  manualRetailListNo?: number | null;
+  manualListNote?: string | null;
+}
+
+// Liste no -> etiket: 6-10 = "Faturali 1-5" (6 en yuksek fiyat), 1-5 = "Perakende 1-5".
+// Taraf bazli fallback: her taraf icin manuel deger doluysa manuel, degilse sistem onerisi
+// gosterilir (tek tarafli manuel override diger tarafin sistem onerisini gizlemez; manuel
+// olmayan taraf '(sistem)' eki alir). Herhangi bir taraf manuelse rozet manuel (mavi) sayilir.
+// Iki tarafta da deger yoksa null doner (rozet gosterilmez).
+export const buildPriceListSuggestionDisplay = (
+  customer?: CustomerPriceListSuggestionFields | null
+): { text: string; source: 'manual' | 'system'; tooltip?: string } | null => {
+  if (!customer) return null;
+  const toListNo = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+  const manualInvoiced = toListNo(customer.manualInvoicedListNo);
+  const manualRetail = toListNo(customer.manualRetailListNo);
+  const isManual = manualInvoiced !== null || manualRetail !== null;
+  const invoiced = manualInvoiced !== null ? manualInvoiced : toListNo(customer.suggestedInvoicedListNo);
+  const retail = manualRetail !== null ? manualRetail : toListNo(customer.suggestedRetailListNo);
+  const parts: string[] = [];
+  if (invoiced !== null) {
+    const label = invoiced >= 6 && invoiced <= 10 ? `Faturalı ${invoiced - 5}` : `Faturalı (Liste ${invoiced})`;
+    parts.push(isManual && manualInvoiced === null ? `${label} (sistem)` : label);
+  }
+  if (retail !== null) {
+    const label = retail >= 1 && retail <= 5 ? `Perakende ${retail}` : `Perakende (Liste ${retail})`;
+    parts.push(isManual && manualRetail === null ? `${label} (sistem)` : label);
+  }
+  if (parts.length === 0) return null;
+  const source: 'manual' | 'system' = isManual ? 'manual' : 'system';
+  const text = `Önerilen: ${parts.join(' / ')} — ${isManual ? 'Manuel belirlenen öneri' : 'Sistem önerisi'}`;
+  const tooltip = isManual
+    ? customer.manualListNote || undefined
+    : customer.suggestedListBasis || undefined;
+  return { text, source, tooltip };
+};
+
 export const resolveWarehouseValue = (value: string) => {
   const normalized = String(value || '').toLowerCase();
   const digits = normalized.match(/\d+/);
@@ -1882,11 +1972,21 @@ export function useTeklifOlustur() {
     return map;
   }, [quoteItems, quoteProductCodes]);
 
-  // ===== Stok ailesi yonlendirme: kalemi alternatifle DEGISTIR =====
-  const applyFamilySwap = async (
-    item: QuoteItemForm,
-    rec: { productCode: string; productName?: string }
-  ) => {
+  // ===== Degistir/Bol ONAY MODALI =====
+  // Patron talebi: Tasi/Bol'e basinca ONCE mini onay modali acilir; mevcut satirin
+  // marjlari (guncel + son giris maliyetine gore) ve tasinma sonrasi HEDEF urunun
+  // marjlari gosterilir. Uygulama ancak "Onayla ve Uygula" ile yapilir.
+  const [familyActionConfirm, setFamilyActionConfirm] = useState<{
+    mode: 'swap' | 'split';
+    item: QuoteItemForm;
+    rec: FamilyActionRecommendation;
+    altProduct: QuoteProduct;
+  } | null>(null);
+
+  const cancelFamilyAction = () => setFamilyActionConfirm(null);
+
+  // Alt urun BIR kez burada cekilir; confirmed fonksiyonlar ayni objeyi kullanir (ikinci fetch yok).
+  const requestFamilySwap = async (item: QuoteItemForm, rec: FamilyActionRecommendation) => {
     try {
       const { products } = await adminApi.getProductsByCodes([rec.productCode]);
       const alt = products && products[0];
@@ -1894,42 +1994,14 @@ export function useTeklifOlustur() {
         toast.error('Onerilen urun bulunamadi.');
         return;
       }
-      const newItem = buildQuoteItem(alt as QuoteProduct, item.quantity);
-      // Fiyat/satir bilgilerini ESKI satirdan tasi: fiyat MANUAL kaynakla aynen korunur,
-      // vatRate yeni urunden gelir (buildQuoteItem zaten kuruyor).
-      const hasOldPrice = item.unitPrice !== undefined && item.unitPrice !== null;
-      const carriedItem: QuoteItemForm = {
-        ...newItem,
-        id: item.id,
-        unitPrice: item.unitPrice,
-        priceSource: hasOldPrice ? 'MANUAL' : '',
-        selectedSaleIndex: undefined,
-        priceType: item.priceType,
-        vatZeroed: item.vatZeroed,
-        lineDescription: item.lineDescription,
-        responsibilityCenter: item.responsibilityCenter,
-        reserveQty: item.reserveQty,
-      };
-      setQuoteItems((prev) => prev.map((it) => (it.id === item.id ? carriedItem : it)));
-      // Oneri dongusunu kes: bu satir icin yeni kod bastirilir (urun elle degisirse otomatik acilir).
-      setSuppressedFamilyLines((prev) => ({ ...prev, [item.id]: alt.mikroCode }));
-      toast.success(
-        hasOldPrice
-          ? `Kalem "${alt.name}" ile degistirildi - fiyat onceki satirdan tasindi (Manuel), kontrol edin.`
-          : `Kalem "${alt.name}" ile degistirildi.`
-      );
+      setFamilyActionConfirm({ mode: 'swap', item, rec, altProduct: alt as QuoteProduct });
     } catch {
-      toast.error('Degistirme basarisiz.');
+      toast.error('Onerilen urun bilgisi alinamadi.');
     }
   };
 
-  // ===== Stok ailesi yonlendirme: SPLIT (mevcudu azalt + alternatifi yeni kalem ekle) =====
-  const applyFamilySplit = async (
-    item: QuoteItemForm,
-    rec: { productCode: string; fromAlt?: number; fromEntered?: number }
-  ) => {
+  const requestFamilySplit = async (item: QuoteItemForm, rec: FamilyActionRecommendation) => {
     const fromAlt = Number(rec.fromAlt) || 0;
-    const fromEntered = Number(rec.fromEntered) || 0;
     if (fromAlt <= 0) {
       toast.error('Aktarilacak miktar yok.');
       return;
@@ -1941,54 +2013,158 @@ export function useTeklifOlustur() {
         toast.error('Onerilen urun bulunamadi.');
         return;
       }
-      // Yeni satir fiyat/satir bilgilerini ORIJINAL satirdan devralir (fiyat MANUAL kaynakla).
-      const hasOldPrice = item.unitPrice !== undefined && item.unitPrice !== null;
-      // Rezerveyi de miktarla birlikte bol: kalan satirda rezerve > miktar kalirsa
-      // validateQuote siparisi bloke eder; toplam rezerve mumkun oldugunca korunur.
-      const oldReserve = Math.max(0, Number(item.reserveQty || 0));
-      const keptQty = Math.max(0, roundUnitValue(fromEntered));
-      const keptReserve = Math.min(oldReserve, keptQty);
-      const movedReserve = Math.min(fromAlt, Math.max(0, oldReserve - keptReserve));
-      const altItem: QuoteItemForm = {
-        ...buildQuoteItem(alt as QuoteProduct, fromAlt),
-        unitPrice: item.unitPrice,
-        priceSource: hasOldPrice ? 'MANUAL' : '',
-        selectedSaleIndex: undefined,
-        priceType: item.priceType,
-        vatZeroed: item.vatZeroed,
-        lineDescription: item.lineDescription,
-        responsibilityCenter: item.responsibilityCenter,
-        reserveQty: movedReserve,
-      };
-      setQuoteItems((prev) => {
-        const next: QuoteItemForm[] = [];
-        for (const it of prev) {
-          if (it.id === item.id) {
-            if (fromEntered > 0) {
-              next.push({ ...it, quantity: keptQty, reserveQty: keptReserve });
-            }
-            next.push(altItem); // alternatifi hemen ardina koy
-          } else {
-            next.push(it);
-          }
-        }
-        return next;
-      });
-      // Oneri dongusunu kes: hem orijinal hem yeni satir icin bastir (ping-pong onerileri onlenir).
-      setSuppressedFamilyLines((prev) => ({
-        ...prev,
-        [item.id]: item.productCode,
-        [altItem.id]: alt.mikroCode,
-      }));
-      toast.success(
-        hasOldPrice
-          ? `${fromAlt} adet yatan stoktan "${alt.name}" eklendi - fiyat orijinal satirdan tasindi (Manuel), kontrol edin.`
-          : `${fromAlt} adet yatan stoktan "${alt.name}" eklendi.`
-      );
+      setFamilyActionConfirm({ mode: 'split', item, rec, altProduct: alt as QuoteProduct });
     } catch {
-      toast.error('Bolme basarisiz.');
+      toast.error('Onerilen urun bilgisi alinamadi.');
     }
   };
+
+  // ===== Stok ailesi yonlendirme: kalemi alternatifle DEGISTIR (onay sonrasi) =====
+  const applyFamilySwapConfirmed = (item: QuoteItemForm, alt: QuoteProduct) => {
+    const newItem = buildQuoteItem(alt, item.quantity);
+    // Fiyat/satir bilgilerini ESKI satirdan tasi: fiyat MANUAL kaynakla aynen korunur,
+    // vatRate yeni urunden gelir (buildQuoteItem zaten kuruyor).
+    const hasOldPrice = item.unitPrice !== undefined && item.unitPrice !== null;
+    const carriedItem: QuoteItemForm = {
+      ...newItem,
+      id: item.id,
+      unitPrice: item.unitPrice,
+      priceSource: hasOldPrice ? 'MANUAL' : '',
+      selectedSaleIndex: undefined,
+      priceType: item.priceType,
+      vatZeroed: item.vatZeroed,
+      lineDescription: item.lineDescription,
+      responsibilityCenter: item.responsibilityCenter,
+      reserveQty: item.reserveQty,
+    };
+    setQuoteItems((prev) => prev.map((it) => (it.id === item.id ? carriedItem : it)));
+    // Oneri dongusunu kes: bu satir icin yeni kod bastirilir (urun elle degisirse otomatik acilir).
+    setSuppressedFamilyLines((prev) => ({ ...prev, [item.id]: alt.mikroCode }));
+    toast.success(
+      hasOldPrice
+        ? `Kalem "${alt.name}" ile degistirildi - fiyat onceki satirdan tasindi (Manuel), kontrol edin.`
+        : `Kalem "${alt.name}" ile degistirildi.`
+    );
+  };
+
+  // ===== Stok ailesi yonlendirme: SPLIT (onay sonrasi; mevcudu azalt + alternatifi yeni kalem ekle) =====
+  const applyFamilySplitConfirmed = (
+    item: QuoteItemForm,
+    rec: FamilyActionRecommendation,
+    alt: QuoteProduct
+  ) => {
+    const fromAlt = Number(rec.fromAlt) || 0;
+    const fromEntered = Number(rec.fromEntered) || 0;
+    if (fromAlt <= 0) {
+      toast.error('Aktarilacak miktar yok.');
+      return;
+    }
+    // Yeni satir fiyat/satir bilgilerini ORIJINAL satirdan devralir (fiyat MANUAL kaynakla).
+    const hasOldPrice = item.unitPrice !== undefined && item.unitPrice !== null;
+    // Rezerveyi de miktarla birlikte bol: kalan satirda rezerve > miktar kalirsa
+    // validateQuote siparisi bloke eder; toplam rezerve mumkun oldugunca korunur.
+    const oldReserve = Math.max(0, Number(item.reserveQty || 0));
+    const keptQty = Math.max(0, roundUnitValue(fromEntered));
+    const keptReserve = Math.min(oldReserve, keptQty);
+    const movedReserve = Math.min(fromAlt, Math.max(0, oldReserve - keptReserve));
+    const altItem: QuoteItemForm = {
+      ...buildQuoteItem(alt, fromAlt),
+      unitPrice: item.unitPrice,
+      priceSource: hasOldPrice ? 'MANUAL' : '',
+      selectedSaleIndex: undefined,
+      priceType: item.priceType,
+      vatZeroed: item.vatZeroed,
+      lineDescription: item.lineDescription,
+      responsibilityCenter: item.responsibilityCenter,
+      reserveQty: movedReserve,
+    };
+    setQuoteItems((prev) => {
+      const next: QuoteItemForm[] = [];
+      for (const it of prev) {
+        if (it.id === item.id) {
+          if (fromEntered > 0) {
+            next.push({ ...it, quantity: keptQty, reserveQty: keptReserve });
+          }
+          next.push(altItem); // alternatifi hemen ardina koy
+        } else {
+          next.push(it);
+        }
+      }
+      return next;
+    });
+    // Oneri dongusunu kes: hem orijinal hem yeni satir icin bastir (ping-pong onerileri onlenir).
+    setSuppressedFamilyLines((prev) => ({
+      ...prev,
+      [item.id]: item.productCode,
+      [altItem.id]: alt.mikroCode,
+    }));
+    toast.success(
+      hasOldPrice
+        ? `${fromAlt} adet yatan stoktan "${alt.name}" eklendi - fiyat orijinal satirdan tasindi (Manuel), kontrol edin.`
+        : `${fromAlt} adet yatan stoktan "${alt.name}" eklendi.`
+    );
+  };
+
+  // Onay modalinin "Onayla ve Uygula" butonu: mevcut swap/split mantigi AYNEN calisir.
+  const confirmFamilyAction = () => {
+    if (!familyActionConfirm) return;
+    const { mode, item, rec, altProduct } = familyActionConfirm;
+    setFamilyActionConfirm(null);
+    if (mode === 'swap') {
+      applyFamilySwapConfirmed(item, altProduct);
+    } else {
+      applyFamilySplitConfirmed(item, rec, altProduct);
+    }
+  };
+
+  // Onay modali gosterim verisi: mevcut satir + hedef urun icin marjlar (guncel & son giris).
+  // Marj tabani beyaz satirda yarim-KDV yuklu maliyettir (tabana cek / minPrice ile ayni yardimci).
+  const familyActionConfirmInfo = useMemo(() => {
+    if (!familyActionConfirm) return null;
+    const { mode, item, rec, altProduct } = familyActionConfirm;
+    // Beyaz satir tespiti: priceType WHITE veya KDV sifirlanmis (global ya da satir bazli).
+    const isWhiteLine = item.priceType === 'WHITE' || Boolean(vatZeroed || item.vatZeroed);
+    const hasPrice = item.unitPrice !== undefined && item.unitPrice !== null;
+    const unitPrice = hasPrice ? roundUp2(item.unitPrice || 0) : null;
+    const targetVatRate = Number.isFinite(Number(altProduct.vatRate))
+      ? Number(altProduct.vatRate)
+      : item.vatRate;
+    const baseUnit = rec.unit || altProduct.unit || 'ADET';
+    const movedQty = mode === 'swap' ? item.quantity || 0 : Number(rec.fromAlt) || 0;
+    const keptQty = mode === 'split' ? Math.max(0, Number(rec.fromEntered) || 0) : 0;
+    const buildMarginSide = (cost?: number | null, vatRate?: number | null) => ({
+      margin: computeMarginPercent(unitPrice, cost, vatRate, isWhiteLine),
+      costMissing: !(Number(cost) > 0),
+    });
+    return {
+      mode,
+      title: mode === 'swap' ? 'Ürün Değiştir — Onay' : 'Miktarı Böl — Onay',
+      hasPrice,
+      unitPrice,
+      isWhiteLine,
+      current: {
+        code: item.productCode,
+        name: item.productName,
+        quantityText: `${formatQuantityInput(getDisplayQuantity(item))} ${getSelectedUnit(item)}`,
+        priceText: hasPrice
+          ? `${formatCurrency(getDisplayUnitPrice(item))} / ${getSelectedUnit(item)}`
+          : null,
+        current: buildMarginSide(item.currentCost, item.vatRate),
+        entry: buildMarginSide(item.lastEntryPrice, item.vatRate),
+      },
+      target: {
+        code: altProduct.mikroCode,
+        name: altProduct.name,
+        movedQuantityText: `${formatQuantityInput(movedQty)} ${baseUnit}`,
+        keptQuantityText: mode === 'split' ? `${formatQuantityInput(keptQty)} ${baseUnit}` : null,
+        priceText: hasPrice && unitPrice !== null
+          ? `${formatCurrency(unitPrice)} / ${baseUnit} (Manuel)`
+          : null,
+        current: buildMarginSide(altProduct.currentCost, targetVatRate),
+        entry: buildMarginSide(altProduct.lastEntryPrice, targetVatRate),
+      },
+    };
+  }, [familyActionConfirm, vatZeroed]);
 
   const handleRecommendationAdd = (product: QuoteProduct) => {
     if (quoteProductCodeSet.has(product.mikroCode)) {
@@ -2697,9 +2873,7 @@ export function useTeklifOlustur() {
     // Beyaz (KDV sifirlanmis) satirda maliyete yarim KDV yuku eklenir
     // (yarim-KDV kurali) -> taban = maliyet * (1 + kdv/2). Backend ile ayni.
     const vatZeroedLine = Boolean(vatZeroed || item.vatZeroed);
-    const effectiveBaseCost = vatZeroedLine
-      ? baseCost * (1 + (item.vatRate || 0) / 2)
-      : baseCost;
+    const effectiveBaseCost = applyWhiteHalfVatToCost(baseCost, item.vatRate, vatZeroedLine);
     const blocked = effectiveBaseCost > 0 && unitPrice < effectiveBaseCost * 1.05;
     // Minimum satilabilir fiyat: taban x 1.05, kurus yukari yuvarli.
     const minPrice = effectiveBaseCost > 0 ? roundUp2(effectiveBaseCost * 1.05) : 0;
@@ -3144,8 +3318,6 @@ export function useTeklifOlustur() {
     aiModels,
     aiRequestText,
     aiResult,
-    applyFamilySplit,
-    applyFamilySwap,
     applyLastSaleToAll,
     applyMinPriceToBlockedItems,
     applyMinPriceToItem,
@@ -3159,6 +3331,7 @@ export function useTeklifOlustur() {
     buildQuoteItemFromExisting,
     bulkPriceListNo,
     bulkResponsibilityCenter,
+    cancelFamilyAction,
     cardShell,
     categoryLastPurchaseMap,
     clearAllColumns,
@@ -3166,6 +3339,7 @@ export function useTeklifOlustur() {
     clearSearchSelection,
     columnWidths,
     columnsCount,
+    confirmFamilyAction,
     contactsLoading,
     customerContacts,
     customerOptions,
@@ -3181,6 +3355,8 @@ export function useTeklifOlustur() {
     editingOrderCustomerCode,
     editingQuote,
     expandedQuoteHistory,
+    familyActionConfirm,
+    familyActionConfirmInfo,
     familyExcludeCodesByLine,
     fetchCustomerContacts,
     fetchPurchasedProducts,
@@ -3280,6 +3456,8 @@ export function useTeklifOlustur() {
     removePoolColorRule,
     renderResizeHandle,
     reorderableColumns,
+    requestFamilySplit,
+    requestFamilySwap,
     resizeRef,
     resolvedLineDescriptionIndex,
     responsibles,

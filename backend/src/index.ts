@@ -23,6 +23,7 @@ import customerActivityService from './services/customer-activity.service';
 import eInvoiceService from './services/einvoice.service';
 import customerRecoveryService from './services/customer-recovery.service';
 import productPopularityService from './services/product-popularity.service';
+import priceListSuggestionService from './services/price-list-suggestion.service';
 import { prisma } from './utils/prisma';
 import { getUploadsDir } from './utils/storage';
 
@@ -268,6 +269,17 @@ if (config.enableCron) {
       console.log('Product popularity refresh completed:', result);
     } catch (error) {
       console.error('Product popularity refresh error:', error);
+    }
+  }, cronOptions);
+
+  console.log('Price list suggestion cron schedule:', config.priceListSuggestionCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.priceListSuggestionCronSchedule, async () => {
+    console.log('Price list suggestion run started...');
+    try {
+      const result = await priceListSuggestionService.runForAllCustomers();
+      console.log('Price list suggestion run completed:', result);
+    } catch (error) {
+      console.error('Price list suggestion cron error:', error);
     }
   }, cronOptions);
 

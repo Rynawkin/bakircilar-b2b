@@ -33,6 +33,8 @@ import type { LastOrder, LastQuote } from './useTeklifOlustur';
 import {
   POOL_SORT_OPTIONS,
   PRICE_LIST_LABELS,
+  buildPriceListSuggestionDisplay,
+  getFamilyMarginToneClass,
   getColumnDisplayName,
   formatStockValue,
   getStockColumnValue,
@@ -87,8 +89,6 @@ export default function TeklifOlusturNew() {
     aiModels,
     aiRequestText,
     aiResult,
-    applyFamilySplit,
-    applyFamilySwap,
     applyLastSaleToAll,
     applyMinPriceToBlockedItems,
     applyMinPriceToItem,
@@ -102,6 +102,7 @@ export default function TeklifOlusturNew() {
     buildQuoteItemFromExisting,
     bulkPriceListNo,
     bulkResponsibilityCenter,
+    cancelFamilyAction,
     cardShell,
     categoryLastPurchaseMap,
     clearAllColumns,
@@ -109,6 +110,7 @@ export default function TeklifOlusturNew() {
     clearSearchSelection,
     columnWidths,
     columnsCount,
+    confirmFamilyAction,
     contactsLoading,
     customerContacts,
     customerOptions,
@@ -124,6 +126,7 @@ export default function TeklifOlusturNew() {
     editingOrderCustomerCode,
     editingQuote,
     expandedQuoteHistory,
+    familyActionConfirmInfo,
     familyExcludeCodesByLine,
     fetchCustomerContacts,
     fetchPurchasedProducts,
@@ -223,6 +226,8 @@ export default function TeklifOlusturNew() {
     removePoolColorRule,
     renderResizeHandle,
     reorderableColumns,
+    requestFamilySplit,
+    requestFamilySwap,
     resizeRef,
     resolvedLineDescriptionIndex,
     responsibles,
@@ -411,6 +416,23 @@ export default function TeklifOlusturNew() {
   const chip =
     'rounded-full bg-[#f1f4f9] px-3 py-1 text-[12px] font-medium text-[#51607a]';
 
+  /* Cari fiyat listesi onerisi rozeti (hook'taki pure helper; iki tema ayni mantigi kullanir) */
+  const priceListSuggestion = buildPriceListSuggestionDisplay(selectedCustomer);
+
+  /* Degistir/Bol onay modali marj satiri: negatif kirmizi, %5 alti amber, digerleri yesil */
+  const renderFamilyMargin = (label: string, side: { margin: number | null; costMissing: boolean }) => (
+    <span className="text-[#51607a]">
+      {label}:{' '}
+      {side.costMissing ? (
+        <span className="font-semibold text-[#8b97ac]">maliyet yok</span>
+      ) : (
+        <span className={`font-semibold ${getFamilyMarginToneClass(side.margin)}`}>
+          {formatPercent(side.margin)}
+        </span>
+      )}
+    </span>
+  );
+
   /* Yukleme guard'i — klasik ile birebir (mod metni korunur) */
   if ((isEditMode && loadingQuote) || (isOrderEditMode && loadingOrder)) {
     return (
@@ -480,7 +502,23 @@ export default function TeklifOlusturNew() {
                   </button>
                 </div>
                 {selectedCustomer ? (
-                  <CustomerInfoCard customer={selectedCustomer} />
+                  <>
+                    <CustomerInfoCard customer={selectedCustomer} />
+                    {priceListSuggestion && (
+                      <div className="mt-2">
+                        <span
+                          title={priceListSuggestion.tooltip}
+                          className={`inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11.5px] font-semibold ${
+                            priceListSuggestion.source === 'manual'
+                              ? 'border-blue-200 bg-blue-50 text-blue-800'
+                              : 'border-[#e7ebf2] bg-[#f1f4f9] text-[#51607a]'
+                          }`}
+                        >
+                          {priceListSuggestion.text}
+                        </span>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-[13px] text-[#8b97ac]">
                     {isOrderMode ? 'Siparis icin musteri secin.' : 'Teklif icin musteri secin.'}
@@ -1572,8 +1610,8 @@ export default function TeklifOlusturNew() {
                                     baseQuantity={item.quantity}
                                     excludeCodes={familyExcludeCodesByLine[item.id]}
                                     suppressed={isFamilySuggestionSuppressed(item)}
-                                    onSwap={(rec) => applyFamilySwap(item, rec)}
-                                    onSplit={(rec) => applyFamilySplit(item, rec)}
+                                    onSwap={(rec) => requestFamilySwap(item, rec)}
+                                    onSplit={(rec) => requestFamilySplit(item, rec)}
                                   />
                                 </td>
                               </tr>
@@ -1924,6 +1962,83 @@ export default function TeklifOlusturNew() {
         serverSearch={searchCustomersServer}
         onSelect={handlePickCustomer}
       />
+
+      {/* ====================== DEGISTIR/BOL ONAY MODALI ====================== */}
+      <Modal
+        isOpen={Boolean(familyActionConfirmInfo)}
+        onClose={cancelFamilyAction}
+        title={familyActionConfirmInfo?.title || 'Onay'}
+        size="lg"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={cancelFamilyAction} className={btnGhost}>
+              Vazgeç
+            </button>
+            <button type="button" onClick={confirmFamilyAction} className={btnPrimary}>
+              Onayla ve Uygula
+            </button>
+          </div>
+        }
+      >
+        {familyActionConfirmInfo && (
+          <div className="space-y-3">
+            {/* Mevcut satir */}
+            <div className="rounded-2xl border border-[#e7ebf2] bg-[#f8fafc] p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8b97ac]">
+                Mevcut Satır
+              </p>
+              <p className="mt-1 text-[13px] font-semibold text-[#14223b]">
+                {familyActionConfirmInfo.current.name}{' '}
+                <span className="font-normal text-[#8b97ac]">
+                  ({familyActionConfirmInfo.current.code})
+                </span>
+              </p>
+              <p className="mt-0.5 text-[12px] text-[#51607a]">
+                Miktar: {familyActionConfirmInfo.current.quantityText}
+                {familyActionConfirmInfo.current.priceText
+                  ? ` | Birim fiyat: ${familyActionConfirmInfo.current.priceText}`
+                  : ''}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+                {renderFamilyMargin('Marj (Güncel)', familyActionConfirmInfo.current.current)}
+                {renderFamilyMargin('Marj (Son Giriş)', familyActionConfirmInfo.current.entry)}
+              </div>
+            </div>
+
+            {/* Yeni durum */}
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+                {familyActionConfirmInfo.mode === 'swap' ? 'Taşınacak Yeni Satır' : 'Bölünecek Yeni Satır'}
+              </p>
+              <p className="mt-1 text-[13px] font-semibold text-[#14223b]">
+                {familyActionConfirmInfo.target.name}{' '}
+                <span className="font-normal text-[#8b97ac]">
+                  ({familyActionConfirmInfo.target.code})
+                </span>
+              </p>
+              <p className="mt-0.5 text-[12px] text-[#51607a]">
+                Taşınacak miktar: {familyActionConfirmInfo.target.movedQuantityText}
+                {familyActionConfirmInfo.target.keptQuantityText
+                  ? ` | Mevcut satırda kalan: ${familyActionConfirmInfo.target.keptQuantityText}`
+                  : ''}
+                {familyActionConfirmInfo.target.priceText
+                  ? ` | Taşınacak fiyat: ${familyActionConfirmInfo.target.priceText}`
+                  : ''}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+                {renderFamilyMargin('Marj (Güncel)', familyActionConfirmInfo.target.current)}
+                {renderFamilyMargin('Marj (Son Giriş)', familyActionConfirmInfo.target.entry)}
+              </div>
+            </div>
+
+            {!familyActionConfirmInfo.hasPrice && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-800">
+                Fiyat taşınamayacak — yeni satırda fiyat seçmeniz gerekir.
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       {/* ====================== FIYAT TEYIT MODALI ====================== */}
       <Modal

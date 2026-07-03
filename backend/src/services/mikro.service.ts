@@ -940,6 +940,64 @@ class MikroService {
   }
 
   /**
+   * STOK_DEPO_DETAYLARI'ndan ürün başına min/max stok TOPLAMLARINI çeker.
+   *
+   * Fazla stok hesabının MAX-bazlı modu için sync sırasında kullanılır:
+   * dahil depoların (örn. 1=Merkez, 6=Topça) sdp_min_stok/sdp_max_stok değerleri
+   * ürün bazında toplanır ve Product.minStockTotal/maxStockTotal alanlarına yazılır.
+   *
+   * Kolon eşlemesi minmax.service.ts / stock-f10.service.ts ile aynıdır:
+   * sdp_depo_kod = STOK kodu (sto_kod), sdp_depo_no = depo numarası.
+   *
+   * Salt okuma (NOLOCK) + parametreli depo listesi; TÜM ürünler TEK sorguda gelir
+   * (ürün başına ayrı sorgu yok).
+   */
+  async getStockMinMaxTotals(
+    warehouseNos: number[]
+  ): Promise<Array<{ productCode: string; minTotal: number; maxTotal: number }>> {
+    const validNos = Array.from(
+      new Set(
+        (warehouseNos || [])
+          .map((no) => Math.trunc(Number(no)))
+          .filter((no) => Number.isFinite(no) && no > 0)
+      )
+    );
+
+    if (validNos.length === 0) {
+      return [];
+    }
+
+    await this.connect();
+
+    const request = this.pool!.request();
+    const placeholders = validNos.map((no, index) => {
+      const paramName = `wh${index}`;
+      request.input(paramName, sql.Int, no);
+      return `@${paramName}`;
+    });
+
+    const query = `
+      SELECT
+        LTRIM(RTRIM(sdp_depo_kod)) as productCode,
+        SUM(CAST(ISNULL(sdp_min_stok, 0) AS FLOAT)) as minTotal,
+        SUM(CAST(ISNULL(sdp_max_stok, 0) AS FLOAT)) as maxTotal
+      FROM STOK_DEPO_DETAYLARI WITH (NOLOCK)
+      WHERE sdp_depo_no IN (${placeholders.join(', ')})
+      GROUP BY LTRIM(RTRIM(sdp_depo_kod))
+    `;
+
+    const result = await request.query(query);
+
+    return result.recordset
+      .map((row: any) => ({
+        productCode: String(row.productCode || '').trim(),
+        minTotal: Number(row.minTotal) || 0,
+        maxTotal: Number(row.maxTotal) || 0,
+      }))
+      .filter((row: { productCode: string }) => row.productCode.length > 0);
+  }
+
+  /**
    * Satış geçmişi (günlük - son 90 gün)
    * F10 sorgusundan alınan TAMAMEN AYNI mantık:
    * - İrsaliyeli (evraktip=4) satışlar

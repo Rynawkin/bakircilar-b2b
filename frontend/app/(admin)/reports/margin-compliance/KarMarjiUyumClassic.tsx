@@ -25,8 +25,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
-import { useKarMarjiUyum, MARGIN_EXCLUSION_TYPE_LABELS } from './useKarMarjiUyum';
-import type { MarginExclusionType } from './useKarMarjiUyum';
+import {
+  useKarMarjiUyum,
+  MARGIN_EXCLUSION_TYPE_LABELS,
+  GENERAL_EXCLUSION_TYPE_LABELS,
+} from './useKarMarjiUyum';
+import type { MarginExclusionType, GeneralExclusionType } from './useKarMarjiUyum';
 
 /**
  * Klasik gorunum: Kar Marji Analizi (019703) raporu.
@@ -74,6 +78,24 @@ export default function KarMarjiUyumClassic() {
     handleAddExclusionOption,
     handleAddNameExclusion,
     handleDeleteExclusion,
+    exclusionsPanelOpen,
+    setExclusionsPanelOpen,
+    exclusionsTab,
+    setExclusionsTab,
+    generalExclusions,
+    activeGeneralExclusions,
+    generalExclusionsLoading,
+    generalExclusionsForbidden,
+    generalFormType,
+    setGeneralFormType,
+    generalFormValue,
+    setGeneralFormValue,
+    generalFormDescription,
+    setGeneralFormDescription,
+    savingGeneralExclusion,
+    deletingGeneralExclusionId,
+    handleAddGeneralExclusion,
+    handleDeleteGeneralExclusion,
     syncingReport,
     sendingReportEmail,
     isSingleDate,
@@ -347,6 +369,15 @@ export default function KarMarjiUyumClassic() {
               >
                 Mail Gonder
               </Button>
+              <button
+                type="button"
+                onClick={() => setExclusionsPanelOpen(!exclusionsPanelOpen)}
+                className={`inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-700 transition-colors ${
+                  exclusionsPanelOpen ? 'bg-red-100' : 'bg-red-50 hover:bg-red-100'
+                }`}
+              >
+                🚫 Dislamalar ({activeExclusions.length + activeGeneralExclusions.length})
+              </button>
               <span className="text-xs text-gray-500">Tek gun secili olmali.</span>
             </div>
 
@@ -398,104 +429,208 @@ export default function KarMarjiUyumClassic() {
               </p>
             </details>
 
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm font-medium text-gray-700">
-                Rapor Dislamalari ({activeExclusions.length})
-              </summary>
+            {/* Dislamalar paneli — butonla acilir, iki sekme: Marj / Genel */}
+            {exclusionsPanelOpen && (
+              <div className="mt-4 rounded-lg border border-gray-200 overflow-hidden">
+                <div className="flex border-b border-gray-200 bg-gray-50">
+                  {[
+                    ['MARGIN', `Marj Raporu Dislamalari (${activeExclusions.length})`],
+                    ['GENERAL', `Genel Rapor Dislamalari (${activeGeneralExclusions.length})`],
+                  ].map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setExclusionsTab(key as 'MARGIN' | 'GENERAL')}
+                      className={`px-4 py-2.5 text-sm font-semibold border-b-2 ${
+                        exclusionsTab === key
+                          ? 'border-primary-600 bg-white text-primary-700'
+                          : 'border-transparent text-gray-600 hover:text-gray-800'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
 
-              <div className="mt-3 space-y-2">
-                {activeExclusions.length === 0 ? (
-                  <p className="text-xs text-gray-500">Aktif dislama kurali yok.</p>
-                ) : (
-                  activeExclusions.map((exclusion) => (
-                    <div key={exclusion.id} className="flex items-center gap-2 text-sm text-gray-700">
-                      <Badge variant="outline">{MARGIN_EXCLUSION_TYPE_LABELS[exclusion.type]}</Badge>
-                      <span className="font-medium truncate">
-                        {exclusion.value}
-                        {exclusion.label && exclusion.label !== exclusion.value ? ` — ${exclusion.label}` : ''}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteExclusion(exclusion)}
-                        disabled={deletingExclusionId === exclusion.id}
+                {exclusionsTab === 'MARGIN' ? (
+                  <div className="p-4">
+                    <p className="text-xs text-gray-500 mb-3">Sadece marj raporunu etkiler.</p>
+
+                    <div className="space-y-2">
+                      {activeExclusions.length === 0 ? (
+                        <p className="text-xs text-gray-500">Aktif dislama kurali yok.</p>
+                      ) : (
+                        activeExclusions.map((exclusion) => (
+                          <div key={exclusion.id} className="flex items-center gap-2 text-sm text-gray-700">
+                            <Badge variant="outline">{MARGIN_EXCLUSION_TYPE_LABELS[exclusion.type]}</Badge>
+                            <span className="font-medium truncate">
+                              {exclusion.value}
+                              {exclusion.label && exclusion.label !== exclusion.value ? ` — ${exclusion.label}` : ''}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDeleteExclusion(exclusion)}
+                              disabled={deletingExclusionId === exclusion.id}
+                            >
+                              Sil
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <select
+                        value={exclusionType}
+                        onChange={(e) => setExclusionType(e.target.value as MarginExclusionType)}
+                        className="px-3 py-2 border border-gray-300 rounded-md text-sm"
                       >
-                        Sil
+                        <option value="BRAND">Marka</option>
+                        <option value="PRODUCT_CODE">Urun Kodu</option>
+                        <option value="PRODUCT_NAME">Urun Adi (metin)</option>
+                      </select>
+                      {exclusionType === 'PRODUCT_NAME' ? (
+                        <>
+                          <Input
+                            value={exclusionNameInput}
+                            onChange={(e) => setExclusionNameInput(e.target.value)}
+                            placeholder="Urun adinda gecen ifade..."
+                            className="flex-1 min-w-[220px]"
+                          />
+                          <Button
+                            size="sm"
+                            onClick={handleAddNameExclusion}
+                            isLoading={savingExclusion}
+                            disabled={savingExclusion}
+                          >
+                            Ekle
+                          </Button>
+                        </>
+                      ) : (
+                        <Input
+                          value={exclusionSearch}
+                          onChange={(e) => setExclusionSearch(e.target.value)}
+                          placeholder={exclusionType === 'BRAND' ? 'Marka ara...' : 'Urun kodu veya adi ara...'}
+                          className="flex-1 min-w-[220px]"
+                        />
+                      )}
+                    </div>
+
+                    {exclusionType === 'PRODUCT_NAME' ? (
+                      <p className="mt-2 text-xs text-gray-500">Urun adinda gecen ifadeyle eslesir (kismi eslesme).</p>
+                    ) : (
+                      <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-gray-200">
+                        {exclusionOptionsLoading ? (
+                          <p className="p-3 text-xs text-gray-500">Yukleniyor...</p>
+                        ) : exclusionOptions.length === 0 ? (
+                          <p className="p-3 text-xs text-gray-500">Sonuc bulunamadi.</p>
+                        ) : (
+                          exclusionOptions.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => handleAddExclusionOption(option)}
+                              disabled={savingExclusion}
+                              className="flex w-full items-center justify-between gap-2 border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                            >
+                              <span className="truncate">
+                                {exclusionType === 'BRAND' ? option.label : `${option.value} — ${option.label}`}
+                              </span>
+                              {typeof option.productCount === 'number' && (
+                                <span className="whitespace-nowrap text-xs text-gray-400">{option.productCount} urun</span>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                    <p className="mt-2 text-xs text-gray-500">
+                      Dislama eklenince/silinince rapor otomatik yenilenir; gecmis veri silinmez, kural silinince satirlar geri gelir.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-4">
+                    <p className="text-xs text-gray-500 mb-3">
+                      Ucarer satis gecmisi, MinMax v2, top urunler, musteri kurtarma gibi satis-istatistigi raporlarini etkiler.
+                    </p>
+
+                    {generalExclusionsForbidden ? (
+                      <p className="text-xs font-semibold text-amber-700">
+                        Bu bolumu goruntuleme yetkiniz yok (admin:exclusions).
+                      </p>
+                    ) : (
+                      <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={generalFormType}
+                        onChange={(e) => setGeneralFormType(e.target.value as GeneralExclusionType)}
+                        className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      >
+                        {Object.entries(GENERAL_EXCLUSION_TYPE_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        value={generalFormValue}
+                        onChange={(e) => setGeneralFormValue(e.target.value)}
+                        placeholder={generalFormType === 'PRODUCT_CODE' ? 'Orn: B106430' : 'Deger girin'}
+                        className="flex-1 min-w-[180px]"
+                      />
+                      <Input
+                        value={generalFormDescription}
+                        onChange={(e) => setGeneralFormDescription(e.target.value)}
+                        placeholder="Aciklama (opsiyonel)"
+                        className="flex-1 min-w-[180px]"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleAddGeneralExclusion}
+                        isLoading={savingGeneralExclusion}
+                        disabled={savingGeneralExclusion}
+                      >
+                        Ekle
                       </Button>
                     </div>
-                  ))
+
+                    <div className="mt-3 space-y-2">
+                      {generalExclusionsLoading ? (
+                        <p className="text-xs text-gray-500">Yukleniyor...</p>
+                      ) : generalExclusions.length === 0 ? (
+                        <p className="text-xs text-gray-500">Genel dislama kurali yok.</p>
+                      ) : (
+                        generalExclusions.map((exclusion) => (
+                          <div key={exclusion.id} className="flex items-center gap-2 text-sm text-gray-700">
+                            <Badge variant="outline">{GENERAL_EXCLUSION_TYPE_LABELS[exclusion.type]}</Badge>
+                            <span className="font-medium truncate">
+                              {exclusion.value}
+                              {exclusion.description ? ` — ${exclusion.description}` : ''}
+                            </span>
+                            {!exclusion.active && (
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">
+                                Pasif
+                              </span>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDeleteGeneralExclusion(exclusion)}
+                              disabled={deletingGeneralExclusionId === exclusion.id}
+                            >
+                              Sil
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <select
-                  value={exclusionType}
-                  onChange={(e) => setExclusionType(e.target.value as MarginExclusionType)}
-                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
-                >
-                  <option value="BRAND">Marka</option>
-                  <option value="PRODUCT_CODE">Urun Kodu</option>
-                  <option value="PRODUCT_NAME">Urun Adi (metin)</option>
-                </select>
-                {exclusionType === 'PRODUCT_NAME' ? (
-                  <>
-                    <Input
-                      value={exclusionNameInput}
-                      onChange={(e) => setExclusionNameInput(e.target.value)}
-                      placeholder="Urun adinda gecen ifade..."
-                      className="flex-1 min-w-[220px]"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={handleAddNameExclusion}
-                      isLoading={savingExclusion}
-                      disabled={savingExclusion}
-                    >
-                      Ekle
-                    </Button>
-                  </>
-                ) : (
-                  <Input
-                    value={exclusionSearch}
-                    onChange={(e) => setExclusionSearch(e.target.value)}
-                    placeholder={exclusionType === 'BRAND' ? 'Marka ara...' : 'Urun kodu veya adi ara...'}
-                    className="flex-1 min-w-[220px]"
-                  />
-                )}
-              </div>
-
-              {exclusionType === 'PRODUCT_NAME' ? (
-                <p className="mt-2 text-xs text-gray-500">Urun adinda gecen ifadeyle eslesir (kismi eslesme).</p>
-              ) : (
-                <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-gray-200">
-                  {exclusionOptionsLoading ? (
-                    <p className="p-3 text-xs text-gray-500">Yukleniyor...</p>
-                  ) : exclusionOptions.length === 0 ? (
-                    <p className="p-3 text-xs text-gray-500">Sonuc bulunamadi.</p>
-                  ) : (
-                    exclusionOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => handleAddExclusionOption(option)}
-                        disabled={savingExclusion}
-                        className="flex w-full items-center justify-between gap-2 border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                      >
-                        <span className="truncate">
-                          {exclusionType === 'BRAND' ? option.label : `${option.value} — ${option.label}`}
-                        </span>
-                        {typeof option.productCount === 'number' && (
-                          <span className="whitespace-nowrap text-xs text-gray-400">{option.productCount} urun</span>
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-              <p className="mt-2 text-xs text-gray-500">
-                Dislama eklenince/silinince rapor otomatik yenilenir; gecmis veri silinmez, kural silinince satirlar geri gelir.
-              </p>
-            </details>
+            )}
 
             <details className="mt-4">
               <summary className="cursor-pointer text-sm font-medium text-gray-700">

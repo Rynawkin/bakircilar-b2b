@@ -313,6 +313,16 @@ model User {
   lastPriceGuardType  LastPriceGuardType @default(COST)
   lastPriceCostBasis  LastPriceCostBasis @default(CURRENT_COST)
   lastPriceMinCostPercent Float         @default(10)
+  // Fiyat listesi onerisi (gece motoru yazar; manuel alanlar doluysa oneri yerine onlar gosterilir)
+  suggestedInvoicedListNo   Int?
+  suggestedRetailListNo     Int?
+  suggestedListBasis        String?     // kisa aciklama: hangi veriyle onerildi
+  suggestedListComputedAt   DateTime?
+  manualInvoicedListNo      Int?
+  manualRetailListNo        Int?
+  manualListNote            String?
+  manualListSetAt           DateTime?
+  manualListSetByName       String?
   quoteLastSalesCount Int          @default(1)
   quoteWhatsappTemplate String?
   quoteResponsibleCode String?
@@ -593,6 +603,10 @@ model Settings {
   marginReportEmailColumns  String[]                @default([])
   marginReportIncludedSectorCodes String[]          @default([])
 
+  // Yapiskan iskonto cozumu: son satis fiyati, satis anindaki liste konumuna
+  // endekslenir (PriceChange snapshot'lariyla). false = eski davranis (ham son fiyat).
+  lastPriceIndexationEnabled Boolean                @default(false)
+
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
 }
@@ -790,6 +804,11 @@ model Product {
 
   // Hesaplanan fazla stok (toplam)
   excessStock             Int       @default(0)
+
+  // Mikro STOK_DEPO_DETAYLARI min/max toplamlari (dahil depolar; sync yazar).
+  // Fazla stok hesabi max tanimliysa "max ustu" mantigiyla calisir.
+  minStockTotal           Float?
+  maxStockTotal           Float?
 
   // Depo bazlı fazla stoklar (JSON)
   // Örnek: {"DEPO1": 20, "DEPO2": 10, "MERKEZ": 0}
@@ -2459,6 +2478,10 @@ model PriceChange {
   changeAmount          Decimal   @db.Decimal(18, 4) @map("change_amount")
   changePercent         Decimal   @db.Decimal(18, 4) @map("change_percent")
   changedAt             DateTime @map("change_date")
+  // Degisen fiyat listesinin numarasi (Mikro fid_fiyat_no; priceSync.insertPriceChanges
+  // price_list_no kolonuna yazar). Eski/eksik satirlarda 0 veya null olabilir;
+  // liste-endeksli son fiyat hesabi yalnizca 1-10 arasi degerleri kullanir.
+  priceListNo           Int?      @map("price_list_no")
 
   // Güncel maliyet ve fiyat listeleri (10 adet)
   currentCost           Decimal   @db.Decimal(18, 4) @map("current_cost")

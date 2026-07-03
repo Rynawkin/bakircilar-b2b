@@ -235,6 +235,54 @@ class ExclusionService {
 
     return conditions;
   }
+
+  /**
+   * Build exclusion WHERE clause for SIPARISLER queries
+   * Aliases: sip = SIPARISLER, st = STOKLAR, c2 = CARI_HESAPLAR
+   * (c2 kasitli: ayni sorguda STOK_HAREKETLERI varyantinin 'c' aliasiyla cakismasin).
+   * Isim/sektor kosullari icin cagiran taraf kosullu LEFT JOIN eklemelidir
+   * (buildStokHareketleriExclusionConditions ile ayni needsJoin kalibi).
+   */
+  async buildSiparislerExclusionConditions(): Promise<string[]> {
+    const exclusions = await this.getActiveExclusions();
+    const conditions: string[] = [];
+
+    // Exclude specific product codes
+    if (exclusions.productCodes.length > 0) {
+      const codes = exclusions.productCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
+      conditions.push(`RTRIM(sip.sip_stok_kod) NOT IN (${codes})`);
+    }
+
+    // Exclude specific customer codes
+    if (exclusions.customerCodes.length > 0) {
+      const codes = exclusions.customerCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
+      conditions.push(`RTRIM(sip.sip_musteri_kod) NOT IN (${codes})`);
+    }
+
+    // Exclude customer names (partial match) - requires CARI_HESAPLAR (c2) join
+    if (exclusions.customerNames.length > 0) {
+      const nameConditions = exclusions.customerNames.map(name =>
+        `c2.cari_unvan1 NOT LIKE '%${name.replace(/'/g, "''")}%'`
+      );
+      conditions.push(`(${nameConditions.join(' AND ')})`);
+    }
+
+    // Exclude product names (partial match) - requires STOKLAR (st) join
+    if (exclusions.productNames.length > 0) {
+      const nameConditions = exclusions.productNames.map(name =>
+        `st.sto_isim NOT LIKE '%${name.replace(/'/g, "''")}%'`
+      );
+      conditions.push(`(${nameConditions.join(' AND ')})`);
+    }
+
+    // Exclude sector codes - requires CARI_HESAPLAR (c2) join
+    if (exclusions.sectorCodes.length > 0) {
+      const codes = exclusions.sectorCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
+      conditions.push(`c2.cari_sektor_kodu NOT IN (${codes})`);
+    }
+
+    return conditions;
+  }
 }
 
 export default new ExclusionService();

@@ -47,17 +47,216 @@ type LineNotePatch = {
   value: string | null;
 };
 
+type LastSaleInfo = {
+  price: number;
+  saleDate: Date | null;
+};
+
 const buildLastSalesMap = (sales: MikroCustomerSaleMovement[]) => {
-  const map = new Map<string, number>();
+  const map = new Map<string, LastSaleInfo>();
   sales.forEach((sale) => {
     const code = String(sale.productCode || '').trim();
     if (!code || map.has(code)) return;
     const price = Number(sale.unitPrice);
     if (Number.isFinite(price) && price > 0) {
-      map.set(code, price);
+      const saleDate = sale.saleDate instanceof Date ? sale.saleDate : (sale.saleDate ? new Date(sale.saleDate) : null);
+      map.set(code, {
+        price,
+        saleDate: saleDate && Number.isFinite(saleDate.getTime()) ? saleDate : null,
+      });
     }
   });
   return map;
+};
+
+// ==================== YAPISKAN ISKONTO: LISTE-ENDEKSLI SON FIYAT ====================
+// Problem: useLastPrices carilerde son satis fiyati ABSOLUTE tutulur; zam geldikce
+// eski fiyat listeye gore goreli konumunu (ornegin "faturali 2 seviyesi") kaybeder ve
+// marj sessizce erir. Cozum: Settings.lastPriceIndexationEnabled=true iken son satis
+// fiyati, satis anindaki liste fiyatina oranlanip (ratio) GUNCEL liste fiyatiyla
+// carpilarak bugune tasinir. Ayar false iken davranis bugunkuyle bit-bit aynidir.
+
+type PriceChangeSnapshot = {
+  changedAt: Date;
+  // Degisen listenin numarasi (price_changes.price_list_no). priceList1..10 kolonlari
+  // SYNC ANINDAKI guncel listelerdir (satis anindaki degil!) — o yuzden KULLANILMAZ.
+  // Satis anindaki liste fiyati, ayni priceListNo'lu kayitlarin oldPrice/newPrice
+  // zinciriyle turetilir. Eski satirlarda null olabilir (0 dahil gecersiz sayilir).
+  priceListNo: number | null;
+  oldPrice: number;
+  newPrice: number;
+};
+
+// Veri hatasi korumasi: son satis fiyati / satis anindaki liste fiyati orani bu
+// aralik disindaysa endeksleme uygulanmaz, ham son fiyat kullanilir.
+const INDEXATION_RATIO_MIN = 0.5;
+const INDEXATION_RATIO_MAX = 1.5;
+
+const toFiniteNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+// PriceChange (price_changes) snapshot'larini TOPLU ceker (productCode IN ...).
+// Satis-tarihi eslestirmesi JS'te yapilir; boylece sepet basina 1 PG sorgusu yeter.
+const fetchPriceChangeSnapshots = async (
+  productCodes: string[]
+): Promise<Map<string, PriceChangeSnapshot[]>> => {
+  const result = new Map<string, PriceChangeSnapshot[]>();
+  const uniqueCodes = Array.from(
+    new Set(productCodes.map((code) => String(code || '').trim()).filter(Boolean))
+  );
+  // Sorgulanan her kod cache'e yazilir (bos dizi = kayit yok, tekrar sorgulama).
+  uniqueCodes.forEach((code) => result.set(code, []));
+  if (uniqueCodes.length === 0) return result;
+
+  const rows = await prisma.priceChange.findMany({
+    where: { productCode: { in: uniqueCodes } },
+    orderBy: { changedAt: 'asc' },
+    select: {
+      productCode: true,
+      changedAt: true,
+      priceListNo: true,
+      oldPrice: true,
+      newPrice: true,
+    },
+  });
+
+  rows.forEach((row) => {
+    const code = String(row.productCode || '').trim();
+    if (!code) return;
+    const bucket = result.get(code);
+    if (!bucket) return;
+    // priceListNo: 1-10 disi (0 = fid_fiyat_no eksik, null = eski satir) gecersiz.
+    const listNoRaw = Number(row.priceListNo);
+    bucket.push({
+      changedAt: row.changedAt,
+      priceListNo:
+        Number.isInteger(listNoRaw) && listNoRaw >= 1 && listNoRaw <= 10 ? listNoRaw : null,
+      oldPrice: toFiniteNumber(row.oldPrice),
+      newPrice: toFiniteNumber(row.newPrice),
+    });
+  });
+
+  return result;
+};
+
+// Sepet genelinde tek toplu on-yukleme (N+1 onlemi). syncCartDiscountAllocations
+// gibi cok-urunlu akislar bunu bir kez cagirir; tekil akislar cache-miss'te
+// urun basina kucuk tek sorguyla calisir.
+export const preloadPriceChangeSnapshots = async (
+  context: Awaited<ReturnType<typeof loadCartCustomerContext>>,
+  productCodes: string[]
+): Promise<void> => {
+  if (!context.lastPriceIndexation.enabled) return;
+  if (!context.customer.useLastPrices || !context.customer.mikroCariCode) return;
+  const cache = context.lastPriceIndexation.snapshots;
+  const missing = Array.from(
+    new Set(productCodes.map((code) => String(code || '').trim()).filter(Boolean))
+  ).filter((code) => !cache.has(code));
+  if (missing.length === 0) return;
+  const fetched = await fetchPriceChangeSnapshots(missing);
+  fetched.forEach((snapshots, code) => cache.set(code, snapshots));
+};
+
+const getPriceChangeSnapshotsForProduct = async (
+  context: Awaited<ReturnType<typeof loadCartCustomerContext>>,
+  productCode: string
+): Promise<PriceChangeSnapshot[]> => {
+  const code = String(productCode || '').trim();
+  if (!code) return [];
+  const cache = context.lastPriceIndexation.snapshots;
+  if (!cache.has(code)) {
+    const fetched = await fetchPriceChangeSnapshots([code]);
+    fetched.forEach((snapshots, key) => cache.set(key, snapshots));
+  }
+  return cache.get(code) || [];
+};
+
+/**
+ * Liste-endeksli son fiyat hesabi (saf fonksiyon).
+ *
+ * Satis anindaki liste fiyati SADECE ayni listenin (priceListNo === listNo)
+ * degisiklik kayitlarindan turetilir; PriceChange.priceList1..10 kolonlari
+ * sync anindaki guncel listeler oldugu icin KULLANILMAZ.
+ *
+ * Akis:
+ * 1. Ayni listNo'lu kayitlar icinde satis tarihinden ONCEKI EN SON kaydin
+ *    newPrice'i = satis anindaki liste fiyati. Oncesinde kayit yoksa satistan
+ *    SONRAKI ILK ayni-listNo kaydin oldPrice'i alinir. O da yoksa endeksleme
+ *    yapilmaz, ham fiyat doner.
+ * 2. ratio = sonSatisFiyati / satisAnindakiListeFiyati (ayni KDV duzlemi:
+ *    degisiklik kayitlari da guncel listeler de Mikro fiyat listesi
+ *    kaynaklidir, oran duzlem farkini goturur).
+ * 3. ratio [0.5, 1.5] disindaysa veri hatasi sayilir, ham fiyat doner.
+ * 4. endeksliFiyat = min(ratio * guncelListeFiyati, guncelListeFiyati) —
+ *    endekslemenin amaci liste KONUMUNU korumaktir; listenin ustune cikmak
+ *    hicbir senaryoda istenmez (tavan = guncel liste fiyati).
+ * 5. effective = max(hamSonFiyat, endeksliFiyat) — musteri aleyhine olmayan
+ *    surpriz dususler engellenir; endeksleme yalnizca fiyati YUKARI tasir.
+ *
+ * Mevcut frenler (maliyet tabani / guard liste) donen degerin UZERINE
+ * resolveLastPriceOverride icinde aynen uygulanmaya devam eder.
+ */
+export const computeIndexedLastSalePrice = (params: {
+  rawLastSalePrice: number;
+  saleDate: Date | null;
+  listNo: number;
+  currentListPrice: number;
+  snapshots: PriceChangeSnapshot[];
+}): { price: number; indexed: boolean } => {
+  const raw = Number(params.rawLastSalePrice);
+  const fallback = { price: raw, indexed: false };
+  if (!Number.isFinite(raw) || raw <= 0) return fallback;
+
+  const saleTime = params.saleDate instanceof Date ? params.saleDate.getTime() : NaN;
+  if (!Number.isFinite(saleTime)) return fallback;
+
+  const listNo = Number(params.listNo);
+  if (!Number.isInteger(listNo) || listNo < 1 || listNo > 10) return fallback;
+
+  // Sadece verilen listenin degisiklik kayitlari (changedAt ASC sirali gelir).
+  const listSnapshots = (params.snapshots || []).filter(
+    (snapshot) => snapshot.priceListNo === listNo
+  );
+  if (listSnapshots.length === 0) return fallback;
+
+  // Satistan ONCEKI EN SON kayit (before) ve satistan SONRAKI ILK kayit (after).
+  let before: PriceChangeSnapshot | null = null;
+  let after: PriceChangeSnapshot | null = null;
+  for (const snapshot of listSnapshots) {
+    if (snapshot.changedAt.getTime() <= saleTime) {
+      before = snapshot;
+    } else {
+      after = snapshot;
+      break;
+    }
+  }
+
+  // Satis anindaki liste fiyati: onceki kaydin YENI fiyati; yoksa sonraki ilk
+  // kaydin ESKI fiyati (degisiklikten once gecerli olan fiyat).
+  const listPriceAtSale = before
+    ? toFiniteNumber(before.newPrice)
+    : toFiniteNumber(after?.oldPrice);
+  if (listPriceAtSale <= 0) return fallback;
+
+  const currentListPrice = Number(params.currentListPrice);
+  if (!Number.isFinite(currentListPrice) || currentListPrice <= 0) return fallback;
+
+  const ratio = raw / listPriceAtSale;
+  if (!Number.isFinite(ratio) || ratio < INDEXATION_RATIO_MIN || ratio > INDEXATION_RATIO_MAX) {
+    return fallback;
+  }
+
+  // Tavan: endeksli fiyat guncel liste fiyatini ASAMAZ (liste konumu korunur,
+  // listenin ustune cikilmaz).
+  const indexedPrice = Math.min(ratio * currentListPrice, currentListPrice);
+  if (!Number.isFinite(indexedPrice) || indexedPrice <= raw) {
+    // Endeksli fiyat ham son fiyattan kucuk olamaz: effective = max(raw, indexed).
+    return fallback;
+  }
+
+  return { price: indexedPrice, indexed: true };
 };
 
 const getLastPriceGuardPrices = (
@@ -139,6 +338,7 @@ export const loadCartCustomerContext = async (userId: string) => {
     prisma.settings.findFirst({
       select: {
         customerPriceLists: true,
+        lastPriceIndexationEnabled: true,
       },
     }),
     prisma.customerPriceListRule.findMany({
@@ -158,6 +358,13 @@ export const loadCartCustomerContext = async (userId: string) => {
     priceListRules,
     basePriceListPair,
     effectiveVisibility,
+    // Yapiskan iskonto: liste-endeksli son fiyat. Ayar kapaliyken (default) hicbir
+    // ek sorgu/hesap yapilmaz, davranis eski haliyle bire bir aynidir.
+    lastPriceIndexation: {
+      enabled: Boolean(settings?.lastPriceIndexationEnabled),
+      // productCode -> changedAt ASC sirali PriceChange snapshot'lari (context omurlu cache)
+      snapshots: new Map<string, PriceChangeSnapshot[]>(),
+    },
   };
 };
 
@@ -215,9 +422,46 @@ export const resolveCartUnitPrices = async (params: {
         1
       );
       const lastSalesMap = buildLastSalesMap(sales);
+      const lastSale = lastSalesMap.get(product.mikroCode);
+      let lastSaleCandidate: number | undefined = lastSale?.price;
+
+      // Yapiskan iskonto cozumu: ayar acikken ham son fiyat, satis anindaki liste
+      // konumuna endekslenir. Endeksleme mumkun degilse ham fiyata sessizce dusulur.
+      if (lastSale && context.lastPriceIndexation.enabled) {
+        try {
+          const indexationListNo =
+            priceType === 'INVOICED'
+              ? productPriceListPair.invoiced
+              : productPriceListPair.white;
+          const snapshots = await getPriceChangeSnapshotsForProduct(
+            context,
+            product.mikroCode
+          );
+          // Oran tutarliligi icin fallback'siz, birebir ayni listenin guncel fiyati.
+          const currentListPrice = priceListService.getListPrice(
+            priceStats,
+            indexationListNo
+          );
+          lastSaleCandidate = computeIndexedLastSalePrice({
+            rawLastSalePrice: lastSale.price,
+            saleDate: lastSale.saleDate,
+            listNo: indexationListNo,
+            currentListPrice,
+            snapshots,
+          }).price;
+        } catch (error) {
+          console.error('Last price indexation failed; falling back to raw last price', {
+            customerId: customer.id,
+            productCode: product.mikroCode,
+            error,
+          });
+          lastSaleCandidate = lastSale.price;
+        }
+      }
+
       const lastPriceResult = resolveLastPriceOverride({
         config: customer,
-        lastSalePrice: lastSalesMap.get(product.mikroCode),
+        lastSalePrice: lastSaleCandidate,
         listPrices: listPricesBase,
         guardPrices,
         product: {
@@ -446,6 +690,19 @@ export const syncCartDiscountAllocations = async (userId: string) => {
     return;
   }
 
+  // N+1 onlemi: endeksleme acik ise sepetteki TUM urunlerin PriceChange
+  // snapshot'lari tek toplu PG sorgusuyla on-yuklenir (sepet basina 1 sorgu).
+  try {
+    await preloadPriceChangeSnapshots(
+      context,
+      cart.items
+        .map((item) => item.product?.mikroCode)
+        .filter((code): code is string => Boolean(code))
+    );
+  } catch (error) {
+    console.error('Price change snapshot preload failed', { userId, error });
+  }
+
   const groups = new Map<string, typeof cart.items>();
   cart.items.forEach((item) => {
     const priceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
@@ -500,4 +757,6 @@ export default {
   resolveCartUnitPrices,
   rebalanceCartProductPriceType,
   syncCartDiscountAllocations,
+  preloadPriceChangeSnapshots,
+  computeIndexedLastSalePrice,
 };

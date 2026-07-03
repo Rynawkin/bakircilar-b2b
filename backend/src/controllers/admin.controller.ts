@@ -28,6 +28,11 @@ import marginExclusionService from '../services/margin-exclusion.service';
 import priceListService from '../services/price-list.service';
 import productComplementService from '../services/product-complement.service';
 import customerCategoryPurchaseService from '../services/customer-category-purchase.service';
+import topluAuditService from '../services/toplu-audit.service';
+import barterRadarService from '../services/barter-radar.service';
+import familyCandidateService from '../services/family-candidate.service';
+import stickyDiscountService from '../services/sticky-discount.service';
+import priceListSuggestionService from '../services/price-list-suggestion.service';
 import { cacheService } from '../services/cache.service';
 import MIKRO_TABLES from '../config/mikro-tables';
 import { splitSearchTokens, normalizeSearchText } from '../utils/search';
@@ -1237,6 +1242,14 @@ export class AdminController {
             lastPriceGuardWhiteListNo: true,
             lastPriceCostBasis: true,
             lastPriceMinCostPercent: true,
+            // Fiyat listesi onerisi (gece motoru) + manuel override alanlari
+            suggestedInvoicedListNo: true,
+            suggestedRetailListNo: true,
+            suggestedListBasis: true,
+            suggestedListComputedAt: true,
+            manualInvoicedListNo: true,
+            manualRetailListNo: true,
+            manualListNote: true,
             active: true,
           createdAt: true,
           // Mikro ERP fields
@@ -5119,16 +5132,46 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/ucarer-depot-minmax?codes=a,b,c
+   * Verilen stok kodlari icin merkez(1)/topca(6) min-max degerleri (SALT OKUMA).
+   * Tedarikci siparis modalindaki "karsi depodan transfer" kontrolu icin.
+   */
+  async getUcarerDepotMinMax(req: Request, res: Response, next: NextFunction) {
+    try {
+      const codes = String(req.query.codes || '')
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
+      if (!codes.length) {
+        res.json({ success: true, data: {} });
+        return;
+      }
+      if (codes.length > 200) {
+        res.status(400).json({ success: false, error: 'En fazla 200 stok kodu sorgulanabilir' });
+        return;
+      }
+      const data = await minMaxService.getDepotMinMaxByCodes(codes);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/minmax/apply
    * Secilen satirlari kullanici onayiyla Mikro STOK_DEPO_DETAYLARI'na yazar
    */
   async applyMinMaxV2(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await minMaxService.applyMinMax({
+      // allowInsert: STOK_DEPO_DETAYLARI kaydi olmayan urunler icin insert izni
+      // (minmax.service imzasi options nesnesi olarak genisletildi; geriye donuk uyumlu).
+      const applyInput: Parameters<typeof minMaxService.applyMinMax>[0] & { allowInsert?: boolean } = {
         depot: String(req.body?.depot || 'MERKEZ'),
         items: Array.isArray(req.body?.items) ? req.body.items : [],
         userId: req.user?.userId || null,
-      });
+        allowInsert: req.body?.allowInsert === true,
+      };
+      const data = await minMaxService.applyMinMax(applyInput);
       res.json({ success: true, data });
     } catch (error) {
       next(error);
@@ -5920,6 +5963,201 @@ export class AdminController {
       next(error);
     }
   }
+
+  /**
+   * Istek sahibinin gorunen adini cozer (islem loglari icin).
+   */
+  private async resolveActorName(userId?: string | null): Promise<string | null> {
+    const normalized = String(userId || '').trim();
+    if (!normalized) return null;
+    const user = await prisma.user.findUnique({
+      where: { id: normalized },
+      select: { name: true, email: true },
+    });
+    return user?.name || user?.email || null;
+  }
+
+  /**
+   * GET /api/admin/reports/toplu-audit
+   * TOPLU isaretli satislarin cari x urun x ay denetim raporu
+   */
+  getTopluAuditReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await topluAuditService.getTopluAuditReport({
+        months: req.query.months ? Number(req.query.months) : undefined,
+        minRepeatMonths: req.query.minRepeatMonths ? Number(req.query.minRepeatMonths) : undefined,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/reports/toplu-audit/unmark
+   * Bir cari x urun grubunu tarih araliginda topludan cikarir (Mikro yazma, loglu)
+   */
+  unmarkTopluGroup = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const cariCode = typeof req.body?.cariCode === 'string' ? req.body.cariCode.trim() : '';
+      const productCode = typeof req.body?.productCode === 'string' ? req.body.productCode.trim() : '';
+      if (!cariCode || !productCode) {
+        return res.status(400).json({ error: 'cariCode ve productCode zorunludur.' });
+      }
+      const data = await topluAuditService.unmarkTopluGroup(
+        {
+          cariCode,
+          productCode,
+          fromDate: String(req.body?.fromDate || ''),
+          toDate: String(req.body?.toDate || ''),
+        },
+        req.user?.userId || null
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/admin/reports/barter-radar
+   * Borc-mal takasi radari (SALT OKUMA)
+   */
+  getBarterRadar = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await barterRadarService.getBarterRadar({
+        minPastDue: req.query.minPastDue ? Number(req.query.minPastDue) : undefined,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/stock-family/candidates
+   * Aday aile motoru: urun kodlari icin en benzer aktif aileyi onerir
+   */
+  suggestFamilyCandidates = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const productCodes = Array.isArray(req.body?.productCodes) ? req.body.productCodes : null;
+      if (!productCodes || productCodes.length === 0) {
+        return res.status(400).json({ error: 'productCodes dizisi zorunludur.' });
+      }
+      const data = await familyCandidateService.suggestFamilies(productCodes);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/stock-family/:familyId/add-product
+   * Aday aile onerisini uygular (ProductFamilyItem ekler; Mikro yazma YOK)
+   */
+  addProductToFamilyFromCandidate = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userName = await this.resolveActorName(req.user?.userId);
+      const data = await familyCandidateService.addProductToFamily(
+        String(req.params.familyId || ''),
+        {
+          productCode: String(req.body?.productCode || ''),
+          productName: req.body?.productName ? String(req.body.productName) : null,
+        },
+        userName
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/admin/reports/sticky-discounts
+   * Yapiskan iskonto raporu (sticky-discount.service)
+   */
+  getStickyDiscountsReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await stickyDiscountService.getStickyDiscountReport({
+        minGapPercent: req.query.minGapPercent ? Number(req.query.minGapPercent) : undefined,
+        lookbackDays: req.query.lookbackDays ? Number(req.query.lookbackDays) : undefined,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/price-list-suggestions/run
+   * Tum musteriler icin fiyat listesi onerisi motorunu calistirir
+   */
+  runPriceListSuggestions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await priceListSuggestionService.runForAllCustomers();
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * PUT /api/admin/customers/:id/price-list-suggestion
+   * Manuel liste override'i (null = temizle). Faturali 6-10, perakende 1-5.
+   */
+  setCustomerPriceListSuggestion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const customerId = String(req.params.id || '').trim();
+      if (!customerId) {
+        return res.status(400).json({ error: 'Musteri secimi zorunludur.' });
+      }
+
+      const parseListNo = (
+        value: unknown,
+        min: number,
+        max: number,
+        label: string
+      ): number | null | undefined => {
+        if (value === undefined) return undefined;
+        if (value === null) return null;
+        const parsed = Math.trunc(Number(value));
+        if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+          throw new Error(`${label} ${min}-${max} araliginda olmalidir.`);
+        }
+        return parsed;
+      };
+
+      let manualInvoicedListNo: number | null | undefined;
+      let manualRetailListNo: number | null | undefined;
+      try {
+        manualInvoicedListNo = parseListNo(req.body?.manualInvoicedListNo, 6, 10, 'Faturali liste no');
+        manualRetailListNo = parseListNo(req.body?.manualRetailListNo, 1, 5, 'Perakende liste no');
+      } catch (validationError: any) {
+        return res.status(400).json({ error: validationError?.message || 'Gecersiz liste no.' });
+      }
+
+      const manualListNote =
+        req.body?.manualListNote === undefined
+          ? undefined
+          : req.body?.manualListNote === null
+            ? null
+            : String(req.body.manualListNote).trim() || null;
+
+      const userName = await this.resolveActorName(req.user?.userId);
+      const data = await priceListSuggestionService.setManual(
+        customerId,
+        {
+          manualInvoicedListNo,
+          manualRetailListNo,
+          manualListNote,
+        },
+        userName || ''
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export default new AdminController();

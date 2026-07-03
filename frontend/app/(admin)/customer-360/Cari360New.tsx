@@ -24,6 +24,8 @@ import {
   CUSTOMER_360_MODULES,
   safeDate,
   money,
+  invoicedListLabel,
+  retailListLabel,
 } from './useCari360';
 import { QuoteDetailModal } from './Cari360Classic';
 
@@ -212,6 +214,20 @@ export default function Cari360New() {
     quoteDetailLoading,
     setQuoteDetail,
     downloadingInvoiceId,
+    priceListEditOpen,
+    manualInvoicedInput,
+    setManualInvoicedInput,
+    manualRetailInput,
+    setManualRetailInput,
+    manualNoteInput,
+    setManualNoteInput,
+    savingPriceListSuggestion,
+    hasManualListSuggestion,
+    effectiveInvoicedListNo,
+    effectiveRetailListNo,
+    openPriceListEdit,
+    closePriceListEdit,
+    savePriceListSuggestion,
     loadCustomer,
     openQuoteDetail,
     downloadInvoice,
@@ -370,6 +386,107 @@ export default function Cari360New() {
                   </div>
                 ) : (
                   <>
+                    {/* Fiyat listesi onerisi karti */}
+                    <div className={CARD} style={{ padding: '13px 15px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', minWidth: 0 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12.5px', color: '#51607a' }}>
+                            <Tag width={14} height={14} stroke="#8b97ac" strokeWidth={2} />
+                            Önerilen Fiyat Listesi:
+                          </span>
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#14223b' }}>
+                            {invoicedListLabel(effectiveInvoicedListNo)} / {retailListLabel(effectiveRetailListNo)}
+                          </span>
+                          {hasManualListSuggestion ? (
+                            <span
+                              title={customer.manualListNote || 'Manuel belirlenen öneri'}
+                              style={{ background: '#eef2fa', border: '1px solid #d6e0f1', color: '#1c4585', fontSize: '10px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', whiteSpace: 'nowrap' }}
+                            >
+                              Manuel belirlenen öneri
+                            </span>
+                          ) : (
+                            <span
+                              title={customer.suggestedListBasis || 'Sistem tarafından hesaplandı'}
+                              style={{ background: '#f4f6fa', border: '1px solid #e3e8f0', color: '#64748b', fontSize: '10px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', whiteSpace: 'nowrap' }}
+                            >
+                              Sistem önerisi{customer.suggestedListComputedAt ? ` · ${safeDate(customer.suggestedListComputedAt)}` : ''}
+                            </span>
+                          )}
+                          {hasManualListSuggestion && customer.manualListNote && (
+                            <span style={{ fontSize: '11px', color: '#51607a', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '360px' }}>
+                              {customer.manualListNote}
+                            </span>
+                          )}
+                        </div>
+                        {!priceListEditOpen && (
+                          <button type="button" style={chipBtn} onClick={openPriceListEdit}>
+                            Düzenle
+                          </button>
+                        )}
+                      </div>
+
+                      {priceListEditOpen && (
+                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #eef1f6', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', color: '#8b97ac', marginBottom: '4px' }}>Faturalı öneri</label>
+                            <select
+                              value={manualInvoicedInput}
+                              onChange={(e) => setManualInvoicedInput(e.target.value)}
+                              style={{ height: '34px', border: '1px solid #e3e8f0', borderRadius: '8px', padding: '0 9px', fontSize: '12px', color: '#14223b', background: '#fff', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' }}
+                            >
+                              <option value="">Boş (sistem önerisi)</option>
+                              {[6, 7, 8, 9, 10].map((no) => (
+                                <option key={no} value={no}>{`Faturalı ${no - 5} (Liste ${no})`}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', color: '#8b97ac', marginBottom: '4px' }}>Perakende öneri</label>
+                            <select
+                              value={manualRetailInput}
+                              onChange={(e) => setManualRetailInput(e.target.value)}
+                              style={{ height: '34px', border: '1px solid #e3e8f0', borderRadius: '8px', padding: '0 9px', fontSize: '12px', color: '#14223b', background: '#fff', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' }}
+                            >
+                              <option value="">Boş (sistem önerisi)</option>
+                              {[1, 2, 3, 4, 5].map((no) => (
+                                <option key={no} value={no}>{`Perakende ${no} (Liste ${no})`}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div style={{ flex: 1, minWidth: '180px' }}>
+                            <label style={{ display: 'block', fontSize: '11px', color: '#8b97ac', marginBottom: '4px' }}>Not</label>
+                            <input
+                              value={manualNoteInput}
+                              onChange={(e) => setManualNoteInput(e.target.value)}
+                              placeholder="Örn: patron talimatı, özel anlaşma..."
+                              style={{ width: '100%', height: '34px', border: '1px solid #e3e8f0', borderRadius: '8px', padding: '0 10px', fontSize: '12px', color: '#14223b', background: '#fff', fontFamily: 'inherit', outline: 'none' }}
+                            />
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={savePriceListSuggestion}
+                              disabled={savingPriceListSuggestion}
+                              style={{ background: '#15356b', border: 'none', borderRadius: '8px', padding: '0 14px', height: '34px', fontSize: '12px', fontWeight: 600, color: '#fff', cursor: savingPriceListSuggestion ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: savingPriceListSuggestion ? 0.6 : 1 }}
+                            >
+                              {savingPriceListSuggestion ? 'Kaydediliyor...' : 'Kaydet'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={closePriceListEdit}
+                              disabled={savingPriceListSuggestion}
+                              style={{ ...chipBtn, height: '34px', padding: '0 12px', fontSize: '12px' }}
+                            >
+                              Vazgeç
+                            </button>
+                          </div>
+                          <div style={{ width: '100%', fontSize: '10.5px', color: '#8b97ac' }}>
+                            Boş seçim manuel tanımı temizler; cari sistem önerisine döner.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {/* 4 ozet kutu */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: '14px' }}>
                       <div className={CARD} style={{ padding: '15px' }}>

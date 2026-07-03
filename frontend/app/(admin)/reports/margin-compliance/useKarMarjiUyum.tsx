@@ -118,6 +118,34 @@ export const MARGIN_EXCLUSION_TYPE_LABELS: Record<MarginExclusionType, string> =
   PRODUCT_NAME: 'Ürün Adı',
 };
 
+// ==================== Genel Rapor Dislamalari (ReportExclusion) ====================
+// Eski /exclusions (Ayarlar > Hariç Tutma) sayfasindan tasindi; ayni adminApi
+// CRUD'u (getExclusions/createExclusion/deleteExclusion) kullanilir.
+
+export type GeneralExclusionType =
+  | 'PRODUCT_CODE'
+  | 'CUSTOMER_CODE'
+  | 'CUSTOMER_NAME'
+  | 'PRODUCT_NAME'
+  | 'SECTOR_CODE';
+
+export interface GeneralExclusionRecord {
+  id: string;
+  type: GeneralExclusionType;
+  value: string;
+  description?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export const GENERAL_EXCLUSION_TYPE_LABELS: Record<GeneralExclusionType, string> = {
+  PRODUCT_CODE: 'Ürün Kodu',
+  CUSTOMER_CODE: 'Cari Kodu',
+  CUSTOMER_NAME: 'Cari Adı',
+  PRODUCT_NAME: 'Ürün Adı',
+  SECTOR_CODE: 'Sektör Kodu',
+};
+
 export type ColumnId = string;
 
 export interface ColumnConfig {
@@ -412,6 +440,21 @@ export function useKarMarjiUyum() {
   const [savingExclusion, setSavingExclusion] = useState(false);
   const [deletingExclusionId, setDeletingExclusionId] = useState<string | null>(null);
 
+  // Dislama paneli: <details> yerine belirgin buton + acik state'li panel; iki sekme.
+  const [exclusionsPanelOpen, setExclusionsPanelOpen] = useState(false);
+  const [exclusionsTab, setExclusionsTab] = useState<'MARGIN' | 'GENERAL'>('MARGIN');
+
+  // Genel rapor dislamalari (eski /exclusions sayfasindan tasindi)
+  const [generalExclusions, setGeneralExclusions] = useState<GeneralExclusionRecord[]>([]);
+  const [generalExclusionsLoading, setGeneralExclusionsLoading] = useState(false);
+  // 403 = kullanicida admin:exclusions yetkisi yok; sessizce 'kural yok' gostermek yerine bayraklanir.
+  const [generalExclusionsForbidden, setGeneralExclusionsForbidden] = useState(false);
+  const [generalFormType, setGeneralFormType] = useState<GeneralExclusionType>('PRODUCT_CODE');
+  const [generalFormValue, setGeneralFormValue] = useState('');
+  const [generalFormDescription, setGeneralFormDescription] = useState('');
+  const [savingGeneralExclusion, setSavingGeneralExclusion] = useState(false);
+  const [deletingGeneralExclusionId, setDeletingGeneralExclusionId] = useState<string | null>(null);
+
   const isSingleDate = startDate === endDate;
 
   const fetchData = async () => {
@@ -490,6 +533,28 @@ export function useKarMarjiUyum() {
 
   useEffect(() => {
     fetchExclusions();
+  }, []);
+
+  // Genel rapor dislamalarini yukle (ReportExclusion; aktif + pasif liste).
+  const fetchGeneralExclusions = async () => {
+    setGeneralExclusionsLoading(true);
+    try {
+      const result = await adminApi.getExclusions();
+      setGeneralExclusions(Array.isArray(result.data) ? result.data : []);
+      setGeneralExclusionsForbidden(false);
+    } catch (err: any) {
+      if (err?.response?.status === 403) {
+        setGeneralExclusionsForbidden(true);
+      } else {
+        console.error('General report exclusions not loaded:', err);
+      }
+    } finally {
+      setGeneralExclusionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchGeneralExclusions();
   }, []);
 
   // Marka / urun secim listesi: 300ms debounce ile exclusion-options endpointi.
@@ -705,6 +770,57 @@ export function useKarMarjiUyum() {
   };
 
   const activeExclusions = exclusions.filter((exclusion) => exclusion.active);
+
+  // ==================== Genel dislama kurali ekle / sil ====================
+
+  const handleAddGeneralExclusion = async () => {
+    const value =
+      generalFormType === 'PRODUCT_CODE'
+        ? generalFormValue.trim().toUpperCase()
+        : generalFormValue.trim();
+    if (!value) {
+      toast.error('Değer boş olamaz');
+      return;
+    }
+    setSavingGeneralExclusion(true);
+    try {
+      await adminApi.createExclusion({
+        type: generalFormType,
+        value,
+        description: generalFormDescription.trim() || undefined,
+      });
+      toast.success('Genel dışlama kuralı eklendi');
+      setGeneralFormValue('');
+      setGeneralFormDescription('');
+      fetchGeneralExclusions();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || err.message || 'Kural eklenemedi');
+    } finally {
+      setSavingGeneralExclusion(false);
+    }
+  };
+
+  const handleDeleteGeneralExclusion = async (exclusion: GeneralExclusionRecord) => {
+    if (
+      !window.confirm(
+        `"${exclusion.value}" genel dışlaması silinsin mi? İlgili raporlarda satırlar tekrar görünür.`
+      )
+    ) {
+      return;
+    }
+    setDeletingGeneralExclusionId(exclusion.id);
+    try {
+      await adminApi.deleteExclusion(exclusion.id);
+      toast.success('Genel dışlama kuralı silindi');
+      fetchGeneralExclusions();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || err.message || 'Kural silinemedi');
+    } finally {
+      setDeletingGeneralExclusionId(null);
+    }
+  };
+
+  const activeGeneralExclusions = generalExclusions.filter((exclusion) => exclusion.active);
 
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined) return 'â‚º0.00';
@@ -1113,6 +1229,24 @@ export function useKarMarjiUyum() {
     setExclusionNameInput,
     savingExclusion,
     deletingExclusionId,
+    // dislama paneli (buton + sekmeler)
+    exclusionsPanelOpen,
+    setExclusionsPanelOpen,
+    exclusionsTab,
+    setExclusionsTab,
+    // genel rapor dislamalari (ReportExclusion)
+    generalExclusions,
+    activeGeneralExclusions,
+    generalExclusionsLoading,
+    generalExclusionsForbidden,
+    generalFormType,
+    setGeneralFormType,
+    generalFormValue,
+    setGeneralFormValue,
+    generalFormDescription,
+    setGeneralFormDescription,
+    savingGeneralExclusion,
+    deletingGeneralExclusionId,
     // report sync state
     syncingReport,
     sendingReportEmail,
@@ -1130,6 +1264,9 @@ export function useKarMarjiUyum() {
     handleAddExclusionOption,
     handleAddNameExclusion,
     handleDeleteExclusion,
+    fetchGeneralExclusions,
+    handleAddGeneralExclusion,
+    handleDeleteGeneralExclusion,
     handleResyncReport,
     handleSendReportEmail,
     handleSaveEmailColumns,

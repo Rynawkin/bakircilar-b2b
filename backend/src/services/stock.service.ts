@@ -12,11 +12,21 @@ class StockService {
   /**
    * Fazla stok hesapla
    *
-   * Formül:
-   * Fazla Stok = Toplam Stok - (Aylık Ortalama × 3) - Bekleyen Müşteri Siparişleri
+   * İki mod vardır:
    *
-   * Örnek: 100 stok, son 90 günde 180 satış (aylık 60):
-   * → Fazla Stok = 100 - (60 × 3) - 0 = -80 = 0 adet
+   * 1) MAX-bazlı (tercih edilen — min-max tanımlı ürünler, maxStockTotal > 0):
+   *    Fazla Stok = Toplam Stok - Bekleyen Müşteri Siparişleri - MaxStokToplamı
+   *    (MaxStokToplamı = dahil depoların STOK_DEPO_DETAYLARI sdp_max_stok toplamı;
+   *    sync sırasında Product.maxStockTotal alanına yazılır.)
+   *
+   * 2) Satış-hızı fallback (min-max tanımsız ürünler, maxStockTotal null/0):
+   *    Fazla Stok = Toplam Stok - (Aylık Ortalama × 3) - Bekleyen Müşteri Siparişleri
+   *
+   * Neden iki mod: Satış-hızı formülü, girişi yeni yapılmış ve ilk kez satılan
+   * ürünlerde son 90 günün tamamı satılmış gibi düşük aylık ortalama hesaplayıp
+   * hızlı satan ürünü bile "yatan stok" gösteriyordu. Min-max'taki MAX hedefi
+   * baz alınınca yalnızca hedefin ÜZERİNDE kalan miktar fazla sayılır ve bu
+   * yanılgı ortadan kalkar. MAX tanımı olmayan ürünlerde eski davranış korunur.
    */
   async calculateExcessStock(productId: string): Promise<number> {
     const product = await prisma.product.findUnique({
@@ -43,26 +53,40 @@ class StockService {
       return sum + (warehouseStocks[warehouse] || 0);
     }, 0);
 
-    // 2. Günlük satış geçmişinden aylık ortalama hesapla
-    const averageMonthlySales = this.calculateAverageSales(
-      salesHistory,
-      calculationPeriodDays
-    );
-
-    // 3. Bekleyen müşteri siparişleri
+    // 2. Bekleyen müşteri siparişleri
     const pendingCustomer = product.pendingCustomerOrders || 0;
 
-    // 4. Fazla stok hesapla
-    // Fazla Stok = Toplam Stok - (Aylık Ortalama × 3) - Bekleyen Müşteri Siparişleri
-    let excessStock = totalStock - (averageMonthlySales * 3) - pendingCustomer;
+    // 3. Fazla stok hesapla — iki mod:
+    //
+    // a) MAX-bazlı: Üründe min-max tanımı varsa (maxStockTotal > 0), fazla stok
+    //    maksimum stok hedefinin ÜZERİNDE kalan miktardır. Satış-hızı formülü,
+    //    girişi yeni olan ve ilk kez satılan ürünlerde 90 günlük ortalamayı
+    //    yanlış (düşük) hesaplayıp hızlı satan ürünü bile yatan stok gösteriyordu;
+    //    MAX hedefi baz alınınca bu yanılgı ortadan kalkar.
+    //
+    // b) Satış-hızı fallback: Min-max tanımı olmayan ürünlerde (maxStockTotal
+    //    null/0) eski davranış AYNEN korunur:
+    //    Fazla Stok = Toplam Stok - (Aylık Ortalama × 3) - Bekleyen Müşteri Siparişi
+    const maxStockTotal = Number(product.maxStockTotal) || 0;
 
-    // 5. Negatif ise 0 yap
+    let excessStock: number;
+    if (maxStockTotal > 0) {
+      excessStock = totalStock - pendingCustomer - maxStockTotal;
+    } else {
+      const averageMonthlySales = this.calculateAverageSales(
+        salesHistory,
+        calculationPeriodDays
+      );
+      excessStock = totalStock - (averageMonthlySales * 3) - pendingCustomer;
+    }
+
+    // 4. Negatif ise 0 yap
     excessStock = Math.max(0, excessStock);
 
-    // 6. Minimum eşik kontrolü
+    // 5. Minimum eşik kontrolü
     const finalExcessStock = excessStock >= minimumExcessThreshold ? excessStock : 0;
 
-    // 7. Depo bazlı fazla stok hesapla (oransal dağıtım)
+    // 6. Depo bazlı fazla stok hesapla (oransal dağıtım)
     const warehouseExcessStocks: Record<string, number> = {};
 
     if (finalExcessStock > 0 && totalStock > 0) {
@@ -77,7 +101,7 @@ class StockService {
       }
     }
 
-    // 8. Veritabanını güncelle
+    // 7. Veritabanını güncelle
     await prisma.product.update({
       where: { id: productId },
       data: {

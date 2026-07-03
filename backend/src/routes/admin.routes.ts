@@ -328,8 +328,9 @@ router.get('/product-dimensions/products', requirePermission('admin:product-dime
 router.get('/product-dimensions/missing', requirePermission('admin:product-dimensions'), productDimensionsController.getMissingProducts);
 router.get('/product-dimensions/shelves', requirePermission('admin:product-dimensions'), productDimensionsController.searchShelves);
 router.get('/product-dimensions/unit-names', requirePermission('admin:product-dimensions'), productDimensionsController.getUnitNames);
-router.get('/product-dimensions/products/:productCode', requirePermission('admin:product-dimensions'), productDimensionsController.getProduct);
-router.put('/product-dimensions/products/:productCode', requirePermission('admin:product-dimensions'), productDimensionsController.updateProduct);
+// Ucarer depo ekrani da urun olcu detayini okuyup guncelleyebilsin (reports:ucarer-depo)
+router.get('/product-dimensions/products/:productCode', requireAnyPermission(['admin:product-dimensions', 'reports:ucarer-depo']), productDimensionsController.getProduct);
+router.put('/product-dimensions/products/:productCode', requireAnyPermission(['admin:product-dimensions', 'reports:ucarer-depo']), productDimensionsController.updateProduct);
 router.delete('/products/:id/image', requirePermission('admin:products'), adminController.deleteProductImage);
 router.get('/products/:id/complements', requirePermission('admin:products'), productComplementController.getComplements);
 router.put(
@@ -430,6 +431,9 @@ const customerPriceListRulesSchema = z.object({
 router.get('/customers', requirePermission('admin:customers'), adminController.getCustomers);
 router.post('/customers', requirePermission('admin:customers'), validateBody(createCustomerSchema), adminController.createCustomer);
 router.put('/customers/:id', requirePermission('admin:customers'), validateBody(updateCustomerSchema), adminController.updateCustomer);
+// Fiyat listesi onerisi: motoru elle tetikle + musteri bazli manuel override (null = temizle)
+router.post('/price-list-suggestions/run', requirePermission('admin:customers'), adminController.runPriceListSuggestions);
+router.put('/customers/:id/price-list-suggestion', requirePermission('admin:customers'), adminController.setCustomerPriceListSuggestion);
 router.get('/customer-360/search', requirePermission('admin:customers'), adminController.searchCustomer360);
 router.get('/customer-360/:customerId', requirePermission('admin:customers'), adminController.getCustomer360);
 router.get('/field-sales/customers', requirePermission('admin:field-sales'), adminController.searchFieldSalesCustomers);
@@ -600,6 +604,8 @@ router.get('/reports/margin-compliance/exclusions', requirePermission('reports:m
 router.post('/reports/margin-compliance/exclusions', requirePermission('reports:margin-compliance'), adminController.createMarginExclusion);
 router.delete('/reports/margin-compliance/exclusions/:id', requirePermission('reports:margin-compliance'), adminController.deleteMarginExclusion);
 router.get('/reports/margin-compliance/exclusion-options', requirePermission('reports:margin-compliance'), adminController.getMarginExclusionOptions);
+// Yapiskan iskonto raporu (son satis fiyati liste konumundan kopmus musteri x urun satirlari)
+router.get('/reports/sticky-discounts', requirePermission('reports:margin-compliance'), adminController.getStickyDiscountsReport);
 router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing', 'reports:customer-recovery', 'reports:ucarer-depo', 'reports:ucarer-minmax', 'reports:price-family-costs', 'admin:supplier-costs']), adminController.getReportCategories);
 router.get('/reports/top-products', requirePermission('reports:top-products'), adminController.getTopProducts);
 router.get('/reports/top-customers', requirePermission('reports:top-customers'), adminController.getTopCustomers);
@@ -635,6 +641,13 @@ router.post('/order-product-change-requests/:id/reject', requireAnyPermission(['
 router.get('/reports/ucarer-product-sales-history', requirePermission('reports:ucarer-depo'), adminController.getUcarerProductSalesHistory);
 router.post('/reports/ucarer-product-sales-history/mark-toplu', requirePermission('reports:ucarer-depo'), adminController.markUcarerSalesLineAsToplu);
 router.get('/reports/ucarer-product-purchase-history', requirePermission('reports:ucarer-depo'), adminController.getUcarerProductPurchaseHistory);
+// TOPLU denetim raporu: ritmik TOPLU alimlari cari x urun x ay geri tarar; unmark tek tusla topludan cikarir (Mikro yazma, loglu)
+router.get('/reports/toplu-audit', requirePermission('reports:ucarer-depo'), adminController.getTopluAuditReport);
+router.post('/reports/toplu-audit/unmark', requirePermission('reports:ucarer-depo'), adminController.unmarkTopluGroup);
+// Borc-mal takasi radari: vadesi gecmis cariler x satin alma ihtiyaci kesisimi (SALT OKUMA)
+router.get('/reports/barter-radar', requirePermission('reports:ucarer-depo'), adminController.getBarterRadar);
+// Karsi depo min/max sorgusu (transfer kapisi rozeti icin; salt okuma)
+router.get('/reports/ucarer-depot-minmax', requirePermission('reports:ucarer-depo'), adminController.getUcarerDepotMinMax);
 router.post('/reports/ucarer-minmax/run', requirePermission('reports:ucarer-minmax'), adminController.runUcarerMinMaxReport);
 router.get('/reports/ucarer-minmax/status', requirePermission('reports:ucarer-minmax'), adminController.getUcarerMinMaxJobStatus);
 router.get('/reports/ucarer-minmax-excluded', requirePermission('reports:ucarer-depo'), adminController.getUcarerMinMaxExcludedProductsReport);
@@ -651,6 +664,9 @@ router.get('/reports/product-families', requirePermission('reports:ucarer-depo')
 router.post('/reports/product-families', requirePermission('reports:ucarer-depo'), adminController.createProductFamily);
 router.put('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.updateProductFamily);
 router.delete('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.deleteProductFamily);
+// Aday aile motoru: ailesiz urunlere pg_trgm benzerligiyle aile onerir; add-product oneriyi uygular (Mikro yazma YOK)
+router.post('/stock-family/candidates', requirePermission('reports:ucarer-depo'), adminController.suggestFamilyCandidates);
+router.post('/stock-family/:familyId/add-product', requirePermission('reports:ucarer-depo'), adminController.addProductToFamilyFromCandidate);
 router.get('/reports/price-families', requirePermission('reports:price-family-costs'), adminController.getPriceFamilies);
 router.post('/reports/price-families', requirePermission('reports:price-family-costs'), adminController.createPriceFamily);
 router.put('/reports/price-families/:id', requirePermission('reports:price-family-costs'), adminController.updatePriceFamily);
@@ -677,11 +693,11 @@ router.get('/reports/price-summary-stats', requirePermission('reports:price-hist
 // Old Price History endpoint (backward compatibility - Mikro based)
 router.get('/reports/price-history', requirePermission('reports:price-history'), adminController.getPriceHistory);
 
-// Report Exclusions - ADMIN only
-router.get('/exclusions', requirePermission('admin:exclusions'), adminController.getExclusions);
-router.post('/exclusions', requirePermission('admin:exclusions'), adminController.createExclusion);
-router.put('/exclusions/:id', requirePermission('admin:exclusions'), adminController.updateExclusion);
-router.delete('/exclusions/:id', requirePermission('admin:exclusions'), adminController.deleteExclusion);
+// Report Exclusions - admin:exclusions VEYA marj raporu yetkisi (rapor ekranindan dislama yonetimi)
+router.get('/exclusions', requireAnyPermission(['admin:exclusions', 'reports:margin-compliance']), adminController.getExclusions);
+router.post('/exclusions', requireAnyPermission(['admin:exclusions', 'reports:margin-compliance']), adminController.createExclusion);
+router.put('/exclusions/:id', requireAnyPermission(['admin:exclusions', 'reports:margin-compliance']), adminController.updateExclusion);
+router.delete('/exclusions/:id', requireAnyPermission(['admin:exclusions', 'reports:margin-compliance']), adminController.deleteExclusion);
 
 // Arama Yonetimi (bulunamayan terimler + urun arama takma adlari)
 router.get('/search-misses', requirePermission('admin:search-management'), adminController.getSearchMisses);

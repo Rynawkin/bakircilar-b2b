@@ -53,6 +53,8 @@ export const config = {
   productComplementCronSchedule: process.env.PRODUCT_COMPLEMENT_CRON_SCHEDULE || '30 2 * * *',
   productPopularityCronSchedule: process.env.PRODUCT_POPULARITY_CRON_SCHEDULE || '0 4 * * 1',
   analyticsCleanupCronSchedule: process.env.ANALYTICS_CLEANUP_CRON_SCHEDULE || '45 2 * * *',
+  // Cari basina onerilen fiyat listesi motoru (price-list-suggestion.service.ts)
+  priceListSuggestionCronSchedule: process.env.PRICE_LIST_SUGGESTION_CRON_SCHEDULE || '30 4 * * *',
   analyticsRetentionDays: parseInt(process.env.ANALYTICS_RETENTION_DAYS || '180', 10),
   einvoiceAutoImportEnabled: process.env.EINVOICE_AUTO_IMPORT_ENABLED === 'true',
   einvoiceAutoImportCronSchedule: process.env.EINVOICE_AUTO_IMPORT_CRON_SCHEDULE || '*/20 * * * *',

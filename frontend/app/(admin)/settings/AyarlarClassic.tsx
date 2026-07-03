@@ -209,11 +209,33 @@ export default function AyarlarClassic() {
           </Card>
 
           <Card title="Fiyat Listesi Eslesmesi">
-            <div className="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-900">
-              Segment bazli fiyat listesi eslesmesi devre disidir. Musteriler kendi kartlarinda
-              tanimli fiyat listesinden fiyatlanir; tanimli liste yoksa varsayilan olarak
-              Toptan Satis 1 (faturali) ve Perakende Satis 1 (beyaz) kullanilir. Liste atamasi ve
-              kategori kurallari musteri kartindan yonetilir.
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-900">
+                Segment bazli fiyat listesi eslesmesi devre disidir. Musteriler kendi kartlarinda
+                tanimli fiyat listesinden fiyatlanir; tanimli liste yoksa varsayilan olarak
+                Toptan Satis 1 (faturali) ve Perakende Satis 1 (beyaz) kullanilir. Liste atamasi ve
+                kategori kurallari musteri kartindan yonetilir.
+              </div>
+
+              <div className="border-t border-gray-100 pt-4">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={settings.lastPriceIndexationEnabled ?? false}
+                    onChange={(e) => setSettings({
+                      ...settings,
+                      lastPriceIndexationEnabled: e.target.checked,
+                    })}
+                  />
+                  Son satış fiyatını liste değişimine endeksle
+                </label>
+                <p className="text-xs text-gray-600 mt-1 ml-6">
+                  Açıkken: "son satış fiyatı kullan" carilerde eski satış fiyatı, satış anındaki liste
+                  konumuna göre güncel listeye endekslenir (zam sonrası kâr erimesini durdurur). Fiyat
+                  asla eski fiyatın altına inmez.
+                </p>
+              </div>
             </div>
           </Card>
 

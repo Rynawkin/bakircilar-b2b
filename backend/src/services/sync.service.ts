@@ -277,6 +277,47 @@ class SyncService {
   }
 
   /**
+   * Settings.includedWarehouses girdilerini Mikro depo NUMARALARINA çevirir.
+   *
+   * Pratikte liste, warehouseStocks JSON anahtarlarıyla aynı numerik string'leri
+   * tutar ('1','2','6','7'; bkz. mikro.service getProducts depo eşlemesi ve
+   * getRealtimeStock'taki parseInt kullanımı). Eski kayıtlarda depo ADI kalmış
+   * olabileceği için bilinen ad -> numara eşlemesi de desteklenir
+   * (1=Merkez, 2=Ereğli, 6=Topça, 7=Dükkan).
+   */
+  private resolveIncludedWarehouseNos(includedWarehouses: string[]): number[] {
+    const NAME_TO_NO: Record<string, number> = {
+      MERKEZ: 1,
+      EREGLI: 2,
+      'EREĞLİ': 2,
+      'EREĞLI': 2,
+      TOPCA: 6,
+      'TOPÇA': 6,
+      DUKKAN: 7,
+      'DÜKKAN': 7,
+    };
+
+    const nos = new Set<number>();
+    for (const raw of includedWarehouses || []) {
+      const value = String(raw || '').trim();
+      if (!value) continue;
+
+      const numeric = Number(value);
+      if (Number.isInteger(numeric) && numeric > 0) {
+        nos.add(numeric);
+        continue;
+      }
+
+      const mapped = NAME_TO_NO[value.toUpperCase()];
+      if (mapped) {
+        nos.add(mapped);
+      }
+    }
+
+    return Array.from(nos);
+  }
+
+  /**
    * Ürünleri Mikro'dan çek ve sync et
    */
   private async syncProducts(): Promise<number> {
@@ -287,6 +328,47 @@ class SyncService {
     ]);
 
     console.log(`📊 Mikro'dan ${mikroProducts.length} ürün çekildi`);
+
+    // MAX-bazlı fazla stok hesabı için: dahil depoların STOK_DEPO_DETAYLARI
+    // min/max toplamlarını TEK toplu sorguyla çek (ürün başına sorgu YOK).
+    // Mock serviste bu metod yok; o durumda veya sorgu hatasında alanlar
+    // GÜNCELLENMEZ (mevcut değerler korunur) ve fazla stok hesabı eski
+    // satış-hızı formülüne düşer (bkz. stock.service.calculateExcessStock).
+    const settingsForMinMax = await prisma.settings.findFirst({
+      select: { includedWarehouses: true },
+    });
+    const includedWarehouseNos = this.resolveIncludedWarehouseNos(
+      settingsForMinMax?.includedWarehouses || []
+    );
+
+    const minMaxTotalsMap = new Map<string, { min: number; max: number }>();
+    let minMaxFetched = false;
+    const mikroServiceWithMinMax = mikroService as unknown as {
+      getStockMinMaxTotals?: (
+        warehouseNos: number[]
+      ) => Promise<Array<{ productCode: string; minTotal: number; maxTotal: number }>>;
+    };
+
+    if (
+      includedWarehouseNos.length > 0 &&
+      typeof mikroServiceWithMinMax.getStockMinMaxTotals === 'function'
+    ) {
+      try {
+        const minMaxRows = await mikroServiceWithMinMax.getStockMinMaxTotals(includedWarehouseNos);
+        for (const row of minMaxRows) {
+          minMaxTotalsMap.set(row.productCode, { min: row.minTotal, max: row.maxTotal });
+        }
+        minMaxFetched = true;
+        console.log(
+          `📊 ${minMaxTotalsMap.size} ürün için min/max toplamları çekildi (depolar: ${includedWarehouseNos.join(', ')})`
+        );
+      } catch (error: any) {
+        console.error(
+          '⚠️ Min/max toplamları çekilemedi, mevcut değerler korunuyor:',
+          error?.message || error
+        );
+      }
+    }
 
     // 12.1: Mikro gecici hata/timeout ile EKSIK liste dondurdugunde, listede olmayan
     // tum urunlerin toptan pasife cekilip vitrinden kaybolmasini onleyen guvenlik esigi.
@@ -390,6 +472,18 @@ class SyncService {
       // Tarihleri parse et
       const parsedCurrentCostDate = this.parseDateString(mikroProduct.currentCostDate);
 
+      // Min/max toplamları (MAX-bazlı fazla stok için).
+      // minMaxFetched=false ise alanlara HİÇ dokunma (mevcut değerler kalsın);
+      // fetch başarılıysa kaydı olmayan ürünlerde null'a çek (bayat değer kalmasın).
+      const minMaxEntry = minMaxTotalsMap.get(String(mikroProduct.code || '').trim());
+      const minMaxData: { minStockTotal?: number | null; maxStockTotal?: number | null } =
+        minMaxFetched
+          ? {
+              minStockTotal: minMaxEntry ? minMaxEntry.min : null,
+              maxStockTotal: minMaxEntry ? minMaxEntry.max : null,
+            }
+          : {};
+
       // Ürünü upsert et
         await prisma.product.upsert({
           where: { mikroCode: mikroProduct.code },
@@ -411,6 +505,7 @@ class SyncService {
           pendingCustomerOrders: pendingSales,
           pendingPurchaseOrders: pendingPurchases,
           pendingCustomerOrdersByWarehouse: pendingSalesByWarehouse,
+          ...minMaxData,
           active: true,
         },
           create: {
@@ -432,6 +527,7 @@ class SyncService {
           pendingCustomerOrders: pendingSales,
           pendingPurchaseOrders: pendingPurchases,
           pendingCustomerOrdersByWarehouse: pendingSalesByWarehouse,
+          ...minMaxData,
           excessStock: 0,
           prices: {},
           active: true,

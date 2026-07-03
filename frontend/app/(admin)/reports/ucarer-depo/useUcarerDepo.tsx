@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { adminApi } from '@/lib/api/admin';
+import { apiClient } from '@/lib/api/client';
 import toast from 'react-hot-toast';
 
 /**
@@ -57,7 +58,8 @@ export type OpsExtraColumnKey =
   | 'packQty'
   | 'costExVat'
   | 'costIncVat'
-  | 'stockDays';
+  | 'stockDays'
+  | 'familyCandidate';
 
 // 'Musteri bekliyor' triyaji: A = alinan/bekleyen musteri siparisi var,
 // B = acik siparis yok ama stok gunu kritik esigin altinda (yakinda bekletmeye baslar),
@@ -181,6 +183,29 @@ export interface MissingPriceProduct {
   productCode: string;
   productName: string;
   quantity: number;
+}
+
+// Aile Kapsama Radari — aile-disi urun icin aday aile onerisi (POST /admin/stock-family/candidates)
+export interface FamilyCandidate {
+  familyId: string;
+  familyName: string;
+  score: number;
+  matchedProductName?: string | null;
+}
+
+// Transfer Kapisi — tedarikci siparis onay modalinda DSV transfer setine alinan satir
+export interface PendingTransferRow {
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+// GET /admin/reports/ucarer-depot-minmax cevabindaki depo bazli min/max kaydi
+export interface UcarerDepotMinMaxEntry {
+  '1': { min: number; max: number };
+  '6': { min: number; max: number };
 }
 
 export interface UcarerOperationLogRow {
@@ -414,6 +439,7 @@ export function useUcarerDepo() {
     costExVat: true,
     costIncVat: true,
     stockDays: true,
+    familyCandidate: true,
   });
   const [packQtyByCode, setPackQtyByCode] = useState<Record<string, number>>({});
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
@@ -510,6 +536,35 @@ export function useUcarerDepo() {
   const [familyEditSaving, setFamilyEditSaving] = useState(false);
   const familyEditNameFetchAttemptedRef = useRef<Set<string>>(new Set());
   const [pendingSupplierInputByProduct, setPendingSupplierInputByProduct] = useState<Record<string, string>>({});
+  // IS 2 — Transfer Kapisi: siparis onay modalinda depo bazli min/max + DSV'ye cevrilen satirlar (modal state)
+  const [ucarerMinMaxByCode, setUcarerMinMaxByCode] = useState<Record<string, UcarerDepotMinMaxEntry>>({});
+  const [ucarerMinMaxLoading, setUcarerMinMaxLoading] = useState(false);
+  const [pendingTransfersByCode, setPendingTransfersByCode] = useState<
+    Record<string, { quantity: number; unitPrice: number; restored: SupplierOrderAllocation[] }>
+  >({});
+  // IS 3 — Koliye tamamla: acik yuvarlama popover'i + koli ici tanimlama modal state'i
+  const [packPopover, setPackPopover] = useState<{
+    scope: 'FAMILY' | 'NONFAMILY' | 'PENDING';
+    code: string;
+    familyId?: string;
+  } | null>(null);
+  const [packDefineState, setPackDefineState] = useState<{
+    code: string;
+    name: string;
+    factor: string;
+    weightKg: string;
+    widthMm: string;
+    lengthMm: string;
+    heightMm: string;
+    loading: boolean;
+    saving: boolean;
+  } | null>(null);
+  // IS 4 — Aday Aile: kod -> aday (null = soruldu, aday yok; kayit yok = henuz sorulmadi)
+  const [familyCandidatesByCode, setFamilyCandidatesByCode] = useState<Record<string, FamilyCandidate | null>>({});
+  const [familyCandidateLoading, setFamilyCandidateLoading] = useState(false);
+  const [addingToFamilyByCode, setAddingToFamilyByCode] = useState<Record<string, boolean>>({});
+  const [addedToFamilyByCode, setAddedToFamilyByCode] = useState<Record<string, string>>({});
+  const familyCandidateQueriedRef = useRef<Set<string>>(new Set());
   const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
   const [suggestionMode, setSuggestionMode] = useState<SuggestionMode>('INCLUDE_MINMAX');
@@ -2471,6 +2526,476 @@ export function useUcarerDepo() {
     };
   }, [seriesModalOpen, pendingSupplierRows]);
 
+  // ==================== IS 2 — Transfer Kapisi ====================
+  // Onay modali acilinca satirlardaki stok kodlari icin iki deponun min/max degerleri cekilir
+  // (200'luk chunk). Modal kapaninca DSV'ye cevrilen satirlar sifirlanir (modal state).
+  useEffect(() => {
+    if (!seriesModalOpen) {
+      setPendingTransfersByCode((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+      setPackPopover((prev) => (prev ? null : prev));
+      return;
+    }
+    const codes = Array.from(
+      new Set(pendingAllocations.map((row) => String(row.productCode || '').trim().toUpperCase()).filter(Boolean))
+    );
+    const missing = codes.filter((code) => !ucarerMinMaxByCode[code]);
+    if (missing.length === 0) return;
+    let active = true;
+    (async () => {
+      setUcarerMinMaxLoading(true);
+      try {
+        const merged: Record<string, UcarerDepotMinMaxEntry> = {};
+        for (let i = 0; i < missing.length; i += 200) {
+          const chunk = missing.slice(i, i + 200);
+          const result = await adminApi.getUcarerDepotMinMax(chunk);
+          Object.entries(result?.data || {}).forEach(([code, value]) => {
+            const normalized = String(code || '').trim().toUpperCase();
+            if (normalized && value) merged[normalized] = value as UcarerDepotMinMaxEntry;
+          });
+        }
+        if (active) setUcarerMinMaxByCode((prev) => ({ ...prev, ...merged }));
+      } catch {
+        // Min/max cekilemezse transfer rozetleri gosterilmez; siparis akisi etkilenmez.
+      } finally {
+        if (active) setUcarerMinMaxLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesModalOpen, pendingAllocations]);
+
+  const getPendingQtyForCode = (productCode: string): number => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return 0;
+    return pendingAllocations
+      .filter((row) => String(row.productCode || '').trim().toUpperCase() === code)
+      .reduce((sum, row) => sum + Math.max(0, Math.trunc(Number(row.quantity || 0))), 0);
+  };
+
+  // Karsi depo (siparis deposunun tersi) stok fazlasi kontrolu:
+  // karsiFazla = karsiDepoStok - karsiDepoMin; karsiFazla >= satirMiktari*0.5 ise DSV onerilir.
+  const getTransferGateInfo = (
+    productCode: string
+  ): {
+    counterDepotLabel: string;
+    counterStock: number;
+    counterMin: number;
+    counterExcess: number;
+    pendingQty: number;
+    transferQty: number;
+    eligible: boolean;
+  } | null => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return null;
+    const minMax = ucarerMinMaxByCode[code];
+    if (!minMax) return null;
+    const counterColumn = depot === 'MERKEZ' ? topcaDepoStockColumn : merkezDepoStockColumn;
+    if (!counterColumn) return null;
+    const row = rowByProductCode.get(code);
+    if (!row) return null;
+    const counterDepotNo: '1' | '6' = depot === 'MERKEZ' ? '6' : '1';
+    const counterStock = toNumberFlexible(row[counterColumn]);
+    const counterMin = Math.max(0, Number(minMax[counterDepotNo]?.min ?? 0));
+    // Daha once DSV'ye cevrilmis miktar fazladan DUSULUR; yoksa ust uste tiklamada
+    // karsi depo min altina inecek kadar transfer onerilirdi.
+    const alreadyMoved = Math.max(0, Math.trunc(Number(pendingTransfersByCode[code]?.quantity || 0)));
+    const counterExcess = Math.floor(counterStock - counterMin) - alreadyMoved;
+    const pendingQty = getPendingQtyForCode(code);
+    if (pendingQty <= 0) return null;
+    const transferQty = Math.max(0, Math.min(pendingQty, counterExcess));
+    const eligible = counterExcess > 0 && counterExcess >= pendingQty * 0.5;
+    return {
+      counterDepotLabel: depot === 'MERKEZ' ? 'Topca' : 'Merkez',
+      counterStock,
+      counterMin,
+      counterExcess,
+      pendingQty,
+      transferQty,
+      eligible,
+    };
+  };
+
+  // "DSV'ye cevir": satir tedarikci setinden cikarilir, transfer setine eklenir.
+  // miktar = min(satirMiktari, karsiFazla); kalan miktar tedarikci satirinda kalir.
+  const convertPendingLineToTransfer = (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    const info = getTransferGateInfo(code);
+    if (!info || !info.eligible || info.transferQty <= 0) {
+      toast.error('Bu satir icin transfer kosullari saglanmiyor.');
+      return;
+    }
+    let remaining = info.transferQty;
+    const removedPortions: SupplierOrderAllocation[] = [];
+    const nextAllocations: SupplierOrderAllocation[] = [];
+    pendingAllocations.forEach((row) => {
+      const rowCode = String(row.productCode || '').trim().toUpperCase();
+      if (rowCode !== code || remaining <= 0) {
+        nextAllocations.push(row);
+        return;
+      }
+      const qty = Math.max(0, Math.trunc(Number(row.quantity || 0)));
+      const take = Math.min(qty, remaining);
+      remaining -= take;
+      if (take > 0) removedPortions.push({ ...row, quantity: take });
+      if (qty - take > 0) nextAllocations.push({ ...row, quantity: qty - take });
+    });
+    if (removedPortions.length === 0) {
+      toast.error('Transfere aktarilacak miktar bulunamadi.');
+      return;
+    }
+    const movedQty = removedPortions.reduce((sum, row) => sum + Math.max(0, Math.trunc(Number(row.quantity || 0))), 0);
+    const unitPrice = resolveOrderUnitPrice(code, removedPortions[0]?.unitPriceOverride);
+    setPendingAllocations(nextAllocations);
+    setPendingTransfersByCode((prev) => {
+      const existing = prev[code];
+      return {
+        ...prev,
+        [code]: {
+          quantity: (existing?.quantity || 0) + movedQty,
+          unitPrice,
+          restored: [...(existing?.restored || []), ...removedPortions],
+        },
+      };
+    });
+    const leftover = Math.max(0, info.pendingQty - movedQty);
+    toast.success(
+      `${code}: ${movedQty.toLocaleString('tr-TR')} adet DSV transfer setine alindi.${leftover > 0 ? ` Kalan ${leftover.toLocaleString('tr-TR')} adet tedarikci siparisinde kaldi.` : ''}`
+    );
+  };
+
+  // "Geri al": transfer setindeki satiri tedarikci siparis setine geri tasir (modal state icinde).
+  const undoPendingTransfer = (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    const entry = pendingTransfersByCode[code];
+    if (!entry) return;
+    setPendingAllocations((prev) => {
+      const next = [...prev];
+      entry.restored.forEach((portion) => {
+        const idx = next.findIndex(
+          (row) =>
+            String(row.productCode || '').trim().toUpperCase() === code &&
+            String(row.supplierCodeOverride || '').trim().toUpperCase() ===
+              String(portion.supplierCodeOverride || '').trim().toUpperCase() &&
+            String(row.familyId || '') === String(portion.familyId || '')
+        );
+        if (idx >= 0) {
+          next[idx] = {
+            ...next[idx],
+            quantity: Math.max(0, Math.trunc(Number(next[idx].quantity || 0))) + Math.max(0, Math.trunc(Number(portion.quantity || 0))),
+          };
+        } else {
+          next.push({ ...portion });
+        }
+      });
+      return next;
+    });
+    setPendingTransfersByCode((prev) => {
+      const nextMap = { ...prev };
+      delete nextMap[code];
+      return nextMap;
+    });
+    toast.success(`${code} tedarikci siparis setine geri alindi.`);
+  };
+
+  const pendingTransferRows = useMemo<PendingTransferRow[]>(
+    () =>
+      Object.entries(pendingTransfersByCode)
+        .map(([code, entry]) => ({
+          productCode: code,
+          productName: getProductDisplayName(code),
+          quantity: entry.quantity,
+          unitPrice: entry.unitPrice,
+          total: entry.quantity * entry.unitPrice,
+        }))
+        .filter((row) => row.quantity > 0)
+        .sort((a, b) => a.productCode.localeCompare(b.productCode, 'tr')),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pendingTransfersByCode, rowByProductCode, productNameColumn]
+  );
+
+  const pendingTransferSummary = useMemo(
+    () => ({
+      count: pendingTransferRows.length,
+      totalQuantity: pendingTransferRows.reduce((sum, row) => sum + row.quantity, 0),
+      totalAmount: pendingTransferRows.reduce((sum, row) => sum + row.total, 0),
+    }),
+    [pendingTransferRows]
+  );
+
+  // ==================== IS 3 — Koliye tamamla + koli ici tanimlama ====================
+  // Koli ici (unit2Factor) tanimliysa asagi/yukari koli katina yuvarlama secenekleri.
+  const getPackRounding = (
+    productCode: string,
+    qty: number | ''
+  ): { packQty: number; down: number; up: number; downBoxes: number; upBoxes: number; isExact: boolean } | null => {
+    const code = String(productCode || '').trim().toUpperCase();
+    // Mikro'da negatif katsayi = buyuk 2. birim (1 KOLI = |katsayi| ADET); isaretten bagimsiz mutlak deger kullanilir.
+    const packQty = Math.abs(Number(packQtyByCode[code] || 0));
+    if (!Number.isFinite(packQty) || packQty <= 0) return null;
+    const safeQty = Math.max(0, Math.trunc(Number(qty === '' ? 0 : qty || 0)));
+    const downBoxes = Math.floor(safeQty / packQty);
+    const upBoxes = Math.ceil(safeQty / packQty);
+    const down = Math.round(downBoxes * packQty);
+    const up = Math.round(upBoxes * packQty);
+    return { packQty, down, up, downBoxes, upBoxes, isExact: Math.abs(safeQty - down) < 0.0001 };
+  };
+
+  // Onay modalindaki toplam miktari gunceller (ayni urun birden fazla dagitim satirinda olabilir).
+  const setPendingTotalQuantityForProduct = (productCode: string, quantity: number) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return;
+    const target = Math.max(0, Math.trunc(Number(quantity || 0)));
+    setPendingAllocations((prev) => {
+      const rows = prev.filter((row) => String(row.productCode || '').trim().toUpperCase() === code);
+      if (rows.length === 0) return prev;
+      const currentTotal = rows.reduce((sum, row) => sum + Math.max(0, Math.trunc(Number(row.quantity || 0))), 0);
+      let deltaLeft = target - currentTotal;
+      if (deltaLeft === 0) return prev;
+      const next: SupplierOrderAllocation[] = [];
+      prev.forEach((row) => {
+        if (String(row.productCode || '').trim().toUpperCase() !== code) {
+          next.push(row);
+          return;
+        }
+        let qty = Math.max(0, Math.trunc(Number(row.quantity || 0)));
+        if (deltaLeft > 0) {
+          qty += deltaLeft;
+          deltaLeft = 0;
+        } else if (deltaLeft < 0) {
+          const take = Math.min(qty, -deltaLeft);
+          qty -= take;
+          deltaLeft += take;
+        }
+        if (qty > 0) next.push({ ...row, quantity: qty });
+      });
+      return next;
+    });
+  };
+
+  // Popover'daki asagi/yukari secimini ilgili input'a uygular.
+  const applyPackPopoverValue = (value: number) => {
+    const target = packPopover;
+    if (!target) return;
+    const qty = Math.max(0, Math.trunc(Number(value || 0)));
+    if (target.scope === 'FAMILY' && target.familyId) {
+      setManualAllocation(target.familyId, target.code, qty);
+    } else if (target.scope === 'NONFAMILY') {
+      setNonFamilyAllocations((prev) => ({ ...prev, [target.code]: qty }));
+    } else if (target.scope === 'PENDING') {
+      setPendingTotalQuantityForProduct(target.code, qty);
+    }
+    setPackPopover(null);
+  };
+
+  // Koli ici tanimlama: once GET ile mevcut 2. birim degerleri okunur (PUT tum alanlari yazar).
+  const openPackDefineModal = async (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return;
+    setPackPopover(null);
+    setPackDefineState({
+      code,
+      name: 'KOLİ',
+      factor: '',
+      weightKg: '',
+      widthMm: '',
+      lengthMm: '',
+      heightMm: '',
+      loading: true,
+      saving: false,
+    });
+    try {
+      const res = await apiClient.get(`/admin/product-dimensions/products/${encodeURIComponent(code)}`);
+      const unit2 = (res.data?.product?.units || []).find((unit: any) => Number(unit?.index) === 2);
+      const existingFactor = Math.abs(Number(unit2?.factor || 0));
+      setPackDefineState((prev) =>
+        prev && prev.code === code
+          ? {
+              ...prev,
+              loading: false,
+              name: String(unit2?.name || '').trim() || 'KOLİ',
+              factor: existingFactor > 0 ? String(existingFactor) : '',
+              weightKg: Number(unit2?.weightKg || 0) > 0 ? String(Number(unit2.weightKg)) : '',
+              widthMm: Number(unit2?.widthMm || 0) > 0 ? String(Number(unit2.widthMm)) : '',
+              lengthMm: Number(unit2?.lengthMm || 0) > 0 ? String(Number(unit2.lengthMm)) : '',
+              heightMm: Number(unit2?.heightMm || 0) > 0 ? String(Number(unit2.heightMm)) : '',
+            }
+          : prev
+      );
+    } catch (error: any) {
+      toast.error(getApiErrorMessage(error, 'Urun birim bilgileri okunamadi'));
+      setPackDefineState((prev) => (prev && prev.code === code ? null : prev));
+    }
+  };
+
+  const closePackDefineModal = () => setPackDefineState(null);
+
+  const setPackDefineField = (
+    field: 'name' | 'factor' | 'weightKg' | 'widthMm' | 'lengthMm' | 'heightMm',
+    value: string
+  ) => {
+    setPackDefineState((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  // PUT /admin/product-dimensions/products/:code — SADECE 2. birim gonderilir; PUT gonderilen
+  // birimin TUM alanlarini yazar, o yuzden GET'ten okunan kg/olcu degerleri aynen geri gonderilir.
+  const savePackDefine = async () => {
+    const state = packDefineState;
+    if (!state || state.loading || state.saving) return;
+    const code = state.code;
+    const name = String(state.name || '').trim().toUpperCase();
+    if (!name) {
+      toast.error('Birim adi zorunlu.');
+      return;
+    }
+    if (name.length > 10) {
+      toast.error('Birim adi en fazla 10 karakter olabilir.');
+      return;
+    }
+    const factor = Number(String(state.factor || '').replace(',', '.'));
+    if (!Number.isFinite(factor) || factor <= 0) {
+      toast.error('Gecerli bir koli ici adet girin (0 olamaz).');
+      return;
+    }
+    const parseField = (raw: string) => {
+      const parsed = Number(String(raw || '').replace(',', '.'));
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    };
+    const weightKg = parseField(state.weightKg);
+    const widthMm = parseField(state.widthMm);
+    const lengthMm = parseField(state.lengthMm);
+    const heightMm = parseField(state.heightMm);
+    const dimensionCount = [widthMm, lengthMm, heightMm].filter((value) => value > 0).length;
+    if (dimensionCount > 0 && dimensionCount < 3) {
+      toast.error('En, boy ve yukseklik ya birlikte girilmeli ya da bos birakilmali.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `${code} stok kartinda 2. birim "${name}" (koli ici ${factor.toLocaleString('tr-TR')}) olarak Mikro'ya YAZILACAK.\n\nSadece 2. birim alanlari guncellenir; diger birimler ve raf kodu degismez. Onayliyor musunuz?`
+    );
+    if (!confirmed) return;
+    setPackDefineState((prev) => (prev ? { ...prev, saving: true } : prev));
+    try {
+      // Mikro kurali: KOLI ana birimden BUYUK 2. birimdir -> katsayi NEGATIF yazilir
+      // (negatif katsayi = 1 KOLI = |katsayi| ADET; product-dimensions uiFactorToMikro 'larger' ile ayni).
+      await apiClient.put(`/admin/product-dimensions/products/${encodeURIComponent(code)}`, {
+        units: [{ index: 2, name, factor: -Math.abs(factor), weightKg, widthMm, lengthMm, heightMm }],
+      });
+      // packMap tazele: rapor verisindeki 'Koli Ici' degeri lokal guncellenir, buton 'Koliye yuvarla'ya doner.
+      // (getPackRounding abs kullandigi icin lokal deger pozitif tutulur.)
+      setPackQtyByCode((prev) => ({ ...prev, [code]: factor }));
+      toast.success(`${code} icin koli ici ${factor.toLocaleString('tr-TR')} olarak Mikro'ya kaydedildi.`);
+      setPackDefineState(null);
+    } catch (error: any) {
+      toast.error(getApiErrorMessage(error, 'Koli ici kaydedilemedi'));
+      setPackDefineState((prev) => (prev ? { ...prev, saving: false } : prev));
+    }
+  };
+
+  // ==================== IS 4 — Aile Kapsama Radari + Aday Aile ====================
+  // Oneri tutari (KDV haric maliyet x oneri) uzerinden aile korumali / aile disi kirilimi.
+  const familyCoverageSummary = useMemo(() => {
+    let familyAmount = 0;
+    families.forEach((family) => {
+      const capped = computeFamilyCappedNeeds(family);
+      capped.perItem.forEach((qty, code) => {
+        const unitCost = Number(currentCostByCode[code] || 0);
+        if (qty > 0 && Number.isFinite(unitCost) && unitCost > 0) familyAmount += qty * unitCost;
+      });
+    });
+    let nonFamilyAmount = 0;
+    nonFamilyRows.forEach((item) => {
+      const qty = Math.max(0, Math.trunc(getSuggestedQty(item.row)));
+      const unitCost = Number(currentCostByCode[item.code] || 0);
+      if (qty > 0 && Number.isFinite(unitCost) && unitCost > 0) nonFamilyAmount += qty * unitCost;
+    });
+    const totalAmount = familyAmount + nonFamilyAmount;
+    return {
+      familyAmount,
+      nonFamilyAmount,
+      totalAmount,
+      coveragePct: totalAmount > 0 ? (familyAmount / totalAmount) * 100 : 0,
+      nonFamilyCount: nonFamilyRows.length,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [families, nonFamilyRows, currentCostByCode, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, incomingOrderColumn, outgoingOrderColumn]);
+
+  // Gorunur (filtrelenmis) aile-disi satirlarin kodlari icin aday aile sorgusu (300'luk chunk, cache'li).
+  useEffect(() => {
+    if (orderPanelTab !== 'work' || !panelColumns.familyCandidate) return;
+    const codes = filteredNonFamilyRows
+      .map((entry) => entry.code)
+      .filter((code) => code && !familyCandidateQueriedRef.current.has(code));
+    if (codes.length === 0) return;
+    const timer = setTimeout(async () => {
+      codes.forEach((code) => familyCandidateQueriedRef.current.add(code));
+      setFamilyCandidateLoading(true);
+      try {
+        const merged: Record<string, FamilyCandidate | null> = {};
+        for (let i = 0; i < codes.length; i += 300) {
+          const chunk = codes.slice(i, i + 300);
+          const result = await adminApi.getFamilyCandidates(chunk);
+          chunk.forEach((code) => {
+            const hit = (result?.data || {})[code];
+            merged[code] = hit
+              ? {
+                  familyId: String(hit.familyId || ''),
+                  familyName: String(hit.familyName || ''),
+                  score: Number(hit.score || 0),
+                  matchedProductName: hit.matchedProductName || null,
+                }
+              : null;
+          });
+        }
+        // Sonuc koda bagli bir cache'tir, filtre degisse de her zaman commit edilir;
+        // aksi halde queriedRef isaretli ama sonucu yazilmamis kodlar '...'de takilirdi.
+        setFamilyCandidatesByCode((prev) => ({ ...prev, ...merged }));
+      } catch {
+        // Hata olursa ayni kodlar tekrar sorgulanabilsin.
+        codes.forEach((code) => familyCandidateQueriedRef.current.delete(code));
+      } finally {
+        setFamilyCandidateLoading(false);
+      }
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredNonFamilyRows, orderPanelTab, panelColumns.familyCandidate]);
+
+  // [Ekle]: confirm -> addProductToFamily -> basarida aileler yenilenir (satir aile tarafina gecer).
+  const addNonFamilyProductToFamily = async (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    const candidate = familyCandidatesByCode[code];
+    if (!code || !candidate || !candidate.familyId) return;
+    const confirmed = window.confirm(
+      `${code} urunu "${candidate.familyName}" ailesine eklensin mi?\n\nEklenince urun aile onerilerine dahil olur ve aile-disi listeden cikar.`
+    );
+    if (!confirmed) return;
+    setAddingToFamilyByCode((prev) => ({ ...prev, [code]: true }));
+    try {
+      await adminApi.addProductToFamily(candidate.familyId, {
+        productCode: code,
+        productName: getProductDisplayName(code),
+      });
+      toast.success(`${code} "${candidate.familyName}" ailesine eklendi.`);
+      setAddedToFamilyByCode((prev) => ({ ...prev, [code]: candidate.familyName }));
+      await loadFamilies();
+      refreshOperationLogsIfOpen();
+    } catch (error: any) {
+      if (error?.response?.status === 409) {
+        toast(`${code} zaten "${candidate.familyName}" ailesinin uyesi.`);
+        setAddedToFamilyByCode((prev) => ({ ...prev, [code]: candidate.familyName }));
+        await loadFamilies();
+      } else {
+        toast.error(getApiErrorMessage(error, 'Urun aileye eklenemedi'));
+      }
+    } finally {
+      setAddingToFamilyByCode((prev) => ({ ...prev, [code]: false }));
+    }
+  };
+
   const createSupplierOrders = async () => {
     const allocations = buildOrderAllocations();
 
@@ -2607,21 +3132,104 @@ export function useUcarerDepo() {
   };
 
   const submitCreateSupplierOrders = async () => {
-    if (!pendingAllocations.length) {
+    // Transfer Kapisi: DSV'ye cevrilen satirlar tedarikci siparisi yerine depolar-arasi siparis olur.
+    const transferLines = pendingTransferRows
+      .map((row) => ({ productCode: row.productCode, quantity: Math.max(0, Math.trunc(Number(row.quantity || 0))) }))
+      .filter((row) => row.quantity > 0);
+    if (!pendingAllocations.length && transferLines.length === 0) {
       toast.error('Siparis olusturmak icin dagitim bulunamadi.');
       return;
     }
-    const invalidSupplier = pendingSupplierRows.find((row) => {
-      const cfg = supplierOrderConfigs[row.supplierCode];
-      return !cfg || !String(cfg.series || '').trim();
-    });
-    if (invalidSupplier) {
-      toast.error(`Seri zorunlu: ${invalidSupplier.supplierCode}`);
-      return;
+    if (pendingAllocations.length > 0) {
+      const invalidSupplier = pendingSupplierRows.find((row) => {
+        const cfg = supplierOrderConfigs[row.supplierCode];
+        return !cfg || !String(cfg.series || '').trim();
+      });
+      if (invalidSupplier) {
+        toast.error(`Seri zorunlu: ${invalidSupplier.supplierCode}`);
+        return;
+      }
     }
 
     setCreatingOrders(true);
     try {
+      // Once DSV transfer olusturulur; basarisiz olursa tedarikci siparisleri de OLUSTURULMAZ
+      // (kullanici tekrar dener, cift evrak riski yok).
+      if (transferLines.length > 0) {
+        try {
+          const transferResult = await adminApi.createDepotTransferOrder({
+            depot,
+            series: 'DSV',
+            allocations: transferLines,
+          });
+          toast.success(`Transfer Kapisi: DSV depolar-arasi siparis olustu: ${transferResult.data.orderNumber}`);
+          // DSV'ye cevrilen porsiyonlar kaynak dagitim inputlarindan DUSULUR (tam sifirlama DEGIL);
+          // kismi cevirmede tedarikci tarafinda kalan miktar korunur, tekrar 'Toplu Siparis Olustur'
+          // calistirilirsa DSV'lesen miktar ikinci kez tedarikci siparisine girmez.
+          const familyDeduction: Record<string, Record<string, number>> = {};
+          const nonFamilyDeduction: Record<string, number> = {};
+          Object.values(pendingTransfersByCode).forEach((entry) => {
+            (entry.restored || []).forEach((portion) => {
+              const portionCode = String(portion.productCode || '').trim().toUpperCase();
+              const portionQty = Math.max(0, Math.trunc(Number(portion.quantity || 0)));
+              if (!portionCode || portionQty <= 0) return;
+              const familyId = String(portion.familyId || '');
+              if (familyId) {
+                const familyMap = familyDeduction[familyId] || (familyDeduction[familyId] = {});
+                familyMap[portionCode] = (familyMap[portionCode] || 0) + portionQty;
+              } else {
+                nonFamilyDeduction[portionCode] = (nonFamilyDeduction[portionCode] || 0) + portionQty;
+              }
+            });
+          });
+          if (Object.keys(familyDeduction).length > 0) {
+            setManualAllocations((prev) => {
+              const next = { ...prev };
+              Object.entries(familyDeduction).forEach(([familyId, byCode]) => {
+                const familyAlloc = { ...(next[familyId] || {}) };
+                Object.keys(familyAlloc).forEach((allocCode) => {
+                  const deduct = byCode[String(allocCode).trim().toUpperCase()];
+                  if (!deduct) return;
+                  familyAlloc[allocCode] = Math.max(
+                    0,
+                    Math.trunc(Number(familyAlloc[allocCode] || 0)) - deduct
+                  );
+                });
+                next[familyId] = familyAlloc;
+              });
+              return next;
+            });
+          }
+          if (Object.keys(nonFamilyDeduction).length > 0) {
+            setNonFamilyAllocations((prev) => {
+              const next: Record<string, number | ''> = { ...prev };
+              Object.keys(next).forEach((allocCode) => {
+                const deduct = nonFamilyDeduction[String(allocCode).trim().toUpperCase()];
+                if (!deduct) return;
+                const raw = next[allocCode];
+                const remaining = Math.max(0, Math.trunc(Number(raw === '' ? 0 : raw || 0)) - deduct);
+                next[allocCode] = remaining > 0 ? remaining : '';
+              });
+              return next;
+            });
+          }
+          setPendingTransfersByCode({});
+          refreshOperationLogsIfOpen();
+        } catch (transferError: any) {
+          toast.error(
+            getApiErrorMessage(transferError, 'DSV transfer siparisi olusturulamadi') +
+              (pendingAllocations.length > 0 ? ' Tedarikci siparisleri OLUSTURULMADI; tekrar deneyin.' : ''),
+            { duration: 12000 }
+          );
+          return;
+        }
+      }
+      if (pendingAllocations.length === 0) {
+        // Sadece transfer vardi; modal kapanir.
+        setSeriesModalOpen(false);
+        setSupplierOrderConfigs({});
+        return;
+      }
       const result = await adminApi.createSupplierOrdersFromFamilyAllocations({
         depot,
         supplierConfigs: Object.fromEntries(
@@ -3073,6 +3681,30 @@ export function useUcarerDepo() {
     familyEditSearching,
     familyEditSaving,
     pendingSupplierInputByProduct, setPendingSupplierInputByProduct,
+    // IS 2 — Transfer Kapisi
+    ucarerMinMaxLoading,
+    pendingTransferRows,
+    pendingTransferSummary,
+    getTransferGateInfo,
+    convertPendingLineToTransfer,
+    undoPendingTransfer,
+    // IS 3 — Koliye tamamla / koli ici tanimlama
+    packPopover, setPackPopover,
+    getPackRounding,
+    applyPackPopoverValue,
+    setPendingTotalQuantityForProduct,
+    packDefineState,
+    openPackDefineModal,
+    closePackDefineModal,
+    setPackDefineField,
+    savePackDefine,
+    // IS 4 — Aile Kapsama Radari + Aday Aile
+    familyCoverageSummary,
+    familyCandidatesByCode,
+    familyCandidateLoading,
+    addingToFamilyByCode,
+    addedToFamilyByCode,
+    addNonFamilyProductToFamily,
     suggestionMode, setSuggestionMode,
     // turetilmis kolon adlari
     visibleMinMaxColumns,

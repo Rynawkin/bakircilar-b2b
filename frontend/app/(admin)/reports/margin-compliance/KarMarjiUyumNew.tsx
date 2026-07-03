@@ -11,8 +11,12 @@ import {
   Mail,
   RotateCw,
 } from 'lucide-react';
-import { useKarMarjiUyum, MARGIN_EXCLUSION_TYPE_LABELS } from './useKarMarjiUyum';
-import type { MarginExclusionType } from './useKarMarjiUyum';
+import {
+  useKarMarjiUyum,
+  MARGIN_EXCLUSION_TYPE_LABELS,
+  GENERAL_EXCLUSION_TYPE_LABELS,
+} from './useKarMarjiUyum';
+import type { MarginExclusionType, GeneralExclusionType } from './useKarMarjiUyum';
 
 /**
  * Yeni gorunum: Kar Marji Analizi (019703) raporu.
@@ -169,6 +173,24 @@ export default function KarMarjiUyumNew() {
     handleAddExclusionOption,
     handleAddNameExclusion,
     handleDeleteExclusion,
+    exclusionsPanelOpen,
+    setExclusionsPanelOpen,
+    exclusionsTab,
+    setExclusionsTab,
+    generalExclusions,
+    activeGeneralExclusions,
+    generalExclusionsLoading,
+    generalExclusionsForbidden,
+    generalFormType,
+    setGeneralFormType,
+    generalFormValue,
+    setGeneralFormValue,
+    generalFormDescription,
+    setGeneralFormDescription,
+    savingGeneralExclusion,
+    deletingGeneralExclusionId,
+    handleAddGeneralExclusion,
+    handleDeleteGeneralExclusion,
     syncingReport,
     sendingReportEmail,
     isSingleDate,
@@ -578,6 +600,19 @@ export default function KarMarjiUyumNew() {
             <Mail size={13} strokeWidth={2} />
             Mail Gönder
           </button>
+          <button
+            type="button"
+            onClick={() => setExclusionsPanelOpen(!exclusionsPanelOpen)}
+            style={{
+              ...smallBtn,
+              border: '1px solid #fecaca',
+              background: exclusionsPanelOpen ? '#fee2e2' : '#fef2f2',
+              color: RED,
+              fontWeight: 600,
+            }}
+          >
+            🚫 Dışlamalar ({activeExclusions.length + activeGeneralExclusions.length})
+          </button>
           <span style={{ fontSize: 11, color: FAINT }}>Tek gün seçili olmalı.</span>
         </div>
 
@@ -635,159 +670,319 @@ export default function KarMarjiUyumNew() {
           </p>
         </details>
 
-        {/* Rapor Dislamalari (marka / urun kodu / urun adi) */}
-        <details style={{ marginTop: 12 }}>
-          <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: MUTED }}>
-            Rapor Dışlamaları ({activeExclusions.length})
-          </summary>
-
-          {/* Aktif kurallar */}
-          <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
-            {activeExclusions.length === 0 ? (
-              <span style={{ fontSize: 12, color: FAINT }}>Aktif dışlama kuralı yok.</span>
-            ) : (
-              activeExclusions.map((exclusion) => (
-                <div
-                  key={exclusion.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: MUTED }}
-                >
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: PRIMARY,
-                      background: '#eef2f9',
-                      border: `1px solid ${LINE}`,
-                      borderRadius: 6,
-                      padding: '2px 6px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {MARGIN_EXCLUSION_TYPE_LABELS[exclusion.type]}
-                  </span>
-                  <span
-                    style={{
-                      color: INK,
-                      fontWeight: 500,
-                      minWidth: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {exclusion.value}
-                    {exclusion.label && exclusion.label !== exclusion.value ? ` — ${exclusion.label}` : ''}
-                  </span>
+        {/* Dislamalar paneli — butonla acilir, iki sekme: Marj / Genel */}
+        {exclusionsPanelOpen && (
+          <div style={{ marginTop: 12, border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden' }}>
+            {/* Sekmeler */}
+            <div style={{ display: 'flex', background: TABLE_HEAD_BG, borderBottom: `1px solid ${SOFT_LINE}` }}>
+              {[
+                ['MARGIN', `Marj Raporu Dışlamaları (${activeExclusions.length})`],
+                ['GENERAL', `Genel Rapor Dışlamaları (${activeGeneralExclusions.length})`],
+              ].map(([key, label]) => {
+                const active = exclusionsTab === key;
+                return (
                   <button
+                    key={key}
                     type="button"
-                    onClick={() => handleDeleteExclusion(exclusion)}
-                    disabled={deletingExclusionId === exclusion.id}
+                    onClick={() => setExclusionsTab(key as 'MARGIN' | 'GENERAL')}
                     style={{
-                      ...smallBtn,
-                      height: 26,
-                      padding: '0 10px',
-                      color: RED,
-                      opacity: deletingExclusionId === exclusion.id ? 0.5 : 1,
-                      cursor: deletingExclusionId === exclusion.id ? 'not-allowed' : 'pointer',
+                      padding: '10px 16px',
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      border: 'none',
+                      borderBottom: active ? `2px solid ${PRIMARY}` : '2px solid transparent',
+                      background: active ? '#fff' : 'transparent',
+                      color: active ? PRIMARY : MUTED,
                     }}
                   >
-                    Sil
+                    {label}
                   </button>
-                </div>
-              ))
-            )}
-          </div>
+                );
+              })}
+            </div>
 
-          {/* Yeni kural ekleme */}
-          <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <select
-                value={exclusionType}
-                onChange={(e) => setExclusionType(e.target.value as MarginExclusionType)}
-                style={{ ...inputStyle, width: 180, cursor: 'pointer' }}
-              >
-                <option value="BRAND">Marka</option>
-                <option value="PRODUCT_CODE">Ürün Kodu</option>
-                <option value="PRODUCT_NAME">Ürün Adı (metin)</option>
-              </select>
-              {exclusionType === 'PRODUCT_NAME' ? (
-                <>
+            {exclusionsTab === 'MARGIN' ? (
+              <div style={{ padding: 14 }}>
+                <div style={{ fontSize: 11.5, color: FAINT, marginBottom: 10 }}>
+                  Sadece marj raporunu etkiler.
+                </div>
+
+                {/* Aktif kurallar */}
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {activeExclusions.length === 0 ? (
+                    <span style={{ fontSize: 12, color: FAINT }}>Aktif dışlama kuralı yok.</span>
+                  ) : (
+                    activeExclusions.map((exclusion) => (
+                      <div
+                        key={exclusion.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: MUTED }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: PRIMARY,
+                            background: '#eef2f9',
+                            border: `1px solid ${LINE}`,
+                            borderRadius: 6,
+                            padding: '2px 6px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {MARGIN_EXCLUSION_TYPE_LABELS[exclusion.type]}
+                        </span>
+                        <span
+                          style={{
+                            color: INK,
+                            fontWeight: 500,
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {exclusion.value}
+                          {exclusion.label && exclusion.label !== exclusion.value ? ` — ${exclusion.label}` : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteExclusion(exclusion)}
+                          disabled={deletingExclusionId === exclusion.id}
+                          style={{
+                            ...smallBtn,
+                            height: 26,
+                            padding: '0 10px',
+                            color: RED,
+                            opacity: deletingExclusionId === exclusion.id ? 0.5 : 1,
+                            cursor: deletingExclusionId === exclusion.id ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Sil
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Yeni kural ekleme */}
+                <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <select
+                      value={exclusionType}
+                      onChange={(e) => setExclusionType(e.target.value as MarginExclusionType)}
+                      style={{ ...inputStyle, width: 180, cursor: 'pointer' }}
+                    >
+                      <option value="BRAND">Marka</option>
+                      <option value="PRODUCT_CODE">Ürün Kodu</option>
+                      <option value="PRODUCT_NAME">Ürün Adı (metin)</option>
+                    </select>
+                    {exclusionType === 'PRODUCT_NAME' ? (
+                      <>
+                        <input
+                          value={exclusionNameInput}
+                          onChange={(e) => setExclusionNameInput(e.target.value)}
+                          placeholder="Ürün adında geçen ifade..."
+                          style={{ ...inputStyle, flex: 1, minWidth: 220 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddNameExclusion}
+                          disabled={savingExclusion}
+                          style={{ ...smallBtn, height: 36, opacity: savingExclusion ? 0.6 : 1 }}
+                        >
+                          Ekle
+                        </button>
+                      </>
+                    ) : (
+                      <input
+                        value={exclusionSearch}
+                        onChange={(e) => setExclusionSearch(e.target.value)}
+                        placeholder={exclusionType === 'BRAND' ? 'Marka ara...' : 'Ürün kodu veya adı ara...'}
+                        style={{ ...inputStyle, flex: 1, minWidth: 220 }}
+                      />
+                    )}
+                  </div>
+
+                  {exclusionType === 'PRODUCT_NAME' ? (
+                    <span style={{ fontSize: 11, color: FAINT }}>Ürün adında geçen ifadeyle eşleşir (kısmi eşleşme).</span>
+                  ) : (
+                    <div style={{ border: `1px solid ${SOFT_LINE}`, borderRadius: 8, maxHeight: 200, overflowY: 'auto' }}>
+                      {exclusionOptionsLoading ? (
+                        <div style={{ padding: 10, fontSize: 12, color: FAINT }}>Yükleniyor...</div>
+                      ) : exclusionOptions.length === 0 ? (
+                        <div style={{ padding: 10, fontSize: 12, color: FAINT }}>Sonuç bulunamadı.</div>
+                      ) : (
+                        exclusionOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => handleAddExclusionOption(option)}
+                            disabled={savingExclusion}
+                            style={{
+                              display: 'flex',
+                              width: '100%',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 8,
+                              padding: '8px 10px',
+                              border: 'none',
+                              borderBottom: `1px solid ${ROW_LINE}`,
+                              background: '#fff',
+                              fontSize: 12.5,
+                              color: INK,
+                              cursor: savingExclusion ? 'not-allowed' : 'pointer',
+                              textAlign: 'left',
+                              fontFamily: 'inherit',
+                              opacity: savingExclusion ? 0.6 : 1,
+                            }}
+                          >
+                            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {exclusionType === 'BRAND' ? option.label : `${option.value} — ${option.label}`}
+                            </span>
+                            {typeof option.productCount === 'number' && (
+                              <span style={{ fontSize: 11, color: FAINT, whiteSpace: 'nowrap' }}>
+                                {option.productCount} ürün
+                              </span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  <span style={{ fontSize: 11, color: FAINT }}>
+                    Dışlama eklenince/silinince rapor otomatik yenilenir; geçmiş veri silinmez, kural silinince satırlar geri gelir.
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: 14 }}>
+                <div style={{ fontSize: 11.5, color: FAINT, marginBottom: 10 }}>
+                  Uçarer satış geçmişi, MinMax v2, top ürünler, müşteri kurtarma gibi satış-istatistiği raporlarını etkiler.
+                </div>
+
+                {generalExclusionsForbidden ? (
+                  <span style={{ fontSize: 12, color: AMBER, fontWeight: 600 }}>
+                    Bu bölümü görüntüleme yetkiniz yok (admin:exclusions).
+                  </span>
+                ) : (
+                  <>
+                {/* Yeni genel kural ekleme */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                  <select
+                    value={generalFormType}
+                    onChange={(e) => setGeneralFormType(e.target.value as GeneralExclusionType)}
+                    style={{ ...inputStyle, width: 180, cursor: 'pointer' }}
+                  >
+                    {Object.entries(GENERAL_EXCLUSION_TYPE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
                   <input
-                    value={exclusionNameInput}
-                    onChange={(e) => setExclusionNameInput(e.target.value)}
-                    placeholder="Ürün adında geçen ifade..."
-                    style={{ ...inputStyle, flex: 1, minWidth: 220 }}
+                    value={generalFormValue}
+                    onChange={(e) => setGeneralFormValue(e.target.value)}
+                    placeholder={generalFormType === 'PRODUCT_CODE' ? 'Örn: B106430' : 'Değer girin'}
+                    style={{ ...inputStyle, flex: 1, minWidth: 180 }}
+                  />
+                  <input
+                    value={generalFormDescription}
+                    onChange={(e) => setGeneralFormDescription(e.target.value)}
+                    placeholder="Açıklama (opsiyonel)"
+                    style={{ ...inputStyle, flex: 1, minWidth: 180 }}
                   />
                   <button
                     type="button"
-                    onClick={handleAddNameExclusion}
-                    disabled={savingExclusion}
-                    style={{ ...smallBtn, height: 36, opacity: savingExclusion ? 0.6 : 1 }}
+                    onClick={handleAddGeneralExclusion}
+                    disabled={savingGeneralExclusion}
+                    style={{ ...smallBtn, height: 36, opacity: savingGeneralExclusion ? 0.6 : 1 }}
                   >
                     Ekle
                   </button>
-                </>
-              ) : (
-                <input
-                  value={exclusionSearch}
-                  onChange={(e) => setExclusionSearch(e.target.value)}
-                  placeholder={exclusionType === 'BRAND' ? 'Marka ara...' : 'Ürün kodu veya adı ara...'}
-                  style={{ ...inputStyle, flex: 1, minWidth: 220 }}
-                />
-              )}
-            </div>
+                </div>
 
-            {exclusionType === 'PRODUCT_NAME' ? (
-              <span style={{ fontSize: 11, color: FAINT }}>Ürün adında geçen ifadeyle eşleşir (kısmi eşleşme).</span>
-            ) : (
-              <div style={{ border: `1px solid ${SOFT_LINE}`, borderRadius: 8, maxHeight: 200, overflowY: 'auto' }}>
-                {exclusionOptionsLoading ? (
-                  <div style={{ padding: 10, fontSize: 12, color: FAINT }}>Yükleniyor...</div>
-                ) : exclusionOptions.length === 0 ? (
-                  <div style={{ padding: 10, fontSize: 12, color: FAINT }}>Sonuç bulunamadı.</div>
-                ) : (
-                  exclusionOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleAddExclusionOption(option)}
-                      disabled={savingExclusion}
-                      style={{
-                        display: 'flex',
-                        width: '100%',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        padding: '8px 10px',
-                        border: 'none',
-                        borderBottom: `1px solid ${ROW_LINE}`,
-                        background: '#fff',
-                        fontSize: 12.5,
-                        color: INK,
-                        cursor: savingExclusion ? 'not-allowed' : 'pointer',
-                        textAlign: 'left',
-                        fontFamily: 'inherit',
-                        opacity: savingExclusion ? 0.6 : 1,
-                      }}
-                    >
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {exclusionType === 'BRAND' ? option.label : `${option.value} — ${option.label}`}
-                      </span>
-                      {typeof option.productCount === 'number' && (
-                        <span style={{ fontSize: 11, color: FAINT, whiteSpace: 'nowrap' }}>
-                          {option.productCount} ürün
+                {/* Kurallar listesi */}
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {generalExclusionsLoading ? (
+                    <span style={{ fontSize: 12, color: FAINT }}>Yükleniyor...</span>
+                  ) : generalExclusions.length === 0 ? (
+                    <span style={{ fontSize: 12, color: FAINT }}>Genel dışlama kuralı yok.</span>
+                  ) : (
+                    generalExclusions.map((exclusion) => (
+                      <div
+                        key={exclusion.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: MUTED }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: PRIMARY,
+                            background: '#eef2f9',
+                            border: `1px solid ${LINE}`,
+                            borderRadius: 6,
+                            padding: '2px 6px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {GENERAL_EXCLUSION_TYPE_LABELS[exclusion.type]}
                         </span>
-                      )}
-                    </button>
-                  ))
+                        <span
+                          style={{
+                            color: INK,
+                            fontWeight: 500,
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {exclusion.value}
+                          {exclusion.description ? ` — ${exclusion.description}` : ''}
+                        </span>
+                        {!exclusion.active && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              color: FAINT,
+                              background: '#f4f6fa',
+                              border: '1px solid #e3e8f0',
+                              borderRadius: 999,
+                              padding: '2px 8px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            Pasif
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteGeneralExclusion(exclusion)}
+                          disabled={deletingGeneralExclusionId === exclusion.id}
+                          style={{
+                            ...smallBtn,
+                            height: 26,
+                            padding: '0 10px',
+                            color: RED,
+                            opacity: deletingGeneralExclusionId === exclusion.id ? 0.5 : 1,
+                            cursor: deletingGeneralExclusionId === exclusion.id ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Sil
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+                  </>
                 )}
               </div>
             )}
-            <span style={{ fontSize: 11, color: FAINT }}>
-              Dışlama eklenince/silinince rapor otomatik yenilenir; geçmiş veri silinmez, kural silinince satırlar geri gelir.
-            </span>
           </div>
-        </details>
+        )}
 
         {/* Kolonlar (goster/gizle + mail kolonlari kaydet) */}
         <details style={{ marginTop: 12 }}>

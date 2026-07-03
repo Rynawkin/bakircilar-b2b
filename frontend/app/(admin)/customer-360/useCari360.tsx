@@ -33,7 +33,29 @@ export interface Customer360SearchRow {
   sectorCode?: string | null;
   active?: boolean;
   balance?: number | null;
+  // Fiyat listesi onerisi (gece motoru) + manuel override alanlari (detay payload'inda gelir)
+  suggestedInvoicedListNo?: number | null;
+  suggestedRetailListNo?: number | null;
+  suggestedListBasis?: string | null;
+  suggestedListComputedAt?: string | null;
+  manualInvoicedListNo?: number | null;
+  manualRetailListNo?: number | null;
+  manualListNote?: string | null;
 }
+
+// Liste no -> etiket eslemesi: 6-10 = Faturali 1-5 (6 = Faturali 1, en yuksek fiyat),
+// 1-5 = Perakende 1-5.
+export const invoicedListLabel = (no: number | null | undefined) => {
+  if (no === null || no === undefined) return '-';
+  if (no >= 6 && no <= 10) return `Faturalı ${no - 5}`;
+  return `Liste ${no}`;
+};
+
+export const retailListLabel = (no: number | null | undefined) => {
+  if (no === null || no === undefined) return '-';
+  if (no >= 1 && no <= 5) return `Perakende ${no}`;
+  return `Liste ${no}`;
+};
 
 export type Customer360Module = 'sales' | 'finance' | 'actions' | 'activity' | 'relations';
 
@@ -86,6 +108,13 @@ export function useCari360() {
   const [quoteDetailLoading, setQuoteDetailLoading] = useState(false);
   const [downloadingInvoiceId, setDownloadingInvoiceId] = useState('');
 
+  // Fiyat listesi onerisi karti (manuel oneri duzenleme mini formu)
+  const [priceListEditOpen, setPriceListEditOpen] = useState(false);
+  const [manualInvoicedInput, setManualInvoicedInput] = useState(''); // '' = bos (sistem onerisi)
+  const [manualRetailInput, setManualRetailInput] = useState(''); // '' = bos (sistem onerisi)
+  const [manualNoteInput, setManualNoteInput] = useState('');
+  const [savingPriceListSuggestion, setSavingPriceListSuggestion] = useState(false);
+
   useEffect(() => {
     loadUserFromStorage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,6 +149,7 @@ export function useCari360() {
     if (!id) return;
     setSelectedCustomer(customer);
     setData(null);
+    setPriceListEditOpen(false);
     setLoadingDetail(true);
     try {
       const response = await adminApi.getCustomer360(id);
@@ -170,6 +200,60 @@ export function useCari360() {
 
   const customer = data?.customer || selectedCustomer;
   const summary = data?.summary || {};
+
+  // ==================== Fiyat listesi onerisi ====================
+
+  // Manuel oneri tanimli mi? (liste alanlarindan en az biri doluysa manuel sayilir)
+  const hasManualListSuggestion =
+    (customer?.manualInvoicedListNo ?? null) !== null ||
+    (customer?.manualRetailListNo ?? null) !== null;
+
+  // Ekranda gosterilecek etkin oneri: manuel doluysa manuel, degilse sistem onerisi.
+  const effectiveInvoicedListNo =
+    customer?.manualInvoicedListNo ?? customer?.suggestedInvoicedListNo ?? null;
+  const effectiveRetailListNo =
+    customer?.manualRetailListNo ?? customer?.suggestedRetailListNo ?? null;
+
+  const openPriceListEdit = () => {
+    setManualInvoicedInput(
+      customer?.manualInvoicedListNo !== null && customer?.manualInvoicedListNo !== undefined
+        ? String(customer.manualInvoicedListNo)
+        : ''
+    );
+    setManualRetailInput(
+      customer?.manualRetailListNo !== null && customer?.manualRetailListNo !== undefined
+        ? String(customer.manualRetailListNo)
+        : ''
+    );
+    setManualNoteInput(customer?.manualListNote || '');
+    setPriceListEditOpen(true);
+  };
+
+  const closePriceListEdit = () => setPriceListEditOpen(false);
+
+  // Kaydet: bos secim null gonderir (manuel tanimi temizler -> sistem onerisine doner).
+  const savePriceListSuggestion = async () => {
+    const id = String(data?.customer?.id || selectedCustomer?.id || '').trim();
+    if (!id) return;
+    setSavingPriceListSuggestion(true);
+    try {
+      const note = manualNoteInput.trim();
+      await adminApi.setCustomerPriceListSuggestion(id, {
+        manualInvoicedListNo: manualInvoicedInput === '' ? null : Number(manualInvoicedInput),
+        manualRetailListNo: manualRetailInput === '' ? null : Number(manualRetailInput),
+        manualListNote: note ? note : null,
+      });
+      toast.success('Fiyat listesi önerisi kaydedildi');
+      setPriceListEditOpen(false);
+      // Musteri verisini tazele (panel state'ini bozmadan sessiz refetch)
+      const response = await adminApi.getCustomer360(id);
+      setData(response.data || null);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Fiyat listesi önerisi kaydedilemedi');
+    } finally {
+      setSavingPriceListSuggestion(false);
+    }
+  };
   const activityCounts = data?.activity?.countsByType || {};
   const activityRows = useMemo(
     () => Object.entries(activityCounts).sort((a, b) => Number(b[1]) - Number(a[1])),
@@ -200,6 +284,21 @@ export function useCari360() {
     quoteDetailLoading,
     // fatura indirme state
     downloadingInvoiceId,
+    // fiyat listesi onerisi
+    priceListEditOpen,
+    manualInvoicedInput,
+    setManualInvoicedInput,
+    manualRetailInput,
+    setManualRetailInput,
+    manualNoteInput,
+    setManualNoteInput,
+    savingPriceListSuggestion,
+    hasManualListSuggestion,
+    effectiveInvoicedListNo,
+    effectiveRetailListNo,
+    openPriceListEdit,
+    closePriceListEdit,
+    savePriceListSuggestion,
     // handlerlar
     loadCustomer,
     openQuoteDetail,

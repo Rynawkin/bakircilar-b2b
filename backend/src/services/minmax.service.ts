@@ -6,9 +6,14 @@
  * onizlemeden secip onayladigi satirlar icin applyMinMax ile yapilir.
  *
  * Hesap mantigi (patron tarifi):
- *   gunlukSatis = son <lookbackDays> gun satis miktari / lookbackDays
+ *   efektifGun  = min(lookbackDays, bugun - penceredeki ilk satis tarihi + 1), taban 7
+ *                 ("120 gun baz al" dense bile urun 43 gundur satiliyorsa 43'e bolunur)
+ *   gunlukSatis = son <lookbackDays> gun satis miktari / efektifGun
  *   yeniMin     = ceil(gunlukSatis * minDays)
  *   yeniMax     = ceil(gunlukSatis * maxDays)
+ *   Cold-start : pencere satisi 0 ama acik (alinan) musteri siparisi > 0 ise
+ *                yeniMin = ceil(bekleyen), yeniMax = ceil(bekleyen * maxDays/minDays),
+ *                kaynak rozeti 'SIPARIS' (urun yeni acilmis, mal henuz gelmemis olabilir).
  *
  * Parametre onceligi: URUN override > TEDARIKCI override > Settings varsayilani.
  * sto_model_kodu = 'HAYIR' olan urunler hesaplanmaz (listede 'haric' rozetiyle gorunur).
@@ -25,7 +30,8 @@ import exclusionService from './exclusion.service';
 
 export type MinMaxDepot = 'MERKEZ' | 'TOPCA';
 export type MinMaxSalesScope = 'DEPOT' | 'COMPANY';
-export type MinMaxOverrideSource = 'urun' | 'tedarikci' | 'varsayilan' | 'haric';
+// 'SIPARIS': pencere satisi yok, oneri acik (alinan) musteri siparisinden turedi (cold-start)
+export type MinMaxOverrideSource = 'urun' | 'tedarikci' | 'varsayilan' | 'haric' | 'SIPARIS';
 
 export interface MinMaxSettings {
   lookbackDays: number;
@@ -44,6 +50,10 @@ export interface MinMaxPreviewRow {
   hasDepotRecord: boolean;    // STOK_DEPO_DETAYLARI kaydi var mi (yoksa apply atlanir)
   salesQty: number;           // efektif penceredeki satis miktari (kapsama gore)
   dailySales: number;
+  effectiveDays: number;      // min(pencere, bugun - pencere icindeki ilk satis + 1), taban 7
+  firstSaleDate: string | null; // pencere icindeki ilk satis tarihi (kapsama gore, YYYY-MM-DD)
+  isShortWindow: boolean;     // efektif gun < pencere (urun pencere ortasinda satisa baslamis)
+  pendingOrderQty: number;    // acik (alinan) musteri siparisi kalan miktari (cold-start kaynagi)
   lookbackUsed: number;
   minDaysUsed: number;
   maxDaysUsed: number;
@@ -66,6 +76,8 @@ export interface MinMaxPreviewResult {
     changedCount: number;
     excludedCount: number;
     missingDepotRecordCount: number;
+    missingWithSalesCount: number;  // sicilsiz (depo kaydi yok) + penceresinde satisi olan urun sayisi
+    missingWithSalesDaily: number;  // bu urunlerin gunluk satis toplami
     overrideProductCount: number;
     overrideSupplierCount: number;
   };
@@ -83,6 +95,7 @@ export interface MinMaxApplyResult {
   requested: number;
   updated: Array<{ productCode: string; oldMin: number; oldMax: number; newMin: number; newMax: number }>;
   skipped: Array<{ productCode: string; reason: string }>;
+  inserted: string[];  // allowInsert=true ile STOK_DEPO_DETAYLARI'na yeni acilan kayitlarin stok kodlari
 }
 
 const MAX_APPLY_ITEMS = 5000;
@@ -91,6 +104,8 @@ const MAX_DISTINCT_LOOKBACKS = 20;
 const MIN_LOOKBACK_DAYS = 7;
 const MAX_LOOKBACK_DAYS = 365;
 const MAX_DAY_PARAM = 365;
+const MIN_EFFECTIVE_WINDOW_DAYS = 7; // efektif pencere tabani (tek gunluk satisla absurt min/max cikmasin)
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const clampInt = (value: unknown, min: number, max: number, fallback: number): number => {
   const parsed = Math.trunc(Number(value));
@@ -129,6 +144,44 @@ class MinMaxService {
     (request as any).timeout = Number(process.env.UCARER_MINMAX_TIMEOUT_MS || 300000);
     const result = await request.query(queryText);
     return Array.isArray(result.recordset) ? result.recordset : [];
+  }
+
+  // ==================== DEPO MIN/MAX SORGUSU ====================
+
+  /**
+   * Verilen stok kodlari icin merkez(1) ve topca(6) depo min/max degerlerini dondurur.
+   * Ucarer tedarikci siparis modalindaki "karsi depodan transfer" kontrolu icin
+   * (karsi depo fazlasi = karsi depo stok - karsi depo MIN; min'in altina dusurmeden oner).
+   * SALT OKUMA; max 200 kod.
+   */
+  async getDepotMinMaxByCodes(codes: string[]): Promise<Record<string, { '1': { min: number; max: number }; '6': { min: number; max: number } }>> {
+    const cleaned = Array.from(
+      new Set((codes || []).map((c) => String(c || '').trim()).filter(Boolean))
+    ).slice(0, 200);
+    if (!cleaned.length) return {};
+
+    await mikroService.connect();
+    const request = mikroService.pool!.request();
+    const placeholders = cleaned.map((code, i) => {
+      request.input(`c${i}`, sql.NVarChar, code);
+      return `@c${i}`;
+    });
+    const result = await request.query(`
+      SELECT LTRIM(RTRIM(sdp_depo_kod)) AS code, sdp_depo_no AS depoNo,
+             ISNULL(sdp_min_stok, 0) AS minStok, ISNULL(sdp_max_stok, 0) AS maxStok
+      FROM STOK_DEPO_DETAYLARI WITH (NOLOCK)
+      WHERE sdp_depo_no IN (1, 6) AND LTRIM(RTRIM(sdp_depo_kod)) IN (${placeholders.join(', ')})
+    `);
+    const map: Record<string, { '1': { min: number; max: number }; '6': { min: number; max: number } }> = {};
+    for (const row of result.recordset || []) {
+      const code = String(row.code || '');
+      if (!map[code]) {
+        map[code] = { '1': { min: 0, max: 0 }, '6': { min: 0, max: 0 } };
+      }
+      const depo = String(row.depoNo) === '6' ? '6' : '1';
+      map[code][depo] = { min: Number(row.minStok) || 0, max: Number(row.maxStok) || 0 };
+    }
+    return map;
   }
 
   // ==================== SETTINGS ====================
@@ -465,7 +518,9 @@ class MinMaxService {
       `sth.sth_tarih >= DATEADD(DAY, -${maxWindow}, CAST(GETDATE() AS date))`,
     ].join(' AND ');
 
-    // Pencere basina depo-bazli ve sirket-geneli iki ayri SUM kolonu.
+    // Pencere basina depo-bazli ve sirket-geneli iki ayri SUM kolonu + pencere icindeki
+    // ilk satis tarihi (efektif gun hesabi pencereye gore yapilsin; global MIN kullanilirsa
+    // kisa pencereli kurallarda pencere disi eski satis tarihi efektif gunu bozar).
     // Depo filtresi: sth_cikis_depo_no (satis cikis deposu; hot-sale/warehouse servislerindeki
     // yazimlarla dogrulanmis kolon adi).
     const sumColumns = lookbackWindows
@@ -474,6 +529,8 @@ class MinMaxService {
         return [
           `SUM(CASE WHEN sth.sth_tarih >= ${cut} AND ISNULL(sth.sth_cikis_depo_no, 0) = ${warehouseNo} THEN CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT) ELSE 0 END) AS depotQty_${days}`,
           `SUM(CASE WHEN sth.sth_tarih >= ${cut} THEN CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT) ELSE 0 END) AS totalQty_${days}`,
+          `MIN(CASE WHEN sth.sth_tarih >= ${cut} AND ISNULL(sth.sth_cikis_depo_no, 0) = ${warehouseNo} THEN sth.sth_tarih END) AS depotFirstSale_${days}`,
+          `MIN(CASE WHEN sth.sth_tarih >= ${cut} THEN sth.sth_tarih END) AS totalFirstSale_${days}`,
         ].join(',\n          ');
       })
       .join(',\n          ');
@@ -485,9 +542,43 @@ class MinMaxService {
       .filter(Boolean)
       .join('\n        ');
 
-    // Tek toplu sorgu: satis SUM'lari + urun meta + mevcut min/max.
+    // Cold-start icin acik (alinan) musteri siparisleri: filtre kalibi
+    // reports.service.ts getUcarerIncomingOrderDetails (6678-6696) ile AYNI
+    // (sip_tip=0 alinan siparis, kapat/iptal=0, kalan = miktar - teslim > 0).
+    // Depo filtresi satis kapsamiyla tutarli: DEPOT ise hedef depo, COMPANY ise filtresiz.
+    // Satis tarafiyla ayni dislama seti: tarih alt siniri (bayat acik siparisler cold-start'i
+    // sisirmesin), TOPLU sorumluluk merkezi (sip_stok_sormerk; hot-sale.service.ts:1617 ve
+    // warehouse-workflow.service.ts:2618'de dogrulanmis kolon adi) ve ReportExclusion kurallari.
+    const pendingExclusionConditions = await exclusionService.buildSiparislerExclusionConditions();
+    // Exclusion kosullari st./c2. aliaslarini kullanabilir; sadece gerekirse join eklenir
+    // (Sales CTE'deki needsStoklarJoin/needsCariJoin kalibinin aynisi).
+    const pendingNeedsStoklarJoin = pendingExclusionConditions.some((condition) => condition.includes('st.sto_'));
+    const pendingNeedsCariJoin = pendingExclusionConditions.some((condition) => condition.includes('c2.cari_'));
+    const pendingConditions = [
+      'sip.sip_tip = 0',
+      'ISNULL(sip.sip_kapat_fl, 0) = 0',
+      'ISNULL(sip.sip_iptal, 0) = 0',
+      'sip.sip_stok_kod IS NOT NULL',
+      "LTRIM(RTRIM(sip.sip_stok_kod)) <> ''",
+      'ISNULL(sip.sip_miktar, 0) > ISNULL(sip.sip_teslim_miktar, 0)',
+      `sip.sip_tarih >= DATEADD(DAY, -${maxWindow}, CAST(GETDATE() AS date))`,
+      "UPPER(LTRIM(RTRIM(ISNULL(sip.sip_stok_sormerk, '')))) <> 'TOPLU'",
+      ...pendingExclusionConditions,
+    ];
+    if (defaults.salesScope !== 'COMPANY') {
+      pendingConditions.push(`ISNULL(sip.sip_depono, ${warehouseNo}) = ${warehouseNo}`);
+    }
+    const pendingJoins = [
+      pendingNeedsStoklarJoin ? 'LEFT JOIN STOKLAR st WITH (NOLOCK) ON st.sto_kod = sip.sip_stok_kod' : '',
+      pendingNeedsCariJoin ? 'LEFT JOIN CARI_HESAPLAR c2 WITH (NOLOCK) ON c2.cari_kod = sip.sip_musteri_kod' : '',
+    ]
+      .filter(Boolean)
+      .join('\n        ');
+
+    // Tek toplu sorgu: satis SUM'lari + pencere icindeki ilk satis tarihi + bekleyen
+    // musteri siparisi + urun meta + mevcut min/max.
     // Urun seti: penceresinde satisi olan URUNLER ∪ depoda min/max tanimli URUNLER
-    // (dusus/sifirlama onerileri de gorunsun diye).
+    // ∪ acik musteri siparisi olan URUNLER (yeni acilan stoklar da gorunsun diye).
     const queryText = `
       WITH Sales AS (
         SELECT
@@ -497,6 +588,15 @@ class MinMaxService {
         ${salesJoins}
         WHERE ${whereClause}
         GROUP BY UPPER(LTRIM(RTRIM(sth.sth_stok_kod)))
+      ),
+      Pending AS (
+        SELECT
+          UPPER(LTRIM(RTRIM(sip.sip_stok_kod))) AS productCode,
+          SUM(CAST(ISNULL(sip.sip_miktar, 0) - ISNULL(sip.sip_teslim_miktar, 0) AS FLOAT)) AS pendingQty
+        FROM SIPARISLER sip WITH (NOLOCK)
+        ${pendingJoins}
+        WHERE ${pendingConditions.join('\n          AND ')}
+        GROUP BY UPPER(LTRIM(RTRIM(sip.sip_stok_kod)))
       )
       SELECT
         UPPER(LTRIM(RTRIM(s.sto_kod))) AS productCode,
@@ -507,8 +607,9 @@ class MinMaxService {
         CAST(ISNULL(sdp.sdp_min_stok, 0) AS FLOAT) AS currentMin,
         CAST(ISNULL(sdp.sdp_max_stok, 0) AS FLOAT) AS currentMax,
         CASE WHEN sdp.sdp_depo_kod IS NULL THEN 0 ELSE 1 END AS hasDepotRecord,
+        CAST(ISNULL(po.pendingQty, 0) AS FLOAT) AS pendingOrderQty,
         ${lookbackWindows
-          .map((days) => `ISNULL(sa.depotQty_${days}, 0) AS depotQty_${days}, ISNULL(sa.totalQty_${days}, 0) AS totalQty_${days}`)
+          .map((days) => `ISNULL(sa.depotQty_${days}, 0) AS depotQty_${days}, ISNULL(sa.totalQty_${days}, 0) AS totalQty_${days}, sa.depotFirstSale_${days}, sa.totalFirstSale_${days}`)
           .join(',\n        ')}
       FROM STOKLAR s WITH (NOLOCK)
       LEFT JOIN STOK_DEPO_DETAYLARI sdp WITH (NOLOCK)
@@ -518,11 +619,14 @@ class MinMaxService {
         ON sc.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
       LEFT JOIN Sales sa
         ON sa.productCode = UPPER(LTRIM(RTRIM(s.sto_kod)))
+      LEFT JOIN Pending po
+        ON po.productCode = UPPER(LTRIM(RTRIM(s.sto_kod)))
       WHERE ISNULL(s.sto_pasif_fl, 0) = 0
         AND (
           sa.productCode IS NOT NULL
           OR ISNULL(sdp.sdp_min_stok, 0) <> 0
           OR ISNULL(sdp.sdp_max_stok, 0) <> 0
+          OR ISNULL(po.pendingQty, 0) > 0
         )
     `;
 
@@ -549,14 +653,48 @@ class MinMaxService {
       const depotQty = Number(raw?.[`depotQty_${windowDays}`]) || 0;
       const totalQty = Number(raw?.[`totalQty_${windowDays}`]) || 0;
       const salesQty = defaults.salesScope === 'COMPANY' ? totalQty : depotQty;
-      const dailySales = windowDays > 0 ? salesQty / windowDays : 0;
+      const pendingOrderQty = Math.max(0, Number(raw?.pendingOrderQty) || 0);
+
+      // Efektif satis penceresi (patron tarifi): urun pencere ortasinda satilmaya
+      // baslamissa gun sayisi ilk satis tarihinden itibaren sayilir; taban 7 gun.
+      // Ilk satis tarihi de satis kapsamina (DEPOT/COMPANY) VE urunun efektif
+      // penceresine gore secilir (pencere-bazli MIN kolonlari).
+      const firstSaleRaw = defaults.salesScope === 'COMPANY'
+        ? raw?.[`totalFirstSale_${windowDays}`]
+        : raw?.[`depotFirstSale_${windowDays}`];
+      const firstSale = firstSaleRaw ? new Date(firstSaleRaw) : null;
+      let firstSaleDate: string | null = null;
+      let effectiveDays = windowDays;
+      if (firstSale && !Number.isNaN(firstSale.getTime())) {
+        firstSaleDate = firstSale.toISOString().slice(0, 10);
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const saleStart = new Date(firstSale);
+        saleStart.setHours(0, 0, 0, 0);
+        const daysSinceFirstSale = Math.floor((todayStart.getTime() - saleStart.getTime()) / MS_PER_DAY) + 1;
+        effectiveDays = Math.max(MIN_EFFECTIVE_WINDOW_DAYS, Math.min(windowDays, daysSinceFirstSale));
+      }
+      const isShortWindow = effectiveDays < windowDays;
+      const dailySales = effectiveDays > 0 ? salesQty / effectiveDays : 0;
 
       let newMin: number | null = null;
       let newMax: number | null = null;
+      let source: MinMaxOverrideSource = excluded ? 'haric' : params.source;
       if (!excluded) {
-        newMin = dailySales > 0 ? Math.ceil(dailySales * params.minDays) : 0;
-        newMax = dailySales > 0 ? Math.ceil(dailySales * params.maxDays) : 0;
-        if (newMax < newMin) newMax = newMin;
+        if (dailySales > 0) {
+          newMin = Math.ceil(dailySales * params.minDays);
+          newMax = Math.ceil(dailySales * params.maxDays);
+        } else if (pendingOrderQty > 0) {
+          // Cold-start: pencere satisi yok ama acik musteri siparisi var (urun yeni
+          // acilmis, mal henuz gelmemis olabilir). Taahhut edilen talebi garanti karsila.
+          newMin = Math.ceil(pendingOrderQty);
+          newMax = Math.ceil(pendingOrderQty * (params.maxDays / Math.max(1, params.minDays)));
+          source = 'SIPARIS';
+        } else {
+          newMin = 0;
+          newMax = 0;
+        }
+        if (newMin !== null && newMax !== null && newMax < newMin) newMax = newMin;
       }
 
       return {
@@ -569,6 +707,10 @@ class MinMaxService {
         hasDepotRecord,
         salesQty: Math.round(salesQty * 100) / 100,
         dailySales: Math.round(dailySales * 10000) / 10000,
+        effectiveDays,
+        firstSaleDate,
+        isShortWindow,
+        pendingOrderQty: Math.round(pendingOrderQty * 100) / 100,
         lookbackUsed: windowDays,
         minDaysUsed: params.minDays,
         maxDaysUsed: params.maxDays,
@@ -578,16 +720,21 @@ class MinMaxService {
         newMax,
         diffMin: newMin === null ? null : Math.round((newMin - currentMin) * 100) / 100,
         diffMax: newMax === null ? null : Math.round((newMax - currentMax) * 100) / 100,
-        overrideSource: excluded ? 'haric' : params.source,
+        overrideSource: source,
       };
     });
 
     rows.sort((a, b) => Math.abs(b.diffMax ?? 0) - Math.abs(a.diffMax ?? 0) || a.productCode.localeCompare(b.productCode));
 
+    // Sicilsiz urunler (STOK_DEPO_DETAYLARI kaydi yok): satisi olanlar apply'da
+    // allowInsert=true ile yeni kayit acilarak yazilabilir; sayaclar UI uyarisi icin.
+    const missingWithSales = rows.filter((row) => !row.hasDepotRecord && row.salesQty > 0);
     const summary = {
       changedCount: rows.filter((row) => !row.excluded && ((row.diffMin ?? 0) !== 0 || (row.diffMax ?? 0) !== 0)).length,
       excludedCount: rows.filter((row) => row.excluded).length,
       missingDepotRecordCount: rows.filter((row) => !row.hasDepotRecord).length,
+      missingWithSalesCount: missingWithSales.length,
+      missingWithSalesDaily: Math.round(missingWithSales.reduce((sum, row) => sum + row.dailySales, 0) * 100) / 100,
       overrideProductCount: rows.filter((row) => row.overrideSource === 'urun').length,
       overrideSupplierCount: rows.filter((row) => row.overrideSource === 'tedarikci').length,
     };
@@ -610,16 +757,21 @@ class MinMaxService {
    * Yazma kalibi reports.service.ts:7350-7356 (reset) ile AYNI tablo/kolon/anahtar mantigidir:
    *   UPDATE STOK_DEPO_DETAYLARI SET sdp_min_stok, sdp_max_stok
    *   WHERE LTRIM(RTRIM(sdp_depo_kod)) = <stok kodu> AND sdp_depo_no = <depo no>
-   * Reset kalibi INSERT yapmadigi icin burada da yapilmaz; kaydi olmayan urunler
-   * 'skipped' listesinde doner. Parametreli + chunk'li calisir.
+   * Varsayilan davranis (allowInsert verilmez/false): reset kalibi gibi INSERT yapilmaz;
+   * kaydi olmayan urunler 'skipped' listesinde doner.
+   * allowInsert=true (kullanici onayli, UI'dan secilerek gelir): sicilsiz urunler icin
+   * STOK_DEPO_DETAYLARI'na yeni kayit acilir (bkz. insertMissingDepotRecords).
+   * Parametreli + chunk'li calisir.
    */
   async applyMinMax(input: {
     depot: string;
     items: MinMaxApplyItem[];
     userId?: string | null;
+    allowInsert?: boolean;
   }): Promise<MinMaxApplyResult> {
     const depot = normalizeDepot(input.depot);
     const warehouseNo = depotToWarehouseNo(depot);
+    const allowInsert = input.allowInsert === true;
 
     const items: MinMaxApplyItem[] = [];
     const seen = new Set<string>();
@@ -653,59 +805,90 @@ class MinMaxService {
 
     const updated: MinMaxApplyResult['updated'] = [];
     const skipped: Array<{ productCode: string; reason: string }> = [...invalid];
+    const missingItems: MinMaxApplyItem[] = [];
 
     for (let offset = 0; offset < items.length; offset += APPLY_CHUNK_SIZE) {
       const chunk = items.slice(offset, offset + APPLY_CHUNK_SIZE);
-      const request = mikroService.pool!.request();
-      (request as any).timeout = Number(process.env.UCARER_MINMAX_TIMEOUT_MS || 300000);
+      // Chunk hatasi tum apply'i dusurmesin: hatali chunk 'skipped' olarak raporlanir,
+      // sonraki chunk'lara devam edilir (insertMissingDepotRecords kalibi). logOperation
+      // her durumda calisir; kismi basari bilgisi frontend toast'unda zaten gosteriliyor.
+      try {
+        const request = mikroService.pool!.request();
+        (request as any).timeout = Number(process.env.UCARER_MINMAX_TIMEOUT_MS || 300000);
 
-      const statements: string[] = [
-        'SET NOCOUNT ON;',
-        'DECLARE @res TABLE (code nvarchar(40), oldMin float, oldMax float, newMin float, newMax float);',
-      ];
-      chunk.forEach((item, index) => {
-        request.input(`code${index}`, sql.NVarChar(40), item.productCode);
-        request.input(`min${index}`, sql.Float, item.newMin);
-        request.input(`max${index}`, sql.Float, item.newMax);
-        statements.push(`
-          UPDATE sdp
-          SET sdp_min_stok = @min${index},
-              sdp_max_stok = @max${index}
-          OUTPUT
-            UPPER(LTRIM(RTRIM(deleted.sdp_depo_kod))),
-            CAST(ISNULL(deleted.sdp_min_stok, 0) AS float),
-            CAST(ISNULL(deleted.sdp_max_stok, 0) AS float),
-            CAST(ISNULL(inserted.sdp_min_stok, 0) AS float),
-            CAST(ISNULL(inserted.sdp_max_stok, 0) AS float)
-          INTO @res
-          FROM STOK_DEPO_DETAYLARI sdp
-          WHERE LTRIM(RTRIM(sdp.sdp_depo_kod)) = @code${index}
-            AND sdp.sdp_depo_no = ${warehouseNo};
-        `);
-      });
-      statements.push('SELECT code, oldMin, oldMax, newMin, newMax FROM @res;');
-
-      const result = await request.query(statements.join('\n'));
-      const resultRows = Array.isArray(result.recordset) ? result.recordset : [];
-      const updatedCodes = new Set<string>();
-      resultRows.forEach((row: any) => {
-        const code = normalizeCode(row?.code);
-        if (!code) return;
-        updatedCodes.add(code);
-        updated.push({
-          productCode: code,
-          oldMin: Number(row?.oldMin) || 0,
-          oldMax: Number(row?.oldMax) || 0,
-          newMin: Number(row?.newMin) || 0,
-          newMax: Number(row?.newMax) || 0,
+        const statements: string[] = [
+          'SET NOCOUNT ON;',
+          'DECLARE @res TABLE (code nvarchar(40), oldMin float, oldMax float, newMin float, newMax float);',
+        ];
+        chunk.forEach((item, index) => {
+          request.input(`code${index}`, sql.NVarChar(40), item.productCode);
+          request.input(`min${index}`, sql.Float, item.newMin);
+          request.input(`max${index}`, sql.Float, item.newMax);
+          statements.push(`
+            UPDATE sdp
+            SET sdp_min_stok = @min${index},
+                sdp_max_stok = @max${index}
+            OUTPUT
+              UPPER(LTRIM(RTRIM(deleted.sdp_depo_kod))),
+              CAST(ISNULL(deleted.sdp_min_stok, 0) AS float),
+              CAST(ISNULL(deleted.sdp_max_stok, 0) AS float),
+              CAST(ISNULL(inserted.sdp_min_stok, 0) AS float),
+              CAST(ISNULL(inserted.sdp_max_stok, 0) AS float)
+            INTO @res
+            FROM STOK_DEPO_DETAYLARI sdp
+            WHERE LTRIM(RTRIM(sdp.sdp_depo_kod)) = @code${index}
+              AND sdp.sdp_depo_no = ${warehouseNo};
+          `);
         });
-      });
-      chunk.forEach((item) => {
-        if (!updatedCodes.has(item.productCode)) {
-          skipped.push({ productCode: item.productCode, reason: 'STOK_DEPO_DETAYLARI kaydi bulunamadi' });
-        }
-      });
+        statements.push('SELECT code, oldMin, oldMax, newMin, newMax FROM @res;');
+
+        const result = await request.query(statements.join('\n'));
+        const resultRows = Array.isArray(result.recordset) ? result.recordset : [];
+        const updatedCodes = new Set<string>();
+        resultRows.forEach((row: any) => {
+          const code = normalizeCode(row?.code);
+          if (!code) return;
+          updatedCodes.add(code);
+          updated.push({
+            productCode: code,
+            oldMin: Number(row?.oldMin) || 0,
+            oldMax: Number(row?.oldMax) || 0,
+            newMin: Number(row?.newMin) || 0,
+            newMax: Number(row?.newMax) || 0,
+          });
+        });
+        chunk.forEach((item) => {
+          if (!updatedCodes.has(item.productCode)) {
+            missingItems.push(item);
+          }
+        });
+      } catch (error: any) {
+        const message = String(error?.message || 'bilinmeyen hata').slice(0, 200);
+        chunk.forEach((item) => {
+          skipped.push({ productCode: item.productCode, reason: `Mikro guncelleme basarisiz: ${message}` });
+        });
+      }
     }
+
+    // Sicilsiz urunler: varsayilan davranis bugunku gibi 'skipped'; allowInsert=true
+    // (kullanicinin UI'dan onaylayip sectigi satirlar) ise yeni depo kaydi acilir.
+    let inserted: string[] = [];
+    if (missingItems.length > 0) {
+      if (allowInsert) {
+        const insertResult = await this.insertMissingDepotRecords(warehouseNo, missingItems);
+        inserted = insertResult.inserted;
+        insertResult.failed.forEach((fail) => skipped.push(fail));
+      } else {
+        missingItems.forEach((item) => {
+          skipped.push({ productCode: item.productCode, reason: 'STOK_DEPO_DETAYLARI kaydi bulunamadi' });
+        });
+      }
+    }
+
+    // Log'a inserted satirlarin min/max'i da yazilsin (sadece updated degil);
+    // inserted kayitlarin oncesi yok, o yuzden previousValues'ta yer almazlar.
+    const insertedSet = new Set(inserted);
+    const insertedRows = missingItems.filter((item) => insertedSet.has(item.productCode));
 
     await this.logOperation({
       operationType: 'MINMAX_V2_APPLY',
@@ -716,16 +899,27 @@ class MinMaxService {
         min: row.oldMin,
         max: row.oldMax,
       })),
-      newValues: updated.slice(0, 200).map((row) => ({
-        productCode: row.productCode,
-        min: row.newMin,
-        max: row.newMax,
-      })),
+      newValues: [
+        ...updated.map((row) => ({
+          productCode: row.productCode,
+          min: row.newMin,
+          max: row.newMax,
+        })),
+        ...insertedRows.map((item) => ({
+          productCode: item.productCode,
+          min: item.newMin,
+          max: item.newMax,
+          inserted: true,
+        })),
+      ].slice(0, 200),
       metadata: {
         requested: items.length,
         updatedCount: updated.length,
         skippedCount: skipped.length,
         skipped: skipped.slice(0, 50),
+        allowInsert,
+        insertedCount: inserted.length,
+        inserted: inserted.slice(0, 50),
         warehouseNo,
       },
       userId: input.userId || null,
@@ -736,7 +930,189 @@ class MinMaxService {
       requested: items.length,
       updated,
       skipped,
+      inserted,
     };
+  }
+
+  /**
+   * Sicilsiz urunler icin STOK_DEPO_DETAYLARI'na yeni kayit acar. SADECE applyMinMax
+   * allowInsert=true dalindan cagrilir (kullanici onayi frontend'de alinir).
+   *
+   * Canli Mikro'da kolonlar versiyona gore degisebildigi icin INSERT kolon listesi
+   * sabit yazilmaz; INFORMATION_SCHEMA.COLUMNS'tan dinamik kurulur:
+   *   - sdp_depo_kod = STOK KODU (bu tabloda depo kodu degil stok kodu tutulur;
+   *     applyMinMax UPDATE'inin WHERE kalibiyla ayni anahtar), sdp_depo_no = hedef depo,
+   *     sdp_min_stok / sdp_max_stok = kullanicinin onayladigi yeni degerler
+   *   - diger zorunlu (NOT NULL + default'suz; identity/computed/timestamp olmayan) kolonlar:
+   *     uniqueidentifier -> NEWID(), tarih -> GETDATE(), string -> '', binary -> 0x,
+   *     sayisal -> ornek satirdaki (SELECT TOP 1) tablo-geneli sabit deger (or. sdp_fileid),
+   *     ornek okunamazsa 0.
+   * IF NOT EXISTS korumasi ayni anahtara cift kayit acilmasini engeller (tekrar denemede guvenli).
+   */
+  private async insertMissingDepotRecords(
+    warehouseNo: number,
+    items: MinMaxApplyItem[]
+  ): Promise<{ inserted: string[]; failed: Array<{ productCode: string; reason: string }> }> {
+    const inserted: string[] = [];
+    const failed: Array<{ productCode: string; reason: string }> = [];
+
+    // a) Canli kolon envanteri (kolonlar Mikro versiyonuna gore degisebilir)
+    let columns: Array<{
+      name: string;
+      isNullable: boolean;
+      hasDefault: boolean;
+      dataType: string;
+      isComputed: boolean;
+      isIdentity: boolean;
+    }> = [];
+    try {
+      const rawColumns = await this.runMikroQuery(`
+        SELECT
+          c.COLUMN_NAME AS columnName,
+          c.IS_NULLABLE AS isNullable,
+          c.COLUMN_DEFAULT AS columnDefault,
+          LOWER(c.DATA_TYPE) AS dataType,
+          ISNULL(COLUMNPROPERTY(OBJECT_ID('STOK_DEPO_DETAYLARI'), c.COLUMN_NAME, 'IsComputed'), 0) AS isComputed,
+          ISNULL(COLUMNPROPERTY(OBJECT_ID('STOK_DEPO_DETAYLARI'), c.COLUMN_NAME, 'IsIdentity'), 0) AS isIdentity
+        FROM INFORMATION_SCHEMA.COLUMNS c
+        WHERE c.TABLE_NAME = 'STOK_DEPO_DETAYLARI'
+        ORDER BY c.ORDINAL_POSITION
+      `);
+      columns = rawColumns
+        .map((raw: any) => ({
+          name: String(raw?.columnName || '').trim(),
+          isNullable: String(raw?.isNullable || '').trim().toUpperCase() === 'YES',
+          hasDefault: raw?.columnDefault !== null && raw?.columnDefault !== undefined,
+          dataType: String(raw?.dataType || '').trim().toLowerCase(),
+          isComputed: Number(raw?.isComputed) === 1,
+          isIdentity: Number(raw?.isIdentity) === 1,
+        }))
+        .filter((column) => column.name);
+    } catch {
+      columns = [];
+    }
+    if (columns.length === 0) {
+      items.forEach((item) => {
+        failed.push({ productCode: item.productCode, reason: 'STOK_DEPO_DETAYLARI kolon envanteri okunamadi, INSERT atlandi' });
+      });
+      return { inserted, failed };
+    }
+
+    // b) Ornek satir: zorunlu sayisal kolonlar icin tablo-geneli sabit degerler
+    //    (or. sdp_fileid) 0 yerine mevcut kayitlardan alinir. Ornek satirdaki string/tarih
+    //    degerleri TASINMAZ (urune ozel veri kopyalamamak icin '' / GETDATE() yazilir).
+    let sampleRow: Record<string, any> | null = null;
+    try {
+      const sampleRows = await this.runMikroQuery('SELECT TOP 1 * FROM STOK_DEPO_DETAYLARI WITH (NOLOCK)');
+      sampleRow = sampleRows[0] || null;
+    } catch {
+      // ornek satir opsiyonel; sayisal zorunlulara 0 yazilir
+    }
+
+    const KNOWN_COLUMNS = new Set(['sdp_depo_kod', 'sdp_depo_no', 'sdp_min_stok', 'sdp_max_stok']);
+    const DATE_TYPES = new Set(['date', 'datetime', 'smalldatetime', 'datetime2', 'datetimeoffset', 'time']);
+    const STRING_TYPES = new Set(['char', 'varchar', 'nchar', 'nvarchar', 'text', 'ntext']);
+    const NUMERIC_TYPES = new Set(['bit', 'tinyint', 'smallint', 'int', 'bigint', 'decimal', 'numeric', 'float', 'real', 'money', 'smallmoney']);
+    const BINARY_TYPES = new Set(['binary', 'varbinary', 'image']);
+    const NON_INSERTABLE_TYPES = new Set(['timestamp', 'rowversion']);
+
+    // INSERT kolon listesi: bilinen 4 kolon + zorunlu (NOT NULL, default'suz) diger kolonlar.
+    const insertColumns = columns.filter((column) => {
+      if (column.isComputed || column.isIdentity || NON_INSERTABLE_TYPES.has(column.dataType)) return false;
+      if (KNOWN_COLUMNS.has(column.name.toLowerCase())) return true;
+      return !column.isNullable && !column.hasDefault;
+    });
+    const insertNames = new Set(insertColumns.map((column) => column.name.toLowerCase()));
+    const missingKnown = Array.from(KNOWN_COLUMNS).filter((name) => !insertNames.has(name));
+    if (missingKnown.length > 0) {
+      items.forEach((item) => {
+        failed.push({ productCode: item.productCode, reason: `Beklenen kolon(lar) tabloda yok: ${missingKnown.join(', ')}` });
+      });
+      return { inserted, failed };
+    }
+
+    const sampleNumericLiteral = (columnName: string): string => {
+      if (!sampleRow) return '0';
+      const value = sampleRow[columnName];
+      if (typeof value === 'boolean') return value ? '1' : '0';
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? String(parsed) : '0';
+    };
+
+    const valueExprFor = (column: { name: string; dataType: string }, index: number): string => {
+      const lower = column.name.toLowerCase();
+      if (lower === 'sdp_depo_kod') return `@icode${index}`;
+      if (lower === 'sdp_depo_no') return String(warehouseNo);
+      if (lower === 'sdp_min_stok') return `@imin${index}`;
+      if (lower === 'sdp_max_stok') return `@imax${index}`;
+      if (column.dataType === 'uniqueidentifier') return 'NEWID()';
+      if (DATE_TYPES.has(column.dataType)) return 'GETDATE()';
+      if (NUMERIC_TYPES.has(column.dataType)) return sampleNumericLiteral(column.name);
+      if (BINARY_TYPES.has(column.dataType)) return '0x';
+      if (STRING_TYPES.has(column.dataType)) return "''";
+      return "''"; // bilinmeyen tip icin en genel guvenli deger
+    };
+
+    const columnList = insertColumns.map((column) => `[${column.name.replace(/[\[\]]/g, '')}]`).join(', ');
+
+    for (let offset = 0; offset < items.length; offset += APPLY_CHUNK_SIZE) {
+      const chunk = items.slice(offset, offset + APPLY_CHUNK_SIZE);
+      try {
+        const request = mikroService.pool!.request();
+        (request as any).timeout = Number(process.env.UCARER_MINMAX_TIMEOUT_MS || 300000);
+
+        // XACT_ABORT + acik transaction: chunk ya hep ya hic yazilir. Ortadaki bir INSERT
+        // patlarsa tum chunk geri alinir ve catch tum chunk'i 'failed' raporlar (kismi
+        // commit + yanlis rapor olmaz). @ins tablo degiskeni rollback'ten etkilenmez ama
+        // hata durumunda final SELECT'e zaten ulasilmaz.
+        const statements: string[] = [
+          'SET NOCOUNT ON;',
+          'SET XACT_ABORT ON;',
+          'DECLARE @ins TABLE (code nvarchar(40));',
+          'BEGIN TRAN;',
+        ];
+        chunk.forEach((item, index) => {
+          request.input(`icode${index}`, sql.NVarChar(40), item.productCode);
+          request.input(`imin${index}`, sql.Float, item.newMin);
+          request.input(`imax${index}`, sql.Float, item.newMax);
+          const valueList = insertColumns.map((column) => valueExprFor(column, index)).join(', ');
+          statements.push(`
+            IF NOT EXISTS (
+              SELECT 1 FROM STOK_DEPO_DETAYLARI
+              WHERE LTRIM(RTRIM(sdp_depo_kod)) = @icode${index} AND sdp_depo_no = ${warehouseNo}
+            )
+            BEGIN
+              INSERT INTO STOK_DEPO_DETAYLARI (${columnList}) VALUES (${valueList});
+              INSERT INTO @ins (code) VALUES (@icode${index});
+            END
+          `);
+        });
+        statements.push('COMMIT TRAN;');
+        statements.push('SELECT code FROM @ins;');
+
+        const result = await request.query(statements.join('\n'));
+        const resultRows = Array.isArray(result.recordset) ? result.recordset : [];
+        const insertedCodes = new Set<string>();
+        resultRows.forEach((row: any) => {
+          const code = normalizeCode(row?.code);
+          if (code) insertedCodes.add(code);
+        });
+        chunk.forEach((item) => {
+          if (insertedCodes.has(item.productCode)) {
+            inserted.push(item.productCode);
+          } else {
+            failed.push({ productCode: item.productCode, reason: 'Kayit bu arada olusmus, INSERT atlandi (apply tekrar denenebilir)' });
+          }
+        });
+      } catch (error: any) {
+        const message = String(error?.message || 'bilinmeyen hata').slice(0, 200);
+        chunk.forEach((item) => {
+          failed.push({ productCode: item.productCode, reason: `INSERT basarisiz: ${message}` });
+        });
+      }
+    }
+
+    return { inserted, failed };
   }
 
   /**

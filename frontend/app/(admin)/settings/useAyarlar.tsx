@@ -65,6 +65,7 @@ export function useAyarlar() {
       setSettings({
         ...data,
         customerPriceLists: normalizePriceLists(data.customerPriceLists),
+        lastPriceIndexationEnabled: data.lastPriceIndexationEnabled ?? false,
         marginReportEmailEnabled: data.marginReportEmailEnabled ?? false,
         marginReportEmailRecipients: recipients,
         marginReportEmailSubject: data.marginReportEmailSubject || 'Kar Marji Raporu',

@@ -1506,6 +1506,13 @@ class QuoteService {
             mikroName: true,
             mikroCariCode: true,
             sectorCode: true,
+            suggestedInvoicedListNo: true,
+            suggestedRetailListNo: true,
+            suggestedListBasis: true,
+            suggestedListComputedAt: true,
+            manualInvoicedListNo: true,
+            manualRetailListNo: true,
+            manualListNote: true,
           },
         },
         createdBy: {

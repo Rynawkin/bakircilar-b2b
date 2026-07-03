@@ -722,6 +722,8 @@ export interface Settings {
   };
   lastSyncAt?: string;
   heroBannerIntervalMs?: number;
+  // Son satis fiyatini liste degisimine endeksleme (useLastPrices carilerde)
+  lastPriceIndexationEnabled?: boolean;
   marginReportEmailEnabled?: boolean;
   marginReportEmailRecipients?: string[];
   marginReportEmailSubject?: string;

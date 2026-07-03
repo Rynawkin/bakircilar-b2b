@@ -159,6 +159,26 @@ export default function UcarerDepoNew() {
     familyEditSearching,
     familyEditSaving,
     pendingSupplierInputByProduct, setPendingSupplierInputByProduct,
+    ucarerMinMaxLoading,
+    pendingTransferRows,
+    pendingTransferSummary,
+    getTransferGateInfo,
+    convertPendingLineToTransfer,
+    undoPendingTransfer,
+    packPopover, setPackPopover,
+    getPackRounding,
+    applyPackPopoverValue,
+    packDefineState,
+    openPackDefineModal,
+    closePackDefineModal,
+    setPackDefineField,
+    savePackDefine,
+    familyCoverageSummary,
+    familyCandidatesByCode,
+    familyCandidateLoading,
+    addingToFamilyByCode,
+    addedToFamilyByCode,
+    addNonFamilyProductToFamily,
     suggestionMode, setSuggestionMode,
     productNameColumn,
     minMaxExcludedCodeSet,
@@ -276,6 +296,120 @@ export default function UcarerDepoNew() {
     );
   };
 
+  // IS 3 — Koliye yuvarla / koli ici tanimla kontrolu (dagitim/miktar inputlarinin yaninda)
+  const renderPackControl = (
+    scope: 'FAMILY' | 'NONFAMILY' | 'PENDING',
+    code: string,
+    qty: number | '',
+    familyId?: string
+  ) => {
+    const rounding = getPackRounding(code, qty);
+    if (!rounding) {
+      return (
+        <button
+          type="button"
+          className="whitespace-nowrap rounded-md border border-dashed border-[#c9d4e5] bg-white px-1.5 py-0.5 text-[9px] font-semibold text-[#51607a] hover:bg-[#f4f6fa]"
+          title="Koli ici adet tanimli degil. Mikro stok kartina 2. birim (KOLI) tanimlanir."
+          onClick={() => openPackDefineModal(code)}
+        >
+          Koli ici tanimla
+        </button>
+      );
+    }
+    const safeQty = Math.max(0, Math.trunc(Number(qty === '' ? 0 : qty || 0)));
+    if (safeQty <= 0) {
+      return (
+        <span
+          className="inline-flex cursor-not-allowed items-center rounded-md border border-[#e3e8f0] bg-[#f4f6fa] px-1.5 py-0.5 text-[10px] text-[#9aa6b8]"
+          title={`Koli ici: ${rounding.packQty.toLocaleString('tr-TR')}. Yuvarlamak icin once miktar girin.`}
+        >
+          ⇅
+        </span>
+      );
+    }
+    if (rounding.isExact) {
+      return (
+        <span
+          className="whitespace-nowrap rounded-md border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700"
+          title={`Koli ici: ${rounding.packQty.toLocaleString('tr-TR')}. Miktar koli katinda.`}
+        >
+          koli katinda
+        </span>
+      );
+    }
+    const isOpen =
+      Boolean(packPopover) &&
+      packPopover!.scope === scope &&
+      packPopover!.code === code &&
+      (scope !== 'FAMILY' || packPopover!.familyId === familyId);
+    return (
+      <span className="relative inline-block">
+        <button
+          type="button"
+          className="rounded-md border border-[#d6e0f1] bg-[#eef2fa] px-1.5 py-0.5 text-[11px] font-semibold text-[#15356b] hover:bg-[#e0e8f6]"
+          title={`Koliye yuvarla (koli ici: ${rounding.packQty.toLocaleString('tr-TR')})`}
+          onClick={() => setPackPopover(isOpen ? null : { scope, code, familyId })}
+        >
+          ⇅
+        </button>
+        {isOpen && (
+          <div className="absolute right-0 z-50 mt-1 w-52 rounded-lg border border-[#d8e0ec] bg-white p-1.5 text-left shadow-xl">
+            <p className="px-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8b97ac]">
+              Koliye yuvarla (koli ici {rounding.packQty.toLocaleString('tr-TR')})
+            </p>
+            <button
+              type="button"
+              className="block w-full rounded-md px-1.5 py-1 text-left text-[11px] text-[#14223b] hover:bg-[#eef2fa]"
+              onClick={() => applyPackPopoverValue(rounding.down)}
+            >
+              Asagi: <strong>{rounding.down.toLocaleString('tr-TR')}</strong> adet ({rounding.downBoxes.toLocaleString('tr-TR')} koli)
+            </button>
+            <button
+              type="button"
+              className="block w-full rounded-md px-1.5 py-1 text-left text-[11px] text-[#14223b] hover:bg-[#eef2fa]"
+              onClick={() => applyPackPopoverValue(rounding.up)}
+            >
+              Yukari: <strong>{rounding.up.toLocaleString('tr-TR')}</strong> adet ({rounding.upBoxes.toLocaleString('tr-TR')} koli)
+            </button>
+          </div>
+        )}
+      </span>
+    );
+  };
+
+  // IS 4 — Aday Aile hucresi (aile-disi tablo)
+  const renderFamilyCandidateCell = (code: string) => {
+    const added = addedToFamilyByCode[code];
+    if (added) {
+      return (
+        <span className="whitespace-nowrap rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+          Eklendi: {added}
+        </span>
+      );
+    }
+    const candidate = familyCandidatesByCode[code];
+    if (candidate === undefined) {
+      return <span className="text-[#9aa6b8]">{familyCandidateLoading ? '...' : '—'}</span>;
+    }
+    if (candidate === null) return <span className="text-[#9aa6b8]">—</span>;
+    const pct = Math.round(candidate.score <= 1 ? candidate.score * 100 : candidate.score);
+    return (
+      <div className="flex items-center gap-1.5 whitespace-nowrap">
+        <span title={candidate.matchedProductName ? `Benzer urun: ${candidate.matchedProductName}` : undefined}>
+          {candidate.familyName} <span className="text-[#8b97ac]">%{pct.toLocaleString('tr-TR')}</span>
+        </span>
+        <button
+          type="button"
+          className={btnSmTint + ' !px-1.5 !py-0.5 !text-[9px]'}
+          disabled={Boolean(addingToFamilyByCode[code])}
+          onClick={() => addNonFamilyProductToFamily(code)}
+        >
+          {addingToFamilyByCode[code] ? '...' : 'Ekle'}
+        </button>
+      </div>
+    );
+  };
+
   // ---- Operasyon kolonlari toggle satiri (yeni; ayni panelColumns state'i) ----
   const renderOperationColumnsToggle = () => (
     <div className={`${CARD} p-3`}>
@@ -294,6 +428,7 @@ export default function UcarerDepoNew() {
           ['costExVat', 'Maliyet KDV Haric'],
           ['costIncVat', 'Maliyet KDV Dahil'],
           ['stockDays', 'Stok Gunu'],
+          ['familyCandidate', 'Aday Aile'],
         ] as Array<[keyof typeof panelColumns, string]>).map(([key, label]) => (
           <label key={key} className="inline-flex items-center gap-1.5">
             <input
@@ -695,14 +830,17 @@ export default function UcarerDepoNew() {
                     )}
                     <td className="px-2 py-2 text-right text-[#047857] font-semibold cursor-pointer" title="Dagitima kopyala" onClick={() => setManualAllocation(activeFamily.id, code, Math.max(0, Math.trunc(itemNeed)))}>{itemNeed.toLocaleString('tr-TR')}</td>
                     <td className="px-2 py-2 text-right">
-                      <input
-                        type="number"
-                        min={0}
-                        value={allocation}
-                        onChange={(e) => setManualAllocation(activeFamily.id, code, Number(e.target.value))}
-                        className="w-24 rounded-md border border-[#d8e0ec] px-2 py-1 text-right outline-none focus:border-[#15356b] disabled:bg-[#f4f6fa]"
-                        disabled={mode !== 'MANUAL'}
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        {renderPackControl('FAMILY', code, allocation, activeFamily.id)}
+                        <input
+                          type="number"
+                          min={0}
+                          value={allocation}
+                          onChange={(e) => setManualAllocation(activeFamily.id, code, Number(e.target.value))}
+                          className="w-24 rounded-md border border-[#d8e0ec] px-2 py-1 text-right outline-none focus:border-[#15356b] disabled:bg-[#f4f6fa]"
+                          disabled={mode !== 'MANUAL'}
+                        />
+                      </div>
                     </td>
                     <td className={`px-2 py-2 text-right font-semibold ${diff === 0 ? 'text-[#047857]' : 'text-[#b45309]'}`}>
                       {diff.toLocaleString('tr-TR')}
@@ -1060,6 +1198,19 @@ export default function UcarerDepoNew() {
                 <RefreshCw width={15} height={15} className={familyLoading ? 'animate-spin' : ''} />
                 {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
               </button>
+              {/* IS 4 — Aile Kapsama Radari */}
+              <p className="md:col-span-4 rounded-lg border border-[#eef1f6] bg-[#fafbfd] px-3 py-2 text-[12px] text-[#51607a]">
+                Aile kapsamasi: oneri tutarinin{' '}
+                <strong className="text-[#14223b]">
+                  %{familyCoverageSummary.coveragePct.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}
+                </strong>
+                'i aile korumali — aile disi{' '}
+                <strong className="text-[#14223b]">{familyCoverageSummary.nonFamilyCount.toLocaleString('tr-TR')}</strong> satir /{' '}
+                <strong className="text-[#14223b]">{formatPdfMoney(familyCoverageSummary.nonFamilyAmount)}</strong>
+                <span className="ml-1 text-[#8b97ac]">
+                  (aile: {formatPdfMoney(familyCoverageSummary.familyAmount)} / toplam: {formatPdfMoney(familyCoverageSummary.totalAmount)}, KDV haric)
+                </span>
+              </p>
             </div>
 
             {/* Fiyatsiz stok uyarisi (pembe) */}
@@ -1255,6 +1406,11 @@ export default function UcarerDepoNew() {
                         Urun Adi{sortIndicator(nonFamilySort, 'name')}
                       </th>
                       <th className="px-2 py-2.5 text-left" title="A = musteri bekliyor, B = yakinda bekleyecek, C = min-max tamamlama">Sinif</th>
+                      {panelColumns.familyCandidate && (
+                        <th className="px-2 py-2.5 text-left" title="Urun adina gore en benzer stok ailesi onerisi; [Ekle] ile aileye alinir">
+                          Aday Aile
+                        </th>
+                      )}
                       <th className="px-2 py-2.5 text-left cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'supplierCode'))}>Saglayici Kodu{sortIndicator(nonFamilySort, 'supplierCode')}</th>
                       <th className="px-2 py-2.5 text-left cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'supplierName'))}>Saglayici Adi{sortIndicator(nonFamilySort, 'supplierName')}</th>
                       <th className="px-2 py-2.5 text-center">Ana Saglayici</th>
@@ -1325,6 +1481,7 @@ export default function UcarerDepoNew() {
                             {productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}
                           </td>
                           <td className="px-2 py-2">{renderTriageBadge(item.triage, item.incomingQty)}</td>
+                          {panelColumns.familyCandidate && <td className="px-2 py-2">{renderFamilyCandidateCell(code)}</td>}
                           <td className="px-2 py-2">
                             <input
                               list="ucarer-supplier-cari-list"
@@ -1437,18 +1594,21 @@ export default function UcarerDepoNew() {
                           )}
                           <td className="px-2 py-2 text-right font-semibold text-[#047857] cursor-pointer" title="Dagitima kopyala" onClick={() => setNonFamilyAllocations((prev) => ({ ...prev, [code]: Math.max(0, Math.trunc(suggested)) }))}>{suggested.toLocaleString('tr-TR')}</td>
                           <td className="px-2 py-2 text-right">
-                            <input
-                              type="number"
-                              min={0}
-                              value={allocated}
-                              onChange={(e) =>
-                                setNonFamilyAllocations((prev) => ({
-                                  ...prev,
-                                  [code]: e.target.value === '' ? '' : Math.max(0, Math.trunc(Number(e.target.value || 0))),
-                                }))
-                              }
-                              className="w-24 rounded-md border border-[#d8e0ec] px-2 py-1 text-right outline-none focus:border-[#15356b]"
-                            />
+                            <div className="flex items-center justify-end gap-1">
+                              {renderPackControl('NONFAMILY', code, allocated === '' ? '' : item.allocation)}
+                              <input
+                                type="number"
+                                min={0}
+                                value={allocated}
+                                onChange={(e) =>
+                                  setNonFamilyAllocations((prev) => ({
+                                    ...prev,
+                                    [code]: e.target.value === '' ? '' : Math.max(0, Math.trunc(Number(e.target.value || 0))),
+                                  }))
+                                }
+                                className="w-24 rounded-md border border-[#d8e0ec] px-2 py-1 text-right outline-none focus:border-[#15356b]"
+                              />
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1729,7 +1889,10 @@ export default function UcarerDepoNew() {
               <p className="text-[15px] font-semibold text-[#14223b]">Cari Bazinda Siparis Ayarlari</p>
               <button type="button" className="text-[#9aa6b8] hover:text-[#51607a]" onClick={() => { if (creatingOrders) return; setSeriesModalOpen(false); }} aria-label="Kapat"><X width={18} height={18} /></button>
             </div>
-            <p className="mt-1 text-[11.5px] text-[#8b97ac]">Her cari icin seri, vergili/vergisiz, teslim turu ve teslim tarihi secin.</p>
+            <p className="mt-1 text-[11.5px] text-[#8b97ac]">
+              Her cari icin seri, vergili/vergisiz, teslim turu ve teslim tarihi secin.
+              {ucarerMinMaxLoading && <span className="ml-2 font-medium text-[#b45309]">Karsi depo min-max bilgisi yukleniyor...</span>}
+            </p>
             <div className="mt-3 max-h-[55vh] overflow-auto rounded-lg border border-[#e7ebf2]">
               <table className="w-full text-[11.5px]">
                 <thead className="bg-[#f8fafc]">
@@ -1826,10 +1989,33 @@ export default function UcarerDepoNew() {
                                   >
                                     <div className="min-w-0 flex-1">
                                       <div className="truncate font-medium text-[#14223b]"><span className="font-mono">{item.productCode}</span> - {item.productName}</div>
-                                      <div className="text-[11px] text-[#51607a]">
-                                        Miktar: <strong>{item.quantity.toLocaleString('tr-TR')}</strong>
-                                        <span className="ml-2">Tutar: <strong>{formatPdfMoney(item.total)}</strong></span>
+                                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#51607a]">
+                                        <span>
+                                          Miktar: <strong>{item.quantity.toLocaleString('tr-TR')}</strong>
+                                          <span className="ml-2">Tutar: <strong>{formatPdfMoney(item.total)}</strong></span>
+                                        </span>
+                                        {renderPackControl('PENDING', item.productCode, item.quantity)}
                                       </div>
+                                      {/* IS 2 — Transfer Kapisi rozeti */}
+                                      {(() => {
+                                        const gate = getTransferGateInfo(item.productCode);
+                                        if (!gate || !gate.eligible) return null;
+                                        return (
+                                          <div className="mt-1 flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10.5px] text-amber-900">
+                                            <span>
+                                              Karsi depoda ({gate.counterDepotLabel}) fazla var: <strong>{gate.counterExcess.toLocaleString('tr-TR')}</strong> (min: {gate.counterMin.toLocaleString('tr-TR')})
+                                            </span>
+                                            <button
+                                              type="button"
+                                              className="rounded-md border border-amber-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"
+                                              title={`Satin alma yerine ${gate.counterDepotLabel} deposundan ${gate.transferQty.toLocaleString('tr-TR')} adet DSV transferi onerilir`}
+                                              onClick={() => convertPendingLineToTransfer(item.productCode)}
+                                            >
+                                              DSV'ye cevir ({gate.transferQty.toLocaleString('tr-TR')})
+                                            </button>
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
                                     <div className="flex flex-wrap items-center justify-end gap-2">
                                       <label className="flex items-center gap-1 text-[10px] text-[#8b97ac]">
@@ -1902,10 +2088,109 @@ export default function UcarerDepoNew() {
                 <option value="N">N-Nama Sevk</option>
               </datalist>
             </div>
+            {/* IS 2 — DSV transfer setine alinan satirlar */}
+            {pendingTransferRows.length > 0 && (
+              <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3">
+                <p className="text-[12px] font-semibold text-violet-900">
+                  Depolar Arasi (DSV) transfer setine alinanlar ({pendingTransferRows.length.toLocaleString('tr-TR')})
+                </p>
+                <p className="mt-0.5 text-[11px] text-violet-800">
+                  Bu partide <strong>{formatPdfMoney(pendingTransferSummary.totalAmount)}</strong> alim yerine transfer onerildi.
+                  "Siparisleri Olustur" ile DSV siparisi de olusturulur ({depot === 'MERKEZ' ? 'Topca -> Merkez' : 'Merkez -> Topca'}).
+                </p>
+                <div className="mt-2 space-y-1">
+                  {pendingTransferRows.map((row) => (
+                    <div key={row.productCode} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-violet-200 bg-white px-2 py-1.5 text-[11px]">
+                      <span className="min-w-0 flex-1 truncate text-[#14223b]">
+                        <span className="font-mono font-semibold">{row.productCode}</span> - {row.productName}
+                      </span>
+                      <span className="text-[#51607a]">
+                        Miktar: <strong>{row.quantity.toLocaleString('tr-TR')}</strong>
+                        <span className="ml-2">Tutar: <strong>{formatPdfMoney(row.total)}</strong></span>
+                      </span>
+                      <button type="button" className={btnSmGhost} onClick={() => undoPendingTransfer(row.productCode)}>
+                        Geri al
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="mt-4 flex items-center justify-end gap-2">
+              {pendingTransferRows.length > 0 && (
+                <span className="mr-auto text-[11.5px] font-medium text-violet-800">
+                  Bu partide {formatPdfMoney(pendingTransferSummary.totalAmount)} alim yerine transfer onerildi
+                </span>
+              )}
               <button type="button" className={btnSmGhost} onClick={() => { if (creatingOrders) return; setSeriesModalOpen(false); }}>Vazgec</button>
               <button type="button" className={btnSmPrimary} onClick={submitCreateSupplierOrders} disabled={creatingOrders}>
                 {creatingOrders ? 'Olusturuluyor...' : 'Siparisleri Olustur'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IS 3 — Koli Ici Tanimla modal (Mikro stok karti 2. birim) */}
+      {packDefineState && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <p className="text-[15px] font-semibold text-[#14223b]">
+                Koli Ici Tanimla - <span className="font-mono">{packDefineState.code}</span>
+              </p>
+              <button type="button" className="text-[#9aa6b8] hover:text-[#51607a]" onClick={closePackDefineModal} aria-label="Kapat"><X width={18} height={18} /></button>
+            </div>
+            <p className="mt-1 text-[11.5px] text-[#8b97ac]">
+              Mikro stok kartinda 2. birim guncellenir. Mevcut kg/olcu degerleri asagida korunur; katsayi 0 olamaz, birim adi en fazla 10 karakter.
+            </p>
+            {packDefineState.loading ? (
+              <p className="py-6 text-center text-[12.5px] text-[#8b97ac]">Mevcut birim bilgileri Mikro'dan okunuyor...</p>
+            ) : (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-[#51607a]">
+                  Birim adi (max 10)
+                  <input
+                    className={inputCls}
+                    maxLength={10}
+                    value={packDefineState.name}
+                    onChange={(e) => setPackDefineField('name', e.target.value)}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-[#51607a]">
+                  Koli ici adet (katsayi)
+                  <input
+                    className={inputCls}
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={packDefineState.factor}
+                    onChange={(e) => setPackDefineField('factor', e.target.value)}
+                    placeholder="orn. 12"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-[#51607a]">
+                  Kg
+                  <input className={inputCls} type="number" min={0} step="0.001" value={packDefineState.weightKg} onChange={(e) => setPackDefineField('weightKg', e.target.value)} />
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-[#51607a]">
+                  En (mm)
+                  <input className={inputCls} type="number" min={0} value={packDefineState.widthMm} onChange={(e) => setPackDefineField('widthMm', e.target.value)} />
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-[#51607a]">
+                  Boy (mm)
+                  <input className={inputCls} type="number" min={0} value={packDefineState.lengthMm} onChange={(e) => setPackDefineField('lengthMm', e.target.value)} />
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-[#51607a]">
+                  Yukseklik (mm)
+                  <input className={inputCls} type="number" min={0} value={packDefineState.heightMm} onChange={(e) => setPackDefineField('heightMm', e.target.value)} />
+                </label>
+              </div>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className={btnSmGhost} onClick={closePackDefineModal} disabled={packDefineState.saving}>Vazgec</button>
+              <button type="button" className={btnSmPrimary} onClick={savePackDefine} disabled={packDefineState.saving || packDefineState.loading}>
+                {packDefineState.saving ? 'Kaydediliyor...' : "Mikro'ya Kaydet"}
               </button>
             </div>
           </div>

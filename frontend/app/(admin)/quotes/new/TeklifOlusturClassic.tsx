@@ -22,6 +22,8 @@ import {
   POOL_SORT_OPTIONS,
   LINE_DESCRIPTION_KEY,
   PRICE_LIST_LABELS,
+  buildPriceListSuggestionDisplay,
+  getFamilyMarginToneClass,
   getColumnDisplayName,
   formatStockValue,
   getStockColumnValue,
@@ -61,8 +63,6 @@ export default function TeklifOlusturClassic() {
     aiModels,
     aiRequestText,
     aiResult,
-    applyFamilySplit,
-    applyFamilySwap,
     applyLastSaleToAll,
     applyPriceListToAll,
     applyResponsibilityCenterToAll,
@@ -74,6 +74,7 @@ export default function TeklifOlusturClassic() {
     buildQuoteItemFromExisting,
     bulkPriceListNo,
     bulkResponsibilityCenter,
+    cancelFamilyAction,
     cardShell,
     categoryLastPurchaseMap,
     clearAllColumns,
@@ -81,6 +82,7 @@ export default function TeklifOlusturClassic() {
     clearSearchSelection,
     columnWidths,
     columnsCount,
+    confirmFamilyAction,
     contactsLoading,
     customerContacts,
     customerOptions,
@@ -96,6 +98,7 @@ export default function TeklifOlusturClassic() {
     editingOrderCustomerCode,
     editingQuote,
     expandedQuoteHistory,
+    familyActionConfirmInfo,
     familyExcludeCodesByLine,
     fetchCustomerContacts,
     fetchPurchasedProducts,
@@ -197,6 +200,8 @@ export default function TeklifOlusturClassic() {
     removePoolColorRule,
     renderResizeHandle,
     reorderableColumns,
+    requestFamilySplit,
+    requestFamilySwap,
     resizeRef,
     resolvedLineDescriptionIndex,
     responsibles,
@@ -350,6 +355,23 @@ export default function TeklifOlusturClassic() {
     whatsappTemplate,
   } = useTeklifOlustur();
 
+  /* Cari fiyat listesi onerisi rozeti (hook'taki pure helper; iki tema ayni mantigi kullanir) */
+  const priceListSuggestion = buildPriceListSuggestionDisplay(selectedCustomer);
+
+  /* Degistir/Bol onay modali marj satiri: negatif kirmizi, %5 alti amber, digerleri yesil */
+  const renderFamilyMargin = (label: string, side: { margin: number | null; costMissing: boolean }) => (
+    <span className="text-gray-600">
+      {label}:{' '}
+      {side.costMissing ? (
+        <span className="font-semibold text-gray-400">maliyet yok</span>
+      ) : (
+        <span className={`font-semibold ${getFamilyMarginToneClass(side.margin)}`}>
+          {formatPercent(side.margin)}
+        </span>
+      )}
+    </span>
+  );
+
   if ((isEditMode && loadingQuote) || (isOrderEditMode && loadingOrder)) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
@@ -418,7 +440,23 @@ export default function TeklifOlusturClassic() {
             </Button>
           </div>
           {selectedCustomer ? (
-            <CustomerInfoCard customer={selectedCustomer} />
+            <>
+              <CustomerInfoCard customer={selectedCustomer} />
+              {priceListSuggestion && (
+                <div className="mt-2">
+                  <span
+                    title={priceListSuggestion.tooltip}
+                    className={`inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                      priceListSuggestion.source === 'manual'
+                        ? 'border-blue-200 bg-blue-50 text-blue-800'
+                        : 'border-slate-200 bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {priceListSuggestion.text}
+                  </span>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-sm text-gray-500">{isOrderMode ? 'Siparis icin musteri secin.' : 'Teklif icin musteri secin.'}</div>
           )}
@@ -1408,8 +1446,8 @@ export default function TeklifOlusturClassic() {
                                 baseQuantity={item.quantity}
                                 excludeCodes={familyExcludeCodesByLine[item.id]}
                                 suppressed={isFamilySuggestionSuppressed(item)}
-                                onSwap={(rec) => applyFamilySwap(item, rec)}
-                                onSplit={(rec) => applyFamilySplit(item, rec)}
+                                onSwap={(rec) => requestFamilySwap(item, rec)}
+                                onSplit={(rec) => requestFamilySplit(item, rec)}
                               />
                             </td>
                           </tr>
@@ -1740,6 +1778,79 @@ export default function TeklifOlusturClassic() {
         serverSearch={searchCustomersServer}
         onSelect={handlePickCustomer}
       />
+
+      {/* Degistir/Bol onay modali: once marj karsilastirmasi, sonra uygulama */}
+      <Modal
+        isOpen={Boolean(familyActionConfirmInfo)}
+        onClose={cancelFamilyAction}
+        title={familyActionConfirmInfo?.title || 'Onay'}
+        size="lg"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={cancelFamilyAction}>
+              Vazgeç
+            </Button>
+            <Button variant="primary" onClick={confirmFamilyAction}>
+              Onayla ve Uygula
+            </Button>
+          </div>
+        }
+      >
+        {familyActionConfirmInfo && (
+          <div className="space-y-3">
+            {/* Mevcut satir */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                Mevcut Satır
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">
+                {familyActionConfirmInfo.current.name}{' '}
+                <span className="font-normal text-gray-400">({familyActionConfirmInfo.current.code})</span>
+              </p>
+              <p className="mt-0.5 text-xs text-gray-600">
+                Miktar: {familyActionConfirmInfo.current.quantityText}
+                {familyActionConfirmInfo.current.priceText
+                  ? ` | Birim fiyat: ${familyActionConfirmInfo.current.priceText}`
+                  : ''}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                {renderFamilyMargin('Marj (Güncel)', familyActionConfirmInfo.current.current)}
+                {renderFamilyMargin('Marj (Son Giriş)', familyActionConfirmInfo.current.entry)}
+              </div>
+            </div>
+
+            {/* Yeni durum */}
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+                {familyActionConfirmInfo.mode === 'swap' ? 'Taşınacak Yeni Satır' : 'Bölünecek Yeni Satır'}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">
+                {familyActionConfirmInfo.target.name}{' '}
+                <span className="font-normal text-gray-400">({familyActionConfirmInfo.target.code})</span>
+              </p>
+              <p className="mt-0.5 text-xs text-gray-600">
+                Taşınacak miktar: {familyActionConfirmInfo.target.movedQuantityText}
+                {familyActionConfirmInfo.target.keptQuantityText
+                  ? ` | Mevcut satırda kalan: ${familyActionConfirmInfo.target.keptQuantityText}`
+                  : ''}
+                {familyActionConfirmInfo.target.priceText
+                  ? ` | Taşınacak fiyat: ${familyActionConfirmInfo.target.priceText}`
+                  : ''}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                {renderFamilyMargin('Marj (Güncel)', familyActionConfirmInfo.target.current)}
+                {renderFamilyMargin('Marj (Son Giriş)', familyActionConfirmInfo.target.entry)}
+              </div>
+            </div>
+
+            {!familyActionConfirmInfo.hasPrice && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                Fiyat taşınamayacak — yeni satırda fiyat seçmeniz gerekir.
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       <Modal
         isOpen={Boolean(priceRequestTarget)}

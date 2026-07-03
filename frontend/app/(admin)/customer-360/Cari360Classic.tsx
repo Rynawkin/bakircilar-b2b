@@ -28,6 +28,8 @@ import {
   safeDate,
   money,
   statusClass,
+  invoicedListLabel,
+  retailListLabel,
   type Customer360Module,
 } from './useCari360';
 
@@ -61,6 +63,20 @@ export default function Cari360Classic() {
     quoteDetailLoading,
     setQuoteDetail,
     downloadingInvoiceId,
+    priceListEditOpen,
+    manualInvoicedInput,
+    setManualInvoicedInput,
+    manualRetailInput,
+    setManualRetailInput,
+    manualNoteInput,
+    setManualNoteInput,
+    savingPriceListSuggestion,
+    hasManualListSuggestion,
+    effectiveInvoicedListNo,
+    effectiveRetailListNo,
+    openPriceListEdit,
+    closePriceListEdit,
+    savePriceListSuggestion,
     loadCustomer,
     openQuoteDetail,
     downloadInvoice,
@@ -169,6 +185,106 @@ export default function Cari360Classic() {
                   </Card>
                 ) : (
                   <>
+                    {/* Fiyat listesi onerisi karti */}
+                    <Card>
+                      <CardContent className="p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <span className="flex items-center gap-1.5 text-sm text-slate-600">
+                              <Tag className="h-4 w-4 text-slate-500" />
+                              Önerilen Fiyat Listesi:
+                            </span>
+                            <span className="text-sm font-bold text-slate-900">
+                              {invoicedListLabel(effectiveInvoicedListNo)} / {retailListLabel(effectiveRetailListNo)}
+                            </span>
+                            {hasManualListSuggestion ? (
+                              <span
+                                title={customer.manualListNote || 'Manuel belirlenen öneri'}
+                                className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700"
+                              >
+                                Manuel belirlenen öneri
+                              </span>
+                            ) : (
+                              <span
+                                title={customer.suggestedListBasis || 'Sistem tarafından hesaplandı'}
+                                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-500"
+                              >
+                                Sistem önerisi{customer.suggestedListComputedAt ? ` · ${safeDate(customer.suggestedListComputedAt)}` : ''}
+                              </span>
+                            )}
+                            {hasManualListSuggestion && customer.manualListNote && (
+                              <span className="max-w-[360px] truncate text-xs text-slate-600">{customer.manualListNote}</span>
+                            )}
+                          </div>
+                          {!priceListEditOpen && (
+                            <Button size="sm" variant="outline" onClick={openPriceListEdit}>
+                              Düzenle
+                            </Button>
+                          )}
+                        </div>
+
+                        {priceListEditOpen && (
+                          <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
+                            <div>
+                              <label className="mb-1 block text-xs text-slate-500">Faturalı öneri</label>
+                              <select
+                                value={manualInvoicedInput}
+                                onChange={(e) => setManualInvoicedInput(e.target.value)}
+                                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                              >
+                                <option value="">Boş (sistem önerisi)</option>
+                                {[6, 7, 8, 9, 10].map((no) => (
+                                  <option key={no} value={no}>{`Faturalı ${no - 5} (Liste ${no})`}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-slate-500">Perakende öneri</label>
+                              <select
+                                value={manualRetailInput}
+                                onChange={(e) => setManualRetailInput(e.target.value)}
+                                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                              >
+                                <option value="">Boş (sistem önerisi)</option>
+                                {[1, 2, 3, 4, 5].map((no) => (
+                                  <option key={no} value={no}>{`Perakende ${no} (Liste ${no})`}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="min-w-[180px] flex-1">
+                              <label className="mb-1 block text-xs text-slate-500">Not</label>
+                              <Input
+                                value={manualNoteInput}
+                                onChange={(e) => setManualNoteInput(e.target.value)}
+                                placeholder="Örn: patron talimatı, özel anlaşma..."
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={savePriceListSuggestion}
+                                isLoading={savingPriceListSuggestion}
+                                disabled={savingPriceListSuggestion}
+                              >
+                                Kaydet
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={closePriceListEdit}
+                                disabled={savingPriceListSuggestion}
+                              >
+                                Vazgeç
+                              </Button>
+                            </div>
+                            <p className="w-full text-[11px] text-slate-500">
+                              Boş seçim manuel tanımı temizler; cari sistem önerisine döner.
+                            </p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
                       <Metric icon={ClipboardList} title="Siparis" value={summary.orderCount || 0} sub={`${money(summary.orderAmount)} / Bekleyen ${summary.pendingOrderCount || 0}`} />
                       <Metric icon={FileText} title="Teklif" value={summary.quoteCount || 0} sub={`${money(summary.quoteAmount)} / Bekleyen ${summary.pendingQuoteCount || 0}`} />

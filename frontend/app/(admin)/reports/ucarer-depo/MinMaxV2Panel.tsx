@@ -28,6 +28,7 @@ const SOURCE_LABELS: Record<MinMaxV2PreviewRow['overrideSource'], string> = {
   tedarikci: 'Tedarikci kurali',
   varsayilan: 'Varsayilan',
   haric: 'Haric',
+  SIPARIS: 'Siparis-bazli',
 };
 
 const SOURCE_BADGE_CLASS: Record<MinMaxV2PreviewRow['overrideSource'], string> = {
@@ -35,6 +36,7 @@ const SOURCE_BADGE_CLASS: Record<MinMaxV2PreviewRow['overrideSource'], string> =
   tedarikci: 'bg-purple-100 text-purple-800',
   varsayilan: 'bg-gray-100 text-gray-700',
   haric: 'bg-amber-100 text-amber-800',
+  SIPARIS: 'bg-violet-100 text-violet-800',
 };
 
 const getErrorMessage = (error: any, fallback: string): string =>
@@ -51,6 +53,12 @@ const diffPercent = (row: MinMaxV2PreviewRow): number => {
 const formatNumber = (value: number | null | undefined): string => {
   if (value === null || value === undefined || !Number.isFinite(value)) return '-';
   return value.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+};
+
+const formatShortDate = (value: string | null | undefined): string => {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString('tr-TR');
 };
 
 const formatDiff = (value: number | null): string => {
@@ -85,16 +93,20 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
   const [previewLoading, setPreviewLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [onlyChanged, setOnlyChanged] = useState(true);
+  const [onlyMissingRecord, setOnlyMissingRecord] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('diffPctDesc');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(300);
 
   // Uygulama (Mikro'ya yazma)
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Sicilsiz (STOK_DEPO_DETAYLARI kaydi olmayan) satirlar icin INSERT izni — her onay modalinda default KAPALI
+  const [allowInsertMissing, setAllowInsertMissing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<{
     updatedCount: number;
     skipped: Array<{ productCode: string; reason: string }>;
+    inserted: string[];
   } | null>(null);
 
   // Kurallar
@@ -204,6 +216,9 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
     if (onlyChanged) {
       rows = rows.filter((row) => !row.excluded && ((row.diffMin ?? 0) !== 0 || (row.diffMax ?? 0) !== 0));
     }
+    if (onlyMissingRecord) {
+      rows = rows.filter((row) => !row.hasDepotRecord);
+    }
     const sorted = [...rows];
     if (sortMode === 'code') {
       sorted.sort((a, b) => a.productCode.localeCompare(b.productCode));
@@ -220,7 +235,7 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
       });
     }
     return sorted;
-  }, [preview, search, onlyChanged, sortMode]);
+  }, [preview, search, onlyChanged, onlyMissingRecord, sortMode]);
 
   const selectableFiltered = useMemo(
     () => filteredRows.filter((row) => !row.excluded && row.newMin !== null && row.newMax !== null),
@@ -258,12 +273,19 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
     );
   }, [preview, selected]);
 
+  // Secili satirlar icinden sicilsiz (STOK_DEPO_DETAYLARI kaydi olmayan) olanlar — INSERT uyarisi icin
+  const selectedMissingRows = useMemo(
+    () => selectedRows.filter((row) => !row.hasDepotRecord),
+    [selectedRows]
+  );
+
   const applySelected = async () => {
     if (selectedRows.length === 0) return;
     setApplying(true);
     try {
       const response = await adminApi.applyMinMaxV2({
         depot,
+        allowInsert: allowInsertMissing,
         items: selectedRows.map((row) => ({
           productCode: row.productCode,
           newMin: row.newMin as number,
@@ -271,20 +293,48 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
         })),
       });
       const data = response.data;
-      setApplyResult({ updatedCount: data.updated.length, skipped: data.skipped });
+      const inserted = data.inserted || [];
+      setApplyResult({ updatedCount: data.updated.length, skipped: data.skipped, inserted });
       setConfirmOpen(false);
+      // INSERT ile acilan kayitlar updated listesinde donmez; yazilan sayiya dahil edilir
+      // (aksi halde tamami sicilsiz olan bir uygulamada '0 urun yazildi' gorunurdu).
+      const writtenCount = data.updated.length + inserted.length;
       if (data.skipped.length > 0) {
-        toast(`${data.updated.length} urun yazildi, ${data.skipped.length} urun atlandi.`);
+        toast(`${writtenCount} urun yazildi, ${data.skipped.length} urun atlandi.`);
       } else {
-        toast.success(`${data.updated.length} urun Mikro'ya yazildi.`);
+        toast.success(`${writtenCount} urun Mikro'ya yazildi.`);
+      }
+      if (inserted.length > 0) {
+        toast.success(
+          `${inserted.length} urun icin STOK_DEPO_DETAYLARI kaydi ACILDI (INSERT): ${inserted.slice(0, 8).join(', ')}${inserted.length > 8 ? '...' : ''}`,
+          { duration: 10000 }
+        );
       }
       // Yazilan satirlarin 'mevcut' degerlerini guncelle ki tablo yeni durumu gostersin
       setPreview((prev) => {
         if (!prev) return prev;
         const updatedByCode = new Map(data.updated.map((item) => [item.productCode, item]));
+        const insertedSet = new Set(inserted);
         return {
           ...prev,
+          summary: {
+            ...prev.summary,
+            // INSERT'lenen kayitlar artik sicilli; sicilsiz sayaci dusurulur.
+            missingDepotRecordCount: Math.max(0, prev.summary.missingDepotRecordCount - inserted.length),
+          },
           rows: prev.rows.map((row) => {
+            // INSERT ile acilan satirlar updated listesinde donmez; onizlemede sicilli
+            // ve yazilmis (fark 0) olarak isaretlenir.
+            if (insertedSet.has(row.productCode) && row.newMin !== null && row.newMax !== null) {
+              return {
+                ...row,
+                hasDepotRecord: true,
+                currentMin: row.newMin,
+                currentMax: row.newMax,
+                diffMin: 0,
+                diffMax: 0,
+              };
+            }
             const hit = updatedByCode.get(row.productCode);
             if (!hit) return row;
             return {
@@ -470,8 +520,12 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                     <span className="text-[12px] text-gray-700">
                       Toplam: <strong>{preview.total.toLocaleString('tr-TR')}</strong> | Degisen:{' '}
                       <strong>{preview.summary.changedCount.toLocaleString('tr-TR')}</strong> | Haric (HAYIR):{' '}
-                      <strong>{preview.summary.excludedCount.toLocaleString('tr-TR')}</strong> | Depo kaydi olmayan:{' '}
-                      <strong>{preview.summary.missingDepotRecordCount.toLocaleString('tr-TR')}</strong>
+                      <strong>{preview.summary.excludedCount.toLocaleString('tr-TR')}</strong> | Sicilsiz urun:{' '}
+                      <strong>{preview.summary.missingDepotRecordCount.toLocaleString('tr-TR')}</strong>{' '}
+                      <span title="STOK_DEPO_DETAYLARI kaydi olmayan urunlerden satisi olanlar ve bunlarin toplam gunluk satisi">
+                        (satisi olan: {(preview.summary.missingWithSalesCount ?? 0).toLocaleString('tr-TR')}, gunluk ~
+                        {(preview.summary.missingWithSalesDaily ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })})
+                      </span>
                     </span>
                     <input
                       className={`${inputClass} w-64`}
@@ -486,6 +540,20 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                       <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
                       Sadece degisenler
                     </label>
+                    <label
+                      className="flex items-center gap-1.5 text-[12px] text-gray-700"
+                      title="Sadece STOK_DEPO_DETAYLARI kaydi olmayan (kayit yok rozetli) satirlari goster"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={onlyMissingRecord}
+                        onChange={(e) => {
+                          setOnlyMissingRecord(e.target.checked);
+                          setVisibleCount(300);
+                        }}
+                      />
+                      Sadece sicilsiz
+                    </label>
                     <select className={inputClass} value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)}>
                       <option value="diffPctDesc">Fark % (buyukten kucuge)</option>
                       <option value="diffPctAsc">Fark % (kucukten buyuge)</option>
@@ -498,7 +566,10 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                       type="button"
                       className={btnPrimary}
                       disabled={selectedRows.length === 0 || applying}
-                      onClick={() => setConfirmOpen(true)}
+                      onClick={() => {
+                        setAllowInsertMissing(false);
+                        setConfirmOpen(true);
+                      }}
                     >
                       Secilenleri Mikro'ya Yaz ({selectedRows.length})
                     </button>
@@ -509,6 +580,13 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                 {applyResult && (
                   <div className="border-b border-gray-200 bg-emerald-50 px-4 py-2 text-[12px] text-emerald-900">
                     <strong>{applyResult.updatedCount.toLocaleString('tr-TR')}</strong> urun Mikro'ya yazildi.
+                    {applyResult.inserted.length > 0 && (
+                      <span className="ml-2 text-violet-800">
+                        Yeni acilan depo kaydi (INSERT): <strong>{applyResult.inserted.length.toLocaleString('tr-TR')}</strong>{' '}
+                        — {applyResult.inserted.slice(0, 10).join(', ')}
+                        {applyResult.inserted.length > 10 ? '...' : ''}
+                      </span>
+                    )}
                     {applyResult.skipped.length > 0 && (
                       <span className="ml-2 text-amber-800">
                         Atlanan {applyResult.skipped.length} urun:{' '}
@@ -547,6 +625,9 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                           <th className="px-2 py-2">Tedarikci</th>
                           <th className="px-2 py-2 text-right">Gunluk Satis</th>
                           <th className="px-2 py-2 text-right">Pencere</th>
+                          <th className="px-2 py-2 text-right" title="Hesapta gercekten kullanilan gun sayisi (ilk satis tarihine gore kisalabilir)">
+                            Efektif Gun
+                          </th>
                           <th className="px-2 py-2 text-right">Min/Max Gun</th>
                           <th className="px-2 py-2 text-right">Mevcut Min</th>
                           <th className="px-2 py-2 text-right">Mevcut Max</th>
@@ -592,6 +673,17 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                               </td>
                               <td className="px-2 py-1.5 text-right">{formatNumber(row.dailySales)}</td>
                               <td className="px-2 py-1.5 text-right">{row.lookbackUsed}g</td>
+                              <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                                {formatNumber(row.effectiveDays)}g
+                                {row.isShortWindow && (
+                                  <span
+                                    className="ml-1 inline-block rounded bg-amber-100 px-1 py-0.5 text-[9.5px] font-semibold text-amber-800"
+                                    title={`Kisa pencere: satis gecmisi tam pencereyi doldurmuyor. Ilk satis: ${formatShortDate(row.firstSaleDate)}`}
+                                  >
+                                    kisa pencere — ilk satis {formatShortDate(row.firstSaleDate)}
+                                  </span>
+                                )}
+                              </td>
                               <td className="px-2 py-1.5 text-right">
                                 {row.minDaysUsed}/{row.maxDaysUsed}
                               </td>
@@ -605,8 +697,17 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                                 {row.excluded ? '-' : Number.isFinite(pct) ? `${pct > 0 ? '+' : ''}${pct.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}%` : 'YENI'}
                               </td>
                               <td className="px-2 py-1.5">
-                                <span className={`rounded px-1.5 py-0.5 text-[10.5px] font-semibold ${SOURCE_BADGE_CLASS[row.overrideSource]}`}>
-                                  {SOURCE_LABELS[row.overrideSource]}
+                                <span
+                                  className={`rounded px-1.5 py-0.5 text-[10.5px] font-semibold whitespace-nowrap ${SOURCE_BADGE_CLASS[row.overrideSource]}`}
+                                  title={
+                                    row.overrideSource === 'SIPARIS'
+                                      ? 'Satis gecmisi yok; min-max bekleyen musteri siparisine gore hesaplandi'
+                                      : undefined
+                                  }
+                                >
+                                  {row.overrideSource === 'SIPARIS'
+                                    ? `Siparis-bazli (satis yok, ${(row.pendingOrderQty ?? 0).toLocaleString('tr-TR')} bekleyen)`
+                                    : SOURCE_LABELS[row.overrideSource]}
                                 </span>
                               </td>
                             </tr>
@@ -816,8 +917,31 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                     <p className="px-2 py-1.5 text-[11px] text-gray-500">... ve {selectedRows.length - 5} urun daha</p>
                   )}
                 </div>
+                {selectedMissingRows.length > 0 && (
+                  <div className="mt-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                    <p className="font-semibold">
+                      {selectedMissingRows.length.toLocaleString('tr-TR')} satirin STOK_DEPO_DETAYLARI kaydi yok. Kayit ACILSIN mi? (Mikro'ya INSERT)
+                    </p>
+                    <label className="mt-1.5 flex items-center gap-1.5 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={allowInsertMissing}
+                        onChange={(e) => setAllowInsertMissing(e.target.checked)}
+                      />
+                      Evet, sicilsiz urunler icin depo kaydi ACILSIN (Mikro'ya INSERT)
+                    </label>
+                    <p className="mt-1 text-[11px]">
+                      {allowInsertMissing
+                        ? 'Bu satirlar icin Mikro STOK_DEPO_DETAYLARI kaydi olusturulacak ve min-max degerleri yazilacak.'
+                        : 'Isaretlemezseniz bu satirlar eskisi gibi ATLANIR (yazilmaz) ve sonucta raporlanir.'}
+                    </p>
+                  </div>
+                )}
                 <p className="mt-3 rounded bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-900">
-                  Bu islem Mikro STOK_DEPO_DETAYLARI tablosunu guncelleyecek. Depo kaydi olmayan urunler atlanir ve raporlanir.
+                  Bu islem Mikro STOK_DEPO_DETAYLARI tablosunu guncelleyecek.
+                  {selectedMissingRows.length > 0 && allowInsertMissing
+                    ? ' Sicilsiz satirlar icin yeni depo kaydi ACILACAK.'
+                    : ' Depo kaydi olmayan urunler atlanir ve raporlanir.'}
                 </p>
                 <div className="mt-4 flex justify-end gap-2">
                   <button type="button" className={btnGhost} onClick={() => setConfirmOpen(false)} disabled={applying}>
