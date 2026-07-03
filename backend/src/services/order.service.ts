@@ -37,6 +37,12 @@ type RepricedCartItem = {
   unitPrice: number;
   totalPrice: number;
   lineNote?: string | null;
+  // Birim snapshot'lari (siparise tasinir): ana birim, 2. birim + katsayi ve
+  // musterinin sectigi birim (alt birim secildiyse dolu; null = ana birim).
+  unit?: string | null;
+  unit2?: string | null;
+  unit2Factor?: number | null;
+  selectedUnit?: string | null;
 };
 
 type LinkedMikroOrderRow = {
@@ -826,6 +832,12 @@ class OrderService {
         unitPrice,
         totalPrice: quantity * unitPrice,
         lineNote: item.lineNote ? String(item.lineNote).trim() : null,
+        // Birim snapshot: urunden ana/2. birim + katsayi; secilen birim cart item'dan.
+        unit: product.unit || 'ADET',
+        unit2: product.unit2 || null,
+        unit2Factor:
+          Number.isFinite(Number(product.unit2Factor)) ? Number(product.unit2Factor) : null,
+        selectedUnit: item.selectedUnit ? String(item.selectedUnit).trim() : null,
       };
     });
 
@@ -918,6 +930,11 @@ class OrderService {
                   productId: item.productId,
                   productName: item.productName,
                   mikroCode: item.mikroCode,
+                  // Birim snapshot'lari (Mikro'ya yazimda alt birim aciklamasi icin gerekli).
+                  unit: item.unit || undefined,
+                  unit2: item.unit2 || undefined,
+                  unit2Factor: item.unit2Factor ?? undefined,
+                  selectedUnit: item.selectedUnit || undefined,
                   quantity: item.quantity,
                   priceType: item.priceType,
                   unitPrice: item.unitPrice,
@@ -2105,7 +2122,8 @@ class OrderService {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: this.resolveItemVatRate(item),
-            lineDescription: item.lineNote || undefined,
+            // Alt birim secildiyse "{altMiktar} {birim}" mevcut nota eklenir (depo okur).
+            lineDescription: this.buildMikroLineDescription(item),
           })),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
@@ -2129,7 +2147,8 @@ class OrderService {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: 0, // Beyaz için KDV=0
-            lineDescription: item.lineNote || undefined,
+            // Alt birim secildiyse "{altMiktar} {birim}" mevcut nota eklenir (depo okur).
+            lineDescription: this.buildMikroLineDescription(item),
           })),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
@@ -2190,6 +2209,44 @@ class OrderService {
     } finally {
       releaseLock();
     }
+  }
+
+  /**
+   * Mikro satir aciklamasi: alt birim secildiyse depoda okunabilir olmasi icin
+   * "{altMiktar} {secilenBirim}" bilgisi mevcut nota EKLENIR (asla ezilmez).
+   *
+   * Kosul (SADECE alt birim durumu):
+   * - item.selectedUnit dolu VE item.unit'ten farkli VE
+   * - item.unit2Factor POZITIF bir sayi (ana birim buyuk, secilen birim kucuk).
+   *   POZITIF katsayida 1 ana birim = factor alt birim; alt miktar = round(quantity * factor).
+   *   NEGATIF/0/tanimsiz katsayida (ana birim = temel adet mantigi) DEGISIKLIK YOK.
+   * Miktar/fiyat/birim pointer'a DOKUNULMAZ; sadece aciklamaya ekleme yapilir.
+   */
+  private buildMikroLineDescription(item: any): string | undefined {
+    const baseNote =
+      item?.lineNote && String(item.lineNote).trim()
+        ? String(item.lineNote).trim()
+        : undefined;
+
+    const selectedUnit = item?.selectedUnit ? String(item.selectedUnit).trim() : '';
+    const mainUnit = item?.unit ? String(item.unit).trim() : '';
+    const factor = Number(item?.unit2Factor);
+    const quantity = Number(item?.quantity);
+
+    const isSubUnit =
+      selectedUnit.length > 0 &&
+      selectedUnit.toUpperCase() !== mainUnit.toUpperCase() &&
+      Number.isFinite(factor) &&
+      factor > 0 &&
+      Number.isFinite(quantity);
+
+    if (!isSubUnit) {
+      return baseNote;
+    }
+
+    const subQty = Math.round(quantity * factor);
+    const subText = `${subQty} ${selectedUnit}`;
+    return baseNote ? `${baseNote} | ${subText}` : subText;
   }
 
   /**

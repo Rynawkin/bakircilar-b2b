@@ -7,7 +7,7 @@ import { Minus, Plus, ShoppingCart, Check, CalendarDays, Repeat, X } from 'lucid
 import { Product } from '@/types';
 import customerApi from '@/lib/api/customer';
 import { formatCurrency } from '@/lib/utils/format';
-import { formatUnitFactor, getUnit2BaseQuantity, getUnitConversionLabel } from '@/lib/utils/unit';
+import { getUnitOptions, getUnitConversionLabel } from '@/lib/utils/unit';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
@@ -16,9 +16,12 @@ type PriceType = 'INVOICED' | 'WHITE';
 
 export interface ProductCardAddArgs {
   productId: string;
+  /** BAZ (ana) birim miktari — 2. birim secildiyse cevrilerek gonderilir */
   quantity: number;
   priceType: PriceType;
   priceMode: 'LIST' | 'EXCESS';
+  /** Musteri 2. birim (KOLI/PAKET) sectiyse birim adi; ana birim ise gonderilmez */
+  selectedUnit?: string | null;
 }
 
 interface ProductCardProps {
@@ -93,12 +96,12 @@ export function ProductCard({
 
   const showPriceTypeSelector = allowedPriceTypes.length > 1;
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
-  // 1 ikinci birim = kac baz birim? (sadece 2. birim baz birimden buyukse secici gosterilir)
-  const unit2BaseQty = getUnit2BaseQuantity(product.unit, product.unit2, product.unit2Factor);
-  const unit2Active = useUnit2 && unit2BaseQty !== null;
-  const selectedUnitName = unit2Active ? (product.unit2 as string) : product.unit;
-  // Sepete gidecek BAZ birim miktari
-  const baseQty = unit2Active ? qty * (unit2BaseQty as number) : qty;
+  // Birim secici bilgisi — her iki yon (2. birim buyuk/kucuk) desteklenir.
+  const unitInfo = getUnitOptions(product.unit, product.unit2, product.unit2Factor);
+  const unit2Active = useUnit2 && unitInfo.hasToggle;
+  const selectedUnitName = unit2Active ? (unitInfo.altUnit as string) : product.unit;
+  // Sepete gidecek BAZ (ana) birim miktari (backend hep baz birim bekler)
+  const baseQty = unit2Active ? unitInfo.altToBase(qty) : qty;
   const vatPercent = Math.round((Number(product.vatRate) || 0) * 100);
   const displayStock = Number(getDisplayStock(product, selectedWarehouse));
   const isSupply = displayStock <= 0;
@@ -200,7 +203,13 @@ export function ProductCard({
           return;
         }
       }
-      await onAdd({ productId: product.id, quantity: baseQty, priceType, priceMode });
+      await onAdd({
+        productId: product.id,
+        quantity: baseQty,
+        priceType,
+        priceMode,
+        selectedUnit: unit2Active ? unitInfo.altUnit : undefined,
+      });
       setQty(1);
       setQtyInput('1');
       setAdded(true);
@@ -418,7 +427,7 @@ export function ProductCard({
 
           {unit2Active && (
             <div className="mt-0.5 text-[11px] font-medium text-[var(--ink-2)]">
-              {product.unit2} fiyatı: {formatCurrency(displayShown * (unit2BaseQty as number))} {vatLabel}
+              {unitInfo.altUnit} fiyatı: {formatCurrency(displayShown * unitInfo.altPriceFactor)} {vatLabel}
             </div>
           )}
 
@@ -431,14 +440,15 @@ export function ProductCard({
           </div>
         </div>
 
-        {/* ── Birim secici (ADET | KOLI) ────────────────────────── */}
-        {unit2BaseQty !== null && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <div className="flex rounded-lg bg-[var(--surface-0)] p-0.5">
+        {/* ── Birim secici (ADET | KOLI / KOLI | PAKET) ─────────────
+             Mobil (~170px): tam-genislik satir, iki secenek esit boluner. */}
+        {unitInfo.hasToggle && (
+          <div className="flex flex-col gap-1">
+            <div className="flex w-full rounded-lg bg-[var(--surface-0)] p-0.5">
               <button
                 type="button"
                 onClick={() => setUseUnit2(false)}
-                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                className={`min-h-[34px] flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${
                   !useUnit2
                     ? 'bg-white text-primary-700 shadow-sm ring-1 ring-[var(--line-strong)]'
                     : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
@@ -449,65 +459,71 @@ export function ProductCard({
               <button
                 type="button"
                 onClick={() => setUseUnit2(true)}
-                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                className={`min-h-[34px] flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${
                   useUnit2
                     ? 'bg-white text-primary-700 shadow-sm ring-1 ring-[var(--line-strong)]'
                     : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
                 }`}
               >
-                {product.unit2}
+                {unitInfo.altUnit}
               </button>
             </div>
-            <span className="text-[10.5px] text-[var(--ink-3)]">
-              1 {product.unit2} = {formatUnitFactor(unit2BaseQty)} {product.unit}
-            </span>
+            {unitInfo.ratioLabel && (
+              <span className="text-[10.5px] text-[var(--ink-3)]">{unitInfo.ratioLabel}</span>
+            )}
           </div>
         )}
 
-        {/* ── Miktar + Sepete Ekle ──────────────────────────────── */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center overflow-hidden rounded-lg border border-[var(--line-strong)]">
-            <button
-              type="button"
-              onClick={() => commitQty(String(qty - 1))}
-              className="flex h-9 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
-              aria-label="Azalt"
-            >
-              <Minus className="h-3.5 w-3.5" strokeWidth={2.4} />
-            </button>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={qtyInput}
-              onFocus={(e) => e.target.select()}
-              onChange={(e) => {
-                const v = e.target.value.replace(/[^0-9]/g, '');
-                setQtyInput(v);
-                if (v !== '' && parseInt(v, 10) > 0) setQty(parseInt(v, 10));
-              }}
-              onBlur={(e) => commitQty(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-              }}
-              className="h-9 w-11 border-x border-[var(--line)] text-center text-sm font-semibold text-[var(--ink-1)] focus:outline-none"
-              aria-label={`${product.name} miktarı`}
-            />
-            <button
-              type="button"
-              onClick={() => commitQty(String(qty + 1))}
-              className="flex h-9 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
-              aria-label="Artır"
-            >
-              <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
-            </button>
+        {/* ── Miktar + Sepete Ekle ──────────────────────────────────
+             Mobil: miktar stepper (tam satir, secili birim etiketiyle) +
+             altinda tam-genislik Sepete Ekle. 170px kartta kirpilmaz. */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex flex-1 items-center overflow-hidden rounded-lg border border-[var(--line-strong)]">
+              <button
+                type="button"
+                onClick={() => commitQty(String(qty - 1))}
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                aria-label="Azalt"
+              >
+                <Minus className="h-4 w-4" strokeWidth={2.4} />
+              </button>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={qtyInput}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^0-9]/g, '');
+                  setQtyInput(v);
+                  if (v !== '' && parseInt(v, 10) > 0) setQty(parseInt(v, 10));
+                }}
+                onBlur={(e) => commitQty(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+                className="h-10 min-w-0 flex-1 border-x border-[var(--line)] text-center text-sm font-semibold text-[var(--ink-1)] focus:outline-none"
+                aria-label={`${product.name} miktarı`}
+              />
+              <button
+                type="button"
+                onClick={() => commitQty(String(qty + 1))}
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                aria-label="Artır"
+              >
+                <Plus className="h-4 w-4" strokeWidth={2.4} />
+              </button>
+            </div>
+            <span className="max-w-[64px] flex-shrink-0 truncate text-[11px] font-medium text-[var(--ink-3)]" title={selectedUnitName}>
+              {selectedUnitName}
+            </span>
           </div>
-          <span className="w-9 flex-shrink-0 text-[11px] font-medium text-[var(--ink-3)]">{selectedUnitName}</span>
           <button
             type="button"
             onClick={handleAdd}
             disabled={adding}
-            className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary-600 text-xs font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
+            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-primary-600 text-xs font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
           >
             {adding ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />

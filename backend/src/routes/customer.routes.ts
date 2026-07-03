@@ -24,16 +24,21 @@ const router = Router();
 router.use(authenticate);
 
 // Validation schemas
+// NOT: Miktar artik ANA birim cinsinden KESIRLI (Float) olabilir. Musteri alt birim
+// (or. ana KOLI, 2. birim PAKET) sectiginde frontend baseQty = round(Q / |factor|) gonderir;
+// bu 0.5 gibi kesirli olabilir. selectedUnit secilen birim adini tutar (null = ana birim).
 const addToCartSchema = z.object({
   productId: z.string().uuid('Invalid product ID'),
-  quantity: z.number().int().min(1, 'Quantity must be at least 1'),
+  quantity: z.number().positive('Quantity must be greater than 0'),
   priceType: z.enum(['INVOICED', 'WHITE']),
   priceMode: z.enum(['LIST', 'EXCESS']).optional(),
+  selectedUnit: z.string().trim().max(20).optional().nullable(),
 });
 
 const updateCartItemSchema = z.object({
-  quantity: z.number().int().min(1, 'Quantity must be at least 1').optional(),
+  quantity: z.number().positive('Quantity must be greater than 0').optional(),
   lineNote: z.string().optional().nullable(),
+  selectedUnit: z.string().trim().max(20).optional().nullable(),
 });
 
 const taskTypeSchema = z.enum([

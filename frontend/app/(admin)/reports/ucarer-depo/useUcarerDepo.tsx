@@ -253,6 +253,35 @@ export type NonFamilyColorFilter = 'ALL' | 'GREEN' | 'YELLOW' | 'RED' | 'UNCOLOR
 export type NonFamilyColorSort = 'NONE' | 'RISK_DESC' | 'RISK_ASC';
 
 const CREATED_SUPPLIER_ORDER_HISTORY_KEY = 'ucarer.created-supplier-orders.v1';
+// IS 1 — Sipariş akışı taslağı (depo bazlı). Devam eden çalışma tarayıcı kapansa bile korunur.
+const ORDER_DRAFT_KEY_PREFIX = 'ucarerOrderDraft:v1:';
+const orderDraftKey = (depot: string) => `${ORDER_DRAFT_KEY_PREFIX}${String(depot || '').trim().toUpperCase()}`;
+
+// Taslakta saklanan sipariş-akışı state şekli.
+interface UcarerOrderDraft {
+  savedAt: string;
+  manualAllocations: Record<string, Record<string, number>>;
+  nonFamilyAllocations: Record<string, number | ''>;
+  pendingAllocations: SupplierOrderAllocation[];
+  supplierOrderConfigs: Record<string, SupplierOrderConfig>;
+  pendingTransfersByCode: Record<string, { quantity: number; unitPrice: number; restored: SupplierOrderAllocation[] }>;
+  selectedTransferByCode: Record<string, boolean>;
+}
+
+// Taslak boş mu? (tümü boşsa localStorage'a yazma / banner gösterme)
+const isOrderDraftEmpty = (draft: Omit<UcarerOrderDraft, 'savedAt'>): boolean => {
+  const anyManual = Object.values(draft.manualAllocations || {}).some((byCode) =>
+    Object.values(byCode || {}).some((qty) => Math.max(0, Math.trunc(Number(qty || 0))) > 0)
+  );
+  const anyNonFamily = Object.values(draft.nonFamilyAllocations || {}).some(
+    (qty) => Math.max(0, Math.trunc(Number(qty === '' ? 0 : qty || 0))) > 0
+  );
+  const anyPending = (draft.pendingAllocations || []).some((row) => Math.max(0, Math.trunc(Number(row.quantity || 0))) > 0);
+  const anyTransfer = Object.values(draft.pendingTransfersByCode || {}).some(
+    (entry) => Math.max(0, Math.trunc(Number(entry?.quantity || 0))) > 0
+  );
+  return !anyManual && !anyNonFamily && !anyPending && !anyTransfer;
+};
 
 export const normalizeValue = (value: unknown): string => {
   if (value === null || value === undefined) return '-';
@@ -442,6 +471,13 @@ export function useUcarerDepo() {
     familyCandidate: true,
   });
   const [packQtyByCode, setPackQtyByCode] = useState<Record<string, number>>({});
+  // IS 3 (yon duzeltmesi) — HAM ISARETLI 2. birim katsayisi.
+  // NEGATIF katsayi = 2. birim BUYUK paket (ana birim kucuk) -> koliye yuvarla gecerli (getPackRounding abs).
+  // POZITIF katsayi = ANA birim zaten buyuk (ana birim KOLI, 2. birim PAKET) -> girilen miktar YUVARLANMAZ,
+  //   sadece bilgilendirici 'Ana birim koli — ici X {2.birim}' rozeti + koli-ici duzenleme ikonu gosterilir.
+  const [packFactorRawByCode, setPackFactorRawByCode] = useState<Record<string, number>>({});
+  // 2. birim adi (koli-ici bilgi rozetinde gosterilir)
+  const [unit2NameByCode, setUnit2NameByCode] = useState<Record<string, string>>({});
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
   const [costPInputByCode, setCostPInputByCode] = useState<Record<string, string>>({});
   const [costTInputByCode, setCostTInputByCode] = useState<Record<string, string>>({});
@@ -542,6 +578,19 @@ export function useUcarerDepo() {
   const [pendingTransfersByCode, setPendingTransfersByCode] = useState<
     Record<string, { quantity: number; unitPrice: number; restored: SupplierOrderAllocation[] }>
   >({});
+  // IS 1 — "Siparisleri Olustur"da hala cevrilmemis UYGUN DSV onerisi olan satirlar icin modal-ici uyari.
+  // null = uyari yok; [] gostergesi acik degil; dolu dizi = uyari acik.
+  const [dsvWarningLines, setDsvWarningLines] = useState<
+    Array<{ productCode: string; productName: string; transferQty: number; counterDepotLabel: string }> | null
+  >(null);
+  // IS 1 — Taslak: sayfa yuklendiginde tespit edilen kayitli taslak (banner icin). null = taslak yok.
+  const [orderDraftInfo, setOrderDraftInfo] = useState<{ savedAt: string } | null>(null);
+  // Taslak yukleme/geri yukleme sirasinda otomatik kaydetmeyi askiya al (yeniden yazma dongusu olmasin).
+  const orderDraftHydratedRef = useRef(false);
+  // In-memory sipariş state'inin AIT OLDUGU depo. Depo degisince tespit effect'i guncelleyene kadar
+  // auto-save eski state'i yeni depo anahtarina yazmaz (yaris kosulunu onler).
+  const orderDraftDepotRef = useRef<DepotType | null>(null);
+  const orderDraftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // IS 3 — Koliye tamamla: acik yuvarlama popover'i + koli ici tanimlama modal state'i
   const [packPopover, setPackPopover] = useState<{
     scope: 'FAMILY' | 'NONFAMILY' | 'PENDING';
@@ -1015,6 +1064,8 @@ export function useUcarerDepo() {
         const costMap: Record<string, number> = {};
         const vatMap: Record<string, number> = {};
         const packMap: Record<string, number> = {};
+        const packRawMap: Record<string, number> = {};
+        const unit2NameMap: Record<string, string> = {};
         const supplierMap: Record<string, { code: string; name: string }> = {};
         for (let i = 0; i < codeList.length; i += 200) {
           const chunk = codeList.slice(i, i + 200);
@@ -1026,6 +1077,7 @@ export function useUcarerDepo() {
             const mainSupplierCode = String(product?.mainSupplierCode || '').trim().toUpperCase();
             const mainSupplierName = String(product?.mainSupplierName || '').trim();
             const unit2Factor = Number(product?.unit2Factor ?? 0);
+            const unit2Name = String(product?.unit2Name || '').trim();
             if (code && Number.isFinite(costValue)) {
               costMap[code] = costValue;
             }
@@ -1033,7 +1085,13 @@ export function useUcarerDepo() {
               vatMap[code] = vatRateValue;
             }
             if (code && Number.isFinite(unit2Factor)) {
+              // packQtyByCode: koliye-yuvarla mutlak deger kullanir (getPackRounding abs).
               packMap[code] = unit2Factor;
+              // packFactorRawByCode: HAM ISARETLI katsayi (yon karari icin korunur).
+              packRawMap[code] = unit2Factor;
+            }
+            if (code && unit2Name) {
+              unit2NameMap[code] = unit2Name;
             }
             if (code && mainSupplierCode) {
               supplierMap[code] = { code: mainSupplierCode, name: mainSupplierName || mainSupplierCode };
@@ -1044,6 +1102,8 @@ export function useUcarerDepo() {
           setCurrentCostByCode(costMap);
           setVatRateByCode((prev) => ({ ...prev, ...vatMap }));
           setPackQtyByCode((prev) => ({ ...prev, ...packMap }));
+          setPackFactorRawByCode((prev) => ({ ...prev, ...packRawMap }));
+          setUnit2NameByCode((prev) => ({ ...prev, ...unit2NameMap }));
           setMainSupplierByCode(supplierMap);
           setSupplierOverrideByCode((prev) => {
             const next: Record<string, string> = { ...prev };
@@ -1058,6 +1118,8 @@ export function useUcarerDepo() {
           setCurrentCostByCode({});
           setVatRateByCode({});
           setPackQtyByCode({});
+          setPackFactorRawByCode({});
+          setUnit2NameByCode({});
           setMainSupplierByCode({});
         }
       }
@@ -2426,7 +2488,10 @@ export function useUcarerDepo() {
     return allocations;
   };
   const pendingSupplierRows = useMemo(() => {
-    const grouped = new Map<string, { supplierCode: string; supplierName: string; itemCount: number; totalQuantity: number }>();
+    const grouped = new Map<
+      string,
+      { supplierCode: string; supplierName: string; itemCount: number; totalQuantity: number; totalAmount: number }
+    >();
     pendingAllocations.forEach((row) => {
       const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
       if (!supplierCode) return;
@@ -2435,13 +2500,19 @@ export function useUcarerDepo() {
         supplierName: cariNameByCode.get(supplierCode) || supplierCode,
         itemCount: 0,
         totalQuantity: 0,
+        totalAmount: 0,
       };
+      const qty = Math.max(0, Math.trunc(Number(row.quantity || 0)));
+      // IS 1 — cari basligindaki TL toplami: satirlarin qty*birimFiyat toplami.
+      const unitPrice = resolveOrderUnitPrice(row.productCode, row.unitPriceOverride);
       found.itemCount += 1;
-      found.totalQuantity += Math.max(0, Math.trunc(Number(row.quantity || 0)));
+      found.totalQuantity += qty;
+      found.totalAmount += qty * unitPrice;
       grouped.set(supplierCode, found);
     });
     return Array.from(grouped.values()).sort((a, b) => a.supplierCode.localeCompare(b.supplierCode, 'tr'));
-  }, [pendingAllocations, cariNameByCode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAllocations, cariNameByCode, costPInputByCode, currentCostByCode]);
   const pendingSupplierItemsByCode = useMemo(() => {
     const grouped = new Map<
       string,
@@ -2503,6 +2574,15 @@ export function useUcarerDepo() {
         if (!next[code]) {
           next[code] = String(alloc.supplierCodeOverride || '').trim().toUpperCase();
         }
+      });
+      return next;
+    });
+    // IS 1 — Cari akordeonlari VARSAYILAN ACIK. Onceden takip edilmeyen carileri acik isaretle
+    // (kullanicinin manuel kapattigi carileri yeniden acmamak icin sadece bilinmeyenlere dokun).
+    setExpandedSupplierRows((prev) => {
+      const next = { ...prev };
+      pendingSupplierRows.forEach((row) => {
+        if (!(row.supplierCode in next)) next[row.supplierCode] = true;
       });
       return next;
     });
@@ -2725,15 +2805,36 @@ export function useUcarerDepo() {
   );
 
   // ==================== IS 3 — Koliye tamamla + koli ici tanimlama ====================
+  // Koli-ici bilgi (yon + koli-ici adet + 2. birim adi). HER IKI yon icin tanimliysa doner.
+  //   direction 'largerUnit2'  : NEGATIF katsayi -> 2. birim buyuk paket (ana birim kucuk) -> yuvarlanabilir
+  //   direction 'largerMain'   : POZITIF katsayi -> ana birim zaten koli -> yuvarlanmaz (sadece bilgi)
+  const getPackInfo = (
+    productCode: string
+  ): { packQty: number; rawFactor: number; direction: 'largerUnit2' | 'largerMain'; unit2Name: string } | null => {
+    const code = String(productCode || '').trim().toUpperCase();
+    // Ham isaretli katsayi oncelikli; yoksa packQtyByCode'dan (ayni degeri tutar).
+    const raw = Number(packFactorRawByCode[code] ?? packQtyByCode[code] ?? 0);
+    const packQty = Math.abs(raw);
+    if (!Number.isFinite(packQty) || packQty <= 0) return null;
+    return {
+      packQty,
+      rawFactor: raw,
+      direction: raw < 0 ? 'largerUnit2' : 'largerMain',
+      unit2Name: String(unit2NameByCode[code] || '').trim() || 'KOLİ',
+    };
+  };
+
   // Koli ici (unit2Factor) tanimliysa asagi/yukari koli katina yuvarlama secenekleri.
+  // POZITIF katsayida (ana birim zaten koli) yuvarlama ONERILMEZ: null doner; girilen miktar zaten kolidir.
   const getPackRounding = (
     productCode: string,
     qty: number | ''
   ): { packQty: number; down: number; up: number; downBoxes: number; upBoxes: number; isExact: boolean } | null => {
-    const code = String(productCode || '').trim().toUpperCase();
-    // Mikro'da negatif katsayi = buyuk 2. birim (1 KOLI = |katsayi| ADET); isaretten bagimsiz mutlak deger kullanilir.
-    const packQty = Math.abs(Number(packQtyByCode[code] || 0));
-    if (!Number.isFinite(packQty) || packQty <= 0) return null;
+    const info = getPackInfo(productCode);
+    if (!info) return null;
+    // Ana birim zaten koli (pozitif katsayi): girilen miktar koli sayilir, YUVARLANMAZ.
+    if (info.direction === 'largerMain') return null;
+    const packQty = info.packQty;
     const safeQty = Math.max(0, Math.trunc(Number(qty === '' ? 0 : qty || 0)));
     const downBoxes = Math.floor(safeQty / packQty);
     const upBoxes = Math.ceil(safeQty / packQty);
@@ -2808,13 +2909,21 @@ export function useUcarerDepo() {
     try {
       const res = await apiClient.get(`/admin/product-dimensions/products/${encodeURIComponent(code)}`);
       const unit2 = (res.data?.product?.units || []).find((unit: any) => Number(unit?.index) === 2);
-      const existingFactor = Math.abs(Number(unit2?.factor || 0));
+      const rawFactor = Number(unit2?.factor || 0);
+      const existingFactor = Math.abs(rawFactor);
+      const unit2Name = String(unit2?.name || '').trim();
+      // Ham isaretli katsayi + 2. birim adini tazele (yon rozeti/duzenleme icin).
+      if (Number.isFinite(rawFactor) && rawFactor !== 0) {
+        setPackFactorRawByCode((prev) => ({ ...prev, [code]: rawFactor }));
+        setPackQtyByCode((prev) => ({ ...prev, [code]: rawFactor }));
+      }
+      if (unit2Name) setUnit2NameByCode((prev) => ({ ...prev, [code]: unit2Name }));
       setPackDefineState((prev) =>
         prev && prev.code === code
           ? {
               ...prev,
               loading: false,
-              name: String(unit2?.name || '').trim() || 'KOLİ',
+              name: unit2Name || 'KOLİ',
               factor: existingFactor > 0 ? String(existingFactor) : '',
               weightKg: Number(unit2?.weightKg || 0) > 0 ? String(Number(unit2.weightKg)) : '',
               widthMm: Number(unit2?.widthMm || 0) > 0 ? String(Number(unit2.widthMm)) : '',
@@ -2871,20 +2980,32 @@ export function useUcarerDepo() {
       toast.error('En, boy ve yukseklik ya birlikte girilmeli ya da bos birakilmali.');
       return;
     }
+    // KRITIK ISARET KURALI: urunun zaten bir 2. birim katsayisi varsa MEVCUT ISARETI KORU.
+    //   newFactor = sign(existingRawFactor) * |input|
+    // Aksi halde (pozitif katsayili ana-birim-koli urun) her zaman -abs yazmak semantigi TERS cevirirdi.
+    // Sadece SIFIRDAN yeni tanimda (mevcut 2. birim yok) varsayilan NEGATIF (-abs) yazilir (eskisi gibi).
+    const existingRaw = Number(packFactorRawByCode[code] || 0);
+    const hasExisting = Number.isFinite(existingRaw) && existingRaw !== 0;
+    const sign = hasExisting ? Math.sign(existingRaw) : -1;
+    const signedFactor = sign * Math.abs(factor);
+    const directionNote = signedFactor > 0
+      ? '(ana birim koli — girilen sayi ana birimin ici)'
+      : '(2. birim koli — girilen sayi 1 kolinin ici)';
     const confirmed = window.confirm(
-      `${code} stok kartinda 2. birim "${name}" (koli ici ${factor.toLocaleString('tr-TR')}) olarak Mikro'ya YAZILACAK.\n\nSadece 2. birim alanlari guncellenir; diger birimler ve raf kodu degismez. Onayliyor musunuz?`
+      `${code} stok kartinda 2. birim "${name}" (koli ici ${factor.toLocaleString('tr-TR')}) olarak Mikro'ya YAZILACAK. ${directionNote}\n\nSadece 2. birim alanlari guncellenir; diger birimler ve raf kodu degismez. Onayliyor musunuz?`
     );
     if (!confirmed) return;
     setPackDefineState((prev) => (prev ? { ...prev, saving: true } : prev));
     try {
-      // Mikro kurali: KOLI ana birimden BUYUK 2. birimdir -> katsayi NEGATIF yazilir
-      // (negatif katsayi = 1 KOLI = |katsayi| ADET; product-dimensions uiFactorToMikro 'larger' ile ayni).
+      // Isaret yukarida hesaplandi (mevcut varsa korunur, yeni tanimda -abs).
       await apiClient.put(`/admin/product-dimensions/products/${encodeURIComponent(code)}`, {
-        units: [{ index: 2, name, factor: -Math.abs(factor), weightKg, widthMm, lengthMm, heightMm }],
+        units: [{ index: 2, name, factor: signedFactor, weightKg, widthMm, lengthMm, heightMm }],
       });
-      // packMap tazele: rapor verisindeki 'Koli Ici' degeri lokal guncellenir, buton 'Koliye yuvarla'ya doner.
-      // (getPackRounding abs kullandigi icin lokal deger pozitif tutulur.)
-      setPackQtyByCode((prev) => ({ ...prev, [code]: factor }));
+      // Lokal haritalari tazele: packQtyByCode koliye-yuvarla icin abs kullanir; packFactorRawByCode
+      // ham isaretli tutar (yon rozeti icin); unit2NameByCode ad guncellenir.
+      setPackQtyByCode((prev) => ({ ...prev, [code]: signedFactor }));
+      setPackFactorRawByCode((prev) => ({ ...prev, [code]: signedFactor }));
+      setUnit2NameByCode((prev) => ({ ...prev, [code]: name }));
       toast.success(`${code} icin koli ici ${factor.toLocaleString('tr-TR')} olarak Mikro'ya kaydedildi.`);
       setPackDefineState(null);
     } catch (error: any) {
@@ -3131,7 +3252,48 @@ export function useUcarerDepo() {
     }
   };
 
+  // IS 1 — Hala UYGUN ama cevrilmemis DSV onerisi olan satirlari bul (karsi depoda fazla var).
+  const findEligibleUnconvertedDsvLines = (): Array<{
+    productCode: string;
+    productName: string;
+    transferQty: number;
+    counterDepotLabel: string;
+  }> => {
+    const seen = new Set<string>();
+    const lines: Array<{ productCode: string; productName: string; transferQty: number; counterDepotLabel: string }> = [];
+    pendingAllocations.forEach((row) => {
+      const code = String(row.productCode || '').trim().toUpperCase();
+      if (!code || seen.has(code)) return;
+      // Zaten DSV setine alinmis satirlar tekrar uyari uretmez.
+      if (pendingTransfersByCode[code]) return;
+      const gate = getTransferGateInfo(code);
+      if (gate && gate.eligible && gate.transferQty > 0) {
+        seen.add(code);
+        lines.push({
+          productCode: code,
+          productName: getProductDisplayName(code),
+          transferQty: gate.transferQty,
+          counterDepotLabel: gate.counterDepotLabel,
+        });
+      }
+    });
+    return lines;
+  };
+
+  // Kullanici "Siparisleri Olustur"a bastiginda once DSV kapisi kontrol edilir; uygun ama
+  // cevrilmemis satirlar varsa modal-ici uyari acilir. Uyari onaylanirsa dogrudan gonderim yapilir.
   const submitCreateSupplierOrders = async () => {
+    if (creatingOrders) return;
+    const eligibleLines = findEligibleUnconvertedDsvLines();
+    if (eligibleLines.length > 0) {
+      setDsvWarningLines(eligibleLines);
+      return;
+    }
+    await doSubmitCreateSupplierOrders();
+  };
+
+  const doSubmitCreateSupplierOrders = async () => {
+    setDsvWarningLines(null);
     // Transfer Kapisi: DSV'ye cevrilen satirlar tedarikci siparisi yerine depolar-arasi siparis olur.
     const transferLines = pendingTransferRows
       .map((row) => ({ productCode: row.productCode, quantity: Math.max(0, Math.trunc(Number(row.quantity || 0))) }))
@@ -3225,9 +3387,10 @@ export function useUcarerDepo() {
         }
       }
       if (pendingAllocations.length === 0) {
-        // Sadece transfer vardi; modal kapanir.
+        // Sadece transfer vardi; modal kapanir. Taslak temizlenir (is tamamlandi).
         setSeriesModalOpen(false);
         setSupplierOrderConfigs({});
+        clearOrderDraft();
         return;
       }
       const result = await adminApi.createSupplierOrdersFromFamilyAllocations({
@@ -3332,6 +3495,8 @@ export function useUcarerDepo() {
         setSeriesModalOpen(false);
         setPendingAllocations([]);
         setSupplierOrderConfigs({});
+        // Tum siparisler basariyla olustu -> taslagi temizle.
+        clearOrderDraft();
       }
       refreshOperationLogsIfOpen();
     } catch (error: any) {
@@ -3579,6 +3744,125 @@ export function useUcarerDepo() {
     });
   };
 
+  // ==================== IS 1 — Sipariş akışı taslağı (localStorage) ====================
+  const clearOrderDraft = (targetDepot?: DepotType) => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(orderDraftKey(targetDepot || depot));
+    } catch {
+      // sessiz — localStorage erişilemezse taslak devre dışı kalır
+    }
+    setOrderDraftInfo(null);
+  };
+
+  // Devam eden çalışmayı debounce ile (~800ms) kaydet. Depo değişince yeni depoya yazılmadan önce
+  // hydration bayrağı sıfırlanır (aşağıdaki tespit effect'i tarafından).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!orderDraftHydratedRef.current) return; // taslak yüklenene/tespit edilene kadar yazma
+    // Depo yeni degisti ama tespit effect'i henuz calismadi -> eski state'i yeni depoya yazma.
+    if (orderDraftDepotRef.current !== depot) return;
+    if (orderDraftSaveTimerRef.current) clearTimeout(orderDraftSaveTimerRef.current);
+    orderDraftSaveTimerRef.current = setTimeout(() => {
+      const payload: Omit<UcarerOrderDraft, 'savedAt'> = {
+        manualAllocations,
+        nonFamilyAllocations,
+        pendingAllocations,
+        supplierOrderConfigs,
+        pendingTransfersByCode,
+        selectedTransferByCode,
+      };
+      try {
+        if (isOrderDraftEmpty(payload)) {
+          window.localStorage.removeItem(orderDraftKey(depot));
+        } else {
+          const draft: UcarerOrderDraft = { savedAt: new Date().toISOString(), ...payload };
+          window.localStorage.setItem(orderDraftKey(depot), JSON.stringify(draft));
+        }
+      } catch {
+        // sessiz
+      }
+    }, 800);
+    return () => {
+      if (orderDraftSaveTimerRef.current) clearTimeout(orderDraftSaveTimerRef.current);
+    };
+  }, [
+    depot,
+    manualAllocations,
+    nonFamilyAllocations,
+    pendingAllocations,
+    supplierOrderConfigs,
+    pendingTransfersByCode,
+    selectedTransferByCode,
+  ]);
+
+  // Sayfa/rapor hazır olunca (depoRows yüklendiğinde) mevcut depo için taslak var mı bak.
+  // Depo değişiminde hydration bayrağı sıfırlanır ki yeni depo state'i eski depoya yazılmasın.
+  useEffect(() => {
+    orderDraftHydratedRef.current = false;
+    if (typeof window === 'undefined') return;
+    // Rapor verisi gelmeden banner göstermeyelim (kullanıcı henüz depoya girmemiş olabilir).
+    if (depotRows.length === 0) {
+      setOrderDraftInfo(null);
+      // hydration'ı yine de aç ki kullanıcı sıfırdan çalışırsa kaydedilebilsin
+      orderDraftDepotRef.current = depot;
+      orderDraftHydratedRef.current = true;
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(orderDraftKey(depot));
+      if (raw) {
+        const parsed = JSON.parse(raw) as UcarerOrderDraft;
+        if (parsed && parsed.savedAt && !isOrderDraftEmpty(parsed)) {
+          setOrderDraftInfo({ savedAt: parsed.savedAt });
+        } else {
+          setOrderDraftInfo(null);
+        }
+      } else {
+        setOrderDraftInfo(null);
+      }
+    } catch {
+      setOrderDraftInfo(null);
+    }
+    // Bu depoya ait state artik in-memory sayilir; auto-save bu depoya yazabilir.
+    orderDraftDepotRef.current = depot;
+    orderDraftHydratedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depot, depotRows.length]);
+
+  // Banner'dan "Taslaktan devam": kaydedilen state'i geri yükle.
+  const restoreOrderDraft = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(orderDraftKey(depot));
+      if (!raw) {
+        setOrderDraftInfo(null);
+        return;
+      }
+      const parsed = JSON.parse(raw) as UcarerOrderDraft;
+      if (!parsed || isOrderDraftEmpty(parsed)) {
+        setOrderDraftInfo(null);
+        return;
+      }
+      setManualAllocations(parsed.manualAllocations || {});
+      setNonFamilyAllocations(parsed.nonFamilyAllocations || {});
+      setPendingAllocations(parsed.pendingAllocations || []);
+      setSupplierOrderConfigs(parsed.supplierOrderConfigs || {});
+      setPendingTransfersByCode(parsed.pendingTransfersByCode || {});
+      setSelectedTransferByCode(parsed.selectedTransferByCode || {});
+      setOrderDraftInfo(null);
+      toast.success('Sipariş taslağı geri yüklendi.');
+    } catch {
+      toast.error('Taslak geri yüklenemedi.');
+      setOrderDraftInfo(null);
+    }
+  };
+
+  const discardOrderDraft = () => {
+    clearOrderDraft();
+    toast.success('Sipariş taslağı silindi.');
+  };
+
   return {
     // depo / rapor
     depot, setDepot,
@@ -3688,9 +3972,19 @@ export function useUcarerDepo() {
     getTransferGateInfo,
     convertPendingLineToTransfer,
     undoPendingTransfer,
+    // IS 1 — DSV uyari modali (Siparisleri Olustur oncesi)
+    dsvWarningLines, setDsvWarningLines,
+    doSubmitCreateSupplierOrders,
+    // IS 1 — Sipariş akışı taslağı (localStorage)
+    orderDraftInfo,
+    restoreOrderDraft,
+    discardOrderDraft,
     // IS 3 — Koliye tamamla / koli ici tanimlama
     packPopover, setPackPopover,
     getPackRounding,
+    getPackInfo,
+    packFactorRawByCode,
+    unit2NameByCode,
     applyPackPopoverValue,
     setPendingTotalQuantityForProduct,
     packDefineState,

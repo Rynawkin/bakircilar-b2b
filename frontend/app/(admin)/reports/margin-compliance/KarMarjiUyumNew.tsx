@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -17,6 +18,8 @@ import {
   GENERAL_EXCLUSION_TYPE_LABELS,
 } from './useKarMarjiUyum';
 import type { MarginExclusionType, GeneralExclusionType } from './useKarMarjiUyum';
+import { adminApi } from '@/lib/api/admin';
+import ExclusionCombobox, { type ExclusionSuggestion } from './ExclusionCombobox';
 
 /**
  * Yeni gorunum: Kar Marji Analizi (019703) raporu.
@@ -162,16 +165,9 @@ export default function KarMarjiUyumNew() {
     excludedByUserRules,
     exclusionType,
     setExclusionType,
-    exclusionSearch,
-    setExclusionSearch,
-    exclusionOptions,
-    exclusionOptionsLoading,
-    exclusionNameInput,
-    setExclusionNameInput,
     savingExclusion,
     deletingExclusionId,
-    handleAddExclusionOption,
-    handleAddNameExclusion,
+    createExclusion,
     handleDeleteExclusion,
     exclusionsPanelOpen,
     setExclusionsPanelOpen,
@@ -183,13 +179,11 @@ export default function KarMarjiUyumNew() {
     generalExclusionsForbidden,
     generalFormType,
     setGeneralFormType,
-    generalFormValue,
-    setGeneralFormValue,
     generalFormDescription,
     setGeneralFormDescription,
     savingGeneralExclusion,
     deletingGeneralExclusionId,
-    handleAddGeneralExclusion,
+    createGeneralExclusion,
     handleDeleteGeneralExclusion,
     syncingReport,
     sendingReportEmail,
@@ -211,6 +205,115 @@ export default function KarMarjiUyumNew() {
     formatCount,
     formatDate,
   } = useKarMarjiUyum();
+
+  // ---- Dislama combobox'lari (serbest metin + oneri) icin lokal input state ----
+  const [marginInput, setMarginInput] = useState('');
+  const [generalInput, setGeneralInput] = useState('');
+
+  // Marj tab oneri kaynagi: BRAND -> marka listesi (productCount); PRODUCT_CODE/PRODUCT_NAME -> urun listesi.
+  const fetchMarginSuggestions = async (search: string): Promise<ExclusionSuggestion[]> => {
+    const optionType = exclusionType === 'BRAND' ? 'BRAND' : 'PRODUCT';
+    const result = await adminApi.getMarginExclusionOptions({ type: optionType, search: search || undefined });
+    const options = Array.isArray(result.data) ? result.data : [];
+    if (optionType === 'BRAND') {
+      return options.map((option) => ({
+        value: option.value,
+        label: option.label || option.value,
+        meta: typeof option.productCount === 'number' ? `${option.productCount} urun` : null,
+      }));
+    }
+    // PRODUCT: value = stok kodu, label = stok adi
+    return options.map((option) => ({
+      value: option.value,
+      label: `${option.value} — ${option.label}`,
+      meta: null,
+      // ham urun adi label kaydinda kullanilacak (asagida onSelect'te ayristiriyoruz)
+    }));
+  };
+
+  // Marj tab secim: BRAND ve PRODUCT_CODE deger=kod; PRODUCT_NAME deger=urun adi.
+  const handleSelectMarginSuggestion = (suggestion: ExclusionSuggestion) => {
+    if (exclusionType === 'BRAND') {
+      createExclusion({
+        type: 'BRAND',
+        value: suggestion.value,
+        label: suggestion.label && suggestion.label !== suggestion.value ? suggestion.label : undefined,
+      });
+    } else if (exclusionType === 'PRODUCT_CODE') {
+      // suggestion.label = "{kod} — {ad}"; urun adini label olarak sakla.
+      const namePart = suggestion.label.includes(' — ')
+        ? suggestion.label.split(' — ').slice(1).join(' — ')
+        : suggestion.label;
+      createExclusion({
+        type: 'PRODUCT_CODE',
+        value: suggestion.value,
+        label: namePart && namePart !== suggestion.value ? namePart : undefined,
+      });
+    } else {
+      // PRODUCT_NAME: deger = urun adi (kod degil)
+      const namePart = suggestion.label.includes(' — ')
+        ? suggestion.label.split(' — ').slice(1).join(' — ')
+        : suggestion.label;
+      createExclusion({ type: 'PRODUCT_NAME', value: namePart || suggestion.value });
+    }
+    setMarginInput('');
+  };
+
+  // Marj tab serbest metin (oneri secmeden): PRODUCT_NAME serbest ifade, digerleri kod olarak eklenir.
+  const handleSubmitMarginFreeText = (text: string) => {
+    if (exclusionType === 'BRAND') {
+      createExclusion({ type: 'BRAND', value: text });
+    } else if (exclusionType === 'PRODUCT_CODE') {
+      createExclusion({ type: 'PRODUCT_CODE', value: text.toUpperCase() });
+    } else {
+      createExclusion({ type: 'PRODUCT_NAME', value: text });
+    }
+    setMarginInput('');
+  };
+
+  // Genel tab oneri kaynagi: urun tipleri -> urun listesi; cari tipleri -> cari listesi; sektor -> serbest.
+  const fetchGeneralSuggestions = async (search: string): Promise<ExclusionSuggestion[]> => {
+    if (generalFormType === 'PRODUCT_CODE' || generalFormType === 'PRODUCT_NAME') {
+      const result = await adminApi.getMarginExclusionOptions({ type: 'PRODUCT', search: search || undefined });
+      const options = Array.isArray(result.data) ? result.data : [];
+      return options.map((option) => ({
+        value: option.value,
+        label: `${option.value} — ${option.label}`,
+        meta: null,
+      }));
+    }
+    if (generalFormType === 'CUSTOMER_CODE' || generalFormType === 'CUSTOMER_NAME') {
+      // Mevcut getCustomers imzasi: { search, pageSize } -> { customers }
+      const result = await adminApi.getCustomers({ search: search || undefined, pageSize: 10 });
+      const customers = Array.isArray(result.customers) ? result.customers : [];
+      return customers.map((customer: any) => ({
+        value: String(customer.mikroCariCode || customer.mikroCode || ''),
+        label: `${customer.mikroCariCode || customer.mikroCode || ''} — ${customer.companyName || customer.name || ''}`,
+        meta: null,
+      }));
+    }
+    // SECTOR_CODE: serbest metin, oneri yok
+    return [];
+  };
+
+  // Genel tab secim: urun -> stok kodu/adi; cari -> cari kodu/adi.
+  const handleSelectGeneralSuggestion = (suggestion: ExclusionSuggestion) => {
+    const namePart = suggestion.label.includes(' — ')
+      ? suggestion.label.split(' — ').slice(1).join(' — ')
+      : suggestion.label;
+    if (generalFormType === 'PRODUCT_NAME' || generalFormType === 'CUSTOMER_NAME') {
+      createGeneralExclusion(generalFormType, namePart || suggestion.value, generalFormDescription);
+    } else {
+      // PRODUCT_CODE / CUSTOMER_CODE -> kod
+      createGeneralExclusion(generalFormType, suggestion.value, generalFormDescription);
+    }
+    setGeneralInput('');
+  };
+
+  const handleSubmitGeneralFreeText = (text: string) => {
+    createGeneralExclusion(generalFormType, text, generalFormDescription);
+    setGeneralInput('');
+  };
 
   // Ozet bucket karti (Siparis Ozeti / Satis Ozeti) — Classic renderSummaryBucket ile ayni alanlar.
   const renderBucket = (title: string, bucket: NonNullable<typeof summary>['orderSummary']) => (
@@ -766,93 +869,41 @@ export default function KarMarjiUyumNew() {
                   )}
                 </div>
 
-                {/* Yeni kural ekleme */}
+                {/* Yeni kural ekleme — tip secimi + inline combobox (serbest metin + oneri) */}
                 <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                     <select
                       value={exclusionType}
-                      onChange={(e) => setExclusionType(e.target.value as MarginExclusionType)}
+                      onChange={(e) => {
+                        setExclusionType(e.target.value as MarginExclusionType);
+                        setMarginInput('');
+                      }}
                       style={{ ...inputStyle, width: 180, cursor: 'pointer' }}
                     >
                       <option value="BRAND">Marka</option>
                       <option value="PRODUCT_CODE">Ürün Kodu</option>
                       <option value="PRODUCT_NAME">Ürün Adı (metin)</option>
                     </select>
-                    {exclusionType === 'PRODUCT_NAME' ? (
-                      <>
-                        <input
-                          value={exclusionNameInput}
-                          onChange={(e) => setExclusionNameInput(e.target.value)}
-                          placeholder="Ürün adında geçen ifade..."
-                          style={{ ...inputStyle, flex: 1, minWidth: 220 }}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddNameExclusion}
-                          disabled={savingExclusion}
-                          style={{ ...smallBtn, height: 36, opacity: savingExclusion ? 0.6 : 1 }}
-                        >
-                          Ekle
-                        </button>
-                      </>
-                    ) : (
-                      <input
-                        value={exclusionSearch}
-                        onChange={(e) => setExclusionSearch(e.target.value)}
-                        placeholder={exclusionType === 'BRAND' ? 'Marka ara...' : 'Ürün kodu veya adı ara...'}
-                        style={{ ...inputStyle, flex: 1, minWidth: 220 }}
-                      />
-                    )}
+                    <ExclusionCombobox
+                      value={marginInput}
+                      onChange={setMarginInput}
+                      disabled={savingExclusion}
+                      refetchKey={exclusionType}
+                      placeholder={
+                        exclusionType === 'BRAND'
+                          ? 'Marka ara veya yaz...'
+                          : exclusionType === 'PRODUCT_CODE'
+                          ? 'Ürün kodu/adı ara...'
+                          : 'Ürün adında geçen ifade ara/yaz...'
+                      }
+                      fetchSuggestions={fetchMarginSuggestions}
+                      onSelect={handleSelectMarginSuggestion}
+                      onSubmitFreeText={handleSubmitMarginFreeText}
+                    />
                   </div>
-
-                  {exclusionType === 'PRODUCT_NAME' ? (
-                    <span style={{ fontSize: 11, color: FAINT }}>Ürün adında geçen ifadeyle eşleşir (kısmi eşleşme).</span>
-                  ) : (
-                    <div style={{ border: `1px solid ${SOFT_LINE}`, borderRadius: 8, maxHeight: 200, overflowY: 'auto' }}>
-                      {exclusionOptionsLoading ? (
-                        <div style={{ padding: 10, fontSize: 12, color: FAINT }}>Yükleniyor...</div>
-                      ) : exclusionOptions.length === 0 ? (
-                        <div style={{ padding: 10, fontSize: 12, color: FAINT }}>Sonuç bulunamadı.</div>
-                      ) : (
-                        exclusionOptions.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => handleAddExclusionOption(option)}
-                            disabled={savingExclusion}
-                            style={{
-                              display: 'flex',
-                              width: '100%',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: 8,
-                              padding: '8px 10px',
-                              border: 'none',
-                              borderBottom: `1px solid ${ROW_LINE}`,
-                              background: '#fff',
-                              fontSize: 12.5,
-                              color: INK,
-                              cursor: savingExclusion ? 'not-allowed' : 'pointer',
-                              textAlign: 'left',
-                              fontFamily: 'inherit',
-                              opacity: savingExclusion ? 0.6 : 1,
-                            }}
-                          >
-                            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {exclusionType === 'BRAND' ? option.label : `${option.value} — ${option.label}`}
-                            </span>
-                            {typeof option.productCount === 'number' && (
-                              <span style={{ fontSize: 11, color: FAINT, whiteSpace: 'nowrap' }}>
-                                {option.productCount} ürün
-                              </span>
-                            )}
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
                   <span style={{ fontSize: 11, color: FAINT }}>
-                    Dışlama eklenince/silinince rapor otomatik yenilenir; geçmiş veri silinmez, kural silinince satırlar geri gelir.
+                    Öneriden seçebilir veya serbest metin yazıp Enter'a basabilirsiniz. Dışlama eklenince/silinince rapor
+                    otomatik yenilenir; geçmiş veri silinmez, kural silinince satırlar geri gelir.
                   </span>
                 </div>
               </div>
@@ -868,11 +919,14 @@ export default function KarMarjiUyumNew() {
                   </span>
                 ) : (
                   <>
-                {/* Yeni genel kural ekleme */}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                {/* Yeni genel kural ekleme — tip + inline combobox (urun/cari oneri, sektor serbest) */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'flex-start' }}>
                   <select
                     value={generalFormType}
-                    onChange={(e) => setGeneralFormType(e.target.value as GeneralExclusionType)}
+                    onChange={(e) => {
+                      setGeneralFormType(e.target.value as GeneralExclusionType);
+                      setGeneralInput('');
+                    }}
                     style={{ ...inputStyle, width: 180, cursor: 'pointer' }}
                   >
                     {Object.entries(GENERAL_EXCLUSION_TYPE_LABELS).map(([value, label]) => (
@@ -881,11 +935,26 @@ export default function KarMarjiUyumNew() {
                       </option>
                     ))}
                   </select>
-                  <input
-                    value={generalFormValue}
-                    onChange={(e) => setGeneralFormValue(e.target.value)}
-                    placeholder={generalFormType === 'PRODUCT_CODE' ? 'Örn: B106430' : 'Değer girin'}
-                    style={{ ...inputStyle, flex: 1, minWidth: 180 }}
+                  <ExclusionCombobox
+                    value={generalInput}
+                    onChange={setGeneralInput}
+                    disabled={savingGeneralExclusion}
+                    refetchKey={generalFormType}
+                    minWidth={180}
+                    placeholder={
+                      generalFormType === 'PRODUCT_CODE'
+                        ? 'Ürün kodu/adı ara... (örn: B106430)'
+                        : generalFormType === 'PRODUCT_NAME'
+                        ? 'Ürün adı ara...'
+                        : generalFormType === 'CUSTOMER_CODE'
+                        ? 'Cari kodu/adı ara...'
+                        : generalFormType === 'CUSTOMER_NAME'
+                        ? 'Cari adı ara...'
+                        : 'Sektör kodu yazıp Enter...'
+                    }
+                    fetchSuggestions={fetchGeneralSuggestions}
+                    onSelect={handleSelectGeneralSuggestion}
+                    onSubmitFreeText={handleSubmitGeneralFreeText}
                   />
                   <input
                     value={generalFormDescription}
@@ -893,14 +962,6 @@ export default function KarMarjiUyumNew() {
                     placeholder="Açıklama (opsiyonel)"
                     style={{ ...inputStyle, flex: 1, minWidth: 180 }}
                   />
-                  <button
-                    type="button"
-                    onClick={handleAddGeneralExclusion}
-                    disabled={savingGeneralExclusion}
-                    style={{ ...smallBtn, height: 36, opacity: savingGeneralExclusion ? 0.6 : 1 }}
-                  >
-                    Ekle
-                  </button>
                 </div>
 
                 {/* Kurallar listesi */}
@@ -940,7 +1001,8 @@ export default function KarMarjiUyumNew() {
                           }}
                         >
                           {exclusion.value}
-                          {exclusion.description ? ` — ${exclusion.description}` : ''}
+                          {exclusion.resolvedLabel ? ` — ${exclusion.resolvedLabel}` : ''}
+                          {exclusion.description ? ` (${exclusion.description})` : ''}
                         </span>
                         {!exclusion.active && (
                           <span

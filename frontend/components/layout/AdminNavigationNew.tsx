@@ -75,6 +75,18 @@ export function AdminNavigationNew() {
     hydrateUiTheme();
   }, [hydrateUiTheme]);
 
+  // Mobil menu acikken arka plandaki sayfa kaymasini kilitle.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (mobileMenuOpen) {
+      const previous = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = previous;
+      };
+    }
+  }, [mobileMenuOpen]);
+
   useEffect(() => {
     if (!user) return;
     fetchNotifications();
@@ -376,7 +388,7 @@ export function AdminNavigationNew() {
 
       {/* Mobil menu */}
       {mobileMenuOpen && (
-        <div className="border-t border-[var(--line)] bg-white px-4 py-3 lg:hidden">
+        <div className="border-t border-[var(--line)] bg-white px-4 py-3 lg:hidden max-h-[calc(100dvh-60px)] overflow-y-auto overscroll-contain">
           <div className="space-y-1">
             {visibleNavItems.map((item) => (
               <Link

@@ -118,6 +118,7 @@ export const navItems: NavItem[] = [
     ],
   },
   { name: 'TOPLU Denetim', href: '/reports/toplu-audit', icon: BarChart3, description: 'Ritmik TOPLU alimlari', permission: 'reports:ucarer-depo' },
+  { name: 'Aile Yönetimi', href: '/reports/family-management', icon: LayoutGrid, description: 'Stok ailesi oneri, kume ve aykiri denetimi', permission: 'reports:ucarer-depo' },
   { name: 'Borc-Mal Takasi', href: '/reports/barter-radar', icon: HandCoins, description: 'Vadesi gecmis cari x ihtiyac', permission: 'reports:ucarer-depo' },
   { name: 'Yapiskan Iskonto', href: '/reports/sticky-discounts', icon: Percent, description: 'Eriyen son-satis fiyatlari', permission: 'reports:margin-compliance' },
 ];
@@ -209,6 +210,18 @@ export function AdminNavigation() {
   useEffect(() => {
     hydrateUiTheme();
   }, [hydrateUiTheme]);
+
+  // Mobil menu acikken arka plandaki sayfa kaymasini kilitle.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (mobileMenuOpen) {
+      const previous = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = previous;
+      };
+    }
+  }, [mobileMenuOpen]);
 
   const changeUiTheme = (next: 'new' | 'old') => {
     if (next === uiTheme) return;
@@ -523,7 +536,7 @@ export function AdminNavigation() {
 
         {/* Mobile Menu */}
         {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-primary-500 py-4 space-y-2">
+          <div className="lg:hidden border-t border-primary-500 py-4 space-y-2 max-h-[calc(100dvh-56px)] overflow-y-auto overscroll-contain">
             {visibleNavItems.map((item) => (
               <Link
                 key={item.href}

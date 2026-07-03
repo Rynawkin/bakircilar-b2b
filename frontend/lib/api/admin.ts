@@ -74,7 +74,8 @@ export interface MinMaxV2PreviewRow {
   effectiveDays: number; // min(pencere, bugun - pencere icindeki ilk satis + 1)
   firstSaleDate: string | null; // pencere icindeki ilk satis tarihi (YYYY-MM-DD)
   isShortWindow: boolean; // efektif gun < pencere (urun pencere ortasinda satisa baslamis)
-  pendingOrderQty: number; // acik (alinan) musteri siparisi kalan miktari
+  docCount: number; // satirin efektif penceresindeki farkli satis evraki sayisi (salesQty ile ayni kapsam)
+  userExcluded: boolean; // kullanici tarafindan hesaplama disi birakilmis (MinMaxExclusion)
   minDaysUsed: number;
   maxDaysUsed: number;
   currentMin: number;
@@ -83,7 +84,7 @@ export interface MinMaxV2PreviewRow {
   newMax: number | null;
   diffMin: number | null;
   diffMax: number | null;
-  overrideSource: 'urun' | 'tedarikci' | 'varsayilan' | 'haric' | 'SIPARIS';
+  overrideSource: 'urun' | 'tedarikci' | 'varsayilan' | 'haric';
 }
 
 export interface MinMaxV2PreviewResult {
@@ -95,6 +96,7 @@ export interface MinMaxV2PreviewResult {
   summary: {
     changedCount: number;
     excludedCount: number;
+    userExcludedCount: number; // MinMaxExclusion ile kullanici tarafindan hesaplama disi birakilan urun sayisi
     missingDepotRecordCount: number;
     overrideProductCount: number;
     overrideSupplierCount: number;
@@ -116,6 +118,16 @@ export interface MinMaxV2Override {
   minDays: number | null;
   maxDays: number | null;
   note: string | null;
+  createdAt: string;
+}
+
+// Min-Max kullanici haric tutma kaydi (MinMaxExclusion)
+export interface MinMaxExclusionItem {
+  id: string;
+  productCode: string;
+  productName: string | null;
+  note: string | null;
+  createdByName: string | null;
   createdAt: string;
 }
 
@@ -3777,28 +3789,170 @@ export const adminApi = {
   },
 
   // ==================== Borc-Mal Takasi Radari (SALT OKUMA) ====================
-  getBarterRadar: async (params?: { minPastDue?: number }): Promise<{
+  // Round 4: iki yonlu (customers[] = bize borclu + mal satabilir, suppliers[] = biz borcluyuz + bizden mal alabilir)
+  getBarterRadar: async (params?: { minPastDue?: number; minPayable?: number }): Promise<{
     success: boolean;
-    data: BarterRadarResult;
+    data: any;
   }> => {
     const queryParams = new URLSearchParams();
     if (params?.minPastDue !== undefined) queryParams.append('minPastDue', String(params.minPastDue));
+    if (params?.minPayable !== undefined) queryParams.append('minPayable', String(params.minPayable));
     const query = queryParams.toString();
     const response = await apiClient.get(`/admin/reports/barter-radar${query ? `?${query}` : ''}`);
     return response.data;
   },
 
   // ==================== Yapiskan Iskonto raporu ====================
-  getStickyDiscounts: async (params?: { minGapPercent?: number; lookbackDays?: number }): Promise<{
+  // Round 4: prim-erimesi modeli (liste UZERINDE satilan ve son-satis kuraliyla musteriye gorunen fiyatlar)
+  getStickyDiscounts: async (params?: { lookbackDays?: number; minPremiumNowPercent?: number }): Promise<{
     success: boolean;
-    data: StickyDiscountsResult;
+    data: any;
   }> => {
     const queryParams = new URLSearchParams();
-    if (params?.minGapPercent !== undefined) queryParams.append('minGapPercent', String(params.minGapPercent));
     if (params?.lookbackDays !== undefined) queryParams.append('lookbackDays', String(params.lookbackDays));
+    if (params?.minPremiumNowPercent !== undefined)
+      queryParams.append('minPremiumNowPercent', String(params.minPremiumNowPercent));
     const query = queryParams.toString();
     const response = await apiClient.get(`/admin/reports/sticky-discounts${query ? `?${query}` : ''}`);
     return response.data;
+  },
+
+  // Round 4: TOPLU adaylari (isaretlenmemis ama spike gosteren satislar) + toplu isaretleme
+  getTopluCandidates: async (params?: {
+    months?: number;
+    spikeFactor?: number;
+    minQty?: number;
+  }): Promise<{ success: boolean; data: any }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.months !== undefined) queryParams.append('months', String(params.months));
+    if (params?.spikeFactor !== undefined) queryParams.append('spikeFactor', String(params.spikeFactor));
+    if (params?.minQty !== undefined) queryParams.append('minQty', String(params.minQty));
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/toplu-candidates${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  markTopluCandidateLines: async (
+    lines: Array<{
+      productCode: string;
+      lineGuid: string;
+      documentSeries: string;
+      documentSequence: number;
+      documentLineNo: number;
+    }>
+  ): Promise<{ success: boolean; data: { marked: number; failed: Array<{ lineGuid: string; reason: string }> } }> => {
+    const response = await apiClient.post('/admin/reports/toplu-candidates/mark', { lines });
+    return response.data;
+  },
+
+  // ==================== MinMax hesaplama disi birakma ====================
+  getMinMaxExclusions: async (): Promise<{
+    success: boolean;
+    data: {
+      items: Array<{
+        id: string;
+        productCode: string;
+        productName?: string | null;
+        note?: string | null;
+        createdByName?: string | null;
+        createdAt: string;
+      }>;
+    };
+  }> => {
+    const response = await apiClient.get('/admin/minmax-exclusions');
+    return response.data;
+  },
+
+  addMinMaxExclusions: async (
+    items: Array<{ productCode: string; productName?: string; note?: string }>
+  ): Promise<{ success: boolean; data: { added: number; skipped: string[] } }> => {
+    const response = await apiClient.post('/admin/minmax-exclusions', { items });
+    return response.data;
+  },
+
+  removeMinMaxExclusion: async (id: string): Promise<{ success: boolean; data: any }> => {
+    const response = await apiClient.delete(`/admin/minmax-exclusions/${encodeURIComponent(id)}`);
+    return response.data;
+  },
+
+  // ==================== Aile Yonetimi Raporlari (Round 4) ====================
+  getFamilySuggestionsReport: async (params?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ success: boolean; data: { rows: any[]; total: number } }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.limit !== undefined) queryParams.append('limit', String(params.limit));
+    if (params?.offset !== undefined) queryParams.append('offset', String(params.offset));
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/family-management/suggestions${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  getFamilyClustersReport: async (params?: {
+    limit?: number;
+  }): Promise<{ success: boolean; data: { clusters: any[] } }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.limit !== undefined) queryParams.append('limit', String(params.limit));
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/family-management/clusters${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  getFamilyOutliersReport: async (): Promise<{ success: boolean; data: { rows: any[] } }> => {
+    const response = await apiClient.get('/admin/reports/family-management/outliers');
+    return response.data;
+  },
+
+  // Aileden uye cikarma (uyeyi pasifler; Mikro yazma YOK)
+  removeProductFromFamily: async (
+    familyId: string,
+    productCode: string
+  ): Promise<{ success: boolean; data: { removed: boolean } }> => {
+    const response = await apiClient.post(
+      `/admin/stock-family/${encodeURIComponent(familyId)}/remove-product`,
+      { productCode }
+    );
+    return response.data;
+  },
+
+  getFamilyUnitMismatch: async (): Promise<{ success: boolean; data: { families: any[] } }> => {
+    const response = await apiClient.get('/admin/reports/family-unit-mismatch');
+    return response.data;
+  },
+
+  // Aile ici birim esleme katsayisi (null = temizle)
+  setFamilyItemUnitFactor: async (
+    itemId: string,
+    factor: number | null
+  ): Promise<{ success: boolean; data: { item: { itemId: string; unitFactorOverride: number | null } } }> => {
+    const response = await apiClient.put(
+      `/admin/stock-family/items/${encodeURIComponent(itemId)}/unit-factor`,
+      { factor }
+    );
+    return response.data;
+  },
+
+  // ==================== Zamanlanmis Isler (Round 4) ====================
+  // NOT: bu 3 metod backend zarfini ACAR (response.data.data) — cagiranlar dogrudan {jobs}/{job}/{started} bekliyor.
+  getScheduledJobs: async (): Promise<{ jobs: any[] }> => {
+    const response = await apiClient.get('/admin/scheduled-jobs');
+    return response.data?.data ?? { jobs: [] };
+  },
+
+  setScheduledJobSchedule: async (
+    key: string,
+    schedule: string | null
+  ): Promise<{ job: any }> => {
+    const response = await apiClient.put(
+      `/admin/scheduled-jobs/${encodeURIComponent(key)}/schedule`,
+      { schedule }
+    );
+    return response.data?.data ?? {};
+  },
+
+  runScheduledJob: async (key: string): Promise<{ started: boolean; alreadyRunning?: boolean }> => {
+    const response = await apiClient.post(`/admin/scheduled-jobs/${encodeURIComponent(key)}/run`);
+    return response.data?.data ?? { started: false };
   },
 
   // ==================== Aday aile motoru ====================

@@ -1,30 +1,38 @@
 /**
  * Borc-Mal Takasi Radari (SALT OKUMA)
  *
- * Vadesi gecmis bakiyesi olan carileri, bizim satin alma ihtiyacimizla kesistirir:
- * "nakit yerine su mali getir, mahsuplasalim".
+ * Iki yonlu takas firsati:
  *
- * Kaynaklar:
- * - PG VadeBalance: pastDueBalance >= minPastDue olan cariler (User.mikroCariCode).
- * - Mikro: cari ana tedarikci olarak geciyor mu (STOKLAR.sto_sat_cari_kod) VEYA
- *   gecmiste kendisine verilen siparis kesilmis mi (SIPARISLER sip_tip=1, son 24 ay).
- * - Ihtiyac: STOK_DEPO_DETAYLARI sdp_min_stok (depo 1=Merkez, 6=Topca) +
- *   dbo.fn_DepodakiMiktar guncel stok; depo basina EFEKTIF stok =
- *   stok - acik musteri siparisi (sip_tip=0) + acik satin alma siparisi (sip_tip=1)
- *   (stock-f10.service.ts "Satilabilir" kalibi); min > 0 ve efektif < min ise ihtiyac var.
- *   (DEPO_MERKEZ_DURUM/DEPO_TOPCA_DURUM view'larinin hafif alternatifi; ayni
- *   min/stok mantigi, reports.service.ts getUcarerDepotReport ile uyumlu.)
+ * A) MUSTERI tarafi (bize borclu + bize mal SATABILIR):
+ *    Vadesi gecmis ALACAGIMIZ (bize borclu) >= minPastDue olan cariler; bunlardan
+ *    bize tedarikci olabilecekler (STOKLAR.sto_sat_cari_kod ana tedarikci VEYA son
+ *    24 ayda kendisine verilmis satin alma siparisi sip_tip=1). "Nakit yerine su
+ *    mali getir, mahsuplasalim."
  *
- * Bu servis Mikro'ya HICBIR yazma yapmaz.
+ * B) TEDARIKCI tarafi (biz borclu + bizden mal ALABILIR):
+ *    Bizim BORCLU oldugumuz (payable) >= minPayable olan cariler; bunlardan son 12
+ *    ayda BIZDEN mal alanlar. "Sana olan borcumuza karsilik bizden mal al."
+ *
+ * Bakiye kaynagi: vadeSync.service.ts'in VadeBalance'i dolduran Mikro yaslandirma
+ * sorgusunun BIREBIR AYNISI, keyfi cari kodlari icin calistirilir (B2B User sarti
+ * YOK). Isaret sozlesmesi: cha_tip=0 -> +meblag (bize borclu / alacak), cha_tip=1
+ * -> -meblag (biz borclu). Pozitif net = bize borclu (receivable); negatif net =
+ * biz borcluyuz (payable). Bu, /api/financials'in gosterdigi ayni hesaptir.
+ *
+ * Performans: once ADAY cari kumeleri turetilir (kucuk), sonra yaslandirma SADECE
+ * bu adaylar icin hesaplanir. Bu servis Mikro'ya HICBIR yazma yapmaz.
  */
 
-import { prisma } from '../utils/prisma';
 import mikroService from './mikro.service';
 
-const MAX_CUSTOMERS = 50;
+const MAX_CANDIDATE_CARILER = 1500;  // yaslandirma hesaplanacak aday cari tavani
+const MAX_CUSTOMER_ROWS = 100;       // donen musteri satiri
+const MAX_SUPPLIER_ROWS = 100;       // donen tedarikci satiri
 const MAX_PRODUCTS_PER_CUSTOMER = 50;
-const MAX_PRODUCT_ROWS = 2500;
+const MAX_PRODUCT_ROWS = 4000;
 const PAST_ORDER_LOOKBACK_MONTHS = 24;
+const SUPPLIER_SALES_LOOKBACK_MONTHS = 12;
+const TOP_SUPPLIER_PRODUCTS = 20;
 
 export interface BarterDepotNeed {
   min: number;
@@ -50,7 +58,8 @@ export interface BarterProductRow {
 export interface BarterCustomerRow {
   cariCode: string;
   cariName: string;
-  pastDueBalance: number;
+  pastDueBalance: number;  // vadesi gecmis alacak (bize borclu)
+  totalBalance: number;    // toplam bakiye (bize borclu, pozitif)
   pastDueDate: string | null;
   products: BarterProductRow[];
   productCount: number;
@@ -58,72 +67,308 @@ export interface BarterCustomerRow {
   cappedPotential: number; // min(vadesi gecmis bakiye, barterPotential)
 }
 
+export interface BarterSupplierProductRow {
+  productCode: string;
+  productName: string;
+  last12moQty: number;
+  last12moAmount: number;
+}
+
+export interface BarterSupplierRow {
+  cariCode: string;
+  cariName: string;
+  payableBalance: number;    // bizim borcumuz (pozitif buyukluk)
+  pastDuePayable: number;    // vadesi gecmis borcumuz (pozitif buyukluk)
+  lastPurchaseDate: string | null; // bizden son mal alis tarihi
+  ourProductsTheyBuy: BarterSupplierProductRow[];
+  offsetPotential: number;   // min(payableBalance, son 12 ay bizden alim tutari)
+}
+
 export interface BarterRadarReport {
   minPastDue: number;
-  rows: BarterCustomerRow[];
+  minPayable: number;
+  customers: BarterCustomerRow[];
+  suppliers: BarterSupplierRow[];
   summary: {
-    matchedCustomerCount: number;
-    totalPotential: number; // capped toplami
-    totalPastDue: number;
+    customerCount: number;
+    supplierCount: number;
+    totalReceivablePotential: number; // musteri cappedPotential toplami
+    totalPayablePotential: number;    // tedarikci offsetPotential toplami
+    /**
+     * Aday cari sorgularindan biri MAX_CANDIDATE_CARILER tavanina dayandi mi?
+     * true ise sonuclar EKSIK olabilir (bazi uygun cariler adaya alinmamis olabilir);
+     * frontend kullaniciyi uyarabilir.
+     */
+    truncated: boolean;
   };
   generatedAt: string;
 }
 
-const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''");
+type AgingRow = {
+  cariCode: string;
+  cariName: string;
+  pastDueBalance: number; // net (cha_tip=0 +, cha_tip=1 -)
+  notDueBalance: number;
+  totalBalance: number;
+  pastDueDate: Date | null;
+};
+
+const escapeSqlLiteral = (value: string): string => String(value || '').replace(/'/g, "''");
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+};
+
+/**
+ * vadeSync.normalizeBalanceBuckets ile ayni: net toplam >= 0 iken negatif kova
+ * digerine tasinir. Burada isareti KORURUZ (musteri/tedarikci ayrimi net toplamin
+ * isaretinden gelir), sadece bucket'lari duzeltiriz.
+ */
+const normalizeBuckets = (pastDue: number, notDue: number) => {
+  const total = round2(pastDue + notDue);
+  let resolvedPastDue = pastDue;
+  let resolvedNotDue = notDue;
+  if (total >= 0) {
+    if (resolvedPastDue < 0) {
+      resolvedNotDue += resolvedPastDue;
+      resolvedPastDue = 0;
+    } else if (resolvedNotDue < 0) {
+      resolvedPastDue += resolvedNotDue;
+      resolvedNotDue = 0;
+    }
+  }
+  return {
+    pastDueBalance: round2(resolvedPastDue),
+    notDueBalance: round2(resolvedNotDue),
+    totalBalance: round2(resolvedPastDue + resolvedNotDue),
+  };
+};
 
 class BarterRadarService {
-  async getBarterRadar(options: { minPastDue?: number } = {}): Promise<BarterRadarReport> {
-    const minPastDueRaw = Number(options.minPastDue);
-    const minPastDue = Number.isFinite(minPastDueRaw) && minPastDueRaw > 0 ? minPastDueRaw : 50000;
+  /**
+   * Aday cari kodlari icin vadeSync yaslandirma sorgusunu (BIREBIR ayni filtre +
+   * fn_OpVadeTarih + isaret sozlesmesi) calistirir. cariCode -> AgingRow.
+   */
+  private async computeAgingForCariler(cariCodes: string[]): Promise<Map<string, AgingRow>> {
+    const map = new Map<string, AgingRow>();
+    const unique = Array.from(new Set(cariCodes.map((c) => c.trim().toUpperCase()).filter(Boolean)));
+    if (unique.length === 0) return map;
 
-    // a) Vadesi gecmis bakiyesi esigin uzerinde olan cariler (PG)
-    const balances = await prisma.vadeBalance.findMany({
-      where: {
-        pastDueBalance: { gte: minPastDue },
-        user: { mikroCariCode: { not: null } },
-      },
-      orderBy: { pastDueBalance: 'desc' },
-      take: MAX_CUSTOMERS,
-      select: {
-        pastDueBalance: true,
-        pastDueDate: true,
-        user: {
-          select: {
-            mikroCariCode: true,
-            name: true,
-            mikroName: true,
-            displayName: true,
-          },
-        },
-      },
-    });
+    for (const chunk of chunkArray(unique, 200)) {
+      const inClause = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+      // vadeSync.fetchMikroBalances ile ayni govde; sadece cari_kod IN (...) eklendi.
+      const query = `
+        SET NOCOUNT ON;
+        SELECT
+          c.cari_kod AS cariCode,
+          LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS cariName,
+          SUM(CASE
+            WHEN vt.vade_tarihi < CAST(GETDATE() AS DATE)
+            THEN CASE WHEN h.cha_tip = 0 THEN h.cha_meblag ELSE -h.cha_meblag END
+            ELSE 0
+          END) AS pastDueBalance,
+          MAX(CASE WHEN vt.vade_tarihi < CAST(GETDATE() AS DATE) THEN vt.vade_tarihi END) AS pastDueDate,
+          SUM(CASE
+            WHEN vt.vade_tarihi >= CAST(GETDATE() AS DATE)
+            THEN CASE WHEN h.cha_tip = 0 THEN h.cha_meblag ELSE -h.cha_meblag END
+            ELSE 0
+          END) AS notDueBalance
+        FROM CARI_HESAPLAR c
+        LEFT JOIN CARI_HESAP_HAREKETLERI h
+          ON h.cha_kod = c.cari_kod
+          AND ISNULL(h.cha_iptal, 0) = 0
+          AND h.cha_cari_cins = 0
+          AND h.cha_tpoz = 0
+          AND ISNULL(h.cha_meblag_ana_doviz_icin_gecersiz_fl, 0) = 0
+        OUTER APPLY (
+          SELECT dbo.fn_OpVadeTarih(h.cha_vade, h.cha_tarihi) AS vade_tarihi
+        ) vt
+        WHERE c.cari_kod IS NOT NULL
+          AND c.cari_kod <> ''
+          AND UPPER(LTRIM(RTRIM(c.cari_kod))) IN (${inClause})
+        GROUP BY c.cari_kod, c.cari_unvan1
+      `;
 
-    const customers = balances
-      .map((row) => ({
-        cariCode: String(row.user?.mikroCariCode || '').trim().toUpperCase(),
-        cariName:
-          String(row.user?.displayName || row.user?.mikroName || row.user?.name || '').trim() ||
-          String(row.user?.mikroCariCode || '').trim().toUpperCase(),
-        pastDueBalance: Number(row.pastDueBalance) || 0,
-        pastDueDate: row.pastDueDate ? new Date(row.pastDueDate).toISOString() : null,
-      }))
-      .filter((row) => Boolean(row.cariCode));
-
-    if (customers.length === 0) {
-      return {
-        minPastDue,
-        rows: [],
-        summary: { matchedCustomerCount: 0, totalPotential: 0, totalPastDue: 0 },
-        generatedAt: new Date().toISOString(),
-      };
+      const rows = await mikroService.executeQuery(query);
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const cariCode = String(row?.cariCode || '').trim().toUpperCase();
+        if (!cariCode) continue;
+        const rawPastDue = Number(row?.pastDueBalance) || 0;
+        const rawNotDue = Number(row?.notDueBalance) || 0;
+        const buckets = normalizeBuckets(rawPastDue, rawNotDue);
+        const pastDueDateRaw = row?.pastDueDate ? new Date(row.pastDueDate) : null;
+        map.set(cariCode, {
+          cariCode,
+          cariName: String(row?.cariName || '').trim() || cariCode,
+          pastDueBalance: buckets.pastDueBalance,
+          notDueBalance: buckets.notDueBalance,
+          totalBalance: buckets.totalBalance,
+          pastDueDate:
+            pastDueDateRaw && !Number.isNaN(pastDueDateRaw.getTime()) ? pastDueDateRaw : null,
+        });
+      }
     }
 
-    const inClause = customers
-      .map((customer) => `'${escapeSqlLiteral(customer.cariCode)}'`)
-      .join(', ');
+    return map;
+  }
 
-    // b+d) Ana tedarikci urunleri + gecmiste verilen siparis kesilen urunler (birlesim),
-    //      ihtiyac = min > 0 iken stok < min olan depo satirlari (SALT OKUMA)
+  async getBarterRadar(options: { minPastDue?: number; minPayable?: number } = {}): Promise<BarterRadarReport> {
+    const minPastDueRaw = Number(options.minPastDue);
+    const minPastDue = Number.isFinite(minPastDueRaw) && minPastDueRaw > 0 ? minPastDueRaw : 50000;
+    const minPayableRaw = Number(options.minPayable);
+    const minPayable = Number.isFinite(minPayableRaw) && minPayableRaw > 0 ? minPayableRaw : 50000;
+
+    // ---------- 1) ADAY CARI KUMELERI (kucuk, once turet) ----------
+
+    // A-aday) Bize mal SATABILIR cariler: ana tedarikci (STOKLAR.sto_sat_cari_kod)
+    //         VEYA son 24 ayda satin alma siparisi (SIPARISLER sip_tip=1).
+    // Deterministik oncelik: son satin alma siparisi EN YENI olan cariler once gelir
+    // (recency). Ana tedarikci (tarihsiz) satirlar lastOrderDate=NULL ile en sona
+    // duser ama yine de tavan icinde kalabilir. ORDER BY olmadan TOP N keyfi secerdi
+    // (kullanicinin "sadece 3 cari" semptomu).
+    const supplierCapableRows = await mikroService.executeQuery(`
+      SET NOCOUNT ON;
+      SELECT TOP ${MAX_CANDIDATE_CARILER} cariCode
+      FROM (
+        SELECT cariCode, MAX(lastOrderDate) AS lastOrderDate
+        FROM (
+          SELECT UPPER(LTRIM(RTRIM(s.sto_sat_cari_kod))) AS cariCode, CAST(NULL AS datetime) AS lastOrderDate
+          FROM STOKLAR s WITH (NOLOCK)
+          WHERE ISNULL(s.sto_pasif_fl, 0) = 0
+            AND s.sto_sat_cari_kod IS NOT NULL
+            AND LTRIM(RTRIM(s.sto_sat_cari_kod)) <> ''
+          UNION ALL
+          SELECT UPPER(LTRIM(RTRIM(sip.sip_musteri_kod))) AS cariCode,
+            ISNULL(sip.sip_tarih, sip.sip_create_date) AS lastOrderDate
+          FROM SIPARISLER sip WITH (NOLOCK)
+          WHERE sip.sip_tip = 1
+            AND ISNULL(sip.sip_iptal, 0) = 0
+            AND sip.sip_musteri_kod IS NOT NULL
+            AND LTRIM(RTRIM(sip.sip_musteri_kod)) <> ''
+            AND ISNULL(sip.sip_tarih, sip.sip_create_date) >= DATEADD(MONTH, -${PAST_ORDER_LOOKBACK_MONTHS}, CAST(GETDATE() AS date))
+        ) u
+        WHERE cariCode <> ''
+        GROUP BY cariCode
+      ) g
+      ORDER BY CASE WHEN g.lastOrderDate IS NULL THEN 1 ELSE 0 END, g.lastOrderDate DESC;
+    `);
+    const supplierCapableTruncated =
+      (Array.isArray(supplierCapableRows) ? supplierCapableRows.length : 0) >= MAX_CANDIDATE_CARILER;
+    const supplierCapable = new Set(
+      (Array.isArray(supplierCapableRows) ? supplierCapableRows : [])
+        .map((r: any) => String(r?.cariCode || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+
+    // B-aday) BIZDEN mal ALAN cariler (son 12 ay satis) + son alis tarihi.
+    // Deterministik oncelik: bizden EN YAKIN zamanda mal alan cariler once gelir.
+    // ORDER BY olmadan TOP N keyfi bir kume secip sonuclari eksik gosteriyordu.
+    const buyerRows = await mikroService.executeQuery(`
+      SET NOCOUNT ON;
+      SELECT TOP ${MAX_CANDIDATE_CARILER}
+        UPPER(LTRIM(RTRIM(sth.sth_cari_kodu))) AS cariCode,
+        MAX(sth.sth_tarih) AS lastPurchaseDate
+      FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+      WHERE ISNULL(sth.sth_tip, 0) = 1
+        AND ISNULL(sth.sth_cins, 0) = 0
+        AND ISNULL(sth.sth_normal_iade, 0) = 0
+        AND ISNULL(sth.sth_evraktip, 0) IN (1, 4)
+        AND ISNULL(sth.sth_iptal, 0) = 0
+        AND sth.sth_tarih >= DATEADD(MONTH, -${SUPPLIER_SALES_LOOKBACK_MONTHS}, CAST(GETDATE() AS date))
+        AND sth.sth_cari_kodu IS NOT NULL AND LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''
+      GROUP BY UPPER(LTRIM(RTRIM(sth.sth_cari_kodu)))
+      ORDER BY MAX(sth.sth_tarih) DESC;
+    `);
+    const buyerTruncated =
+      (Array.isArray(buyerRows) ? buyerRows.length : 0) >= MAX_CANDIDATE_CARILER;
+    const buyerLastPurchase = new Map<string, Date | null>();
+    (Array.isArray(buyerRows) ? buyerRows : []).forEach((r: any) => {
+      const cariCode = String(r?.cariCode || '').trim().toUpperCase();
+      if (!cariCode) return;
+      const d = r?.lastPurchaseDate ? new Date(r.lastPurchaseDate) : null;
+      buyerLastPurchase.set(cariCode, d && !Number.isNaN(d.getTime()) ? d : null);
+    });
+
+    // ---------- 2) YASLANDIRMA (sadece adaylar) ----------
+    const candidateCodes = Array.from(new Set([...supplierCapable, ...buyerLastPurchase.keys()]));
+    if (candidateCodes.length === 0) {
+      return this.emptyReport(minPastDue, minPayable);
+    }
+    const agingMap = await this.computeAgingForCariler(candidateCodes);
+
+    // ---------- 3) MUSTERI TARAFI (bize borclu + tedarikci olabilir) ----------
+    const customerCariler = candidateCodes.filter((code) => {
+      if (!supplierCapable.has(code)) return false;
+      const aging = agingMap.get(code);
+      return Boolean(aging && aging.pastDueBalance >= minPastDue);
+    });
+
+    const customers = await this.buildCustomerRows(customerCariler, agingMap);
+
+    // ---------- 4) TEDARIKCI TARAFI (biz borclu + bizden alabilir) ----------
+    const supplierCariler = Array.from(buyerLastPurchase.keys()).filter((code) => {
+      const aging = agingMap.get(code);
+      // biz borclu => net totalBalance < 0 (payable). payable buyuklugu >= minPayable.
+      return Boolean(aging && aging.totalBalance <= -minPayable);
+    });
+
+    const suppliers = await this.buildSupplierRows(supplierCariler, agingMap, buyerLastPurchase);
+
+    return {
+      minPastDue,
+      minPayable,
+      customers,
+      suppliers,
+      summary: {
+        customerCount: customers.length,
+        supplierCount: suppliers.length,
+        totalReceivablePotential: round2(
+          customers.reduce((sum, row) => sum + row.cappedPotential, 0)
+        ),
+        totalPayablePotential: round2(
+          suppliers.reduce((sum, row) => sum + row.offsetPotential, 0)
+        ),
+        truncated: supplierCapableTruncated || buyerTruncated,
+      },
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  private emptyReport(minPastDue: number, minPayable: number): BarterRadarReport {
+    return {
+      minPastDue,
+      minPayable,
+      customers: [],
+      suppliers: [],
+      summary: {
+        customerCount: 0,
+        supplierCount: 0,
+        totalReceivablePotential: 0,
+        totalPayablePotential: 0,
+        truncated: false,
+      },
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * MUSTERI satirlari: her cari icin tedarik edebilecegi urunlerdeki depo ihtiyaci
+   * (min-bazli, rezerve/yolda-gelen ayarli). barter-radar v1 mantiginin aynisi.
+   */
+  private async buildCustomerRows(
+    cariCodes: string[],
+    agingMap: Map<string, AgingRow>
+  ): Promise<BarterCustomerRow[]> {
+    const cariler = cariCodes.slice(0, MAX_CUSTOMER_ROWS);
+    if (cariler.length === 0) return [];
+
+    const inClause = cariler.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+
     const rawRows = await mikroService.executeQuery(`
       SET NOCOUNT ON;
       WITH SupplierProducts AS (
@@ -190,9 +435,6 @@ class BarterRadarService {
       ORDER BY sp.cariCode, sp.productCode;
     `);
 
-    // c) Eslesme satirlari: ihtiyac = max(0, min - efektifStok), sadece min > 0 depolar.
-    //    efektifStok = stok - acik musteri siparisi + acik satin alma siparisi
-    //    (rezerve stok ihtiyaci gizlemesin, yolda gelen mal cifte siparise yol acmasin).
     const productsByCari = new Map<string, BarterProductRow[]>();
     (Array.isArray(rawRows) ? rawRows : []).forEach((row: any) => {
       const cariCode = String(row?.cariCode || '').trim().toUpperCase();
@@ -244,33 +486,111 @@ class BarterRadarService {
       productsByCari.set(cariCode, list);
     });
 
-    const rows: BarterCustomerRow[] = customers
-      .map((customer) => {
-        const products = (productsByCari.get(customer.cariCode) || [])
+    return cariler
+      .map((cariCode) => {
+        const aging = agingMap.get(cariCode);
+        if (!aging) return null;
+        const products = (productsByCari.get(cariCode) || [])
           .sort((a, b) => b.amount - a.amount)
           .slice(0, MAX_PRODUCTS_PER_CUSTOMER);
-        const barterPotential = products.reduce((sum, product) => sum + product.amount, 0);
+        const barterPotential = round2(products.reduce((sum, product) => sum + product.amount, 0));
         return {
-          ...customer,
+          cariCode,
+          cariName: aging.cariName,
+          pastDueBalance: aging.pastDueBalance,
+          totalBalance: aging.totalBalance,
+          pastDueDate: aging.pastDueDate ? aging.pastDueDate.toISOString() : null,
           products,
           productCount: products.length,
           barterPotential,
-          cappedPotential: Math.min(customer.pastDueBalance, barterPotential),
-        };
+          cappedPotential: round2(Math.min(aging.pastDueBalance, barterPotential)),
+        } as BarterCustomerRow;
       })
-      .filter((row) => row.productCount > 0)
+      .filter((row): row is BarterCustomerRow => Boolean(row && row.productCount > 0))
       .sort((a, b) => b.cappedPotential - a.cappedPotential);
+  }
 
-    return {
-      minPastDue,
-      rows,
-      summary: {
-        matchedCustomerCount: rows.length,
-        totalPotential: rows.reduce((sum, row) => sum + row.cappedPotential, 0),
-        totalPastDue: rows.reduce((sum, row) => sum + row.pastDueBalance, 0),
-      },
-      generatedAt: new Date().toISOString(),
-    };
+  /**
+   * TEDARIKCI satirlari: bizim borclu oldugumuz cariler; her biri icin son 12 ayda
+   * BIZDEN aldigi urunlerin ilk 20'si (tutara gore) + mahsup potansiyeli.
+   */
+  private async buildSupplierRows(
+    cariCodes: string[],
+    agingMap: Map<string, AgingRow>,
+    buyerLastPurchase: Map<string, Date | null>
+  ): Promise<BarterSupplierRow[]> {
+    const cariler = cariCodes.slice(0, MAX_SUPPLIER_ROWS);
+    if (cariler.length === 0) return [];
+
+    const inClause = cariler.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+
+    // Son 12 ay: cari x urun bazinda bizden alim miktari + tutari.
+    const rawRows = await mikroService.executeQuery(`
+      SET NOCOUNT ON;
+      SELECT
+        UPPER(LTRIM(RTRIM(sth.sth_cari_kodu))) AS cariCode,
+        UPPER(LTRIM(RTRIM(sth.sth_stok_kod))) AS productCode,
+        LTRIM(RTRIM(ISNULL(st.sto_isim, ''))) AS productName,
+        CAST(SUM(ISNULL(sth.sth_miktar, 0)) AS float) AS qty,
+        CAST(SUM(ISNULL(sth.sth_tutar, 0)) AS float) AS amount
+      FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+      LEFT JOIN STOKLAR st WITH (NOLOCK) ON st.sto_kod = sth.sth_stok_kod
+      WHERE ISNULL(sth.sth_tip, 0) = 1
+        AND ISNULL(sth.sth_cins, 0) = 0
+        AND ISNULL(sth.sth_normal_iade, 0) = 0
+        AND ISNULL(sth.sth_evraktip, 0) IN (1, 4)
+        AND ISNULL(sth.sth_iptal, 0) = 0
+        AND sth.sth_tarih >= DATEADD(MONTH, -${SUPPLIER_SALES_LOOKBACK_MONTHS}, CAST(GETDATE() AS date))
+        AND UPPER(LTRIM(RTRIM(ISNULL(sth.sth_cari_kodu, '')))) IN (${inClause})
+        AND sth.sth_stok_kod IS NOT NULL AND LTRIM(RTRIM(sth.sth_stok_kod)) <> ''
+      GROUP BY
+        UPPER(LTRIM(RTRIM(sth.sth_cari_kodu))),
+        UPPER(LTRIM(RTRIM(sth.sth_stok_kod))),
+        LTRIM(RTRIM(ISNULL(st.sto_isim, '')));
+    `);
+
+    const productsByCari = new Map<string, BarterSupplierProductRow[]>();
+    const totalBuyByCari = new Map<string, number>();
+    (Array.isArray(rawRows) ? rawRows : []).forEach((row: any) => {
+      const cariCode = String(row?.cariCode || '').trim().toUpperCase();
+      const productCode = String(row?.productCode || '').trim().toUpperCase();
+      if (!cariCode || !productCode) return;
+      const qty = Number(row?.qty) || 0;
+      const amount = Number(row?.amount) || 0;
+      const list = productsByCari.get(cariCode) || [];
+      list.push({
+        productCode,
+        productName: String(row?.productName || '').trim() || productCode,
+        last12moQty: round2(qty),
+        last12moAmount: round2(amount),
+      });
+      productsByCari.set(cariCode, list);
+      totalBuyByCari.set(cariCode, (totalBuyByCari.get(cariCode) || 0) + amount);
+    });
+
+    return cariler
+      .map((cariCode) => {
+        const aging = agingMap.get(cariCode);
+        if (!aging) return null;
+        const payableBalance = round2(Math.abs(Math.min(0, aging.totalBalance)));
+        const pastDuePayable = round2(Math.abs(Math.min(0, aging.pastDueBalance)));
+        const products = (productsByCari.get(cariCode) || [])
+          .sort((a, b) => b.last12moAmount - a.last12moAmount)
+          .slice(0, TOP_SUPPLIER_PRODUCTS);
+        const total12moBuy = round2(totalBuyByCari.get(cariCode) || 0);
+        const lastPurchase = buyerLastPurchase.get(cariCode) || null;
+        return {
+          cariCode,
+          cariName: aging.cariName,
+          payableBalance,
+          pastDuePayable,
+          lastPurchaseDate: lastPurchase ? lastPurchase.toISOString() : null,
+          ourProductsTheyBuy: products,
+          offsetPotential: round2(Math.min(payableBalance, total12moBuy)),
+        } as BarterSupplierRow;
+      })
+      .filter((row): row is BarterSupplierRow => Boolean(row && row.offsetPotential > 0))
+      .sort((a, b) => b.offsetPotential - a.offsetPotential);
   }
 }
 

@@ -12,7 +12,7 @@ import { ProductRecommendations } from '@/components/customer/ProductRecommendat
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
-import { formatUnitFactor, getUnit2BaseQuantity, getUnitConversionLabel } from '@/lib/utils/unit';
+import { formatUnitFactor, getUnitOptions, getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
@@ -187,6 +187,7 @@ export default function ProductDetailPage() {
         quantity: baseQuantity,
         priceType: safePriceType,
         priceMode,
+        selectedUnit: unit2Active ? unitInfo.altUnit : undefined,
       });
 
       toast.success('Urun sepete eklendi!');
@@ -332,12 +333,12 @@ export default function ProductDetailPage() {
     agreementUnitPriceRaw > 0
       ? getDisplayPrice(agreementUnitPriceRaw, product.vatRate, selectedPriceType, vatDisplayPreference)
       : undefined;
-  // 2. birim secici: 1 ikinci birim = kac baz birim (sadece 2. birim daha buyukse)
-  const unit2BaseQty = getUnit2BaseQuantity(product.unit, product.unit2, product.unit2Factor);
-  const unit2Active = useUnit2 && unit2BaseQty !== null;
-  const selectedUnitName = unit2Active ? (product.unit2 as string) : product.unit;
-  // Sepete gidecek BAZ birim miktari (backend hep baz birim bekler)
-  const baseQuantity = unit2Active ? quantity * (unit2BaseQty as number) : quantity;
+  // 2. birim secici — her iki yon (2. birim buyuk/kucuk) desteklenir.
+  const unitInfo = getUnitOptions(product.unit, product.unit2, product.unit2Factor);
+  const unit2Active = useUnit2 && unitInfo.hasToggle;
+  const selectedUnitName = unit2Active ? (unitInfo.altUnit as string) : product.unit;
+  // Sepete gidecek BAZ (ana) birim miktari (backend hep baz birim bekler)
+  const baseQuantity = unit2Active ? unitInfo.altToBase(quantity) : quantity;
   const totalPrice = selectedPrice * baseQuantity;
   const displaySelectedPrice = getDisplayPrice(
     selectedPrice,
@@ -711,8 +712,8 @@ export default function ProductDetailPage() {
               </button>
             )}
 
-            {/* Birim secici (ADET | KOLI) */}
-            {unit2BaseQty !== null && (
+            {/* Birim secici (ADET | KOLI / KOLI | PAKET) */}
+            {unitInfo.hasToggle && (
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex rounded-lg bg-[var(--surface-1)] p-0.5 ring-1 ring-inset ring-[var(--line)]">
                   <button
@@ -735,12 +736,12 @@ export default function ProductDetailPage() {
                         : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
                     }`}
                   >
-                    {product.unit2}
+                    {unitInfo.altUnit}
                   </button>
                 </div>
-                <span className="text-[11.5px] text-[var(--ink-3)]">
-                  1 {product.unit2} = {formatUnitFactor(unit2BaseQty)} {product.unit}
-                </span>
+                {unitInfo.ratioLabel && (
+                  <span className="text-[11.5px] text-[var(--ink-3)]">{unitInfo.ratioLabel}</span>
+                )}
               </div>
             )}
 
@@ -793,12 +794,12 @@ export default function ProductDetailPage() {
                 <div className="text-xl font-semibold tracking-tight text-[var(--ink-1)]">{formatCurrency(displayTotalPrice)}</div>
                 <div className="mt-0.5 text-[11px] font-medium text-primary-600">
                   {quantity} {selectedUnitName} ×{' '}
-                  {formatCurrency(unit2Active ? displaySelectedPrice * (unit2BaseQty as number) : displaySelectedPrice)} ·{' '}
+                  {formatCurrency(unit2Active ? displaySelectedPrice * unitInfo.altPriceFactor : displaySelectedPrice)} ·{' '}
                   {selectedPriceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
                 </div>
                 {unit2Active && (
                   <div className="text-[10.5px] text-[var(--ink-3)]">
-                    = {formatUnitFactor(baseQuantity)} {product.unit}
+                    ≈ {formatUnitFactor(baseQuantity)} {product.unit}
                   </div>
                 )}
               </div>

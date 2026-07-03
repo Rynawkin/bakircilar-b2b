@@ -1,58 +1,69 @@
 /**
- * Yapiskan Iskonto Dedektoru (SALT OKUMA raporu)
+ * Yapiskan Iskonto Dedektoru (SALT OKUMA raporu) — v2
  *
- * Problem: useLastPrices carilerde bir kez dusuk fiyatla satis yapildiysa B2B o
- * fiyati "son fiyat" olarak gostermeye devam eder. Liste fiyatlari zamla artarken
- * eski mutlak fiyat yerinde kalir ve marj sessizce erir.
+ * GERCEK PROBLEM (kullanici tarifi): satisci carinin ATANAN faturali listesinin
+ * USTUNDE satmistir (ornek: liste "faturali 4" = 100, satis = 160). useLastPrices
+ * acik oldugu icin cari sepette hep 160'i GORUR. Liste zamlarla yukselirken bu
+ * mutlak 160 yerinde kalir; liste 160'i gecince eklenen prim (premium) tamamen
+ * erir ve cari artik listeden UCUZ almaya baslar.
  *
- * Bu servis, son satis fiyati ile carinin ATANAN faturali liste fiyati arasindaki
- * farki (gap) tarar ve tahmini aylik kaybi hesaplar. Mikro'ya SADECE SELECT atar,
- * hicbir yere yazmaz.
+ * Eski rapor "listenin ALTINDAKI" farklari (musterinin hic gormedigi) listeledigi
+ * icin yanlisti. Bu v2 SADECE musterinin GERCEKTEN GORDUGU son-satis fiyatli
+ * satirlari (cart-pricing useLastPrices + guard kurali BIREBIR replike) ve
+ * sonFiyat > guncelListeFiyati (gorunur prim) olanlari alir.
  *
- * Response sekli:
- * {
- *   rows: StickyDiscountRow[],       // aylikKayipTL DESC sirali
- *   summary: {
- *     rowCount, customerCount, totalMonthlyLossTL,
- *     worstCustomers: [{ cariKodu, cariAdi, aylikKayipTL, satirSayisi }],  // top 10
- *     params: { minGapPercent, lookbackDays },
- *     generatedAt
- *   }
- * }
+ * Metdrikler:
+ * - listeFiyatiSatisAninda: satis anindaki liste fiyati (PriceChange kayitlari,
+ *   priceListNo === listNo; en son changedAt <= saleDate -> newPrice; yoksa ilk
+ *   sonraki -> oldPrice; yoksa fallback = guncel liste).
+ * - primSatisAnindaPct = (sonFiyat - listeFiyatiSatisAninda)/listeFiyatiSatisAninda*100
+ * - primBugunPct       = (sonFiyat - guncelListe)/guncelListe*100
+ * - erimePct           = primSatisAnindaPct - primBugunPct
+ * - aylikPrimTL        = (sonFiyat - guncelListe) * son90GunAdet / 3
+ * - kritik             = primBugunPct <= 10 (prim yakinda liste zamlarina yenik dusecek)
+ *
+ * Mikro'ya SADECE SELECT; hicbir yere yazmaz.
  */
 
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import { resolveCustomerPriceLists } from '../utils/customerPricing';
+import { resolveLastPriceOverride } from '../utils/lastPrice';
+import { computeIndexedLastSalePrice } from './cart-pricing.service';
 
 export type StickyDiscountRow = {
   cariKodu: string;
   cariAdi: string;
   stokKodu: string;
   stokAdi: string;
-  sonFiyat: number;
-  sonSatisTarihi: string; // ISO tarih
+  listNo: number;
+  sonFiyat: number;               // musterinin GERCEKTEN gordugu birim fiyat
+  sonSatisTarihi: string;         // ISO tarih
   fiyatYasiGun: number;
-  listeNo: number;
-  listeFiyati: number;
-  gapPercent: number;
+  listeFiyatiSatisAninda: number; // satis anindaki liste fiyati
+  guncelListeFiyati: number;      // bugunku liste fiyati
+  primSatisAnindaPct: number;
+  primBugunPct: number;
+  erimePct: number;
   son90GunAdet: number;
-  aylikKayipTL: number;
+  aylikPrimTL: number;
+  kritik: boolean;
 };
 
 export type StickyDiscountSummary = {
   rowCount: number;
   customerCount: number;
-  totalMonthlyLossTL: number;
-  worstCustomers: Array<{
+  totalMonthlyPremiumTL: number;
+  criticalCount: number;
+  worstErosion: Array<{
     cariKodu: string;
     cariAdi: string;
-    aylikKayipTL: number;
+    toplamAylikPrimTL: number;
     satirSayisi: number;
   }>;
   params: {
-    minGapPercent: number;
     lookbackDays: number;
+    minPremiumNowPercent: number;
   };
   generatedAt: string;
 };
@@ -89,10 +100,19 @@ const toFiniteNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+// cart-pricing.loadCartCustomerContext ile ayni useLastPrices/guard alanlari
 type CustomerInfo = {
   cariKodu: string;
   cariAdi: string;
   invoicedListNo: number;
+  whiteListNo: number;
+  priceVisibility: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH' | null;
+  useLastPrices: boolean;
+  lastPriceGuardType: 'COST' | 'PRICE_LIST' | null;
+  lastPriceGuardInvoicedListNo: number | null;
+  lastPriceGuardWhiteListNo: number | null;
+  lastPriceCostBasis: 'CURRENT_COST' | 'LAST_ENTRY' | null;
+  lastPriceMinCostPercent: number | null;
 };
 
 type LastSaleRow = {
@@ -104,9 +124,23 @@ type LastSaleRow = {
   qtyLast90: number;
 };
 
+type ProductCost = {
+  currentCost: number | null;
+  lastEntryPrice: number | null;
+};
+
+// PriceChange snapshot'i (cart-pricing ile ayni sekil; buraya kopyalandi)
+type PriceChangeSnapshot = {
+  changedAt: Date;
+  priceListNo: number | null;
+  oldPrice: number;
+  newPrice: number;
+};
+
 /**
  * Kapsamdaki carileri yukler: aktif, useLastPrices=true, mikroCariCode dolu CUSTOMER.
- * Liste no: user.invoicedPriceListNo ?? tek varsayilan (resolveCustomerPriceLists).
+ * Guard alanlari da alinir (musterinin son-satis fiyatini gercekten gorup gormedigini
+ * cart-pricing kurallariyla belirlemek icin).
  */
 const loadScopedCustomers = async (): Promise<Map<string, CustomerInfo>> => {
   const users = await prisma.user.findMany({
@@ -124,6 +158,13 @@ const loadScopedCustomers = async (): Promise<Map<string, CustomerInfo>> => {
       customerType: true,
       invoicedPriceListNo: true,
       whitePriceListNo: true,
+      priceVisibility: true,
+      useLastPrices: true,
+      lastPriceGuardType: true,
+      lastPriceGuardInvoicedListNo: true,
+      lastPriceGuardWhiteListNo: true,
+      lastPriceCostBasis: true,
+      lastPriceMinCostPercent: true,
     },
   });
 
@@ -136,6 +177,14 @@ const loadScopedCustomers = async (): Promise<Map<string, CustomerInfo>> => {
       cariKodu,
       cariAdi: user.displayName || user.mikroName || user.name || cariKodu,
       invoicedListNo: listPair.invoiced,
+      whiteListNo: listPair.white,
+      priceVisibility: (user.priceVisibility as CustomerInfo['priceVisibility']) ?? null,
+      useLastPrices: Boolean(user.useLastPrices),
+      lastPriceGuardType: (user.lastPriceGuardType as CustomerInfo['lastPriceGuardType']) ?? null,
+      lastPriceGuardInvoicedListNo: user.lastPriceGuardInvoicedListNo ?? null,
+      lastPriceGuardWhiteListNo: user.lastPriceGuardWhiteListNo ?? null,
+      lastPriceCostBasis: (user.lastPriceCostBasis as CustomerInfo['lastPriceCostBasis']) ?? null,
+      lastPriceMinCostPercent: user.lastPriceMinCostPercent ?? null,
     });
   });
   return map;
@@ -148,12 +197,10 @@ const loadScopedCustomers = async (): Promise<Map<string, CustomerInfo>> => {
  */
 const fetchLastSaleRows = async (
   cariCodes: string[],
-  lookbackDays: number
+  _lookbackDays: number
 ): Promise<LastSaleRow[]> => {
   const now = new Date();
-  const lookbackStart = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
   const last90Start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const lookbackLiteral = toMssqlDateLiteral(lookbackStart);
   const last90Literal = toMssqlDateLiteral(last90Start);
 
   const rows: LastSaleRow[] = [];
@@ -166,6 +213,12 @@ const fetchLastSaleRows = async (
       .map((code) => `'${escapeSqlLiteral(code)}'`)
       .join(', ');
 
+    // SON-satis satiri, cart-pricing'in musteriye GOSTERDIGI son fiyatla ayni satir
+    // olmali. Bu yuzden filtre mikroService.getCustomerSalesMovements ile BIREBIR:
+    // sth_tip=1 + (evraktip=4 VEYA (evraktip=1 AND fat_uid<>sentinel) VEYA fat_uid=sentinel).
+    // sth_normal_iade filtresi YOK ve son-satir SECIMINDE tarih-lookback YOK (cart'ta da
+    // yok) — boylece gercek en-son satir secilir; prim filtresi karar verir.
+    // son90GunAdet metrigi ayri bir 90-gunluk pencere tutar (satir secimini etkilemez).
     const query = `
       WITH SonSatislar AS (
         SELECT
@@ -185,9 +238,13 @@ const fetchLastSaleRows = async (
           ) AS qtyLast90
         FROM STOK_HAREKETLERI sth WITH (NOLOCK)
         WHERE sth.sth_tip = 1
-          AND sth.sth_evraktip IN (1, 4)
-          AND ISNULL(sth.sth_normal_iade, 0) = 0
-          AND sth.sth_tarih >= '${lookbackLiteral}'
+          AND (
+            (sth.sth_evraktip = 4)
+            OR
+            (sth.sth_evraktip = 1 AND sth.sth_fat_uid <> '00000000-0000-0000-0000-000000000000')
+            OR
+            (sth.sth_fat_uid = '00000000-0000-0000-0000-000000000000')
+          )
           AND RTRIM(sth.sth_cari_kodu) IN (${inClause})
       )
       SELECT TOP ${remaining}
@@ -275,10 +332,118 @@ const fetchListPriceMap = async (
 };
 
 /**
- * Cart tarafindaki getListPriceWithFallback ile ayni mantik: istenen liste bossa
- * ayni banttaki (faturali 6-10) bir alt listeden asagi dogru inilir.
+ * PG Product'tan maliyet bilgisi (COST guard'i icin). productCode(UPPER) -> cost.
  */
-const resolveListPrice = (
+const fetchProductCostMap = async (
+  productCodes: string[]
+): Promise<Map<string, ProductCost>> => {
+  const map = new Map<string, ProductCost>();
+  const uniqueCodes = Array.from(
+    new Set(productCodes.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))
+  );
+  if (uniqueCodes.length === 0) return map;
+
+  for (const chunk of chunkArray(uniqueCodes, 1000)) {
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: chunk } },
+      select: { mikroCode: true, currentCost: true, lastEntryPrice: true },
+    });
+    products.forEach((p) => {
+      map.set(String(p.mikroCode || '').trim().toUpperCase(), {
+        currentCost: p.currentCost ?? null,
+        lastEntryPrice: p.lastEntryPrice ?? null,
+      });
+    });
+  }
+  return map;
+};
+
+/**
+ * PriceChange (price_changes) snapshot'larini TOPLU ceker (productCode IN ...).
+ * cart-pricing.fetchPriceChangeSnapshots ile ayni sekil; buraya kopyalandi (o servis
+ * degistirilmeden). productCode(UPPER) -> changedAt ASC sirali snapshot dizisi.
+ */
+const fetchPriceChangeSnapshots = async (
+  productCodes: string[]
+): Promise<Map<string, PriceChangeSnapshot[]>> => {
+  const result = new Map<string, PriceChangeSnapshot[]>();
+  const uniqueCodes = Array.from(
+    new Set(productCodes.map((code) => String(code || '').trim()).filter(Boolean))
+  );
+  if (uniqueCodes.length === 0) return result;
+
+  for (const chunk of chunkArray(uniqueCodes, 1000)) {
+    const rows = await prisma.priceChange.findMany({
+      where: { productCode: { in: chunk } },
+      orderBy: { changedAt: 'asc' },
+      select: {
+        productCode: true,
+        changedAt: true,
+        priceListNo: true,
+        oldPrice: true,
+        newPrice: true,
+      },
+    });
+    for (const row of rows) {
+      const code = String(row.productCode || '').trim().toUpperCase();
+      if (!code) continue;
+      const changedAt =
+        row.changedAt instanceof Date ? row.changedAt : new Date(row.changedAt as any);
+      if (!Number.isFinite(changedAt.getTime())) continue;
+      const list = result.get(code) || [];
+      list.push({
+        changedAt,
+        priceListNo:
+          row.priceListNo === null || row.priceListNo === undefined
+            ? null
+            : Number(row.priceListNo),
+        oldPrice: toFiniteNumber(row.oldPrice),
+        newPrice: toFiniteNumber(row.newPrice),
+      });
+      result.set(code, list);
+    }
+  }
+  return result;
+};
+
+/**
+ * Satis anindaki liste fiyati: verilen listNo'nun PriceChange zincirinden.
+ * cart-pricing.computeIndexedLastSalePrice icindeki "listPriceAtSale" turetmesiyle
+ * ayni: en son changedAt <= saleDate -> newPrice; yoksa ilk sonraki -> oldPrice.
+ * Hicbiri yoksa fallback = guncel liste fiyati.
+ */
+const resolveListPriceAtSale = (
+  snapshots: PriceChangeSnapshot[] | undefined,
+  listNo: number,
+  saleDate: Date,
+  currentListPrice: number
+): number => {
+  const saleTime = saleDate.getTime();
+  if (snapshots && snapshots.length > 0 && Number.isFinite(saleTime)) {
+    const listSnapshots = snapshots.filter((s) => s.priceListNo === listNo);
+    let before: PriceChangeSnapshot | null = null;
+    let after: PriceChangeSnapshot | null = null;
+    for (const snapshot of listSnapshots) {
+      if (snapshot.changedAt.getTime() <= saleTime) {
+        before = snapshot;
+      } else {
+        after = snapshot;
+        break;
+      }
+    }
+    const listPriceAtSale = before
+      ? toFiniteNumber(before.newPrice)
+      : toFiniteNumber(after?.oldPrice);
+    if (listPriceAtSale > 0) return listPriceAtSale;
+  }
+  return currentListPrice;
+};
+
+/**
+ * Guncel liste fiyati (istenen listeye tam eslesme yoksa ayni bantta bir alt liste).
+ * cart getListPriceWithFallback ile ayni mantik.
+ */
+const resolveCurrentListPrice = (
   prices: Map<number, number> | undefined,
   listNo: number
 ): number => {
@@ -286,8 +451,7 @@ const resolveListPrice = (
   const exact = toFiniteNumber(prices.get(listNo));
   if (exact > 0) return exact;
   const min = listNo <= 5 ? 1 : 6;
-  const max = listNo <= 5 ? 5 : 10;
-  const start = Math.min(Math.max(listNo - 1, min), max);
+  const start = Math.min(Math.max(listNo - 1, min), listNo <= 5 ? 5 : 10);
   for (let no = start; no >= min; no -= 1) {
     const price = toFiniteNumber(prices.get(no));
     if (price > 0) return price;
@@ -296,58 +460,54 @@ const resolveListPrice = (
 };
 
 export const getStickyDiscountReport = async (params?: {
-  minGapPercent?: number;
   lookbackDays?: number;
+  minPremiumNowPercent?: number;
 }): Promise<StickyDiscountReport> => {
-  const minGapPercentRaw = Number(params?.minGapPercent);
-  const minGapPercent =
-    Number.isFinite(minGapPercentRaw) && minGapPercentRaw >= 0 ? minGapPercentRaw : 5;
   const lookbackDaysRaw = Number(params?.lookbackDays);
   const lookbackDays =
     Number.isFinite(lookbackDaysRaw) && lookbackDaysRaw > 0
       ? Math.min(Math.trunc(lookbackDaysRaw), 1825)
       : 365;
+  const minPremiumNowRaw = Number(params?.minPremiumNowPercent);
+  const minPremiumNowPercent =
+    Number.isFinite(minPremiumNowRaw) && minPremiumNowRaw >= 0 ? minPremiumNowRaw : 0;
 
   const emptySummaryBase = {
-    params: { minGapPercent, lookbackDays },
+    params: { lookbackDays, minPremiumNowPercent },
     generatedAt: new Date().toISOString(),
   };
+  const emptyReport = (): StickyDiscountReport => ({
+    rows: [],
+    summary: {
+      rowCount: 0,
+      customerCount: 0,
+      totalMonthlyPremiumTL: 0,
+      criticalCount: 0,
+      worstErosion: [],
+      ...emptySummaryBase,
+    },
+  });
 
   // 1) Kapsam: aktif + useLastPrices + mikroCariCode dolu musteriler
   const customers = await loadScopedCustomers();
-  if (customers.size === 0) {
-    return {
-      rows: [],
-      summary: {
-        rowCount: 0,
-        customerCount: 0,
-        totalMonthlyLossTL: 0,
-        worstCustomers: [],
-        ...emptySummaryBase,
-      },
-    };
-  }
+  if (customers.size === 0) return emptyReport();
 
-  // 2) Mikro: her cari x urun icin son satis satiri (tek kalip, chunk'li)
+  // 2) Mikro: her cari x urun icin son satis satiri
   const cariCodes = Array.from(customers.values()).map((c) => c.cariKodu);
   const saleRows = await fetchLastSaleRows(cariCodes, lookbackDays);
-  if (saleRows.length === 0) {
-    return {
-      rows: [],
-      summary: {
-        rowCount: 0,
-        customerCount: 0,
-        totalMonthlyLossTL: 0,
-        worstCustomers: [],
-        ...emptySummaryBase,
-      },
-    };
-  }
+  if (saleRows.length === 0) return emptyReport();
 
-  // 3) Guncel liste fiyatlari (bulk)
-  const listPriceMap = await fetchListPriceMap(saleRows.map((row) => row.productCode));
+  // 3) Guncel liste fiyatlari + maliyet + fiyat degisim gecmisi (bulk)
+  const productCodes = saleRows.map((row) => row.productCode);
+  const [listPriceMap, costMap, snapshotMap, settings] = await Promise.all([
+    fetchListPriceMap(productCodes),
+    fetchProductCostMap(productCodes),
+    fetchPriceChangeSnapshots(productCodes),
+    prisma.settings.findFirst({ select: { lastPriceIndexationEnabled: true } }),
+  ]);
+  const indexationEnabled = Boolean(settings?.lastPriceIndexationEnabled);
 
-  // 4) Gap hesabi
+  // 4) Satir hesabi
   const now = Date.now();
   const rows: StickyDiscountRow[] = [];
 
@@ -355,18 +515,84 @@ export const getStickyDiscountReport = async (params?: {
     const customer = customers.get(sale.cariCode.toUpperCase());
     if (!customer) continue;
 
-    const listeNo = customer.invoicedListNo;
-    const listeFiyati = resolveListPrice(
-      listPriceMap.get(sale.productCode.toUpperCase()),
-      listeNo
+    // Rapor listesi cart-pricing'in GORUNUR fiyatiyla ayni bant olmali: WHITE_ONLY
+    // musteri sepette beyaz liste (1-5) uzerinden fiyatlanir; digerleri faturali (6-10).
+    const isWhiteOnly = customer.priceVisibility === 'WHITE_ONLY';
+    const listNo = isWhiteOnly ? customer.whiteListNo : customer.invoicedListNo;
+    const productUpper = sale.productCode.toUpperCase();
+    const prices = listPriceMap.get(productUpper);
+    const guncelListe = resolveCurrentListPrice(prices, listNo);
+    if (guncelListe <= 0) continue;
+
+    // Musterinin gordugu son-satis fiyati: ayar acikken cart gibi endekslenir.
+    let shownPrice = sale.unitPrice;
+    if (indexationEnabled) {
+      const indexed = computeIndexedLastSalePrice({
+        rawLastSalePrice: sale.unitPrice,
+        saleDate: sale.saleDate,
+        listNo,
+        currentListPrice: toFiniteNumber(prices?.get(listNo)) || guncelListe,
+        snapshots: snapshotMap.get(productUpper) || [],
+      });
+      shownPrice = indexed.price;
+    }
+
+    // cart-pricing useLastPrices + guard kuralini BIREBIR replike et: musteri bu
+    // fiyati GERCEKTEN goruyor mu? Sadece goruyorsa rapora girer.
+    const cost = costMap.get(productUpper) || { currentCost: null, lastEntryPrice: null };
+    const guardInvoiced =
+      customer.lastPriceGuardInvoicedListNo && customer.lastPriceGuardInvoicedListNo > 0
+        ? toFiniteNumber(prices?.get(customer.lastPriceGuardInvoicedListNo))
+        : 0;
+    const guardWhite =
+      customer.lastPriceGuardWhiteListNo && customer.lastPriceGuardWhiteListNo > 0
+        ? toFiniteNumber(prices?.get(customer.lastPriceGuardWhiteListNo))
+        : 0;
+
+    const override = resolveLastPriceOverride({
+      config: {
+        useLastPrices: customer.useLastPrices,
+        lastPriceGuardType: customer.lastPriceGuardType,
+        lastPriceGuardInvoicedListNo: customer.lastPriceGuardInvoicedListNo,
+        lastPriceGuardWhiteListNo: customer.lastPriceGuardWhiteListNo,
+        lastPriceCostBasis: customer.lastPriceCostBasis,
+        lastPriceMinCostPercent: customer.lastPriceMinCostPercent,
+      },
+      lastSalePrice: shownPrice,
+      // guncelListe = musterinin GORUNUR listesi (WHITE_ONLY->beyaz, digeri->faturali;
+      // guncel, bant fallback'li). resolveLastPriceOverride PRICE_LIST guard'inda guard
+      // bossa bu referansi kullanir ve priceVisibility'ye gore dogru tarafi (white/invoiced)
+      // secer — her iki tarafi da guncelListe yaparak referans cart-pricing ile eslesir.
+      listPrices: { invoiced: guncelListe, white: guncelListe },
+      guardPrices: { invoiced: guardInvoiced, white: guardWhite },
+      product: { currentCost: cost.currentCost, lastEntryPrice: cost.lastEntryPrice },
+      priceVisibility: customer.priceVisibility,
+    });
+    // Musteri son-satis fiyatini gormuyorsa (guard listeye dusuruyorsa) rapor disi.
+    if (!override.usedLastPrice) continue;
+
+    const sonFiyat = shownPrice;
+    // Gorunur prim sarti: musteri listeden PAHALI goruyor.
+    if (!(sonFiyat > guncelListe)) continue;
+
+    const listeFiyatiSatisAninda = resolveListPriceAtSale(
+      snapshotMap.get(productUpper),
+      listNo,
+      sale.saleDate,
+      guncelListe
     );
-    if (listeFiyati <= 0) continue;
+    if (listeFiyatiSatisAninda <= 0) continue;
 
-    const gapPercent = ((listeFiyati - sale.unitPrice) / listeFiyati) * 100;
-    if (!Number.isFinite(gapPercent) || gapPercent < minGapPercent) continue;
+    const primSatisAnindaPct =
+      ((sonFiyat - listeFiyatiSatisAninda) / listeFiyatiSatisAninda) * 100;
+    const primBugunPct = ((sonFiyat - guncelListe) / guncelListe) * 100;
+    if (!Number.isFinite(primBugunPct)) continue;
+    // minPremiumNowPercent filtresi: bugunku prim >= X olanlar.
+    if (primBugunPct < minPremiumNowPercent) continue;
 
+    const erimePct = primSatisAnindaPct - primBugunPct;
     const son90GunAdet = sale.qtyLast90;
-    const aylikKayipTL = (son90GunAdet / 3) * (listeFiyati - sale.unitPrice);
+    const aylikPrimTL = ((sonFiyat - guncelListe) * son90GunAdet) / 3;
     const fiyatYasiGun = Math.max(
       0,
       Math.floor((now - sale.saleDate.getTime()) / (24 * 60 * 60 * 1000))
@@ -377,42 +603,51 @@ export const getStickyDiscountReport = async (params?: {
       cariAdi: customer.cariAdi,
       stokKodu: sale.productCode,
       stokAdi: sale.productName,
-      sonFiyat: round2(sale.unitPrice),
+      listNo,
+      sonFiyat: round2(sonFiyat),
       sonSatisTarihi: sale.saleDate.toISOString(),
       fiyatYasiGun,
-      listeNo,
-      listeFiyati: round2(listeFiyati),
-      gapPercent: round2(gapPercent),
+      listeFiyatiSatisAninda: round2(listeFiyatiSatisAninda),
+      guncelListeFiyati: round2(guncelListe),
+      primSatisAnindaPct: round2(primSatisAnindaPct),
+      primBugunPct: round2(primBugunPct),
+      erimePct: round2(erimePct),
       son90GunAdet: round2(son90GunAdet),
-      aylikKayipTL: round2(aylikKayipTL),
+      aylikPrimTL: round2(aylikPrimTL),
+      kritik: primBugunPct <= 10,
     });
   }
 
-  rows.sort((a, b) => b.aylikKayipTL - a.aylikKayipTL);
+  rows.sort((a, b) => b.aylikPrimTL - a.aylikPrimTL);
 
-  // 5) Ozet: toplamlar + kayip toplamina gore en kotu 10 cari
-  const perCustomer = new Map<string, { cariAdi: string; aylikKayipTL: number; satirSayisi: number }>();
-  let totalMonthlyLossTL = 0;
+  // 5) Ozet: en cok erimeye maruz (aylik prim toplamina gore) en kotu 10 cari
+  const perCustomer = new Map<
+    string,
+    { cariAdi: string; toplamAylikPrimTL: number; satirSayisi: number }
+  >();
+  let totalMonthlyPremiumTL = 0;
+  let criticalCount = 0;
   rows.forEach((row) => {
-    totalMonthlyLossTL += row.aylikKayipTL;
+    totalMonthlyPremiumTL += row.aylikPrimTL;
+    if (row.kritik) criticalCount += 1;
     const current = perCustomer.get(row.cariKodu) || {
       cariAdi: row.cariAdi,
-      aylikKayipTL: 0,
+      toplamAylikPrimTL: 0,
       satirSayisi: 0,
     };
-    current.aylikKayipTL += row.aylikKayipTL;
+    current.toplamAylikPrimTL += row.aylikPrimTL;
     current.satirSayisi += 1;
     perCustomer.set(row.cariKodu, current);
   });
 
-  const worstCustomers = Array.from(perCustomer.entries())
+  const worstErosion = Array.from(perCustomer.entries())
     .map(([cariKodu, value]) => ({
       cariKodu,
       cariAdi: value.cariAdi,
-      aylikKayipTL: round2(value.aylikKayipTL),
+      toplamAylikPrimTL: round2(value.toplamAylikPrimTL),
       satirSayisi: value.satirSayisi,
     }))
-    .sort((a, b) => b.aylikKayipTL - a.aylikKayipTL)
+    .sort((a, b) => b.toplamAylikPrimTL - a.toplamAylikPrimTL)
     .slice(0, 10);
 
   return {
@@ -420,8 +655,9 @@ export const getStickyDiscountReport = async (params?: {
     summary: {
       rowCount: rows.length,
       customerCount: perCustomer.size,
-      totalMonthlyLossTL: round2(totalMonthlyLossTL),
-      worstCustomers,
+      totalMonthlyPremiumTL: round2(totalMonthlyPremiumTL),
+      criticalCount,
+      worstErosion,
       ...emptySummaryBase,
     },
   };

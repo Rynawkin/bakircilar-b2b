@@ -1,8 +1,10 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import {
   ChevronLeft,
+  ChevronDown,
+  ChevronRight,
   Maximize2,
   Minimize2,
   Plus,
@@ -381,6 +383,12 @@ export default function TeklifOlusturNew() {
     whatsappTemplate,
   } = useTeklifOlustur();
 
+  /* Sadece mobil kart listesindeki "Detay" acilimlari icin gorsel-yalniz state.
+   * Hicbir is mantigini etkilemez; masaustu tablosu bundan bagimsizdir. */
+  const [mobileDetailOpen, setMobileDetailOpen] = useState<Record<string, boolean>>({});
+  const toggleMobileDetail = (id: string) =>
+    setMobileDetailOpen((prev) => ({ ...prev, [id]: !prev[id] }));
+
   /* moda gore baslik/altmetin/buton (klasik ile ayni mantik) */
   const pageTitle = isOrderMode
     ? isOrderEditMode
@@ -447,7 +455,7 @@ export default function TeklifOlusturNew() {
 
   return (
     <div className="min-h-screen bg-[#f4f6fa]">
-      <div className="w-full max-w-[1900px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="w-full max-w-[1900px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-6">
         {/* Ust bar: moda gore baslik/altmetin + mod cipi + geri butonu */}
         <div className="flex items-end justify-between gap-4 mb-[18px] flex-wrap">
           <div>
@@ -926,9 +934,12 @@ export default function TeklifOlusturNew() {
                   Teklife urun eklenmedi.
                 </div>
               ) : (
+                <>
+                {/* Masaustu (md+): tam ozellikli tablo. Sayfa govdesi asla yatay kaymaz;
+                    yatay kayma bu kapsayicinin icinde kalir. Mobilde gizli. */}
                 <div
                   ref={tableScrollRef}
-                  className={`rounded-xl border border-[#e7ebf2] bg-white ${
+                  className={`hidden md:block rounded-xl border border-[#e7ebf2] bg-white ${
                     isQuoteTableFullscreen ? 'flex-1 min-h-0 overflow-auto' : 'max-h-[70vh] overflow-auto'
                   }`}
                   onDragOver={handleTableDragOver}
@@ -1622,9 +1633,682 @@ export default function TeklifOlusturNew() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* ============ MOBIL (md alti): satirlarin yigilmis kart listesi ============ */}
+                {/* Tablo yerine; ayni veri + ayni hook handler'lari. Ek/kuyruk kolonlar
+                    kart basina "Detay" acilimi altinda. Hicbir ozellik kaldirilmadi. */}
+                <div className="md:hidden space-y-3">
+                  {quoteItems.map((item, index) => {
+                    const marginInfo = getMarginInfo(item);
+                    const selectedUnit = getSelectedUnit(item);
+                    const availableUnits = item.isManualLine
+                      ? stockUnits.length > 0
+                        ? stockUnits
+                        : ['ADET']
+                      : getAvailableUnits(item.unit, item.unit2, item.unit2Factor);
+                    const displayQuantity = getDisplayQuantity(item);
+                    const displayUnitPrice = roundUp2(getDisplayUnitPrice(item));
+                    const roundedUnitPrice = roundUp2(item.unitPrice || 0);
+                    const lineTotal = roundedUnitPrice * (item.quantity || 0);
+                    const displayReserveQty = roundUnitValue(
+                      convertQuantityFromBaseUnit(
+                        item.reserveQty || 0,
+                        selectedUnit,
+                        item.unit,
+                        item.unit2,
+                        item.unit2Factor
+                      )
+                    );
+                    const categoryLastPurchase = getCategoryLastPurchaseInfo(
+                      categoryLastPurchaseMap[item.productCode] || item
+                    );
+                    // Son teklif / son siparis gecmisi — masaustu tablosuyla ayni degiskenler/handler'lar.
+                    const showHistory = isOrderMode ? showLastOrderInfo : showLastQuoteInfo;
+                    const itemHistory = !item.isManualLine
+                      ? isOrderMode
+                        ? lastOrderMap[item.productCode] || item.lastOrders || []
+                        : lastQuoteMap[item.productCode] || item.lastQuotes || []
+                      : [];
+                    const hasItemHistory = showHistory && itemHistory.length > 0;
+                    const canToggleHistory = showHistory && itemHistory.length > 1;
+                    const isQuoteHistoryExpanded = Boolean(expandedQuoteHistory[item.id]);
+                    const detailOpen = Boolean(mobileDetailOpen[item.id]);
+                    return (
+                      <div
+                        key={item.id}
+                        className="rounded-xl border border-[#e7ebf2] bg-white p-3"
+                        onDragOver={handleRowDragOver}
+                        onDrop={handleRowDrop(item.id)}
+                      >
+                        {/* Baslik: sira + urun adi/kodu + sil */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#f1f4f9] px-1.5 text-[11px] font-semibold text-[#8b97ac]">
+                                {index + 1}
+                              </span>
+                              {item.isManualLine && (
+                                <span className="inline-flex rounded-full bg-[#fffbeb] border border-[#fde68a] px-2 py-0.5 text-[10px] font-semibold text-[#b45309]">
+                                  Manuel
+                                </span>
+                              )}
+                              {marginInfo?.blocked && (
+                                <span className="inline-flex rounded-full bg-[#fef2f2] border border-[#fecaca] px-2 py-0.5 text-[10px] font-semibold text-[#b91c1c]">
+                                  Blok
+                                </span>
+                              )}
+                            </div>
+                            {item.isManualLine ? (
+                              <div className="mt-1.5 space-y-1">
+                                <input
+                                  placeholder="Manuel urun adi"
+                                  value={item.productName}
+                                  onChange={(e) => updateItem(item.id, { productName: e.target.value })}
+                                  lang="tr"
+                                  autoCorrect="off"
+                                  spellCheck={false}
+                                  className={inputBase}
+                                />
+                                <div className="text-[12px] text-[#8b97ac]">Kod: {item.productCode}</div>
+                              </div>
+                            ) : (
+                              <div className="mt-1">
+                                <div className="text-[14px] font-semibold text-[#14223b] leading-snug">
+                                  {item.productName}
+                                </div>
+                                <div className="text-[12px] text-[#8b97ac]">{item.productCode}</div>
+                                {getUnitConversionLabel(item.unit, item.unit2, item.unit2Factor) && (
+                                  <div className="text-[11px] text-[#8b97ac]">
+                                    {getUnitConversionLabel(item.unit, item.unit2, item.unit2Factor)}
+                                  </div>
+                                )}
+                                <CategoryLastPurchaseBadge info={categoryLastPurchase} />
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            className="flex-none rounded-[9px] bg-[#fef2f2] border border-[#fecaca] p-2 text-[#b91c1c] hover:bg-[#fee2e2]"
+                            aria-label="Satiri sil"
+                          >
+                            <Trash2 width={15} height={15} stroke="currentColor" strokeWidth={2} />
+                          </button>
+                        </div>
+
+                        {/* Fiyat teyidi iste */}
+                        <div className="mt-2">
+                          <button
+                            type="button"
+                            onClick={() => openPriceRequestModal(item)}
+                            className="inline-flex rounded-full bg-[#fffbeb] px-2.5 py-1 text-[11px] font-semibold text-[#b45309] hover:bg-[#fef3c7]"
+                          >
+                            Fiyat teyidi iste
+                          </button>
+                        </div>
+
+                        {/* Manuel gorsel yukleme */}
+                        {item.isManualLine && (
+                          <div className="mt-2 flex items-center gap-2">
+                            {item.manualImageUrl ? (
+                              <img
+                                src={item.manualImageUrl}
+                                alt="Manuel gorsel"
+                                className="h-10 w-10 rounded-md border border-[#e7ebf2] object-cover"
+                              />
+                            ) : null}
+                            <label
+                              className={`inline-flex items-center gap-1 text-[12px] font-medium ${
+                                manualImageUploading[item.id]
+                                  ? 'text-[#aab4c4]'
+                                  : 'text-[#15356b] hover:text-[#1c4585]'
+                              }`}
+                            >
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(event) => handleManualImageFileChange(item, event)}
+                                disabled={manualImageUploading[item.id]}
+                                className="hidden"
+                              />
+                              {manualImageUploading[item.id]
+                                ? 'Yukleniyor...'
+                                : item.manualImageUrl
+                                  ? 'Gorsel Degistir'
+                                  : 'Gorsel Yukle'}
+                            </label>
+                            {item.manualImageUrl && !manualImageUploading[item.id] ? (
+                              <button
+                                type="button"
+                                onClick={() => removeManualImage(item.id)}
+                                className="text-[12px] text-[#b91c1c] hover:text-[#991b1b] underline"
+                              >
+                                Kaldir
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {/* Miktar + birim */}
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] text-[#8b97ac] mb-0.5">Miktar</label>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={displayQuantity === 0 ? '' : formatQuantityInput(displayQuantity)}
+                              onChange={(e) => handleQuantityChange(item, e.target.value)}
+                              className="w-full rounded-[9px] border border-[#d8e0ec] px-2 py-2 text-[13px]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-[#8b97ac] mb-0.5">Birim</label>
+                            {availableUnits.length > 1 || item.isManualLine ? (
+                              <select
+                                value={selectedUnit}
+                                onChange={(e) => {
+                                  if (item.isManualLine) {
+                                    updateItem(item.id, {
+                                      unit: e.target.value,
+                                      selectedUnit: e.target.value,
+                                      manualPriceInput: undefined,
+                                    });
+                                  } else {
+                                    handleSelectedUnitChange(item, e.target.value);
+                                  }
+                                }}
+                                className="w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-2 text-[12px]"
+                              >
+                                {availableUnits.map((unit) => (
+                                  <option key={unit} value={unit}>
+                                    {unit}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <div className="flex h-[38px] items-center rounded-[9px] border border-[#e7ebf2] bg-[#f8fafc] px-2 text-[12px] text-[#51607a]">
+                                {selectedUnit || '-'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {selectedUnit !== item.unit && (
+                          <div className="mt-1 text-[11px] text-[#0369a1]">
+                            Mikro: {formatQuantityInput(item.quantity)} {item.unit}
+                          </div>
+                        )}
+                        {isOrderMode && (
+                          <div className="mt-2">
+                            <label className="block text-[11px] text-[#8b97ac] mb-0.5">Rezerve</label>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={displayReserveQty ? formatQuantityInput(displayReserveQty) : ''}
+                              onChange={(e) => handleReserveQuantityChange(item, e.target.value)}
+                              className="w-28 rounded-[9px] border border-[#d8e0ec] px-2 py-1.5 text-[12px]"
+                            />
+                          </div>
+                        )}
+
+                        {/* Siparis modu: fiyat tipi (faturali/beyaz) */}
+                        {isOrderMode && (
+                          <div className="mt-3">
+                            <label className="block text-[11px] text-[#8b97ac] mb-0.5">Fiyat Tipi</label>
+                            <select
+                              value={item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED'}
+                              onChange={(e) =>
+                                updateItem(item.id, {
+                                  priceType: e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED',
+                                })
+                              }
+                              className="w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-2 text-[12.5px]"
+                            >
+                              <option value="INVOICED">Faturali</option>
+                              <option value="WHITE">Beyaz</option>
+                            </select>
+                          </div>
+                        )}
+
+                        {/* Fiyat kaynagi */}
+                        <div className="mt-3">
+                          <label className="block text-[11px] text-[#8b97ac] mb-0.5">
+                            {isOrderMode ? 'Fiyat Kaynagi' : 'Fiyat Kaynagi'}
+                          </label>
+                          {item.isManualLine ? (
+                            <input
+                              placeholder="Birim fiyat"
+                              value={item.manualPriceInput ?? formatManualPriceInput(getDisplayUnitPrice(item))}
+                              onChange={(e) => handleManualPriceChange(item, e.target.value)}
+                              inputMode="decimal"
+                              type="text"
+                              className={inputBase}
+                            />
+                          ) : (
+                            <select
+                              value={item.priceSource || ''}
+                              onChange={(e) => handlePriceSourceChange(item, e.target.value)}
+                              className="w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-2 text-[12.5px]"
+                            >
+                              <option value="">Secin</option>
+                              <option value="LAST_SALE">Son Satis</option>
+                              <option value="PRICE_LIST">Fiyat Listesi</option>
+                              <option value="MANUAL">Manuel</option>
+                            </select>
+                          )}
+                        </div>
+
+                        {/* Secim: fiyat listesi / son satis / manuel fiyat+marj */}
+                        {!item.isManualLine && item.priceSource === 'PRICE_LIST' && (
+                          <div className="mt-2">
+                            <label className="block text-[11px] text-[#8b97ac] mb-0.5">Liste</label>
+                            <select
+                              value={item.priceListNo || ''}
+                              onChange={(e) => handlePriceListChange(item, e.target.value)}
+                              className="w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-2 text-[12.5px]"
+                            >
+                              <option value="">Liste sec</option>
+                              {Object.keys(PRICE_LIST_LABELS).map((key) => {
+                                const listNo = Number(key);
+                                const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
+                                const displayListPrice = convertPriceFromBaseUnit(
+                                  listPrice,
+                                  getSelectedUnit(item),
+                                  item.unit,
+                                  item.unit2,
+                                  item.unit2Factor
+                                );
+                                return (
+                                  <option key={key} value={key}>
+                                    {PRICE_LIST_LABELS[listNo]} (
+                                    {listPrice ? formatCurrency(displayListPrice) : 'Fiyat yok'})
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                        )}
+                        {!item.isManualLine && item.priceSource === 'LAST_SALE' && (
+                          <div className="mt-2">
+                            <label className="block text-[11px] text-[#8b97ac] mb-0.5">Satis Sec</label>
+                            {item.lastSales?.length ? (
+                              <select
+                                value={item.selectedSaleIndex ?? ''}
+                                onChange={(e) => handleLastSaleChange(item, e.target.value)}
+                                className="w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-2 text-[12.5px]"
+                              >
+                                <option value="">Satis sec</option>
+                                {item.lastSales.map((sale, idx) => {
+                                  const listLabel = getMatchingPriceListLabel(item.mikroPriceLists, sale.unitPrice);
+                                  const displaySalePrice = convertPriceFromBaseUnit(
+                                    sale.unitPrice,
+                                    getSelectedUnit(item),
+                                    item.unit,
+                                    item.unit2,
+                                    item.unit2Factor
+                                  );
+                                  const displaySaleQuantity = convertQuantityFromBaseUnit(
+                                    sale.quantity,
+                                    getSelectedUnit(item),
+                                    item.unit,
+                                    item.unit2,
+                                    item.unit2Factor
+                                  );
+                                  return (
+                                    <option key={idx} value={idx}>
+                                      {formatDateShort(sale.saleDate)} - {formatCurrency(displaySalePrice)} (
+                                      {formatQuantityInput(displaySaleQuantity)})
+                                      {listLabel ? ` (${listLabel})` : ''}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            ) : (
+                              <span className="text-[12px] text-[#8b97ac]">Satis yok</span>
+                            )}
+                          </div>
+                        )}
+                        {!item.isManualLine && item.priceSource === 'MANUAL' && (
+                          <div className="mt-2 space-y-2">
+                            <div>
+                              <label className="block text-[11px] text-[#8b97ac] mb-0.5">Birim fiyat</label>
+                              <input
+                                placeholder="Birim fiyat"
+                                value={item.manualPriceInput ?? formatManualPriceInput(getDisplayUnitPrice(item))}
+                                onChange={(e) => handleManualPriceChange(item, e.target.value)}
+                                inputMode="decimal"
+                                type="text"
+                                className={inputBase}
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[11px] font-medium text-[#8b97ac] leading-tight">
+                                  Son giris kar (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  value={item.manualMarginEntry ?? ''}
+                                  onChange={(e) => handleManualMarginChange(item, 'entry', e.target.value)}
+                                  className="mt-1 w-full rounded-[9px] border border-[#d8e0ec] px-2 py-1.5 text-[12px]"
+                                  placeholder="Orn: 5"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-[#8b97ac] leading-tight">
+                                  Guncel maliyet kar (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  value={item.manualMarginCost ?? ''}
+                                  onChange={(e) => handleManualMarginChange(item, 'cost', e.target.value)}
+                                  className="mt-1 w-full rounded-[9px] border border-[#d8e0ec] px-2 py-1.5 text-[12px]"
+                                  placeholder="Orn: 8"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Birim fiyat + satir toplami + KDV */}
+                        <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg border border-[#eef1f6] bg-[#f8fafc] p-2.5">
+                          <div>
+                            <div className="text-[10.5px] text-[#8b97ac]">Birim Fiyat</div>
+                            <div className="text-[12.5px] font-semibold text-[#14223b]">
+                              {displayUnitPrice ? `${formatCurrency(displayUnitPrice)}` : '-'}
+                            </div>
+                            <div className="text-[10px] text-[#aab4c4]">/ {selectedUnit}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10.5px] text-[#8b97ac]">Satir Toplam</div>
+                            <div className="text-[12.5px] font-semibold text-[#14223b]">
+                              {roundedUnitPrice ? formatCurrency(lineTotal) : '-'}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10.5px] text-[#8b97ac]">KDV</div>
+                            {item.isManualLine ? (
+                              <select
+                                value={item.manualVatRate === 0.01 ? '0.01' : item.manualVatRate === 0.1 ? '0.1' : '0.2'}
+                                onChange={(e) => handleManualVatChange(item, e.target.value)}
+                                className="mt-0.5 w-full rounded-[7px] border border-[#d8e0ec] bg-white px-1.5 py-1 text-[11px]"
+                              >
+                                <option value="0.01">%1</option>
+                                <option value="0.1">%10</option>
+                                <option value="0.2">%20</option>
+                              </select>
+                            ) : (
+                              <div className="text-[12.5px] font-semibold text-[#51607a]">
+                                %{Math.round(item.vatRate * 100)}
+                              </div>
+                            )}
+                            {!vatZeroed ? (
+                              <label className="mt-1 flex items-center gap-1 text-[10.5px] text-[#51607a]">
+                                <input
+                                  type="checkbox"
+                                  checked={item.vatZeroed || false}
+                                  onChange={(e) => updateItem(item.id, { vatZeroed: e.target.checked })}
+                                />
+                                KDV 0
+                              </label>
+                            ) : (
+                              <div className="mt-1 text-[10.5px] text-[#047857]">KDV 0</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Fiyat analizi (marj) — masaustundeki sari satirin mobil karsiligi */}
+                        {marginInfo && (
+                          <div className="mt-2 rounded-lg border border-[#fde68a] bg-[#fffbeb] p-2.5">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className="rounded-full bg-[#fde68a] px-2 py-0.5 font-semibold text-[#92400e]">
+                                Fiyat analizi
+                              </span>
+                              <span className="text-[#51607a]">
+                                Son giris:{' '}
+                                <span className="font-semibold text-[#14223b]">
+                                  {formatCurrency(marginInfo.lastEntry)}
+                                </span>
+                                <span className={`ml-1 font-semibold ${getPercentTone(marginInfo.lastEntryDiff)}`}>
+                                  {formatPercent(marginInfo.lastEntryDiff)}
+                                </span>
+                              </span>
+                              <span className="text-[#51607a]">
+                                Guncel:{' '}
+                                <span className="font-semibold text-[#14223b]">
+                                  {formatCurrency(marginInfo.currentCost)}
+                                </span>
+                                <span className={`ml-1 font-semibold ${getPercentTone(marginInfo.currentCostDiff)}`}>
+                                  {formatPercent(marginInfo.currentCostDiff)}
+                                </span>
+                              </span>
+                            </div>
+                            {marginInfo.blocked && (
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                                <span className="rounded-full bg-[#fee2e2] px-2 py-0.5 font-semibold text-[#b91c1c]">
+                                  Blok: %5 altinda
+                                </span>
+                                {marginInfo.minPrice > 0 && (
+                                  <span className="rounded-full border border-[#fecaca] bg-white px-2 py-0.5 text-[#b91c1c]">
+                                    Min: <span className="font-semibold">{formatCurrency(marginInfo.minPrice)}</span>
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => applyMinPriceToItem(item.id)}
+                                  className="rounded-full border border-[#b91c1c] bg-white px-2 py-0.5 font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+                                >
+                                  Tabana cek
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Detay acilimi: aciklama, sorumluluk merkezi, stok kolonlari, gecmis, aile onerisi */}
+                        {(trailingColumnKeys.length > 0 ||
+                          isOrderMode ||
+                          (!item.isManualLine && item.productCode)) && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleMobileDetail(item.id)}
+                              className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#15356b]"
+                            >
+                              {detailOpen ? (
+                                <ChevronDown width={14} height={14} stroke="currentColor" strokeWidth={2} />
+                              ) : (
+                                <ChevronRight width={14} height={14} stroke="currentColor" strokeWidth={2} />
+                              )}
+                              {detailOpen ? 'Detayi Gizle' : 'Detay'}
+                            </button>
+                          </div>
+                        )}
+
+                        {detailOpen && (
+                          <div className="mt-2 space-y-3 border-t border-[#eef1f6] pt-3">
+                            {/* Aciklama (lineDescription) + siparis sorumluluk merkezi */}
+                            {trailingColumnKeys.includes('lineDescription') && (
+                              <div>
+                                <label className="block text-[11px] text-[#8b97ac] mb-0.5">Aciklama</label>
+                                <input
+                                  placeholder="Satir aciklama"
+                                  value={item.lineDescription || ''}
+                                  onChange={(e) => updateItem(item.id, { lineDescription: e.target.value })}
+                                  maxLength={40}
+                                  className={inputBase}
+                                />
+                                {isOrderMode && (
+                                  <input
+                                    placeholder="Sorumluluk merkezi"
+                                    value={item.responsibilityCenter || ''}
+                                    onChange={(e) => updateItem(item.id, { responsibilityCenter: e.target.value })}
+                                    maxLength={25}
+                                    className={`${inputBase} mt-2`}
+                                  />
+                                )}
+                              </div>
+                            )}
+
+                            {/* Stok / ek kolonlar */}
+                            {trailingColumnKeys.filter((k) => k !== 'lineDescription').length > 0 && (
+                              <div className="grid grid-cols-2 gap-2">
+                                {trailingColumnKeys
+                                  .filter((k) => k !== 'lineDescription')
+                                  .map((columnKey) => {
+                                    const column = columnKey.replace('stock:', '');
+                                    return (
+                                      <div
+                                        key={columnKey}
+                                        className="rounded-lg border border-[#eef1f6] bg-[#f8fafc] px-2 py-1.5"
+                                      >
+                                        <div className="text-[10.5px] text-[#8b97ac]">
+                                          {getColumnDisplayName(column)}
+                                        </div>
+                                        <div className="text-[12px] text-[#51607a]">
+                                          {item.isManualLine
+                                            ? '-'
+                                            : getStockColumnValue(column, stockDataMap[item.productCode])}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            )}
+
+                            {/* Son teklif / son siparis gecmisi — masaustu tablosuyla ayni icerik */}
+                            {showHistory && (
+                              <div className="text-[11px] text-[#8b97ac]">
+                                {hasItemHistory ? (
+                                  <div className="space-y-1">
+                                    <div
+                                      className={`flex flex-wrap items-center gap-2${
+                                        canToggleHistory ? ' cursor-pointer' : ''
+                                      }`}
+                                      onClick={canToggleHistory ? () => toggleQuoteHistory(item.id) : undefined}
+                                      role={canToggleHistory ? 'button' : undefined}
+                                      tabIndex={canToggleHistory ? 0 : undefined}
+                                      title={
+                                        canToggleHistory
+                                          ? isOrderMode
+                                            ? 'Gecmis siparisleri goster'
+                                            : 'Gecmis teklifleri goster'
+                                          : undefined
+                                      }
+                                      onKeyDown={
+                                        canToggleHistory
+                                          ? (event) => {
+                                              if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                toggleQuoteHistory(item.id);
+                                              }
+                                            }
+                                          : undefined
+                                      }
+                                    >
+                                      <span className="font-semibold text-[#51607a]">
+                                        {isOrderMode ? 'Son Siparis:' : 'Son Teklif:'}
+                                      </span>
+                                      <span>
+                                        {formatDateShort(
+                                          isOrderMode
+                                            ? (itemHistory[0] as LastOrder).orderDate
+                                            : (itemHistory[0] as LastQuote).quoteDate
+                                        )}
+                                      </span>
+                                      <span className="font-semibold text-[#14223b]">
+                                        {formatCurrency(itemHistory[0].unitPrice)}
+                                      </span>
+                                      <span className="text-[#8b97ac]">
+                                        Belge:{' '}
+                                        {isOrderMode
+                                          ? getOrderDocumentLabel(itemHistory[0] as LastOrder)
+                                          : getQuoteDocumentLabel(itemHistory[0] as LastQuote)}
+                                      </span>
+                                      {isOrderMode && (
+                                        <span className="text-[#8b97ac]">
+                                          Siparis: {(itemHistory[0] as LastOrder).orderNumber || '-'}
+                                        </span>
+                                      )}
+                                      <span className="rounded-full bg-[#f1f4f9] px-2 py-0.5 text-[10px] font-medium text-[#51607a]">
+                                        {formatQuotePriceType(itemHistory[0].priceType)}
+                                      </span>
+                                      {itemHistory.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleQuoteHistory(item.id)}
+                                          className="text-[#15356b] hover:text-[#1c4585] underline"
+                                        >
+                                          {isQuoteHistoryExpanded
+                                            ? 'Gecmisi Gizle'
+                                            : `Gecmis (${itemHistory.length - 1})`}
+                                        </button>
+                                      )}
+                                    </div>
+                                    {isQuoteHistoryExpanded && itemHistory.length > 1 && (
+                                      <div className="rounded-md border border-[#e7ebf2] bg-[#f8fafc] px-2 py-1">
+                                        {itemHistory.slice(1).map((historyRow, idx) => (
+                                          <div
+                                            key={`${item.id}-quote-mobile-${idx}`}
+                                            className="flex flex-wrap items-center gap-2 py-0.5 text-[11px] text-[#51607a]"
+                                          >
+                                            <span className="font-medium text-[#51607a]">
+                                              {formatDateShort(
+                                                isOrderMode
+                                                  ? (historyRow as LastOrder).orderDate
+                                                  : (historyRow as LastQuote).quoteDate
+                                              )}
+                                            </span>
+                                            <span className="font-semibold text-[#14223b]">
+                                              {formatCurrency(historyRow.unitPrice)}
+                                            </span>
+                                            <span className="text-[#8b97ac]">
+                                              Belge:{' '}
+                                              {isOrderMode
+                                                ? getOrderDocumentLabel(historyRow as LastOrder)
+                                                : getQuoteDocumentLabel(historyRow as LastQuote)}
+                                            </span>
+                                            {isOrderMode && (
+                                              <span className="text-[#8b97ac]">
+                                                Siparis: {(historyRow as LastOrder).orderNumber || '-'}
+                                              </span>
+                                            )}
+                                            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-[#51607a] border border-[#e7ebf2]">
+                                              {formatQuotePriceType(historyRow.priceType)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-[#aab4c4]">
+                                    {isOrderMode ? 'Son siparis yok' : 'Son teklif yok'}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Aile onerisi (Degistir/Bol) */}
+                            {!item.isManualLine && item.productCode && (
+                              <StockFamilySuggestion
+                                productCode={item.productCode}
+                                baseQuantity={item.quantity}
+                                excludeCodes={familyExcludeCodesByLine[item.id]}
+                                suppressed={isFamilySuggestionSuppressed(item)}
+                                onSwap={(rec) => requestFamilySwap(item, rec)}
+                                onSplit={(rec) => requestFamilySplit(item, rec)}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                </>
               )}
               {showTableScrollBar && (
-                <div className={`mt-3 rounded-full border border-[#e7ebf2] px-2 py-1 ${scrollBarWrapperClass}`}>
+                <div className={`mt-3 hidden md:block rounded-full border border-[#e7ebf2] px-2 py-1 ${scrollBarWrapperClass}`}>
                   <div
                     ref={tableScrollBarRef}
                     className="h-3 overflow-x-auto overflow-y-hidden"
@@ -1806,6 +2490,42 @@ export default function TeklifOlusturNew() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ====================== MOBIL SABIT ALT AKSIYON CUBUGU ====================== */}
+      {/* Sadece md alti; genel toplam + birincil kaydet/olustur. Mevcut handler'lar. */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#d3deef] bg-white/95 backdrop-blur px-4 py-2.5 shadow-[0_-6px_20px_rgba(20,34,59,0.08)] md:hidden">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10.5px] text-[#8b97ac] leading-none">Genel Toplam</div>
+            <div className="text-[17px] font-bold text-[#15356b] leading-tight truncate">
+              {formatCurrency(totals.grandTotal)}
+            </div>
+            <div className="text-[10.5px] text-[#8b97ac] leading-none">{quoteItems.length} kalem</div>
+          </div>
+          <div className="flex flex-none items-center gap-2">
+            {hasBlockedPreview && (
+              <button
+                type="button"
+                onClick={applyMinPriceToBlockedItems}
+                disabled={submitting}
+                title="Blok'lu satirlarin fiyatini minimum satilabilir fiyata ceker"
+                className="inline-flex items-center rounded-[9px] border border-[#fecaca] bg-[#fef2f2] px-3 py-2.5 text-[12px] font-semibold text-[#b91c1c] disabled:opacity-50"
+              >
+                Tabana Cek
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting || quoteItems.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-[9px] bg-[#15356b] px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting && <Loader2 width={15} height={15} className="animate-spin" />}
+              {submitLabel}
+            </button>
           </div>
         </div>
       </div>

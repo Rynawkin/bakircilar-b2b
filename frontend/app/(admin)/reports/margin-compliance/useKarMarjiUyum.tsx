@@ -136,6 +136,8 @@ export interface GeneralExclusionRecord {
   description?: string;
   active: boolean;
   createdAt: string;
+  // Backend cozumlu etiket: PRODUCT_CODE -> urun adi, CUSTOMER_CODE -> cari unvani; digerleri null.
+  resolvedLabel?: string | null;
 }
 
 export const GENERAL_EXCLUSION_TYPE_LABELS: Record<GeneralExclusionType, string> = {
@@ -773,11 +775,14 @@ export function useKarMarjiUyum() {
 
   // ==================== Genel dislama kurali ekle / sil ====================
 
-  const handleAddGeneralExclusion = async () => {
-    const value =
-      generalFormType === 'PRODUCT_CODE'
-        ? generalFormValue.trim().toUpperCase()
-        : generalFormValue.trim();
+  // Ortak genel-dislama ekleme cekirdegi: hem serbest form (handleAddGeneralExclusion)
+  // hem de combobox seciminden (createGeneralExclusion) cagirilir.
+  const createGeneralExclusion = async (
+    type: GeneralExclusionType,
+    rawValue: string,
+    description?: string
+  ) => {
+    const value = type === 'PRODUCT_CODE' ? rawValue.trim().toUpperCase() : rawValue.trim();
     if (!value) {
       toast.error('Değer boş olamaz');
       return;
@@ -785,9 +790,9 @@ export function useKarMarjiUyum() {
     setSavingGeneralExclusion(true);
     try {
       await adminApi.createExclusion({
-        type: generalFormType,
+        type,
         value,
-        description: generalFormDescription.trim() || undefined,
+        description: description?.trim() || undefined,
       });
       toast.success('Genel dışlama kuralı eklendi');
       setGeneralFormValue('');
@@ -798,6 +803,10 @@ export function useKarMarjiUyum() {
     } finally {
       setSavingGeneralExclusion(false);
     }
+  };
+
+  const handleAddGeneralExclusion = async () => {
+    await createGeneralExclusion(generalFormType, generalFormValue, generalFormDescription);
   };
 
   const handleDeleteGeneralExclusion = async (exclusion: GeneralExclusionRecord) => {
@@ -1261,10 +1270,12 @@ export function useKarMarjiUyum() {
     toggleColumn,
     toggleIncludedSectorCode,
     fetchExclusions,
+    createExclusion,
     handleAddExclusionOption,
     handleAddNameExclusion,
     handleDeleteExclusion,
     fetchGeneralExclusions,
+    createGeneralExclusion,
     handleAddGeneralExclusion,
     handleDeleteGeneralExclusion,
     handleResyncReport,

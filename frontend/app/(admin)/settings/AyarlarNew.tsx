@@ -11,6 +11,11 @@ import {
   ListChecks,
   Mail,
   Save,
+  Timer,
+  Play,
+  RotateCcw,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   useAyarlar,
@@ -44,7 +49,29 @@ export default function AyarlarNew() {
     marginRecipientsInput,
     setMarginRecipientsInput,
     handleSave,
+    scheduledJobs,
+    jobsLoading,
+    jobScheduleDrafts,
+    savingJobKey,
+    runningJobKey,
+    setJobScheduleDraft,
+    saveJobSchedule,
+    resetJobSchedule,
+    runJobNow,
+    describeCron,
   } = useAyarlar();
+
+  // Hazir zamanlama sablonlari (cron ifadesine yazan preset dropdown).
+  const CRON_PRESETS: { value: string; label: string }[] = [
+    { value: '', label: 'Hazir sablon...' },
+    { value: '0 18 * * *', label: 'Her gun 18:00' },
+    { value: '0 3 * * *', label: 'Her gun 03:00' },
+    { value: '0 6 * * *', label: 'Her gun 06:00' },
+    { value: '0 * * * *', label: 'Saatte bir' },
+    { value: '*/10 * * * *', label: '10 dakikada bir' },
+    { value: '*/20 * * * *', label: '20 dakikada bir' },
+    { value: '0 4 * * 1', label: 'Haftalik - Pazartesi 04:00' },
+  ];
 
   if (isLoading || !settings) {
     return (
@@ -407,6 +434,173 @@ export default function AyarlarNew() {
             Ayarları Kaydet
           </button>
         </form>
+
+        {/* Kart 4 — Tetiklenecek Isler (scheduled jobs) — form DISINDA, kendi butonlari var */}
+        <div className={`${CARD} mt-[14px] max-w-[820px]`}>
+          <div className={CARD_TITLE}>
+            <Timer size={16} className="text-[#15356b]" />
+            Tetiklenecek İşlemler
+          </div>
+
+          <div className="flex gap-2 bg-[#fffbeb] border border-[#fde68a] rounded-[10px] p-[12px] mb-[14px]">
+            <AlertTriangle size={15} className="text-[#b45309] flex-none mt-[1px]" />
+            <p className="text-[12px] text-[#7c5410] leading-[1.55] m-0">
+              Zamanlama değişiklikleri <strong>anında uygulanır</strong>; sunucuyu yeniden başlatmaya gerek yoktur.
+              Cron ifadesi 5 alandır: <code className="bg-white border border-[#fde68a] px-[5px] py-[1px] rounded-[4px] font-mono text-[11px]">dakika saat gün ay haftanınGünü</code>.
+              Örnek: <code className="bg-white border border-[#fde68a] px-[5px] py-[1px] rounded-[4px] font-mono text-[11px]">0 18 * * *</code> → Her gün 18:00.
+            </p>
+          </div>
+
+          {jobsLoading ? (
+            <div className="flex items-center gap-2 py-6 text-[12.5px] text-[#8b97ac]">
+              <Loader2 size={15} className="animate-spin" /> İşler yükleniyor...
+            </div>
+          ) : scheduledJobs.length === 0 ? (
+            <div className="py-6 text-[12.5px] text-[#8b97ac]">
+              Tanımlı tetiklenecek iş bulunamadı.
+            </div>
+          ) : (
+            <div className="overflow-x-auto -mx-[18px] px-[18px]">
+              <table className="w-full min-w-[760px] text-[12.5px] border-collapse">
+                <thead>
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-[#8b97ac] border-b border-[#eef1f6]">
+                    <th className="py-[8px] pr-[12px] font-semibold">İş</th>
+                    <th className="py-[8px] pr-[12px] font-semibold">Zamanlama</th>
+                    <th className="py-[8px] pr-[12px] font-semibold">Son Çalışma</th>
+                    <th className="py-[8px] font-semibold text-right">Aksiyonlar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scheduledJobs.map((job) => {
+                    const draft = jobScheduleDrafts[job.key] ?? job.schedule;
+                    const hint = describeCron(draft);
+                    const isSavingThis = savingJobKey === job.key;
+                    const isRunningThis = runningJobKey === job.key || job.running;
+                    return (
+                      <tr key={job.key} className="align-top border-b border-[#f2f4f8]">
+                        {/* Is (ad + aciklama) */}
+                        <td className="py-[11px] pr-[12px]">
+                          <div className="font-semibold text-[#14223b]">{job.name}</div>
+                          {job.description && (
+                            <div className="text-[11px] text-[#8b97ac] mt-[2px] leading-[1.45] max-w-[240px]">
+                              {job.description}
+                            </div>
+                          )}
+                          {job.isOverride && (
+                            <span className="inline-flex items-center mt-[5px] rounded-full bg-[#eef2fa] border border-[#d3deef] px-[7px] py-[1px] text-[10px] font-semibold text-[#15356b]">
+                              özel
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Zamanlama (cron input + preset + ipucu) */}
+                        <td className="py-[11px] pr-[12px] min-w-[240px]">
+                          <div className="flex flex-col gap-[6px]">
+                            <input
+                              value={draft}
+                              onChange={(e) => setJobScheduleDraft(job.key, e.target.value)}
+                              disabled={!job.editable || isSavingThis}
+                              placeholder="0 18 * * *"
+                              spellCheck={false}
+                              className={`${FIELD} font-mono !h-[34px] disabled:opacity-60 disabled:cursor-not-allowed`}
+                            />
+                            <select
+                              value=""
+                              disabled={!job.editable || isSavingThis}
+                              onChange={(e) => {
+                                if (e.target.value) setJobScheduleDraft(job.key, e.target.value);
+                              }}
+                              className={`${SELECT} !h-[30px] text-[11.5px] disabled:opacity-60`}
+                            >
+                              {CRON_PRESETS.map((preset) => (
+                                <option key={preset.label} value={preset.value}>
+                                  {preset.label}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="text-[10.5px] text-[#8b97ac] leading-[1.4]">
+                              {hint ? (
+                                <span>{hint}</span>
+                              ) : (
+                                <span className="text-[#b45309]">Tanımlı bir desene uymuyor — yine de geçerli olabilir.</span>
+                              )}
+                              {job.isOverride && (
+                                <span className="ml-1 text-[#aab4c4]">
+                                  (varsayılan: <span className="font-mono">{job.defaultSchedule}</span>)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Son calisma (zaman + OK/ERROR rozeti) */}
+                        <td className="py-[11px] pr-[12px] min-w-[150px]">
+                          {job.lastRunAt ? (
+                            <div className="flex flex-col gap-[4px]">
+                              <span className="text-[11.5px] text-[#51607a]">
+                                {new Date(job.lastRunAt).toLocaleString('tr-TR')}
+                              </span>
+                              {job.lastResult === 'OK' && (
+                                <span className="inline-flex w-fit items-center gap-[4px] rounded-full bg-[#ecfdf5] border border-[#a7f3d0] px-[7px] py-[1px] text-[10px] font-semibold text-[#047857]">
+                                  <CheckCircle2 size={11} /> OK
+                                </span>
+                              )}
+                              {job.lastResult === 'ERROR' && (
+                                <span
+                                  title={job.lastError || undefined}
+                                  className="inline-flex w-fit items-center gap-[4px] rounded-full bg-[#fef2f2] border border-[#fecaca] px-[7px] py-[1px] text-[10px] font-semibold text-[#b91c1c] cursor-help"
+                                >
+                                  <AlertTriangle size={11} /> HATA
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-[#aab4c4]">Henüz çalışmadı</span>
+                          )}
+                        </td>
+
+                        {/* Aksiyonlar */}
+                        <td className="py-[11px]">
+                          <div className="flex flex-wrap items-center justify-end gap-[6px]">
+                            <button
+                              type="button"
+                              onClick={() => saveJobSchedule(job.key)}
+                              disabled={!job.editable || isSavingThis}
+                              className="inline-flex items-center gap-[5px] rounded-[7px] bg-[#15356b] hover:bg-[#1c4585] disabled:opacity-50 disabled:cursor-not-allowed border-none px-[10px] py-[6px] text-[11.5px] font-semibold text-white cursor-pointer transition-colors"
+                            >
+                              {isSavingThis ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                              Kaydet
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => resetJobSchedule(job.key)}
+                              disabled={!job.editable || isSavingThis || !job.isOverride}
+                              title="Varsayılan zamanlamaya dön"
+                              className="inline-flex items-center gap-[5px] rounded-[7px] bg-white hover:bg-[#f4f6fa] disabled:opacity-40 disabled:cursor-not-allowed border border-[#d8e0ec] px-[10px] py-[6px] text-[11.5px] font-medium text-[#51607a] cursor-pointer transition-colors"
+                            >
+                              <RotateCcw size={12} />
+                              Varsayılana Dön
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => runJobNow(job.key)}
+                              disabled={isRunningThis}
+                              title="İşi hemen bir kez çalıştır"
+                              className="inline-flex items-center gap-[5px] rounded-[7px] bg-[#ecfdf5] hover:bg-[#d1fae5] disabled:opacity-50 disabled:cursor-not-allowed border border-[#a7f3d0] px-[10px] py-[6px] text-[11.5px] font-semibold text-[#047857] cursor-pointer transition-colors"
+                            >
+                              {isRunningThis ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                              {isRunningThis ? 'Çalışıyor' : 'Şimdi Çalıştır'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

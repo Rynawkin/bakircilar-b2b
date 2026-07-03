@@ -11,12 +11,15 @@
  *   gunlukSatis = son <lookbackDays> gun satis miktari / efektifGun
  *   yeniMin     = ceil(gunlukSatis * minDays)
  *   yeniMax     = ceil(gunlukSatis * maxDays)
- *   Cold-start : pencere satisi 0 ama acik (alinan) musteri siparisi > 0 ise
- *                yeniMin = ceil(bekleyen), yeniMax = ceil(bekleyen * maxDays/minDays),
- *                kaynak rozeti 'SIPARIS' (urun yeni acilmis, mal henuz gelmemis olabilir).
+ *   Pencere satisi olmayan urunler yeniMin=0 / yeniMax=0 alir.
+ *   (Eski 'SIPARIS' cold-start mantigi KALDIRILDI: tek seferlik musteri siparisleri
+ *    yanlis min/max onerileri uretiyordu.)
  *
  * Parametre onceligi: URUN override > TEDARIKCI override > Settings varsayilani.
  * sto_model_kodu = 'HAYIR' olan urunler hesaplanmaz (listede 'haric' rozetiyle gorunur).
+ * MinMaxExclusion (kullanici haric listesi, minmax-exclusion.service.ts) kayitlari da
+ * hesaplanmaz: satir listede gorunur ama userExcluded=true, newMin/newMax null doner;
+ * applyMinMax bu kodlari 'Kullanici tarafindan hesaplama disi birakildi' ile reddeder.
  * TOPLU sorumluluk merkezi satirlari ve ReportExclusion kayitlari satistan haric tutulur
  * (reports.service.ts getUcarerProductSalesHistory ile ayni satis kosullari).
  */
@@ -27,11 +30,11 @@ import { prisma } from '../utils/prisma';
 import { AppError, ErrorCode } from '../types/errors';
 import mikroService from './mikro.service';
 import exclusionService from './exclusion.service';
+import minMaxExclusionService from './minmax-exclusion.service';
 
 export type MinMaxDepot = 'MERKEZ' | 'TOPCA';
 export type MinMaxSalesScope = 'DEPOT' | 'COMPANY';
-// 'SIPARIS': pencere satisi yok, oneri acik (alinan) musteri siparisinden turedi (cold-start)
-export type MinMaxOverrideSource = 'urun' | 'tedarikci' | 'varsayilan' | 'haric' | 'SIPARIS';
+export type MinMaxOverrideSource = 'urun' | 'tedarikci' | 'varsayilan' | 'haric';
 
 export interface MinMaxSettings {
   lookbackDays: number;
@@ -47,13 +50,14 @@ export interface MinMaxPreviewRow {
   supplierName: string | null;
   depot: MinMaxDepot;
   excluded: boolean;          // sto_model_kodu = 'HAYIR'
+  userExcluded: boolean;      // MinMaxExclusion listesinde (kullanici hesaplama disi birakti)
   hasDepotRecord: boolean;    // STOK_DEPO_DETAYLARI kaydi var mi (yoksa apply atlanir)
   salesQty: number;           // efektif penceredeki satis miktari (kapsama gore)
   dailySales: number;
+  docCount: number;           // efektif penceredeki FARKLI satis evraki sayisi (kapsama gore)
   effectiveDays: number;      // min(pencere, bugun - pencere icindeki ilk satis + 1), taban 7
   firstSaleDate: string | null; // pencere icindeki ilk satis tarihi (kapsama gore, YYYY-MM-DD)
   isShortWindow: boolean;     // efektif gun < pencere (urun pencere ortasinda satisa baslamis)
-  pendingOrderQty: number;    // acik (alinan) musteri siparisi kalan miktari (cold-start kaynagi)
   lookbackUsed: number;
   minDaysUsed: number;
   maxDaysUsed: number;
@@ -75,6 +79,7 @@ export interface MinMaxPreviewResult {
   summary: {
     changedCount: number;
     excludedCount: number;
+    userExcludedCount: number;      // MinMaxExclusion listesindeki (kullanici haric) satir sayisi
     missingDepotRecordCount: number;
     missingWithSalesCount: number;  // sicilsiz (depo kaydi yok) + penceresinde satisi olan urun sayisi
     missingWithSalesDaily: number;  // bu urunlerin gunluk satis toplami
@@ -453,6 +458,10 @@ class MinMaxService {
     const warehouseNo = depotToWarehouseNo(depot);
     const defaults = await this.getSettings();
 
+    // Kullanicinin hesaplama disi biraktigi stok kodlari (MinMaxExclusion): satirlar
+    // listede kalir ama userExcluded=true + newMin/newMax null doner (UI gri gosterir).
+    const userExcludedCodes = await minMaxExclusionService.getExcludedCodes();
+
     const overrides = await prisma.minMaxOverride.findMany();
     const productOverrides = new Map<string, Array<{ lookbackDays: number | null; minDays: number | null; maxDays: number | null; depot: string | null }>>();
     const supplierOverrides = new Map<string, Array<{ lookbackDays: number | null; minDays: number | null; maxDays: number | null; depot: string | null }>>();
@@ -523,12 +532,19 @@ class MinMaxService {
     // kisa pencereli kurallarda pencere disi eski satis tarihi efektif gunu bozar).
     // Depo filtresi: sth_cikis_depo_no (satis cikis deposu; hot-sale/warehouse servislerindeki
     // yazimlarla dogrulanmis kolon adi).
+    // Evrak anahtari: seri + '-' + sira (reports.service.ts'deki evrak kimligi kalibi).
+    // COUNT(DISTINCT CASE ... END) NULL'lari saymaz; pencere/depo disindaki satirlar
+    // CASE'ten NULL dondugu icin sayilmaz. ISNULL sarmalari NULL seri/sira birlesiminin
+    // tum ifadeyi NULL yapip evraki dusurmesini engeller.
+    const docKeyExpr = `ISNULL(sth.sth_evrakno_seri, '') + '-' + CAST(ISNULL(sth.sth_evrakno_sira, 0) AS VARCHAR(20))`;
     const sumColumns = lookbackWindows
       .map((days) => {
         const cut = `DATEADD(DAY, -${days}, CAST(GETDATE() AS date))`;
         return [
           `SUM(CASE WHEN sth.sth_tarih >= ${cut} AND ISNULL(sth.sth_cikis_depo_no, 0) = ${warehouseNo} THEN CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT) ELSE 0 END) AS depotQty_${days}`,
           `SUM(CASE WHEN sth.sth_tarih >= ${cut} THEN CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT) ELSE 0 END) AS totalQty_${days}`,
+          `COUNT(DISTINCT CASE WHEN sth.sth_tarih >= ${cut} AND ISNULL(sth.sth_cikis_depo_no, 0) = ${warehouseNo} THEN ${docKeyExpr} END) AS depotDocCount_${days}`,
+          `COUNT(DISTINCT CASE WHEN sth.sth_tarih >= ${cut} THEN ${docKeyExpr} END) AS totalDocCount_${days}`,
           `MIN(CASE WHEN sth.sth_tarih >= ${cut} AND ISNULL(sth.sth_cikis_depo_no, 0) = ${warehouseNo} THEN sth.sth_tarih END) AS depotFirstSale_${days}`,
           `MIN(CASE WHEN sth.sth_tarih >= ${cut} THEN sth.sth_tarih END) AS totalFirstSale_${days}`,
         ].join(',\n          ');
@@ -542,43 +558,9 @@ class MinMaxService {
       .filter(Boolean)
       .join('\n        ');
 
-    // Cold-start icin acik (alinan) musteri siparisleri: filtre kalibi
-    // reports.service.ts getUcarerIncomingOrderDetails (6678-6696) ile AYNI
-    // (sip_tip=0 alinan siparis, kapat/iptal=0, kalan = miktar - teslim > 0).
-    // Depo filtresi satis kapsamiyla tutarli: DEPOT ise hedef depo, COMPANY ise filtresiz.
-    // Satis tarafiyla ayni dislama seti: tarih alt siniri (bayat acik siparisler cold-start'i
-    // sisirmesin), TOPLU sorumluluk merkezi (sip_stok_sormerk; hot-sale.service.ts:1617 ve
-    // warehouse-workflow.service.ts:2618'de dogrulanmis kolon adi) ve ReportExclusion kurallari.
-    const pendingExclusionConditions = await exclusionService.buildSiparislerExclusionConditions();
-    // Exclusion kosullari st./c2. aliaslarini kullanabilir; sadece gerekirse join eklenir
-    // (Sales CTE'deki needsStoklarJoin/needsCariJoin kalibinin aynisi).
-    const pendingNeedsStoklarJoin = pendingExclusionConditions.some((condition) => condition.includes('st.sto_'));
-    const pendingNeedsCariJoin = pendingExclusionConditions.some((condition) => condition.includes('c2.cari_'));
-    const pendingConditions = [
-      'sip.sip_tip = 0',
-      'ISNULL(sip.sip_kapat_fl, 0) = 0',
-      'ISNULL(sip.sip_iptal, 0) = 0',
-      'sip.sip_stok_kod IS NOT NULL',
-      "LTRIM(RTRIM(sip.sip_stok_kod)) <> ''",
-      'ISNULL(sip.sip_miktar, 0) > ISNULL(sip.sip_teslim_miktar, 0)',
-      `sip.sip_tarih >= DATEADD(DAY, -${maxWindow}, CAST(GETDATE() AS date))`,
-      "UPPER(LTRIM(RTRIM(ISNULL(sip.sip_stok_sormerk, '')))) <> 'TOPLU'",
-      ...pendingExclusionConditions,
-    ];
-    if (defaults.salesScope !== 'COMPANY') {
-      pendingConditions.push(`ISNULL(sip.sip_depono, ${warehouseNo}) = ${warehouseNo}`);
-    }
-    const pendingJoins = [
-      pendingNeedsStoklarJoin ? 'LEFT JOIN STOKLAR st WITH (NOLOCK) ON st.sto_kod = sip.sip_stok_kod' : '',
-      pendingNeedsCariJoin ? 'LEFT JOIN CARI_HESAPLAR c2 WITH (NOLOCK) ON c2.cari_kod = sip.sip_musteri_kod' : '',
-    ]
-      .filter(Boolean)
-      .join('\n        ');
-
-    // Tek toplu sorgu: satis SUM'lari + pencere icindeki ilk satis tarihi + bekleyen
-    // musteri siparisi + urun meta + mevcut min/max.
-    // Urun seti: penceresinde satisi olan URUNLER ∪ depoda min/max tanimli URUNLER
-    // ∪ acik musteri siparisi olan URUNLER (yeni acilan stoklar da gorunsun diye).
+    // Tek toplu sorgu: satis SUM'lari + farkli evrak sayilari + pencere icindeki ilk
+    // satis tarihi + urun meta + mevcut min/max.
+    // Urun seti: penceresinde satisi olan URUNLER ∪ depoda min/max tanimli URUNLER.
     const queryText = `
       WITH Sales AS (
         SELECT
@@ -588,15 +570,6 @@ class MinMaxService {
         ${salesJoins}
         WHERE ${whereClause}
         GROUP BY UPPER(LTRIM(RTRIM(sth.sth_stok_kod)))
-      ),
-      Pending AS (
-        SELECT
-          UPPER(LTRIM(RTRIM(sip.sip_stok_kod))) AS productCode,
-          SUM(CAST(ISNULL(sip.sip_miktar, 0) - ISNULL(sip.sip_teslim_miktar, 0) AS FLOAT)) AS pendingQty
-        FROM SIPARISLER sip WITH (NOLOCK)
-        ${pendingJoins}
-        WHERE ${pendingConditions.join('\n          AND ')}
-        GROUP BY UPPER(LTRIM(RTRIM(sip.sip_stok_kod)))
       )
       SELECT
         UPPER(LTRIM(RTRIM(s.sto_kod))) AS productCode,
@@ -607,9 +580,8 @@ class MinMaxService {
         CAST(ISNULL(sdp.sdp_min_stok, 0) AS FLOAT) AS currentMin,
         CAST(ISNULL(sdp.sdp_max_stok, 0) AS FLOAT) AS currentMax,
         CASE WHEN sdp.sdp_depo_kod IS NULL THEN 0 ELSE 1 END AS hasDepotRecord,
-        CAST(ISNULL(po.pendingQty, 0) AS FLOAT) AS pendingOrderQty,
         ${lookbackWindows
-          .map((days) => `ISNULL(sa.depotQty_${days}, 0) AS depotQty_${days}, ISNULL(sa.totalQty_${days}, 0) AS totalQty_${days}, sa.depotFirstSale_${days}, sa.totalFirstSale_${days}`)
+          .map((days) => `ISNULL(sa.depotQty_${days}, 0) AS depotQty_${days}, ISNULL(sa.totalQty_${days}, 0) AS totalQty_${days}, ISNULL(sa.depotDocCount_${days}, 0) AS depotDocCount_${days}, ISNULL(sa.totalDocCount_${days}, 0) AS totalDocCount_${days}, sa.depotFirstSale_${days}, sa.totalFirstSale_${days}`)
           .join(',\n        ')}
       FROM STOKLAR s WITH (NOLOCK)
       LEFT JOIN STOK_DEPO_DETAYLARI sdp WITH (NOLOCK)
@@ -619,14 +591,11 @@ class MinMaxService {
         ON sc.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
       LEFT JOIN Sales sa
         ON sa.productCode = UPPER(LTRIM(RTRIM(s.sto_kod)))
-      LEFT JOIN Pending po
-        ON po.productCode = UPPER(LTRIM(RTRIM(s.sto_kod)))
       WHERE ISNULL(s.sto_pasif_fl, 0) = 0
         AND (
           sa.productCode IS NOT NULL
           OR ISNULL(sdp.sdp_min_stok, 0) <> 0
           OR ISNULL(sdp.sdp_max_stok, 0) <> 0
-          OR ISNULL(po.pendingQty, 0) > 0
         )
     `;
 
@@ -636,6 +605,7 @@ class MinMaxService {
       const productCode = normalizeCode(raw?.productCode);
       const supplierCode = normalizeCode(raw?.supplierCode);
       const excluded = normalizeCode(raw?.modelKodu) === 'HAYIR';
+      const userExcluded = userExcludedCodes.has(productCode);
       const currentMin = Number(raw?.currentMin) || 0;
       const currentMax = Number(raw?.currentMax) || 0;
       const hasDepotRecord = Number(raw?.hasDepotRecord) === 1;
@@ -653,7 +623,11 @@ class MinMaxService {
       const depotQty = Number(raw?.[`depotQty_${windowDays}`]) || 0;
       const totalQty = Number(raw?.[`totalQty_${windowDays}`]) || 0;
       const salesQty = defaults.salesScope === 'COMPANY' ? totalQty : depotQty;
-      const pendingOrderQty = Math.max(0, Number(raw?.pendingOrderQty) || 0);
+      // Farkli satis evraki sayisi: kapsam (DEPOT/COMPANY) ve efektif pencere secimi
+      // salesQty ile birebir ayni mantik.
+      const depotDocCount = Number(raw?.[`depotDocCount_${windowDays}`]) || 0;
+      const totalDocCount = Number(raw?.[`totalDocCount_${windowDays}`]) || 0;
+      const docCount = defaults.salesScope === 'COMPANY' ? totalDocCount : depotDocCount;
 
       // Efektif satis penceresi (patron tarifi): urun pencere ortasinda satilmaya
       // baslamissa gun sayisi ilk satis tarihinden itibaren sayilir; taban 7 gun.
@@ -677,24 +651,20 @@ class MinMaxService {
       const isShortWindow = effectiveDays < windowDays;
       const dailySales = effectiveDays > 0 ? salesQty / effectiveDays : 0;
 
+      // userExcluded: kullanici haric listesindeki urunlere oneri uretilmez
+      // (newMin/newMax/diff null kalir); satir listede gorunmeye devam eder.
       let newMin: number | null = null;
       let newMax: number | null = null;
-      let source: MinMaxOverrideSource = excluded ? 'haric' : params.source;
-      if (!excluded) {
+      const source: MinMaxOverrideSource = excluded ? 'haric' : params.source;
+      if (!excluded && !userExcluded) {
         if (dailySales > 0) {
           newMin = Math.ceil(dailySales * params.minDays);
           newMax = Math.ceil(dailySales * params.maxDays);
-        } else if (pendingOrderQty > 0) {
-          // Cold-start: pencere satisi yok ama acik musteri siparisi var (urun yeni
-          // acilmis, mal henuz gelmemis olabilir). Taahhut edilen talebi garanti karsila.
-          newMin = Math.ceil(pendingOrderQty);
-          newMax = Math.ceil(pendingOrderQty * (params.maxDays / Math.max(1, params.minDays)));
-          source = 'SIPARIS';
         } else {
           newMin = 0;
           newMax = 0;
         }
-        if (newMin !== null && newMax !== null && newMax < newMin) newMax = newMin;
+        if (newMax < newMin) newMax = newMin;
       }
 
       return {
@@ -704,13 +674,14 @@ class MinMaxService {
         supplierName: String(raw?.supplierName || '').trim() || null,
         depot,
         excluded,
+        userExcluded,
         hasDepotRecord,
         salesQty: Math.round(salesQty * 100) / 100,
         dailySales: Math.round(dailySales * 10000) / 10000,
+        docCount,
         effectiveDays,
         firstSaleDate,
         isShortWindow,
-        pendingOrderQty: Math.round(pendingOrderQty * 100) / 100,
         lookbackUsed: windowDays,
         minDaysUsed: params.minDays,
         maxDaysUsed: params.maxDays,
@@ -730,8 +701,9 @@ class MinMaxService {
     // allowInsert=true ile yeni kayit acilarak yazilabilir; sayaclar UI uyarisi icin.
     const missingWithSales = rows.filter((row) => !row.hasDepotRecord && row.salesQty > 0);
     const summary = {
-      changedCount: rows.filter((row) => !row.excluded && ((row.diffMin ?? 0) !== 0 || (row.diffMax ?? 0) !== 0)).length,
+      changedCount: rows.filter((row) => !row.excluded && !row.userExcluded && ((row.diffMin ?? 0) !== 0 || (row.diffMax ?? 0) !== 0)).length,
       excludedCount: rows.filter((row) => row.excluded).length,
+      userExcludedCount: rows.filter((row) => row.userExcluded).length,
       missingDepotRecordCount: rows.filter((row) => !row.hasDepotRecord).length,
       missingWithSalesCount: missingWithSales.length,
       missingWithSalesDaily: Math.round(missingWithSales.reduce((sum, row) => sum + row.dailySales, 0) * 100) / 100,
@@ -773,6 +745,10 @@ class MinMaxService {
     const warehouseNo = depotToWarehouseNo(depot);
     const allowInsert = input.allowInsert === true;
 
+    // Kullanici haric listesi (MinMaxExclusion): bu kodlara yazma yapilmaz,
+    // satir sebebiyle 'skipped' olarak raporlanir.
+    const userExcludedCodes = await minMaxExclusionService.getExcludedCodes();
+
     const items: MinMaxApplyItem[] = [];
     const seen = new Set<string>();
     const invalid: Array<{ productCode: string; reason: string }> = [];
@@ -783,6 +759,10 @@ class MinMaxService {
       if (!productCode) return;
       if (seen.has(productCode)) return;
       seen.add(productCode);
+      if (userExcludedCodes.has(productCode)) {
+        invalid.push({ productCode, reason: 'Kullanici tarafindan hesaplama disi birakildi' });
+        return;
+      }
       if (!Number.isFinite(newMin) || !Number.isFinite(newMax) || newMin < 0 || newMax < 0) {
         invalid.push({ productCode, reason: 'Gecersiz min/max degeri' });
         return;
@@ -795,6 +775,11 @@ class MinMaxService {
     });
 
     if (items.length === 0) {
+      if (invalid.length > 0) {
+        // Tum satirlar reddedildi (haric liste / gecersiz deger): hata firlatmak yerine
+        // sebepleri satir bazinda 'skipped' olarak don (Mikro'ya baglanmadan, log'suz).
+        return { depot, requested: 0, updated: [], skipped: invalid, inserted: [] };
+      }
       throw new AppError('Yazilacak gecerli satir yok.', 400, ErrorCode.BAD_REQUEST);
     }
     if (items.length > MAX_APPLY_ITEMS) {

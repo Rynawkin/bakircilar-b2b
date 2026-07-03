@@ -207,6 +207,12 @@ const complementRecommendationSchema = z.object({
 router.get('/settings', requirePermission('admin:settings'), adminController.getSettings);
 router.put('/settings', requirePermission('admin:settings'), invalidateCacheMiddleware(['banners:*']), adminController.updateSettings);
 
+// Zamanlanmis isler (scheduled jobs): listeleme + zamanlama override + manuel tetikleme
+// NOT: /scheduled-jobs/:key/run (spesifik alt-yol) :key param yolundan sonra gelse de method+path farkli oldugu icin cakismaz
+router.get('/scheduled-jobs', requirePermission('admin:settings'), adminController.getScheduledJobs);
+router.put('/scheduled-jobs/:key/schedule', requirePermission('admin:settings'), adminController.setScheduledJobSchedule);
+router.post('/scheduled-jobs/:key/run', requirePermission('admin:settings'), adminController.runScheduledJob);
+
 // Sync - ADMIN only
 router.post('/sync', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.triggerSync);
 router.post('/sync/images', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.triggerImageSync);
@@ -644,6 +650,9 @@ router.get('/reports/ucarer-product-purchase-history', requirePermission('report
 // TOPLU denetim raporu: ritmik TOPLU alimlari cari x urun x ay geri tarar; unmark tek tusla topludan cikarir (Mikro yazma, loglu)
 router.get('/reports/toplu-audit', requirePermission('reports:ucarer-depo'), adminController.getTopluAuditReport);
 router.post('/reports/toplu-audit/unmark', requirePermission('reports:ucarer-depo'), adminController.unmarkTopluGroup);
+// TOPLU aday tarama: TOPLU olmayan ani-sicrama satis satirlarini bulur; mark ile TOPLU isaretler (Mikro yazma, loglu)
+router.get('/reports/toplu-candidates', requirePermission('reports:ucarer-depo'), adminController.getTopluCandidates);
+router.post('/reports/toplu-candidates/mark', requirePermission('reports:ucarer-depo'), adminController.markTopluCandidateLines);
 // Borc-mal takasi radari: vadesi gecmis cariler x satin alma ihtiyaci kesisimi (SALT OKUMA)
 router.get('/reports/barter-radar', requirePermission('reports:ucarer-depo'), adminController.getBarterRadar);
 // Karsi depo min/max sorgusu (transfer kapisi rozeti icin; salt okuma)
@@ -660,13 +669,25 @@ router.post('/minmax/overrides', requirePermission('reports:ucarer-minmax'), adm
 router.delete('/minmax/overrides/:id', requirePermission('reports:ucarer-minmax'), adminController.deleteMinMaxV2Override);
 router.get('/minmax/settings', requirePermission('reports:ucarer-minmax'), adminController.getMinMaxV2Settings);
 router.put('/minmax/settings', requirePermission('reports:ucarer-minmax'), adminController.updateMinMaxV2Settings);
+// Min-Max kullanici haric tutma: stok kodlarini hesaplama disi birakir (B2B tarafi; Mikro'ya dokunmaz)
+router.get('/minmax-exclusions', requirePermission('reports:ucarer-depo'), adminController.getMinMaxExclusions);
+router.post('/minmax-exclusions', requirePermission('reports:ucarer-depo'), adminController.addMinMaxExclusions);
+router.delete('/minmax-exclusions/:id', requirePermission('reports:ucarer-depo'), adminController.removeMinMaxExclusion);
 router.get('/reports/product-families', requirePermission('reports:ucarer-depo'), adminController.getProductFamilies);
 router.post('/reports/product-families', requirePermission('reports:ucarer-depo'), adminController.createProductFamily);
 router.put('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.updateProductFamily);
 router.delete('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.deleteProductFamily);
 // Aday aile motoru: ailesiz urunlere pg_trgm benzerligiyle aile onerir; add-product oneriyi uygular (Mikro yazma YOK)
 router.post('/stock-family/candidates', requirePermission('reports:ucarer-depo'), adminController.suggestFamilyCandidates);
+// NOT: /stock-family/items/:itemId/... spesifik yol; :familyId param yolundan ONCE tanimli (Express eslesme sirasi)
+router.put('/stock-family/items/:itemId/unit-factor', requirePermission('reports:ucarer-depo'), adminController.setFamilyItemUnitFactor);
 router.post('/stock-family/:familyId/add-product', requirePermission('reports:ucarer-depo'), adminController.addProductToFamilyFromCandidate);
+router.post('/stock-family/:familyId/remove-product', requirePermission('reports:ucarer-depo'), adminController.removeProductFromFamily);
+// Aile yonetimi raporlari: oneri / kumeleme / outlier + birim tutarsizlik (SALT OKUMA + kucuk bakim yazmalari)
+router.get('/reports/family-management/suggestions', requirePermission('reports:ucarer-depo'), adminController.getFamilySuggestionsReport);
+router.get('/reports/family-management/clusters', requirePermission('reports:ucarer-depo'), adminController.getFamilyClustersReport);
+router.get('/reports/family-management/outliers', requirePermission('reports:ucarer-depo'), adminController.getFamilyOutliersReport);
+router.get('/reports/family-unit-mismatch', requirePermission('reports:ucarer-depo'), adminController.getFamilyUnitMismatch);
 router.get('/reports/price-families', requirePermission('reports:price-family-costs'), adminController.getPriceFamilies);
 router.post('/reports/price-families', requirePermission('reports:price-family-costs'), adminController.createPriceFamily);
 router.put('/reports/price-families/:id', requirePermission('reports:price-family-costs'), adminController.updatePriceFamily);

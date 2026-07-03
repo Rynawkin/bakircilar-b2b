@@ -100,6 +100,9 @@ export interface CartItem {
     name: string;
     mikroCode: string;
     imageUrl?: string;
+    unit?: string | null;
+    unit2?: string | null;
+    unit2Factor?: number | null;
   };
   quantity: number;
   priceType: 'INVOICED' | 'WHITE';
@@ -109,6 +112,8 @@ export interface CartItem {
   vatRate: number;
   lineNote?: string | null;
   responsibilityCenter?: string | null;
+  /** Musteri 2. birim (KOLI/PAKET) sectiyse birim adi; ana birim ise null/bos */
+  selectedUnit?: string | null;
 }
 
 export interface Cart {
@@ -121,9 +126,12 @@ export interface Cart {
 
 export interface AddToCartRequest {
   productId: string;
+  /** BAZ (ana) birim miktari; 2. birim secildiyse cagirandan cevrilerek gelir (float olabilir) */
   quantity: number;
   priceType: 'INVOICED' | 'WHITE';
   priceMode?: 'LIST' | 'EXCESS';
+  /** Musteri 2. birim (KOLI/PAKET) sectiyse birim adi — depo notu icin backend'e iletilir */
+  selectedUnit?: string | null;
 }
 
 // ==================== ORDER TYPES ====================

@@ -269,7 +269,8 @@ export const customerApi = {
 
   updateCartItem: async (
     itemId: string,
-    data: { quantity?: number; lineNote?: string | null }
+    // quantity BAZ (ana) birim; 2. birim satirlarinda cagiran cevirip gonderir (float olabilir)
+    data: { quantity?: number; lineNote?: string | null; selectedUnit?: string | null }
   ): Promise<{ message: string }> => {
     const response = await apiClient.put(`/cart/${itemId}`, data);
     return response.data;

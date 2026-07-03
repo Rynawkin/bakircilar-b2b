@@ -1,10 +1,18 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 import { AuthInitializer } from '@/components/AuthInitializer';
 
 const inter = Inter({ subsets: ['latin'] });
+
+// Mobilde admin/musteri ekranlarinin yakinlasarak (zoom) acilmasini onler:
+// device-width'e sabitler, ilk olcegi 1 yapar, kullanici en fazla 5x buyutur.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+};
 
 export const metadata: Metadata = {
   title: 'Bakırcılar Grup B2B - Sipariş Sistemi',

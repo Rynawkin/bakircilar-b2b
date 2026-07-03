@@ -31,7 +31,10 @@ import customerCategoryPurchaseService from '../services/customer-category-purch
 import topluAuditService from '../services/toplu-audit.service';
 import barterRadarService from '../services/barter-radar.service';
 import familyCandidateService from '../services/family-candidate.service';
+import familyReportService from '../services/family-report.service';
 import stickyDiscountService from '../services/sticky-discount.service';
+import minMaxExclusionService from '../services/minmax-exclusion.service';
+import scheduledJobsService from '../services/scheduled-jobs.service';
 import priceListSuggestionService from '../services/price-list-suggestion.service';
 import { cacheService } from '../services/cache.service';
 import MIKRO_TABLES from '../config/mikro-tables';
@@ -6027,6 +6030,7 @@ export class AdminController {
     try {
       const data = await barterRadarService.getBarterRadar({
         minPastDue: req.query.minPastDue ? Number(req.query.minPastDue) : undefined,
+        minPayable: req.query.minPayable ? Number(req.query.minPayable) : undefined,
       });
       res.json({ success: true, data });
     } catch (error) {
@@ -6079,8 +6083,10 @@ export class AdminController {
   getStickyDiscountsReport = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = await stickyDiscountService.getStickyDiscountReport({
-        minGapPercent: req.query.minGapPercent ? Number(req.query.minGapPercent) : undefined,
         lookbackDays: req.query.lookbackDays ? Number(req.query.lookbackDays) : undefined,
+        minPremiumNowPercent: req.query.minPremiumNowPercent
+          ? Number(req.query.minPremiumNowPercent)
+          : undefined,
       });
       res.json({ success: true, data });
     } catch (error) {
@@ -6153,6 +6159,238 @@ export class AdminController {
         },
         userName || ''
       );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // ==================== Min-Max Kullanici Haric Tutma ====================
+
+  /**
+   * GET /api/admin/minmax-exclusions
+   * Kullanicinin min-max hesabindan cikardigi stok kodlari listesi
+   */
+  getMinMaxExclusions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await minMaxExclusionService.list();
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/minmax-exclusions
+   * body: { items: Array<{ productCode, productName?, note? }> }
+   * -> { added: number, skipped: string[] }
+   */
+  addMinMaxExclusions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const items = Array.isArray(req.body?.items) ? req.body.items : null;
+      if (!items || items.length === 0) {
+        return res.status(400).json({ error: 'items dizisi zorunludur.' });
+      }
+      const userName = await this.resolveActorName(req.user?.userId);
+      const data = await minMaxExclusionService.addMany(items, {
+        id: req.user?.userId || null,
+        name: userName,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * DELETE /api/admin/minmax-exclusions/:id
+   * Bir haric tutma kaydini kaldirir
+   */
+  removeMinMaxExclusion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await minMaxExclusionService.remove(String(req.params.id || ''));
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // ==================== Aile Yonetimi Raporlari ====================
+
+  /**
+   * GET /api/admin/reports/family-management/suggestions?limit=&offset=
+   * Ailesiz + hareketli urunler icin mevcut aileye oneri (sadece adayi olanlar)
+   */
+  getFamilySuggestionsReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await familyReportService.getFamilySuggestions({
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        offset: req.query.offset ? Number(req.query.offset) : undefined,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/admin/reports/family-management/clusters?limit=
+   * Adayi olmayan ailesiz urunleri kategori ici kumeleyerek yeni aile onerir
+   */
+  getFamilyClustersReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await familyReportService.getFamilyClusters({
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/admin/reports/family-management/outliers
+   * Mevcut ailelerdeki supheli (yanlis) uyeleri isaretler
+   */
+  getFamilyOutliersReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await familyReportService.getFamilyOutliers();
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/stock-family/:familyId/remove-product
+   * body: { productCode } -> { removed: boolean } (uyeyi pasifler; Mikro yazma YOK)
+   */
+  removeProductFromFamily = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const productCode = typeof req.body?.productCode === 'string' ? req.body.productCode.trim() : '';
+      if (!productCode) {
+        return res.status(400).json({ error: 'productCode zorunludur.' });
+      }
+      const userName = await this.resolveActorName(req.user?.userId);
+      const data = await familyReportService.removeProductFromFamily(
+        String(req.params.familyId || ''),
+        productCode,
+        userName
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * GET /api/admin/reports/family-unit-mismatch
+   * Birim tutarsiz aileler (dominantUnit + tum uyeler)
+   */
+  getFamilyUnitMismatch = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await familyReportService.getFamilyUnitMismatch();
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * PUT /api/admin/stock-family/items/:itemId/unit-factor
+   * body: { factor: number | null } -> { item: { itemId, unitFactorOverride } }
+   */
+  setFamilyItemUnitFactor = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const raw = req.body?.factor;
+      const factor: number | null = raw === null || raw === undefined ? null : Number(raw);
+      const userName = await this.resolveActorName(req.user?.userId);
+      const data = await familyReportService.setFamilyItemUnitFactor(
+        String(req.params.itemId || ''),
+        factor,
+        userName
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // ==================== TOPLU Aday Tarama ====================
+
+  /**
+   * GET /api/admin/reports/toplu-candidates?months=&spikeFactor=&minQty=
+   * TOPLU olmayan ama spike (ani sicrama) gosteren satis satirlarini aday olarak listeler
+   */
+  getTopluCandidates = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await topluAuditService.getTopluCandidates({
+        months: req.query.months ? Number(req.query.months) : undefined,
+        spikeFactor: req.query.spikeFactor ? Number(req.query.spikeFactor) : undefined,
+        minQty: req.query.minQty ? Number(req.query.minQty) : undefined,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/reports/toplu-candidates/mark
+   * body: { lines: Array<{ productCode, lineGuid, documentSeries, documentSequence, documentLineNo }> }
+   * -> { marked: number, failed: Array<{ lineGuid, reason }> } (Mikro yazma, loglu)
+   */
+  markTopluCandidateLines = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const lines = Array.isArray(req.body?.lines) ? req.body.lines : null;
+      if (!lines || lines.length === 0) {
+        return res.status(400).json({ error: 'lines dizisi zorunludur.' });
+      }
+      const data = await topluAuditService.markCandidateLines(lines, req.user?.userId || null);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // ==================== Zamanlanmis Isler (Scheduled Jobs) ====================
+
+  /**
+   * GET /api/admin/scheduled-jobs
+   * Kayitli periyodik islerin listesi (efektif zamanlama + son calisma durumu)
+   */
+  getScheduledJobs = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = scheduledJobsService.getJobs();
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * PUT /api/admin/scheduled-jobs/:key/schedule
+   * body: { schedule: string | null } (null = varsayilana don) -> { job: {...} }
+   */
+  setScheduledJobSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const raw = req.body?.schedule;
+      const schedule: string | null =
+        raw === null || raw === undefined ? null : String(raw);
+      const data = await scheduledJobsService.setSchedule(String(req.params.key || ''), schedule);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/scheduled-jobs/:key/run
+   * Isi manuel (fire-and-forget) tetikler -> { started, alreadyRunning? }
+   */
+  runScheduledJob = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = scheduledJobsService.runNow(String(req.params.key || ''));
       res.json({ success: true, data });
     } catch (error) {
       next(error);

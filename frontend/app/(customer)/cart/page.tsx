@@ -11,6 +11,7 @@ import {
   Plus,
   AlertTriangle,
   ChevronLeft,
+  ChevronDown,
   ArrowRight,
   Pencil,
   ShieldCheck,
@@ -29,6 +30,7 @@ import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel, getVatStatusLabel } from '@/lib/utils/vatDisplay';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
+import { getUnitOptions, formatUnitFactor, normalizeUnitName } from '@/lib/utils/unit';
 
 type RecommendationGroup = {
   baseProduct: { id: string; name: string; mikroCode: string };
@@ -47,6 +49,8 @@ export default function CartPage() {
   const [deliveryLocation, setDeliveryLocation] = useState('');
   const [recommendationGroups, setRecommendationGroups] = useState<RecommendationGroup[]>([]);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
+  // Mobilde tamamlayici oneriler varsayilan kapali (akordeon) — "Siparisi Tamamla"yi asagi itmesin
+  const [mobileRecoOpen, setMobileRecoOpen] = useState(false);
   const [stockShortNames, setStockShortNames] = useState<string[]>([]);
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
@@ -56,6 +60,25 @@ export default function CartPage() {
   const vatDisplayPreference = user?.vatDisplayPreference || 'WITHOUT_VAT';
   const allowedPriceTypes = useMemo(() => getAllowedPriceTypes(effectiveVisibility), [effectiveVisibility]);
   const defaultPriceType = getDefaultPriceType(effectiveVisibility);
+
+  // Girdi kutusu icin GRUPLAMASIZ sayi metni (parseInt guvenli). tr-TR gruplama
+  // (1.000) parseInt'i bozar -> input'ta locale KULLANMA; sadece ≈ ipucunda kullan.
+  const plainQtyString = (value: number) => {
+    if (!Number.isFinite(value)) return '1';
+    return Number.isInteger(value) ? String(value) : String(Math.round(value * 1e6) / 1e6);
+  };
+
+  // Bir sepet satiri 2. birim (KOLI/PAKET) ile mi eklendi? Eklendiyse stepper/gosterim
+  // o birimde calisir; miktar guncellemede BAZ (ana) birime cevrilerek gonderilir.
+  const resolveLineUnit = (item: CartItem) => {
+    const info = getUnitOptions(item.product.unit, item.product.unit2, item.product.unit2Factor);
+    const sel = normalizeUnitName(item.selectedUnit);
+    const isSubUnit =
+      info.hasToggle && !!sel && !!info.altUnit && sel === normalizeUnitName(info.altUnit);
+    // Ekranda gosterilecek miktar (2. birim satirinda alt birime cevrilir)
+    const displayQty = isSubUnit ? info.baseToAlt(item.quantity) : item.quantity;
+    return { info, isSubUnit, displayQty, displayUnit: isSubUnit ? (info.altUnit as string) : (item.product.unit || 'ADET') };
+  };
 
   useEffect(() => {
     loadUserFromStorage();
@@ -69,7 +92,9 @@ export default function CartPage() {
     const nextOpen: Record<string, boolean> = {};
     cart.items.forEach((item) => {
       nextNotes[item.id] = item.lineNote || '';
-      nextQuantities[item.id] = String(item.quantity);
+      // Girdi kutusu 2. birim satirinda alt birim miktarini gosterir (gruplamasiz)
+      const { displayQty } = resolveLineUnit(item);
+      nextQuantities[item.id] = plainQtyString(displayQty);
       if (item.lineNote) nextOpen[item.id] = true;
     });
     setLineNotes(nextNotes);
@@ -143,24 +168,37 @@ export default function CartPage() {
     );
   };
 
-  const handleQuantityChange = async (itemId: string, newQuantity: number) => {
-    if (newQuantity < 1) return;
-    setQuantityInputs((prev) => ({ ...prev, [itemId]: String(newQuantity) }));
-    await updateQuantity(itemId, newQuantity);
+  // Miktar guncelleme — DISPLAY (secili) birim uzerinden calisir; BAZ (ana) birime
+  // cevrilip backend'e gonderilir. 2. birim satirinda selectedUnit da iletilir.
+  const applyDisplayQuantity = async (item: CartItem, nextDisplayQty: number) => {
+    if (!(nextDisplayQty > 0)) return;
+    const { info, isSubUnit } = resolveLineUnit(item);
+    const baseQty = isSubUnit ? info.altToBase(nextDisplayQty) : nextDisplayQty;
+    if (!(baseQty > 0)) return;
+    setQuantityInputs((prev) => ({ ...prev, [item.id]: plainQtyString(nextDisplayQty) }));
+    await updateQuantity(item.id, baseQty, isSubUnit ? (info.altUnit as string) : undefined);
+  };
+
+  const handleQuantityStep = async (item: CartItem, delta: number) => {
+    const { displayQty } = resolveLineUnit(item);
+    const next = Math.max(1, Math.round(displayQty) + delta);
+    await applyDisplayQuantity(item, next);
   };
 
   const handleQuantityInputChange = (itemId: string, value: string) => {
+    // 2. birim satirinda tam sayi alt-birim; ana birim satiri da tam sayi -> yalniz rakam
     const sanitized = value.replace(/[^0-9]/g, '');
     setQuantityInputs((prev) => ({ ...prev, [itemId]: sanitized }));
   };
 
-  const commitQuantityInput = async (itemId: string, currentQuantity: number) => {
-    const rawValue = quantityInputs[itemId] ?? String(currentQuantity);
+  const commitQuantityInput = async (item: CartItem) => {
+    const { displayQty } = resolveLineUnit(item);
+    const rawValue = quantityInputs[item.id] ?? plainQtyString(displayQty);
     const parsed = parseInt(rawValue, 10);
-    const nextQuantity = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-    setQuantityInputs((prev) => ({ ...prev, [itemId]: String(nextQuantity) }));
-    if (nextQuantity === currentQuantity) return;
-    await handleQuantityChange(itemId, nextQuantity);
+    const nextDisplayQty = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    setQuantityInputs((prev) => ({ ...prev, [item.id]: String(nextDisplayQty) }));
+    if (nextDisplayQty === Math.round(displayQty)) return;
+    await applyDisplayQuantity(item, nextDisplayQty);
   };
 
   const handleLineNoteChange = (itemId: string, value: string) => {
@@ -266,12 +304,19 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
   const renderLine = (item: CartItem) => {
     const stockShort = isItemStockShort(item.product.name, item.product.mikroCode);
     const isInvoiced = item.priceType === 'INVOICED';
-    const unitDisplay = isInvoiced
+    const lineUnit = resolveLineUnit(item);
+    // Birim fiyat gosterimi: 2. birim satirinda secili birime cevrilir (fiyat*altPriceFactor)
+    const baseUnitPriceDisplay = isInvoiced
       ? getDisplayPrice(item.unitPrice, item.vatRate, 'INVOICED', vatDisplayPreference)
       : item.unitPrice;
+    const unitDisplay = lineUnit.isSubUnit
+      ? baseUnitPriceDisplay * lineUnit.info.altPriceFactor
+      : baseUnitPriceDisplay;
     const lineDisplay = isInvoiced
       ? getDisplayPrice(item.totalPrice, item.vatRate, 'INVOICED', vatDisplayPreference)
       : item.totalPrice;
+    const qtyValue = quantityInputs[item.id] ?? plainQtyString(lineUnit.displayQty);
+    const stepDisabled = Math.round(lineUnit.displayQty) <= 1;
     const open = noteOpen[item.id];
     return (
       <div key={item.id} className="rounded-xl border border-[var(--line)] bg-white p-3.5">
@@ -302,41 +347,50 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
           </div>
 
           <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:w-auto">
-            <div className="flex items-center overflow-hidden rounded-lg border border-[var(--line-strong)]">
-              <button
-                onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                disabled={item.quantity <= 1}
-                className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] disabled:opacity-40"
-                aria-label="Azalt"
-              >
-                <Minus className="h-3.5 w-3.5" strokeWidth={2.4} />
-              </button>
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={quantityInputs[item.id] ?? String(item.quantity)}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => handleQuantityInputChange(item.id, e.target.value)}
-                onBlur={() => void commitQuantityInput(item.id, item.quantity)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') e.currentTarget.blur();
-                }}
-                className="h-8 w-11 border-x border-[var(--line)] text-center text-sm font-semibold text-[var(--ink-1)] focus:outline-none"
-                aria-label={`${item.product.name} miktari`}
-              />
-              <button
-                onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
-                aria-label="Artır"
-              >
-                <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
-              </button>
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="flex items-center overflow-hidden rounded-lg border border-[var(--line-strong)]">
+                <button
+                  onClick={() => handleQuantityStep(item, -1)}
+                  disabled={stepDisabled}
+                  className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] disabled:opacity-40"
+                  aria-label="Azalt"
+                >
+                  <Minus className="h-3.5 w-3.5" strokeWidth={2.4} />
+                </button>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={qtyValue}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => handleQuantityInputChange(item.id, e.target.value)}
+                  onBlur={() => void commitQuantityInput(item)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                  }}
+                  className="h-8 w-11 border-x border-[var(--line)] text-center text-sm font-semibold text-[var(--ink-1)] focus:outline-none"
+                  aria-label={`${item.product.name} miktari`}
+                />
+                <button
+                  onClick={() => handleQuantityStep(item, 1)}
+                  className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                  aria-label="Artır"
+                >
+                  <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
+                </button>
+              </div>
+              {lineUnit.isSubUnit && (
+                <span className="whitespace-nowrap text-[10px] font-medium text-primary-600">
+                  {lineUnit.displayUnit} · ≈ {formatUnitFactor(item.quantity)} {item.product.unit}
+                </span>
+              )}
             </div>
 
             <div className="min-w-[88px] text-right">
               <div className="text-[12.5px] text-[var(--ink-2)]">{formatCurrency(unitDisplay)}</div>
-              <div className="text-[10.5px] text-[var(--ink-3)]">birim</div>
+              <div className="text-[10.5px] text-[var(--ink-3)]">
+                {lineUnit.isSubUnit ? `${lineUnit.displayUnit} fiyatı` : 'birim'}
+              </div>
             </div>
             <div className="min-w-[96px] text-right">
               <div className="text-[15px] font-semibold text-[var(--ink-1)]">{formatCurrency(lineDisplay)}</div>
@@ -392,7 +446,8 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
-      <div className="mx-auto w-full max-w-[1200px] px-3 py-6 sm:px-4 lg:px-6">
+      {/* Mobil: alttaki sabit "Siparisi Tamamla" cubugu + gezinme sekmesi icin ekstra bosluk */}
+      <div className="mx-auto w-full max-w-[1200px] px-3 py-6 pb-[168px] sm:px-4 lg:px-6 lg:pb-6">
         {/* Baslik */}
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -490,22 +545,36 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
                 </button>
               </div>
 
-              {/* Tamamlayici oneriler */}
+              {/* Tamamlayici oneriler — mobilde akordeon (varsayilan kapali), masaustunde her zaman acik */}
               {recommendationGroups.length > 0 && (
-                <div className="space-y-4">
-                  {recommendationGroups.map((group) => (
-                    <Card key={group.baseProduct.id} className="border border-[var(--line)] shadow-none">
-                      <ProductRecommendations
-                        products={group.products}
-                        title={`${group.baseProduct.mikroCode} · ${group.baseProduct.name} için tamamlayıcı ürünler`}
-                        icon=""
-                        onProductClick={(item) => router.push(`/products/${item.id}`)}
-                        onAddToCart={handleRecommendationAdd}
-                        allowedPriceTypes={allowedPriceTypes}
-                        vatDisplayPreference={vatDisplayPreference}
-                      />
-                    </Card>
-                  ))}
+                <div>
+                  {/* Mobil baslik/toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setMobileRecoOpen((o) => !o)}
+                    className="mb-3 flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-left lg:hidden"
+                    aria-expanded={mobileRecoOpen}
+                  >
+                    <span className="text-[13.5px] font-semibold text-[var(--ink-1)]">
+                      Tamamlayıcı Öneriler ({recommendationGroups.length})
+                    </span>
+                    <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--ink-3)] transition-transform ${mobileRecoOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  <div className={`${mobileRecoOpen ? 'block' : 'hidden'} space-y-4 lg:block`}>
+                    {recommendationGroups.map((group) => (
+                      <Card key={group.baseProduct.id} className="border border-[var(--line)] shadow-none">
+                        <ProductRecommendations
+                          products={group.products}
+                          title={`${group.baseProduct.mikroCode} · ${group.baseProduct.name} için tamamlayıcı ürünler`}
+                          icon=""
+                          onProductClick={(item) => router.push(`/products/${item.id}`)}
+                          onAddToCart={handleRecommendationAdd}
+                          allowedPriceTypes={allowedPriceTypes}
+                          vatDisplayPreference={vatDisplayPreference}
+                        />
+                      </Card>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -592,6 +661,36 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
                 </div>
               </div>
             </aside>
+
+            {/* ── MOBIL SABIT ALT CUBUK (Siparisi Tamamla) ─────────────
+                 Gezinme sekme cubugunun (~56px + safe-area) hemen ustunde durur.
+                 Onay diyalogu acikken gizlenir. Masaustunde gizli (lg:hidden). */}
+            {!dialogState.isOpen && (
+              <div
+                className="fixed inset-x-0 z-40 border-t border-[var(--line)] bg-white px-3 pt-2.5 shadow-[0_-6px_20px_rgba(20,34,59,0.08)] lg:hidden"
+                style={{ bottom: 'calc(56px + env(safe-area-inset-bottom))' }}
+              >
+                <div className="mx-auto flex w-full max-w-[1200px] items-center gap-3 pb-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] text-[var(--ink-3)]">Genel Toplam · KDV dahil</div>
+                    <div className="truncate text-lg font-semibold tracking-tight text-[var(--ink-1)]">
+                      {formatCurrency(cart.total)}
+                    </div>
+                  </div>
+                  <Button
+                    className="flex h-12 flex-[1.2] items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 text-[15px] font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={handleCreateOrder}
+                    isLoading={isCreatingOrder}
+                    disabled={!cart || cart.items.length === 0 || isCreatingOrder}
+                  >
+                    {isCreatingOrder
+                      ? (isSubUser ? 'Gönderiliyor…' : 'Oluşturuluyor…')
+                      : (isSubUser ? 'Talebi Gönder' : 'Siparişi Tamamla')}
+                    {!isCreatingOrder && <ArrowRight className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

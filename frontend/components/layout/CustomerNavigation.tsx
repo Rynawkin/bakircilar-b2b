@@ -61,7 +61,9 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
 
   const isSubUser = Boolean(user?.parentCustomerId);
-  const cartCount = cart?.items?.reduce((sum, item) => sum + item.quantity, 0) ?? cartItemCount;
+  // Sepet rozeti: kalem (satir) sayisi — 2. birim satirlarinda kesirli baz-miktar
+  // toplami "0,5" gibi tuhaf gorunmesin diye adet toplami yerine kalem sayisi gosterilir.
+  const cartCount = cart?.items?.length ?? cartItemCount;
   const cartTotal = cart?.total ?? 0;
 
   const fetchNotifications = async () => {
@@ -158,6 +160,23 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.parentCustomerId]);
+
+  // Mobil menu acikken arka plan (body) kaymasini kilitle — dropdown kendi scroll'unu
+  // kullansin, arkadaki sayfayi surumesin. Menu kapaninca eski overflow geri gelir.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (!mobileMenuOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [mobileMenuOpen]);
+
+  // Rota degisince mobil menuyu kapat (link tiklamalari zaten kapatiyor; guvence)
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
 
   const handleLogout = () => {
     logout();
@@ -629,8 +648,9 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
       {/* ── MOBİL MENÜ ───────────────────────────────────────────── */}
       {mobileMenuOpen && (
-        <div className="max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-[var(--line)] bg-white lg:hidden">
-          <div className="space-y-1 px-4 py-4">
+        <div className="max-h-[calc(100dvh-4rem)] overflow-y-auto overscroll-contain border-b border-[var(--line)] bg-white lg:hidden">
+          {/* Alt gezinme sekme cubugu (~56px + safe-area) kadar ekstra bosluk: son ogeler gizlenmesin */}
+          <div className="space-y-1 px-4 py-4 pb-[calc(72px+env(safe-area-inset-bottom))]">
             <div className="mb-2 px-1">
               <p className="truncate text-sm font-semibold text-[var(--ink-1)]">{user?.name}</p>
               <p className="truncate text-xs text-[var(--ink-3)]">{user?.email}</p>

@@ -5,15 +5,55 @@ import Link from 'next/link';
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   History,
   RefreshCw,
   Search,
   X,
 } from 'lucide-react';
 import adminApi, { type TopluAuditResult, type TopluAuditRow } from '@/lib/api/admin';
+import toast from 'react-hot-toast';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
+
+// ---- TOPLU Adaylari (yeni sekme) tipleri — sozlesme sekli ----
+interface TopluCandidateSpikeDoc {
+  documentNo: string;
+  documentDate: string | null;
+  quantity: number;
+  amount: number;
+  lineGuid: string;
+  documentSeries: string;
+  documentSequence: number;
+  documentLineNo: number;
+}
+
+interface TopluCandidateRow {
+  cariCode: string;
+  cariName: string;
+  productCode: string;
+  productName: string;
+  docCount: number;
+  spikeDocs: TopluCandidateSpikeDoc[];
+  typicalDocQty: number;
+  totalSpikeQty: number;
+  totalSpikeAmount: number;
+}
+
+interface TopluCandidatesResult {
+  months: number;
+  spikeFactor: number;
+  minQty: number;
+  windowFrom: string;
+  windowTo: string;
+  rows: TopluCandidateRow[];
+  summary: { groupCount: number; totalSpikeAmount: number };
+  generatedAt: string;
+}
+
+type ActiveTab = 'AUDIT' | 'CANDIDATES';
 
 /**
  * TOPLU Denetim raporu (/reports/toplu-audit).
@@ -145,6 +185,26 @@ export default function TopluDenetim() {
   const [unmarkError, setUnmarkError] = useState<string | null>(null);
   // Cikarilan gruplar: key -> etkilenen satir sayisi
   const [unmarked, setUnmarked] = useState<Record<string, number>>({});
+  // Sadece ritmik (topludan cikar onerili) gruplar — VARSAYILAN ACIK.
+  const [onlyRhythmic, setOnlyRhythmic] = useState(true);
+
+  // ---- Sekme durumu ----
+  const [tab, setTab] = useState<ActiveTab>('AUDIT');
+
+  // ---- TOPLU Adaylari sekmesi durumu ----
+  const [candMonths, setCandMonths] = useState(12);
+  const [candSpikeFactor, setCandSpikeFactor] = useState(3);
+  const [candMinQty, setCandMinQty] = useState(0);
+  const [candData, setCandData] = useState<TopluCandidatesResult | null>(null);
+  const [candLoading, setCandLoading] = useState(false);
+  const [candError, setCandError] = useState<string | null>(null);
+  const [candSearch, setCandSearch] = useState('');
+  const [candExpanded, setCandExpanded] = useState<Set<string>>(new Set());
+  const [candLoadedOnce, setCandLoadedOnce] = useState(false);
+  // Topluya alinan aday gruplar: key -> {marked, failed}
+  const [candMarked, setCandMarked] = useState<Record<string, { marked: number; failed: number }>>({});
+  const [candMarkTarget, setCandMarkTarget] = useState<TopluCandidateRow | null>(null);
+  const [candMarkBusy, setCandMarkBusy] = useState(false);
 
   const fetchReport = async () => {
     setLoading(true);
@@ -172,14 +232,16 @@ export default function TopluDenetim() {
 
   const filteredRows = useMemo(() => {
     if (!data) return [] as TopluAuditRow[];
-    if (searchTokens.length === 0) return data.rows;
-    return data.rows.filter((row) => {
+    let rows = data.rows;
+    if (onlyRhythmic) rows = rows.filter((row) => row.isRhythmic);
+    if (searchTokens.length === 0) return rows;
+    return rows.filter((row) => {
       const haystack = normalizeSearchText(
         `${row.cariCode} ${row.cariName} ${row.productCode} ${row.productName}`
       );
       return matchesSearchTokens(haystack, searchTokens);
     });
-  }, [data, searchTokens]);
+  }, [data, searchTokens, onlyRhythmic]);
 
   const range = data ? rangeForReport(data) : null;
 
@@ -200,6 +262,87 @@ export default function TopluDenetim() {
       setUnmarkError(err?.response?.data?.error || err?.message || 'Islem basarisiz');
     } finally {
       setUnmarkBusy(false);
+    }
+  };
+
+  // ---- TOPLU Adaylari ----
+  const candKey = (row: TopluCandidateRow) => `${row.cariCode}|${row.productCode}`;
+
+  const fetchCandidates = async () => {
+    setCandLoading(true);
+    setCandError(null);
+    try {
+      const response = await adminApi.getTopluCandidates({
+        months: clampInt(candMonths, 1, 36, 12),
+        spikeFactor: Number.isFinite(Number(candSpikeFactor)) ? Math.max(1.5, Number(candSpikeFactor)) : 3,
+        minQty: Number.isFinite(Number(candMinQty)) ? Math.max(0, Number(candMinQty)) : 0,
+      });
+      setCandData(response.data);
+      setCandExpanded(new Set());
+      setCandMarked({});
+      setCandLoadedOnce(true);
+    } catch (err: any) {
+      setCandError(err?.response?.data?.error || err?.message || 'Rapor yuklenemedi');
+    } finally {
+      setCandLoading(false);
+    }
+  };
+
+  // Adaylar sekmesine ilk geciste raporu yukle.
+  useEffect(() => {
+    if (tab === 'CANDIDATES' && !candLoadedOnce && !candLoading) {
+      fetchCandidates();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const candSearchTokens = useMemo(() => buildSearchTokens(candSearch), [candSearch]);
+
+  const filteredCandidates = useMemo(() => {
+    if (!candData) return [] as TopluCandidateRow[];
+    if (candSearchTokens.length === 0) return candData.rows;
+    return candData.rows.filter((row) => {
+      const haystack = normalizeSearchText(
+        `${row.cariCode} ${row.cariName} ${row.productCode} ${row.productName}`
+      );
+      return matchesSearchTokens(haystack, candSearchTokens);
+    });
+  }, [candData, candSearchTokens]);
+
+  const toggleCandExpanded = (key: string) => {
+    setCandExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const confirmMarkCandidate = async () => {
+    if (!candMarkTarget) return;
+    setCandMarkBusy(true);
+    try {
+      const lines = candMarkTarget.spikeDocs.map((doc) => ({
+        productCode: candMarkTarget.productCode,
+        lineGuid: doc.lineGuid,
+        documentSeries: doc.documentSeries,
+        documentSequence: doc.documentSequence,
+        documentLineNo: doc.documentLineNo,
+      }));
+      const response = await adminApi.markTopluCandidateLines(lines);
+      const marked = response.data?.marked ?? 0;
+      const failed = Array.isArray(response.data?.failed) ? response.data.failed.length : 0;
+      setCandMarked((prev) => ({ ...prev, [candKey(candMarkTarget)]: { marked, failed } }));
+      if (failed > 0) {
+        toast.error(`${marked} satır işaretlendi, ${failed} satır başarısız.`);
+      } else {
+        toast.success(`${marked} satır TOPLU olarak işaretlendi.`);
+      }
+      setCandMarkTarget(null);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message || 'İşlem başarısız');
+    } finally {
+      setCandMarkBusy(false);
     }
   };
 
@@ -253,6 +396,39 @@ export default function TopluDenetim() {
         </div>
       </div>
 
+      {/* Sekmeler: TOPLU Icindekiler / TOPLU Adaylari */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: `1px solid ${LINE}` }}>
+        {([
+          ['AUDIT', 'TOPLU İçindekiler'],
+          ['CANDIDATES', 'TOPLU Adayları'],
+        ] as Array<[ActiveTab, string]>).map(([key, label]) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              style={{
+                padding: '10px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                border: 'none',
+                background: 'transparent',
+                color: active ? PRIMARY : MUTED,
+                borderBottom: active ? `2px solid ${PRIMARY}` : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === 'AUDIT' && (
+      <>
       {/* Filters */}
       <div style={{ ...cardStyle, padding: 16, marginBottom: 18 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: INK, marginBottom: 4 }}>Filtreler</div>
@@ -301,6 +477,26 @@ export default function TopluDenetim() {
             </button>
           </div>
         </div>
+        {/* Sadece onerililer toggle (varsayilan acik) */}
+        <label
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            marginTop: 14,
+            fontSize: 12.5,
+            color: MUTED,
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={onlyRhythmic}
+            onChange={(event) => setOnlyRhythmic(event.target.checked)}
+            style={{ width: 16, height: 16 }}
+          />
+          Sadece önerililer (topludan çıkar önerili ritmik gruplar)
+        </label>
       </div>
 
       {/* Error band */}
@@ -684,6 +880,429 @@ export default function TopluDenetim() {
             </div>
           </div>
         </div>
+      )}
+      </>
+      )}
+
+      {tab === 'CANDIDATES' && (
+      <>
+      {/* Bilgi notu */}
+      <div
+        style={{
+          ...cardStyle,
+          border: '1px solid #c7d7f2',
+          background: '#f4f8ff',
+          padding: '12px 16px',
+          marginBottom: 18,
+          color: PRIMARY,
+          fontSize: 12.5,
+          lineHeight: 1.5,
+        }}
+      >
+        Tipik evrak miktarının çok üzerindeki (sıçrama) satışları yakalar; bu satırlar tek seferlik TOPLU
+        alım olabilir. Grubu inceleyip <strong>Topluya Al</strong> ile o satırları TOPLU olarak işaretleyin;
+        böylece min-max hesabından çıkarlar.
+      </div>
+
+      {/* Candidate filters */}
+      <div style={{ ...cardStyle, padding: 16, marginBottom: 18 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: INK, marginBottom: 4 }}>Filtreler</div>
+        <div style={{ fontSize: 11.5, color: FAINT, marginBottom: 12 }}>
+          İncelenecek ay sayısını, sıçrama katsayısını (tipik miktarın kaç katı) ve minimum miktarı seçin.
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '140px 160px 140px auto',
+            gap: 14,
+            alignItems: 'end',
+          }}
+        >
+          <div>
+            <label style={labelStyle}>Ay Sayısı (1-36)</label>
+            <input
+              type="number"
+              min={1}
+              max={36}
+              value={candMonths}
+              onChange={(event) => setCandMonths(Number(event.target.value))}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Sıçrama Katsayısı (≥1.5)</label>
+            <input
+              type="number"
+              min={1.5}
+              step={0.5}
+              value={candSpikeFactor}
+              onChange={(event) => setCandSpikeFactor(Number(event.target.value))}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Min. Miktar</label>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={candMinQty}
+              onChange={(event) => setCandMinQty(Number(event.target.value))}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={fetchCandidates}
+              disabled={candLoading}
+              style={{ ...primaryBtn, opacity: candLoading ? 0.7 : 1, cursor: candLoading ? 'not-allowed' : 'pointer' }}
+            >
+              <RefreshCw size={15} strokeWidth={2} className={candLoading ? 'animate-spin' : undefined} />
+              Raporu Getir
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Candidate error band */}
+      {candError && (
+        <div
+          style={{
+            ...cardStyle,
+            border: '1px solid #fecaca',
+            background: '#fef2f2',
+            padding: '12px 16px',
+            marginBottom: 18,
+            color: RED,
+            fontSize: 12.5,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <AlertTriangle size={16} strokeWidth={2} />
+          {candError}
+        </div>
+      )}
+
+      {/* Candidate summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 18 }}>
+        <div style={summaryCard}>
+          <div style={{ fontSize: 11.5, color: FAINT }}>Aday Grup</div>
+          <div style={{ fontSize: 20, fontWeight: 600, color: AMBER, marginTop: 5 }}>
+            {candData ? nf.format(candData.summary.groupCount) : '-'}
+          </div>
+        </div>
+        <div style={summaryCard}>
+          <div style={{ fontSize: 11.5, color: FAINT }}>Toplam Sıçrama Tutarı</div>
+          <div style={{ fontSize: 20, fontWeight: 600, color: EMERALD, marginTop: 5 }}>
+            {candData ? formatCurrency(candData.summary.totalSpikeAmount) : '-'}
+          </div>
+        </div>
+      </div>
+
+      {/* Candidate list */}
+      <div style={{ ...cardStyle, overflow: 'hidden' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            padding: '14px 16px',
+            borderBottom: `1px solid ${SOFT_LINE}`,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: INK }}>TOPLU Adayları</div>
+            <div style={{ fontSize: 11.5, color: FAINT, marginTop: 2 }}>
+              {candData
+                ? `Son ${candData.months} ay, ${nf.format(candData.spikeFactor)}x sıçrama — ${nf.format(filteredCandidates.length)} grup listeleniyor.`
+                : 'Rapor bekleniyor.'}
+            </div>
+          </div>
+          <div style={{ position: 'relative', width: 280 }}>
+            <Search
+              size={15}
+              strokeWidth={2}
+              style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: FAINT }}
+            />
+            <input
+              placeholder="Ara (cari, ürün)"
+              value={candSearch}
+              onChange={(event) => setCandSearch(event.target.value)}
+              style={{ ...inputStyle, padding: '0 10px 0 34px' }}
+            />
+          </div>
+        </div>
+
+        {candLoading ? (
+          <div style={{ padding: '48px 16px', textAlign: 'center' }}>
+            <RefreshCw
+              size={30}
+              strokeWidth={2}
+              className="animate-spin"
+              style={{ margin: '0 auto 12px', color: FAINT, display: 'block' }}
+            />
+            <p style={{ color: MUTED, margin: 0 }}>Yükleniyor...</p>
+          </div>
+        ) : filteredCandidates.length === 0 ? (
+          <div style={{ padding: '48px 16px', textAlign: 'center' }}>
+            <History size={30} strokeWidth={2} style={{ margin: '0 auto 8px', color: FAINT, display: 'block' }} />
+            <p style={{ color: MUTED, margin: 0 }}>Aday bulunamadı.</p>
+          </div>
+        ) : (
+          filteredCandidates.map((row) => {
+            const key = candKey(row);
+            const isExpanded = candExpanded.has(key);
+            const markedInfo = candMarked[key];
+            return (
+              <div key={key} style={{ borderTop: `1px solid ${ROW_LINE}` }}>
+                {/* Accordion header */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1.3fr 1.6fr 70px 100px 110px 150px',
+                    gap: 10,
+                    padding: '12px 16px',
+                    fontSize: 12,
+                    color: INK,
+                    alignItems: 'center',
+                    background: isExpanded ? '#f9fafc' : '#fff',
+                  }}
+                >
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ fontWeight: 600, display: 'block' }}>{row.cariCode}</span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: FAINT,
+                        display: 'block',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={row.cariName}
+                    >
+                      {row.cariName || '-'}
+                    </span>
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11, color: MUTED, display: 'block' }}>
+                      {row.productCode}
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        display: 'block',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={row.productName}
+                    >
+                      {row.productName || '-'}
+                    </span>
+                  </span>
+                  <span style={{ ...cellRight, fontWeight: 600 }} title="Sıçrama evrak sayısı">
+                    {nf.format(row.spikeDocs.length)}
+                  </span>
+                  <span style={{ ...cellRight, fontWeight: 500 }} title="Sıçrama toplam miktarı">
+                    {formatQty(row.totalSpikeQty)}
+                  </span>
+                  <span style={{ ...cellRight, color: EMERALD, fontWeight: 600 }}>
+                    {formatCurrency(row.totalSpikeAmount)}
+                  </span>
+                  <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => toggleCandExpanded(key)}
+                      style={{ ...headBtn, height: 30, padding: '0 10px', fontSize: 11.5 }}
+                    >
+                      {isExpanded ? (
+                        <>
+                          Gizle
+                          <ChevronUp size={14} strokeWidth={2} />
+                        </>
+                      ) : (
+                        <>
+                          Detay
+                          <ChevronDown size={14} strokeWidth={2} />
+                        </>
+                      )}
+                    </button>
+                    {markedInfo ? (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          padding: '0 10px',
+                          height: 30,
+                          borderRadius: 7,
+                          border: '1px solid #bbf7d0',
+                          background: '#f0fdf4',
+                          color: EMERALD,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <CheckCircle2 size={12} strokeWidth={2} />
+                        {nf.format(markedInfo.marked)} işaretlendi
+                        {markedInfo.failed > 0 ? ` / ${nf.format(markedInfo.failed)} hata` : ''}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setCandMarkTarget(row)}
+                        style={{ ...headBtn, height: 30, padding: '0 10px', fontSize: 11.5, color: PRIMARY, borderColor: '#c7d7f2' }}
+                      >
+                        Topluya Al
+                      </button>
+                    )}
+                  </span>
+                </div>
+
+                {/* Sicrama evrak detaylari */}
+                {isExpanded && (
+                  <div style={{ background: '#f7f9fc', padding: '12px 16px', borderTop: `1px solid ${ROW_LINE}` }}>
+                    <div style={{ fontSize: 11.5, color: MUTED, marginBottom: 8 }}>
+                      Tipik evrak miktarı: <strong style={{ color: INK }}>{formatQty(row.typicalDocQty)}</strong>
+                      {' · '}Toplam evrak: <strong style={{ color: INK }}>{nf.format(row.docCount)}</strong>
+                    </div>
+                    <div style={{ ...cardStyle, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1.4fr 110px 110px 130px 110px',
+                          gap: 10,
+                          padding: '9px 14px',
+                          background: TABLE_HEAD_BG,
+                          borderBottom: `1px solid ${SOFT_LINE}`,
+                          fontSize: 9.5,
+                          fontWeight: 600,
+                          color: FAINT,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        <span>Evrak No</span>
+                        <span>Tarih</span>
+                        <span style={cellRight}>Miktar</span>
+                        <span style={cellRight}>Tutar</span>
+                        <span style={cellRight}>Tipik Miktar</span>
+                      </div>
+                      {row.spikeDocs.map((doc, docIdx) => (
+                        <div
+                          key={`${doc.lineGuid}-${docIdx}`}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1.4fr 110px 110px 130px 110px',
+                            gap: 10,
+                            padding: '9px 14px',
+                            borderTop: `1px solid ${ROW_LINE}`,
+                            fontSize: 11.5,
+                            color: INK,
+                            alignItems: 'center',
+                            background: '#fff',
+                          }}
+                        >
+                          <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11 }}>{doc.documentNo}</span>
+                          <span style={{ color: MUTED }}>{doc.documentDate ? formatDateShort(doc.documentDate) : '-'}</span>
+                          <span style={{ ...cellRight, fontWeight: 600, color: AMBER }}>{formatQty(doc.quantity)}</span>
+                          <span style={{ ...cellRight, color: EMERALD, fontWeight: 600 }}>{formatCurrency(doc.amount)}</span>
+                          <span style={{ ...cellRight, color: FAINT }}>{formatQty(row.typicalDocQty)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Topluya Al onay modali */}
+      {candMarkTarget && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            zIndex: 60,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div style={{ ...cardStyle, width: 'min(520px, 100%)', padding: 20, boxShadow: '0 18px 50px rgba(15,23,42,.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: INK, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <AlertTriangle size={17} strokeWidth={2} style={{ color: AMBER }} />
+                Topluya Al
+              </div>
+              <button
+                type="button"
+                onClick={() => setCandMarkTarget(null)}
+                disabled={candMarkBusy}
+                style={{ ...headBtn, height: 28, padding: '0 8px' }}
+                aria-label="Kapat"
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.6 }}>
+              <div style={{ ...cardStyle, background: '#f8fafc', padding: 12, marginBottom: 12 }}>
+                <div>
+                  <span style={{ color: FAINT }}>Cari:</span>{' '}
+                  <strong style={{ color: INK }}>
+                    {candMarkTarget.cariCode} — {candMarkTarget.cariName || '-'}
+                  </strong>
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ color: FAINT }}>Ürün:</span>{' '}
+                  <strong style={{ color: INK }}>
+                    {candMarkTarget.productCode} — {candMarkTarget.productName || '-'}
+                  </strong>
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ color: FAINT }}>İşaretlenecek satır:</span>{' '}
+                  <strong style={{ color: INK }}>{nf.format(candMarkTarget.spikeDocs.length)}</strong>
+                </div>
+              </div>
+              <p style={{ margin: 0 }}>
+                Bu grubun sıçrama satırları TOPLU olarak işaretlenecek ve min-max hesabından çıkacak.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button type="button" onClick={() => setCandMarkTarget(null)} disabled={candMarkBusy} style={headBtn}>
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={confirmMarkCandidate}
+                disabled={candMarkBusy}
+                style={{
+                  ...primaryBtn,
+                  opacity: candMarkBusy ? 0.7 : 1,
+                  cursor: candMarkBusy ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {candMarkBusy && <RefreshCw size={14} strokeWidth={2} className="animate-spin" />}
+                Onayla, Topluya Al
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </>
       )}
     </div>
   );

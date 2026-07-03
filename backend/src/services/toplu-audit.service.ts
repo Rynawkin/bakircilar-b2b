@@ -18,9 +18,15 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AppError, ErrorCode } from '../types/errors';
 import mikroService from './mikro.service';
+import reportsService from './reports.service';
 
 const MAX_GROUPS = 2000;
 const MAX_UNMARK_ROWS = 500;
+
+// TOPLU aday tarama guvenlik tavanlari
+const MAX_CANDIDATE_LINES = 40000; // Mikro'dan cekilecek toplam NON-TOPLU satis satiri
+const MAX_CANDIDATE_GROUPS = 500; // frontend'e donen cari x urun grup sayisi
+const MAX_MARK_LINES = 100; // tek istekte isaretlenebilecek satir
 
 export interface TopluAuditMonthRow {
   month: string; // 'YYYY-MM'
@@ -64,6 +70,88 @@ export interface UnmarkTopluResult {
   fromDate: string;
   toDate: string;
 }
+
+// ==================== TOPLU ADAY TARAMA ====================
+
+export interface TopluCandidateSpikeLine {
+  documentNo: string;       // "SERI-SIRA" gosterim
+  documentDate: string;     // ISO tarih
+  quantity: number;         // bu SATIRIN miktari
+  amount: number;           // bu SATIRIN tutari (sth_tutar)
+  lineGuid: string;         // sth_Guid — markUcarerSalesLineAsToplu icin
+  documentSeries: string;   // sth_evrakno_seri
+  documentSequence: number; // sth_evrakno_sira
+  documentLineNo: number;   // sth_satirno
+}
+
+export interface TopluCandidateGroupRow {
+  cariCode: string;
+  cariName: string;
+  productCode: string;
+  productName: string;
+  docCount: number;         // bu urunun penceredeki toplam evrak sayisi (tum cariler)
+  spikeDocs: TopluCandidateSpikeLine[]; // spike evraklarin TUM satirlari (isaretlenebilir)
+  typicalDocQty: number;    // urunun tipik (medyan) evrak miktari
+  totalSpikeQty: number;    // spike satirlarin toplam miktari
+  totalSpikeAmount: number; // spike satirlarin toplam tutari
+}
+
+export interface TopluCandidatesReport {
+  months: number;
+  spikeFactor: number;
+  minQty: number;
+  windowFrom: string; // 'YYYY-MM-DD'
+  windowTo: string;   // 'YYYY-MM-DD'
+  rows: TopluCandidateGroupRow[];
+  truncated: boolean;
+  summary: {
+    groupCount: number;
+    totalSpikeAmount: number;
+  };
+  generatedAt: string;
+}
+
+export interface MarkCandidateLinesResult {
+  marked: number;
+  failed: Array<{ lineGuid: string; reason: string }>;
+}
+
+// Mikro'dan cekilen ham satis satiri (aday tarama)
+type CandidateSalesLine = {
+  cariCode: string;
+  cariName: string;
+  productCode: string;
+  productName: string;
+  documentSeries: string;
+  documentSequence: number;
+  documentLineNo: number;
+  lineGuid: string;
+  quantity: number;
+  amount: number;
+  saleDate: Date | null;
+};
+
+// Bir evraga (cari x urun x seri x sira) ait toplanmis birim
+type CandidateDoc = {
+  cariCode: string;
+  cariName: string;
+  productCode: string;
+  productName: string;
+  documentSeries: string;
+  documentSequence: number;
+  docQty: number;
+  lines: CandidateSalesLine[];
+};
+
+const median = (values: number[]): number => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
+};
 
 const clampInt = (value: unknown, fallback: number, min: number, max: number): number => {
   const parsed = Math.trunc(Number(value));
@@ -435,6 +523,289 @@ class TopluAuditService {
       fromDate: fromDate.toISOString(),
       toDate: toDate.toISOString(),
     };
+  }
+
+  /**
+   * TOPLU ADAY TARAMA (SALT OKUMA)
+   *
+   * TOPLU olarak isaretlenmemis (srm <> TOPLU) satis satirlarindan, urunun tipik
+   * evrak miktarina gore "tek seferlik buyuk" gorunen (spike) evraklari bulur.
+   * Ayni satis-satiri filtreleri: sth_tip=1, sth_cins=0, sth_evraktip IN (1,4),
+   * sth_iptal=0, sth_normal_iade=0.
+   *
+   * Spike mantigi (evrak = cari x urun x seri x sira, docQty = satirlarin toplami):
+   * - Urunun >= 3 evraki varsa: typicalDocQty = test edilen evrak HARIC medyan;
+   *   docQty >= spikeFactor * max(typicalDocQty, 1) VE docQty >= minQty ise spike.
+   * - Urunun < 3 evraki varsa: docQty >= max(minQty * 4, 200) ise spike
+   *   (sakin bir urunde tek seferlik buyuk satis).
+   *
+   * Spike'lar cari x urun bazinda gruplanir; her spike evragin TUM satirlari
+   * spikeDocs'a eklenir (frontend bunlari isaretler).
+   */
+  async getTopluCandidates(options: {
+    months?: number;
+    spikeFactor?: number;
+    minQty?: number;
+  } = {}): Promise<TopluCandidatesReport> {
+    const months = clampInt(options.months, 6, 1, 24);
+    const spikeFactorRaw = Number(options.spikeFactor);
+    const spikeFactor =
+      Number.isFinite(spikeFactorRaw) && spikeFactorRaw >= 2 ? spikeFactorRaw : 5;
+    const minQtyRaw = Number(options.minQty);
+    const minQty = Number.isFinite(minQtyRaw) && minQtyRaw > 0 ? minQtyRaw : 50;
+
+    // Rapor penceresi (frontend sozlesmesi): ana sorgunun kullandigi araligin kendisi.
+    const windowRows = await mikroService.executeQuery(`
+      SELECT
+        CONVERT(varchar(10), DATEADD(MONTH, -${months}, CAST(GETDATE() AS date)), 126) AS windowFrom,
+        CONVERT(varchar(10), CAST(GETDATE() AS date), 126) AS windowTo
+    `);
+    const windowFrom = String(windowRows?.[0]?.windowFrom || '').trim();
+    const windowTo = String(windowRows?.[0]?.windowTo || '').trim();
+
+    // NON-TOPLU satis satirlari (satir bazinda; guvenlik tavani MAX_CANDIDATE_LINES).
+    // Sadece isaretlenebilir/gecerli GUID + evrak seri/sira olan satirlar cekilir.
+    const rawRows = await mikroService.executeQuery(`
+      SET NOCOUNT ON;
+      SELECT TOP ${MAX_CANDIDATE_LINES}
+        UPPER(LTRIM(RTRIM(sth.sth_cari_kodu))) AS cariCode,
+        LTRIM(RTRIM(ISNULL(ch.cari_unvan1, ''))) AS cariName,
+        UPPER(LTRIM(RTRIM(sth.sth_stok_kod))) AS productCode,
+        LTRIM(RTRIM(ISNULL(st.sto_isim, ''))) AS productName,
+        UPPER(LTRIM(RTRIM(ISNULL(sth.sth_evrakno_seri, '')))) AS documentSeries,
+        CAST(ISNULL(sth.sth_evrakno_sira, 0) AS int) AS documentSequence,
+        CAST(ISNULL(sth.sth_satirno, 0) AS int) AS documentLineNo,
+        CONVERT(varchar(36), sth.sth_Guid) AS lineGuid,
+        CAST(ISNULL(sth.sth_miktar, 0) AS float) AS quantity,
+        CAST(ISNULL(sth.sth_tutar, 0) AS float) AS amount,
+        sth.sth_tarih AS saleDate
+      FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+      LEFT JOIN CARI_HESAPLAR ch WITH (NOLOCK) ON ch.cari_kod = sth.sth_cari_kodu
+      LEFT JOIN STOKLAR st WITH (NOLOCK) ON st.sto_kod = sth.sth_stok_kod
+      WHERE UPPER(LTRIM(RTRIM(ISNULL(sth.sth_stok_srm_merkezi, '')))) <> 'TOPLU'
+        AND ISNULL(sth.sth_tip, 0) = 1
+        AND ISNULL(sth.sth_cins, 0) = 0
+        AND ISNULL(sth.sth_normal_iade, 0) = 0
+        AND ISNULL(sth.sth_evraktip, 0) IN (1, 4)
+        AND ISNULL(sth.sth_iptal, 0) = 0
+        AND sth.sth_tarih >= DATEADD(MONTH, -${months}, CAST(GETDATE() AS date))
+        AND sth.sth_cari_kodu IS NOT NULL AND LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''
+        AND sth.sth_stok_kod IS NOT NULL AND LTRIM(RTRIM(sth.sth_stok_kod)) <> ''
+        AND sth.sth_evrakno_seri IS NOT NULL
+        AND ISNULL(sth.sth_evrakno_sira, 0) > 0
+        AND ISNULL(sth.sth_miktar, 0) > 0
+      ORDER BY sth.sth_tarih DESC;
+    `);
+
+    const lines: CandidateSalesLine[] = (Array.isArray(rawRows) ? rawRows : [])
+      .map((row: any) => {
+        const cariCode = String(row?.cariCode || '').trim().toUpperCase();
+        const productCode = String(row?.productCode || '').trim().toUpperCase();
+        const lineGuid = String(row?.lineGuid || '').trim();
+        const documentSeries = String(row?.documentSeries || '').trim().toUpperCase();
+        const documentSequence = Math.trunc(Number(row?.documentSequence) || 0);
+        const documentLineNo = Math.trunc(Number(row?.documentLineNo) || 0);
+        const saleDateRaw = row?.saleDate ? new Date(row.saleDate) : null;
+        return {
+          cariCode,
+          cariName: String(row?.cariName || '').trim() || cariCode,
+          productCode,
+          productName: String(row?.productName || '').trim() || productCode,
+          documentSeries,
+          documentSequence,
+          documentLineNo,
+          lineGuid,
+          quantity: Math.max(0, Number(row?.quantity) || 0),
+          amount: Number(row?.amount) || 0,
+          saleDate: saleDateRaw && !Number.isNaN(saleDateRaw.getTime()) ? saleDateRaw : null,
+        } as CandidateSalesLine;
+      })
+      .filter(
+        (line) =>
+          line.cariCode &&
+          line.productCode &&
+          line.lineGuid &&
+          line.documentSeries &&
+          line.documentSequence > 0 &&
+          line.quantity > 0
+      );
+
+    const truncated = lines.length >= MAX_CANDIDATE_LINES;
+
+    // 1) Satirlari evraklara topla (cari x urun x seri x sira). docQty = satirlarin toplami.
+    const docMap = new Map<string, CandidateDoc>();
+    for (const line of lines) {
+      const key = `${line.cariCode}||${line.productCode}||${line.documentSeries}||${line.documentSequence}`;
+      let doc = docMap.get(key);
+      if (!doc) {
+        doc = {
+          cariCode: line.cariCode,
+          cariName: line.cariName,
+          productCode: line.productCode,
+          productName: line.productName,
+          documentSeries: line.documentSeries,
+          documentSequence: line.documentSequence,
+          docQty: 0,
+          lines: [],
+        };
+        docMap.set(key, doc);
+      }
+      doc.docQty += line.quantity;
+      doc.lines.push(line);
+    }
+
+    // 2) Urun bazinda evraklari topla (medyan + toplam evrak sayisi icin).
+    const docsByProduct = new Map<string, CandidateDoc[]>();
+    for (const doc of docMap.values()) {
+      const list = docsByProduct.get(doc.productCode) || [];
+      list.push(doc);
+      docsByProduct.set(doc.productCode, list);
+    }
+
+    // 3) Spike tespiti (leave-one-out medyan) + cari x urun gruplama.
+    const groupMap = new Map<string, TopluCandidateGroupRow>();
+    for (const [productCode, docs] of docsByProduct.entries()) {
+      const docCount = docs.length;
+      const qtyList = docs.map((d) => d.docQty);
+      const productHasHistory = docCount >= 3;
+
+      for (const doc of docs) {
+        let isSpike = false;
+        let typicalDocQty = 0;
+
+        if (productHasHistory) {
+          // Test edilen evragi haric tutarak medyan.
+          const others = qtyList.filter((_, idx) => docs[idx] !== doc);
+          typicalDocQty = median(others.length > 0 ? others : qtyList);
+          const threshold = spikeFactor * Math.max(typicalDocQty, 1);
+          isSpike = doc.docQty >= threshold && doc.docQty >= minQty;
+        } else {
+          // Sakin urun: tek seferlik buyuk satis.
+          typicalDocQty = median(qtyList);
+          isSpike = doc.docQty >= Math.max(minQty * 4, 200);
+        }
+
+        if (!isSpike) continue;
+
+        const groupKey = `${doc.cariCode}||${productCode}`;
+        let group = groupMap.get(groupKey);
+        if (!group) {
+          group = {
+            cariCode: doc.cariCode,
+            cariName: doc.cariName,
+            productCode,
+            productName: doc.productName,
+            docCount,
+            spikeDocs: [],
+            typicalDocQty: Math.round(typicalDocQty * 100) / 100,
+            totalSpikeQty: 0,
+            totalSpikeAmount: 0,
+          };
+          groupMap.set(groupKey, group);
+        }
+        // Bu spike evragin TUM satirlarini ekle (hepsi isaretlenebilir).
+        for (const line of doc.lines) {
+          group.spikeDocs.push({
+            documentNo: `${line.documentSeries}-${line.documentSequence}`,
+            documentDate: line.saleDate ? line.saleDate.toISOString() : '',
+            quantity: line.quantity,
+            amount: line.amount,
+            lineGuid: line.lineGuid,
+            documentSeries: line.documentSeries,
+            documentSequence: line.documentSequence,
+            documentLineNo: line.documentLineNo,
+          });
+          group.totalSpikeQty += line.quantity;
+          group.totalSpikeAmount += line.amount;
+        }
+      }
+    }
+
+    let rows = Array.from(groupMap.values())
+      .map((row) => ({
+        ...row,
+        totalSpikeQty: Math.round(row.totalSpikeQty * 100) / 100,
+        totalSpikeAmount: Math.round(row.totalSpikeAmount * 100) / 100,
+      }))
+      .sort((a, b) => b.totalSpikeAmount - a.totalSpikeAmount);
+
+    const groupTruncated = rows.length > MAX_CANDIDATE_GROUPS;
+    if (groupTruncated) {
+      rows = rows.slice(0, MAX_CANDIDATE_GROUPS);
+    }
+
+    return {
+      months,
+      spikeFactor,
+      minQty,
+      windowFrom,
+      windowTo,
+      rows,
+      truncated: truncated || groupTruncated,
+      summary: {
+        groupCount: rows.length,
+        totalSpikeAmount: rows.reduce((sum, row) => sum + row.totalSpikeAmount, 0),
+      },
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Secilen aday satirlari TOPLU olarak isaretler (reports.service
+   * markUcarerSalesLineAsToplu'yu satir satir cagirir). Her satir kendi
+   * MIKRO yazma + UcarerOperationLog akisiyla gider; hatalar toplanir.
+   */
+  async markCandidateLines(
+    lines: Array<{
+      productCode?: string;
+      lineGuid?: string;
+      documentSeries?: string;
+      documentSequence?: number;
+      documentLineNo?: number;
+    }>,
+    userId?: string | null
+  ): Promise<MarkCandidateLinesResult> {
+    const input = Array.isArray(lines) ? lines : [];
+    if (input.length === 0) {
+      throw new AppError('Isaretlenecek satir bulunamadi.', 400, ErrorCode.BAD_REQUEST);
+    }
+    if (input.length > MAX_MARK_LINES) {
+      throw new AppError(
+        `Tek seferde en fazla ${MAX_MARK_LINES} satir isaretlenebilir (${input.length} gonderildi).`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+
+    let marked = 0;
+    const failed: Array<{ lineGuid: string; reason: string }> = [];
+
+    for (const line of input) {
+      const lineGuid = String(line?.lineGuid || '').trim();
+      try {
+        const result = await reportsService.markUcarerSalesLineAsToplu({
+          productCode: line?.productCode,
+          lineGuid: line?.lineGuid,
+          documentSeries: line?.documentSeries,
+          documentSequence: line?.documentSequence,
+          documentLineNo: line?.documentLineNo,
+          userId: userId || null,
+        });
+        // updated || alreadyToplu => sonuc olarak TOPLU. Ikisi de basari sayilir.
+        if (result.updated || result.alreadyToplu) {
+          marked += 1;
+        } else {
+          failed.push({ lineGuid, reason: 'Satir guncellenemedi.' });
+        }
+      } catch (error: any) {
+        failed.push({
+          lineGuid,
+          reason: String(error?.message || 'Bilinmeyen hata').slice(0, 300),
+        });
+      }
+    }
+
+    return { marked, failed };
   }
 
   /**

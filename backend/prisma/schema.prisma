@@ -607,6 +607,10 @@ model Settings {
   // endekslenir (PriceChange snapshot'lariyla). false = eski davranis (ham son fiyat).
   lastPriceIndexationEnabled Boolean                @default(false)
 
+  // Zamanlanmis is override'lari: { "<jobKey>": "<cron expr>" }
+  // Bos/None = config/env varsayilani kullanilir. Ayarlar > Tetiklenecek Islemler'den yonetilir.
+  cronOverrides             Json?
+
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
 }
@@ -1406,12 +1410,15 @@ model CartItem {
   productId       String
   product         Product     @relation(fields: [productId], references: [id])
 
-  quantity        Int
+  // Miktar ANA birim cinsindendir. Alt birim (or. ana birim KOLI, 2. birim PAKET)
+  // secilirse kesirli olabilir (10 PAKET = 0.5 KOLI); selectedUnit secilen birimi tutar.
+  quantity        Float
   priceType       PriceType   // INVOICED veya WHITE
   priceMode       PriceMode   @default(LIST)
-  unitPrice       Float       // O andaki fiyat (snapshot)
+  unitPrice       Float       // O andaki fiyat (snapshot, ANA birim)
+  selectedUnit    String?     // Musterinin sectigi birim adi (null = ana birim)
   lineNote          String?
-  approvedQuantity  Int?
+  approvedQuantity  Float?
   responsibilityCenter String?
 
   createdAt       DateTime    @default(now())
@@ -2019,6 +2026,9 @@ model ProductFamilyItem {
   productName String?
   priority    Int            @default(100)
   active      Boolean        @default(true)
+  // Aile ici birim esleme: bu urunun 1 ana birimi = X aile ortak birimi.
+  // null = 1 kabul edilir (ayni birim). Farkli birimli uyeler icin manuel tanimlanir.
+  unitFactorOverride Float?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -2110,6 +2120,17 @@ model UcarerOperationLog {
 // Min-Max v2: urun veya tedarikci bazinda gun parametresi override'lari.
 // scopeType: PRODUCT (productCode dolu) | SUPPLIER (supplierCode dolu)
 // depot: null = her iki depo, 'MERKEZ' | 'TOPCA' = sadece o depo
+// Min-Max hesabindan tamamen haric tutulan urunler (Ucarer MinMax v2 preview + apply atlar).
+model MinMaxExclusion {
+  id            String   @id @default(uuid())
+  productCode   String   @unique
+  productName   String?
+  note          String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+}
+
 model MinMaxOverride {
   id           String   @id @default(uuid())
   scopeType    String   // PRODUCT | SUPPLIER

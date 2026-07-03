@@ -287,10 +287,21 @@ export const isCartPriceTypeAllowed = (
 const selectPrice = (prices: PricePair, priceType: CartPriceType) =>
   priceType === 'INVOICED' ? prices.invoiced : prices.white;
 
+// Miktar KESIRLI olabilir: musteri ana birimden kucuk bir alt birim secince
+// (or. ana birim KOLI, 2. birim PAKET, 10 PAKET = 0.5 KOLI) ana-birim miktari
+// kesirli gelir. Bu yuzden Math.trunc YAPMA — 6 ondaliga yuvarla, negatifi kirp.
 const normalizeQuantity = (value: number) => {
   const quantity = Number(value);
   if (!Number.isFinite(quantity)) return 0;
-  return Math.max(0, Math.trunc(quantity));
+  return Math.max(0, Math.round(quantity * 1e6) / 1e6);
+};
+
+// Stok adedi (fazla stok kotasi) daima tam sayidir — kesirli alt birim mantigi
+// buraya sizmasin diye ayri (integer) normalizasyon.
+const normalizeStockCount = (value: number) => {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity)) return 0;
+  return Math.max(0, Math.floor(quantity));
 };
 
 export const loadCartCustomerContext = async (userId: string) => {
@@ -506,7 +517,7 @@ export const resolveCartUnitPrices = async (params: {
   // olsa bile sepette/siparise DAIMA liste fiyati uygulanir (indirim kotasi 0).
   const excessQuantityLimit = product.excludeFromDiscount
     ? 0
-    : Math.max(0, normalizeQuantity(Number(product.excessStock || 0)));
+    : normalizeStockCount(Number(product.excessStock || 0));
   const hasExcessDiscount =
     excessQuantityLimit > 0 &&
     Number.isFinite(listUnitPrice) &&

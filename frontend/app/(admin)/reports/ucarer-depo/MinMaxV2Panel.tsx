@@ -10,25 +10,53 @@ import {
   type MinMaxV2Settings,
 } from '@/lib/api/admin';
 
+// Kullanici hesaplama-disi kaydi (GET /admin/minmax-exclusions -> items). Sozlesme sekli;
+// adminApi tip adina bagimli kalmamak icin lokal tanimlanir.
+interface MinMaxExclusionRow {
+  id: string;
+  productCode: string;
+  productName?: string | null;
+  note?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+}
+
 /**
  * Min-Max v2 paneli (B2B hesap motoru).
  *
  * Mevcut 'MinMax Calistir' (Mikro SP) butonuna dokunmaz; paralel calisan onizleme/kiyas
  * motorudur. Mikro'ya yazma SADECE kullanicinin secip onayladigi satirlar icin yapilir.
- * Hem klasik hem yeni gorunumden `<MinMaxV2Panel depot={depot} />` olarak kullanilir;
- * tum state kendi icindedir.
+ * Hem klasik hem yeni gorunumden `<MinMaxV2Panel depot={depot} onShowSalesHistory={...} />`
+ * olarak kullanilir; tum state kendi icindedir.
  */
 
 type DepotType = 'MERKEZ' | 'TOPCA';
 type PanelTab = 'preview' | 'rules';
-type SortMode = 'diffPctDesc' | 'diffPctAsc' | 'code';
 
+// Siralama artik kolon basligindan yapilir. Fark % yon-duyarli (isaretli), digerleri buyukluk.
+type SortColumn =
+  | 'code'
+  | 'name'
+  | 'supplier'
+  | 'dailySales'
+  | 'effectiveDays'
+  | 'docCount'
+  | 'currentMin'
+  | 'currentMax'
+  | 'newMin'
+  | 'newMax'
+  | 'diffMin'
+  | 'diffMax'
+  | 'diffPct';
+type SortDirection = 'asc' | 'desc';
+type SortState = { column: SortColumn; direction: SortDirection };
+
+// Kaynak (parametre) rozeti — SIPARIS kaldirildi (backend artik siparis-bazli oneri uretmiyor).
 const SOURCE_LABELS: Record<MinMaxV2PreviewRow['overrideSource'], string> = {
   urun: 'Urun kurali',
   tedarikci: 'Tedarikci kurali',
-  varsayilan: 'Varsayilan',
+  varsayilan: 'Varsayilan pencere',
   haric: 'Haric',
-  SIPARIS: 'Siparis-bazli',
 };
 
 const SOURCE_BADGE_CLASS: Record<MinMaxV2PreviewRow['overrideSource'], string> = {
@@ -36,19 +64,34 @@ const SOURCE_BADGE_CLASS: Record<MinMaxV2PreviewRow['overrideSource'], string> =
   tedarikci: 'bg-purple-100 text-purple-800',
   varsayilan: 'bg-gray-100 text-gray-700',
   haric: 'bg-amber-100 text-amber-800',
-  SIPARIS: 'bg-violet-100 text-violet-800',
+};
+
+// Satis rozeti icinde gosterilen parametre kaynagi eki
+const PARAM_SOURCE_SUFFIX: Record<MinMaxV2PreviewRow['overrideSource'], string> = {
+  urun: 'urun kurali',
+  tedarikci: 'tedarikci kurali',
+  varsayilan: 'varsayilan pencere',
+  haric: 'haric',
 };
 
 const getErrorMessage = (error: any, fallback: string): string =>
   error?.response?.data?.error || error?.response?.data?.message || error?.message || fallback;
 
-// Fark yuzdesi: mevcut max 0 iken yeni max > 0 ise sonsuz kabul edilir (siralamada en uste gelir)
+// Fark yuzdesi (ISARETLI): mevcut max 0 iken yeni max > 0 ise +sonsuz (siralamada 'en cok artan' ucuna gelir).
 const diffPercent = (row: MinMaxV2PreviewRow): number => {
   if (row.newMax === null) return 0;
   const diff = row.newMax - row.currentMax;
   if (row.currentMax > 0) return (diff / row.currentMax) * 100;
-  return diff > 0 ? Number.POSITIVE_INFINITY : 0;
+  if (diff > 0) return Number.POSITIVE_INFINITY;
+  if (diff < 0) return Number.NEGATIVE_INFINITY;
+  return 0;
 };
+
+// Yeni tanimlanan: mevcut min=max=0 ama yeni min veya max > 0
+const isNewlyDefined = (row: MinMaxV2PreviewRow): boolean =>
+  row.currentMin === 0 &&
+  row.currentMax === 0 &&
+  ((row.newMin ?? 0) > 0 || (row.newMax ?? 0) > 0);
 
 const formatNumber = (value: number | null | undefined): string => {
   if (value === null || value === undefined || !Number.isFinite(value)) return '-';
@@ -73,7 +116,14 @@ const diffClass = (value: number | null): string => {
   return value > 0 ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold';
 };
 
-export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }) {
+export default function MinMaxV2Panel({
+  depot: depotProp,
+  onShowSalesHistory,
+}: {
+  depot: DepotType;
+  // Satis detayi modalini acar (useUcarerDepo.openSalesHistoryModal(code, 'minmax')).
+  onShowSalesHistory?: (productCode: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<PanelTab>('preview');
   const [depot, setDepot] = useState<DepotType>(depotProp);
@@ -94,7 +144,9 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
   const [search, setSearch] = useState('');
   const [onlyChanged, setOnlyChanged] = useState(true);
   const [onlyMissingRecord, setOnlyMissingRecord] = useState(false);
-  const [sortMode, setSortMode] = useState<SortMode>('diffPctDesc');
+  // Hizli filtre cipleri (tekli secim; bos = hepsi)
+  const [quickFilter, setQuickFilter] = useState<'' | 'increasing' | 'decreasing' | 'newlyDefined'>('');
+  const [sort, setSort] = useState<SortState>({ column: 'diffPct', direction: 'desc' });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(300);
 
@@ -108,6 +160,13 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
     skipped: Array<{ productCode: string; reason: string }>;
     inserted: string[];
   } | null>(null);
+
+  // Kullanici tarafindan hesaplama disi birakma (MinMaxExclusion)
+  const [excluding, setExcluding] = useState(false);
+  const [exclusionsModalOpen, setExclusionsModalOpen] = useState(false);
+  const [exclusionRows, setExclusionRows] = useState<MinMaxExclusionRow[]>([]);
+  const [exclusionsLoading, setExclusionsLoading] = useState(false);
+  const [removingExclusionId, setRemovingExclusionId] = useState<string | null>(null);
 
   // Kurallar
   const [overrides, setOverrides] = useState<MinMaxV2Override[]>([]);
@@ -203,6 +262,57 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
     }
   };
 
+  // Kolon basligina tiklaninca siralama. Fark % -> ilk tik 'en cok artan' (isaretli desc),
+  // ikinci tik 'en cok azalan' (isaretli asc). Diger kolonlar asc/desc toggle.
+  const toggleSort = (column: SortColumn) => {
+    setSort((prev) => {
+      if (prev.column !== column) {
+        // Yeni kolon: sayisal/fark kolonlari desc ile baslasin, metin kolonlari asc.
+        const startDesc = column !== 'code' && column !== 'name' && column !== 'supplier';
+        return { column, direction: startDesc ? 'desc' : 'asc' };
+      }
+      return { column, direction: prev.direction === 'desc' ? 'asc' : 'desc' };
+    });
+  };
+
+  const sortIndicator = (column: SortColumn): string => {
+    if (sort.column !== column) return '';
+    return sort.direction === 'desc' ? ' ▼' : ' ▲';
+  };
+
+  const sortValue = (row: MinMaxV2PreviewRow, column: SortColumn): number | string => {
+    switch (column) {
+      case 'code':
+        return row.productCode;
+      case 'name':
+        return row.productName || '';
+      case 'supplier':
+        return row.supplierName || row.supplierCode || '';
+      case 'dailySales':
+        return row.dailySales;
+      case 'effectiveDays':
+        return row.effectiveDays;
+      case 'docCount':
+        return row.docCount ?? 0;
+      case 'currentMin':
+        return row.currentMin;
+      case 'currentMax':
+        return row.currentMax;
+      case 'newMin':
+        return row.newMin ?? -1;
+      case 'newMax':
+        return row.newMax ?? -1;
+      case 'diffMin':
+        return row.diffMin ?? 0;
+      case 'diffMax':
+        return row.diffMax ?? 0;
+      case 'diffPct':
+        return diffPercent(row);
+      default:
+        return 0;
+    }
+  };
+
   const filteredRows = useMemo(() => {
     if (!preview) return [] as MinMaxV2PreviewRow[];
     const tokens = search.trim().toUpperCase().split(/\s+/).filter(Boolean);
@@ -213,32 +323,50 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
         return tokens.every((token) => haystack.includes(token));
       });
     }
-    if (onlyChanged) {
+    // "Sadece sicilsiz" secildiginde, sicilsiz satirlar hep currentMin=currentMax=0 olur ve
+    // cogu zaman fark uretmez; bu yuzden onlyMissingRecord aktifken "Sadece degisenler" filtresini
+    // bypass ederiz — aksi halde neredeyse hicbir sicilsiz satir cikmaz.
+    if (onlyChanged && !onlyMissingRecord) {
       rows = rows.filter((row) => !row.excluded && ((row.diffMin ?? 0) !== 0 || (row.diffMax ?? 0) !== 0));
     }
     if (onlyMissingRecord) {
       rows = rows.filter((row) => !row.hasDepotRecord);
     }
-    const sorted = [...rows];
-    if (sortMode === 'code') {
-      sorted.sort((a, b) => a.productCode.localeCompare(b.productCode));
-    } else {
-      const direction = sortMode === 'diffPctDesc' ? -1 : 1;
-      sorted.sort((a, b) => {
-        const pa = Math.abs(diffPercent(a));
-        const pb = Math.abs(diffPercent(b));
-        if (pa === pb) return a.productCode.localeCompare(b.productCode);
-        if (!Number.isFinite(pa) && !Number.isFinite(pb)) return a.productCode.localeCompare(b.productCode);
-        if (!Number.isFinite(pa)) return direction === -1 ? -1 : 1;
-        if (!Number.isFinite(pb)) return direction === -1 ? 1 : -1;
-        return direction * (pa - pb);
-      });
+    if (quickFilter === 'increasing') {
+      rows = rows.filter((row) => !row.excluded && (row.diffMax ?? 0) > 0);
+    } else if (quickFilter === 'decreasing') {
+      rows = rows.filter((row) => !row.excluded && (row.diffMax ?? 0) < 0);
+    } else if (quickFilter === 'newlyDefined') {
+      rows = rows.filter((row) => !row.excluded && isNewlyDefined(row));
     }
+
+    const sorted = [...rows];
+    const dirFactor = sort.direction === 'desc' ? -1 : 1;
+    sorted.sort((a, b) => {
+      const va = sortValue(a, sort.column);
+      const vb = sortValue(b, sort.column);
+      if (typeof va === 'string' || typeof vb === 'string') {
+        const cmp = String(va).localeCompare(String(vb), 'tr');
+        return cmp !== 0 ? dirFactor * cmp : a.productCode.localeCompare(b.productCode, 'tr');
+      }
+      // Sayisal — Infinity/-Infinity siralama uclarina gelir (Fark % icin YENI/tam-cozulme).
+      if (va === vb) return a.productCode.localeCompare(b.productCode, 'tr');
+      if (!Number.isFinite(va) && !Number.isFinite(vb)) {
+        return va === vb ? a.productCode.localeCompare(b.productCode, 'tr') : dirFactor * (va < vb ? -1 : 1);
+      }
+      if (!Number.isFinite(va)) return va > 0 ? (sort.direction === 'desc' ? -1 : 1) : (sort.direction === 'desc' ? 1 : -1);
+      if (!Number.isFinite(vb)) return vb > 0 ? (sort.direction === 'desc' ? 1 : -1) : (sort.direction === 'desc' ? -1 : 1);
+      return dirFactor * (va - vb);
+    });
     return sorted;
-  }, [preview, search, onlyChanged, onlyMissingRecord, sortMode]);
+  }, [preview, search, onlyChanged, onlyMissingRecord, quickFilter, sort]);
+
+  // Secim/uygulama disi tutulacaklar: haric (HAYIR) + kullanici tarafindan disi birakilanlar
+  const isRowLocked = (row: MinMaxV2PreviewRow): boolean =>
+    row.excluded || Boolean(row.userExcluded) || row.newMin === null || row.newMax === null;
 
   const selectableFiltered = useMemo(
-    () => filteredRows.filter((row) => !row.excluded && row.newMin !== null && row.newMax !== null),
+    () => filteredRows.filter((row) => !isRowLocked(row)),
     [filteredRows]
   );
   const allFilteredSelected =
@@ -257,7 +385,7 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
   };
 
   const toggleRow = (row: MinMaxV2PreviewRow) => {
-    if (row.excluded || row.newMin === null || row.newMax === null) return;
+    if (isRowLocked(row)) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(row.productCode)) next.delete(row.productCode);
@@ -268,9 +396,7 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
 
   const selectedRows = useMemo(() => {
     if (!preview) return [] as MinMaxV2PreviewRow[];
-    return preview.rows.filter(
-      (row) => selected.has(row.productCode) && !row.excluded && row.newMin !== null && row.newMax !== null
-    );
+    return preview.rows.filter((row) => selected.has(row.productCode) && !isRowLocked(row));
   }, [preview, selected]);
 
   // Secili satirlar icinden sicilsiz (STOK_DEPO_DETAYLARI kaydi olmayan) olanlar — INSERT uyarisi icin
@@ -355,6 +481,88 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
     }
   };
 
+  // ==================== Kullanici hesaplama-disi birakma (MinMaxExclusion) ====================
+  const excludeSelected = async () => {
+    if (selectedRows.length === 0) return;
+    const confirmed = window.confirm(
+      `${selectedRows.length.toLocaleString('tr-TR')} urun min-max hesaplamasi DISI birakilacak.\n\n` +
+        'Bu urunler onizlemede gri gorunur ve Mikro yazmaya dahil edilmez. Devam edilsin mi?'
+    );
+    if (!confirmed) return;
+    setExcluding(true);
+    try {
+      const response = await adminApi.addMinMaxExclusions(
+        selectedRows.map((row) => ({ productCode: row.productCode, productName: row.productName || undefined }))
+      );
+      const added = response.data?.added ?? 0;
+      const skippedCount = response.data?.skipped?.length ?? 0;
+      const excludedCodes = new Set(selectedRows.map((row) => row.productCode));
+      // Onizlemede yerel olarak isaretle (yeniden onizleme almaya gerek kalmadan gri gorunsun).
+      setPreview((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          summary: {
+            ...prev.summary,
+            userExcludedCount: (prev.summary.userExcludedCount ?? 0) + added,
+          },
+          rows: prev.rows.map((row) =>
+            excludedCodes.has(row.productCode) ? { ...row, userExcluded: true } : row
+          ),
+        };
+      });
+      setSelected(new Set());
+      toast.success(
+        `${added.toLocaleString('tr-TR')} urun hesaplama disi birakildi.${skippedCount > 0 ? ` ${skippedCount} urun zaten haricti.` : ''}`
+      );
+    } catch (error: any) {
+      toast.error(getErrorMessage(error, 'Hesaplama disi birakma basarisiz'));
+    } finally {
+      setExcluding(false);
+    }
+  };
+
+  const openExclusionsModal = async () => {
+    setExclusionsModalOpen(true);
+    setExclusionsLoading(true);
+    try {
+      const response = await adminApi.getMinMaxExclusions();
+      setExclusionRows(response.data?.items || []);
+    } catch (error: any) {
+      toast.error(getErrorMessage(error, 'Haric tutulanlar yuklenemedi'));
+      setExclusionRows([]);
+    } finally {
+      setExclusionsLoading(false);
+    }
+  };
+
+  const removeExclusion = async (id: string, productCode: string) => {
+    setRemovingExclusionId(id);
+    try {
+      await adminApi.removeMinMaxExclusion(id);
+      setExclusionRows((prev) => prev.filter((row) => row.id !== id));
+      // Onizlemede geri ac (yerel).
+      setPreview((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          summary: {
+            ...prev.summary,
+            userExcludedCount: Math.max(0, (prev.summary.userExcludedCount ?? 0) - 1),
+          },
+          rows: prev.rows.map((row) =>
+            row.productCode === productCode ? { ...row, userExcluded: false } : row
+          ),
+        };
+      });
+      toast.success('Haric kaydi kaldirildi.');
+    } catch (error: any) {
+      toast.error(getErrorMessage(error, 'Haric kaydi kaldirilamadi'));
+    } finally {
+      setRemovingExclusionId(null);
+    }
+  };
+
   const createRule = async () => {
     setCreatingRule(true);
     try {
@@ -397,6 +605,22 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
     'inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-800 disabled:opacity-50';
   const btnGhost =
     'inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[12.5px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50';
+  const chipClass = (active: boolean): string =>
+    `rounded-full border px-2.5 py-1 text-[11.5px] font-semibold ${
+      active ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+    }`;
+
+  // Siralanabilir kolon basligi
+  const sortableTh = (column: SortColumn, label: string, align: 'left' | 'right' = 'left', extraClass = '') => (
+    <th
+      className={`px-2 py-2 ${align === 'right' ? 'text-right' : 'text-left'} cursor-pointer select-none whitespace-nowrap hover:text-emerald-700 ${extraClass}`}
+      onClick={() => toggleSort(column)}
+      title="Siralamak icin tiklayin"
+    >
+      {label}
+      <span className="text-emerald-600">{sortIndicator(column)}</span>
+    </th>
+  );
 
   return (
     <>
@@ -516,63 +740,111 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
 
                 {/* Ozet + filtreler */}
                 {preview && (
-                  <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-2">
-                    <span className="text-[12px] text-gray-700">
-                      Toplam: <strong>{preview.total.toLocaleString('tr-TR')}</strong> | Degisen:{' '}
-                      <strong>{preview.summary.changedCount.toLocaleString('tr-TR')}</strong> | Haric (HAYIR):{' '}
-                      <strong>{preview.summary.excludedCount.toLocaleString('tr-TR')}</strong> | Sicilsiz urun:{' '}
-                      <strong>{preview.summary.missingDepotRecordCount.toLocaleString('tr-TR')}</strong>{' '}
-                      <span title="STOK_DEPO_DETAYLARI kaydi olmayan urunlerden satisi olanlar ve bunlarin toplam gunluk satisi">
-                        (satisi olan: {(preview.summary.missingWithSalesCount ?? 0).toLocaleString('tr-TR')}, gunluk ~
-                        {(preview.summary.missingWithSalesDaily ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })})
+                  <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-[12px] text-gray-700">
+                        Toplam: <strong>{preview.total.toLocaleString('tr-TR')}</strong> | Degisen:{' '}
+                        <strong>{preview.summary.changedCount.toLocaleString('tr-TR')}</strong> | Haric (HAYIR):{' '}
+                        <strong>{preview.summary.excludedCount.toLocaleString('tr-TR')}</strong> | Kullanici haric:{' '}
+                        <strong>{(preview.summary.userExcludedCount ?? 0).toLocaleString('tr-TR')}</strong> | Sicilsiz urun:{' '}
+                        <strong>{preview.summary.missingDepotRecordCount.toLocaleString('tr-TR')}</strong>{' '}
+                        <span title="STOK_DEPO_DETAYLARI kaydi olmayan urunlerden satisi olanlar ve bunlarin toplam gunluk satisi">
+                          (satisi olan: {(preview.summary.missingWithSalesCount ?? 0).toLocaleString('tr-TR')}, gunluk ~
+                          {(preview.summary.missingWithSalesDaily ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })})
+                        </span>
                       </span>
-                    </span>
-                    <input
-                      className={`${inputClass} w-64`}
-                      placeholder="Ara: kod / ad / tedarikci"
-                      value={search}
-                      onChange={(e) => {
-                        setSearch(e.target.value);
-                        setVisibleCount(300);
-                      }}
-                    />
-                    <label className="flex items-center gap-1.5 text-[12px] text-gray-700">
-                      <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
-                      Sadece degisenler
-                    </label>
-                    <label
-                      className="flex items-center gap-1.5 text-[12px] text-gray-700"
-                      title="Sadece STOK_DEPO_DETAYLARI kaydi olmayan (kayit yok rozetli) satirlari goster"
-                    >
+                      <button type="button" className={btnGhost} onClick={openExclusionsModal}>
+                        Haric tutulanlar ({(preview.summary.userExcludedCount ?? 0).toLocaleString('tr-TR')})
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
                       <input
-                        type="checkbox"
-                        checked={onlyMissingRecord}
+                        className={`${inputClass} w-64`}
+                        placeholder="Ara: kod / ad / tedarikci"
+                        value={search}
                         onChange={(e) => {
-                          setOnlyMissingRecord(e.target.checked);
+                          setSearch(e.target.value);
                           setVisibleCount(300);
                         }}
                       />
-                      Sadece sicilsiz
-                    </label>
-                    <select className={inputClass} value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)}>
-                      <option value="diffPctDesc">Fark % (buyukten kucuge)</option>
-                      <option value="diffPctAsc">Fark % (kucukten buyuge)</option>
-                      <option value="code">Stok kodu</option>
-                    </select>
-                    <span className="ml-auto text-[12px] text-gray-600">
-                      Secili: <strong>{selectedRows.length.toLocaleString('tr-TR')}</strong>
-                    </span>
-                    <button
-                      type="button"
-                      className={btnPrimary}
-                      disabled={selectedRows.length === 0 || applying}
-                      onClick={() => {
-                        setAllowInsertMissing(false);
-                        setConfirmOpen(true);
-                      }}
-                    >
-                      Secilenleri Mikro'ya Yaz ({selectedRows.length})
-                    </button>
+                      <label className="flex items-center gap-1.5 text-[12px] text-gray-700">
+                        <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
+                        Sadece degisenler
+                      </label>
+                      <label
+                        className="flex items-center gap-1.5 text-[12px] text-gray-700"
+                        title="Sadece STOK_DEPO_DETAYLARI kaydi olmayan (kayit yok rozetli) satirlari goster"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={onlyMissingRecord}
+                          onChange={(e) => {
+                            setOnlyMissingRecord(e.target.checked);
+                            setVisibleCount(300);
+                          }}
+                        />
+                        Sadece sicilsiz
+                      </label>
+                      {/* Hizli filtre cipleri */}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          className={chipClass(quickFilter === 'increasing')}
+                          onClick={() => {
+                            setQuickFilter((prev) => (prev === 'increasing' ? '' : 'increasing'));
+                            setVisibleCount(300);
+                          }}
+                          title="Max degeri artan satirlar (daha cok stok baglanacak)"
+                        >
+                          Artanlar
+                        </button>
+                        <button
+                          type="button"
+                          className={chipClass(quickFilter === 'decreasing')}
+                          onClick={() => {
+                            setQuickFilter((prev) => (prev === 'decreasing' ? '' : 'decreasing'));
+                            setVisibleCount(300);
+                          }}
+                          title="Max degeri azalan satirlar (stok cozulecek)"
+                        >
+                          Azalanlar
+                        </button>
+                        <button
+                          type="button"
+                          className={chipClass(quickFilter === 'newlyDefined')}
+                          onClick={() => {
+                            setQuickFilter((prev) => (prev === 'newlyDefined' ? '' : 'newlyDefined'));
+                            setVisibleCount(300);
+                          }}
+                          title="Mevcut min/max 0 iken yeni deger onerilen (ilk kez tanimlanan) urunler"
+                        >
+                          Yeni tanimlananlar
+                        </button>
+                      </div>
+                      <span className="ml-auto text-[12px] text-gray-600">
+                        Secili: <strong>{selectedRows.length.toLocaleString('tr-TR')}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        className={btnGhost}
+                        disabled={selectedRows.length === 0 || excluding}
+                        onClick={excludeSelected}
+                        title="Secili satirlari min-max hesaplamasi disi birak (kullanici haric)"
+                      >
+                        {excluding ? 'Isleniyor...' : `Secilenleri hesaplama disi birak (${selectedRows.length})`}
+                      </button>
+                      <button
+                        type="button"
+                        className={btnPrimary}
+                        disabled={selectedRows.length === 0 || applying}
+                        onClick={() => {
+                          setAllowInsertMissing(false);
+                          setConfirmOpen(true);
+                        }}
+                      >
+                        Secilenleri Mikro'ya Yaz ({selectedRows.length})
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -620,33 +892,58 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                               title="Filtrelenen tum satirlari sec/birak"
                             />
                           </th>
-                          <th className="px-2 py-2">Stok Kodu</th>
-                          <th className="px-2 py-2">Urun</th>
-                          <th className="px-2 py-2">Tedarikci</th>
-                          <th className="px-2 py-2 text-right">Gunluk Satis</th>
-                          <th className="px-2 py-2 text-right">Pencere</th>
-                          <th className="px-2 py-2 text-right" title="Hesapta gercekten kullanilan gun sayisi (ilk satis tarihine gore kisalabilir)">
+                          {sortableTh('code', 'Stok Kodu')}
+                          {sortableTh('name', 'Urun')}
+                          {sortableTh('supplier', 'Tedarikci')}
+                          {sortableTh('dailySales', 'Gunluk Satis', 'right')}
+                          <th className="px-2 py-2 text-right whitespace-nowrap">Pencere</th>
+                          <th
+                            className="px-2 py-2 text-right cursor-pointer select-none whitespace-nowrap hover:text-emerald-700"
+                            onClick={() => toggleSort('effectiveDays')}
+                            title="Hesapta gercekten kullanilan gun sayisi (ilk satis tarihine gore kisalabilir)"
+                          >
                             Efektif Gun
+                            <span className="text-emerald-600">{sortIndicator('effectiveDays')}</span>
                           </th>
-                          <th className="px-2 py-2 text-right">Min/Max Gun</th>
-                          <th className="px-2 py-2 text-right">Mevcut Min</th>
-                          <th className="px-2 py-2 text-right">Mevcut Max</th>
-                          <th className="px-2 py-2 text-right">Yeni Min</th>
-                          <th className="px-2 py-2 text-right">Yeni Max</th>
-                          <th className="px-2 py-2 text-right">Fark Min</th>
-                          <th className="px-2 py-2 text-right">Fark Max</th>
-                          <th className="px-2 py-2 text-right">Fark %</th>
+                          <th
+                            className="px-2 py-2 text-right cursor-pointer select-none whitespace-nowrap hover:text-emerald-700"
+                            onClick={() => toggleSort('docCount')}
+                            title="Efektif pencerede farkli satis evraki sayisi (dusuk = geldi-gecti stok)"
+                          >
+                            Evrak
+                            <span className="text-emerald-600">{sortIndicator('docCount')}</span>
+                          </th>
+                          <th className="px-2 py-2 text-right whitespace-nowrap">Min/Max Gun</th>
+                          {sortableTh('currentMin', 'Mevcut Min', 'right')}
+                          {sortableTh('currentMax', 'Mevcut Max', 'right')}
+                          {sortableTh('newMin', 'Yeni Min', 'right')}
+                          {sortableTh('newMax', 'Yeni Max', 'right')}
+                          {sortableTh('diffMin', 'Fark Min', 'right')}
+                          {sortableTh('diffMax', 'Fark Max', 'right')}
+                          <th
+                            className="px-2 py-2 text-right cursor-pointer select-none whitespace-nowrap hover:text-emerald-700"
+                            onClick={() => toggleSort('diffPct')}
+                            title="Fark % — yon duyarli siralama: once en cok ARTAN, tekrar tiklayinca en cok AZALAN"
+                          >
+                            Fark %
+                            <span className="text-emerald-600">{sortIndicator('diffPct')}</span>
+                          </th>
                           <th className="px-2 py-2">Kaynak</th>
+                          <th className="px-2 py-2" />
                         </tr>
                       </thead>
                       <tbody>
                         {filteredRows.slice(0, visibleCount).map((row) => {
                           const pct = diffPercent(row);
-                          const selectable = !row.excluded && row.newMin !== null && row.newMax !== null;
+                          const userExcluded = Boolean(row.userExcluded);
+                          const selectable = !isRowLocked(row);
+                          const hasSales = row.dailySales > 0;
                           return (
                             <tr
                               key={row.productCode}
-                              className={`border-b border-gray-100 hover:bg-gray-50 ${row.excluded ? 'opacity-60' : ''}`}
+                              className={`border-b border-gray-100 hover:bg-gray-50 ${
+                                userExcluded ? 'bg-gray-50 opacity-60' : row.excluded ? 'opacity-60' : ''
+                              }`}
                             >
                               <td className="px-2 py-1.5">
                                 <input
@@ -659,6 +956,14 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                               <td className="px-2 py-1.5 font-mono">{row.productCode}</td>
                               <td className="max-w-[260px] truncate px-2 py-1.5" title={row.productName}>
                                 {row.productName || '-'}
+                                {userExcluded && (
+                                  <span
+                                    className="ml-1 rounded bg-gray-200 px-1 text-[10px] font-semibold text-gray-700"
+                                    title="Kullanici tarafindan min-max hesaplamasi disi birakildi"
+                                  >
+                                    Haric (kullanici)
+                                  </span>
+                                )}
                                 {!row.hasDepotRecord && (
                                   <span
                                     className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800"
@@ -684,6 +989,9 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                                   </span>
                                 )}
                               </td>
+                              <td className="px-2 py-1.5 text-right" title="Efektif pencerede farkli satis evraki">
+                                {formatNumber(row.docCount)}
+                              </td>
                               <td className="px-2 py-1.5 text-right">
                                 {row.minDaysUsed}/{row.maxDaysUsed}
                               </td>
@@ -694,21 +1002,38 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                               <td className={`px-2 py-1.5 text-right ${diffClass(row.diffMin)}`}>{formatDiff(row.diffMin)}</td>
                               <td className={`px-2 py-1.5 text-right ${diffClass(row.diffMax)}`}>{formatDiff(row.diffMax)}</td>
                               <td className={`px-2 py-1.5 text-right ${diffClass(row.diffMax)}`}>
-                                {row.excluded ? '-' : Number.isFinite(pct) ? `${pct > 0 ? '+' : ''}${pct.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}%` : 'YENI'}
+                                {row.excluded ? '-' : Number.isFinite(pct) ? `${pct > 0 ? '+' : ''}${pct.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}%` : pct > 0 ? 'YENI' : '-100%'}
                               </td>
                               <td className="px-2 py-1.5">
-                                <span
-                                  className={`rounded px-1.5 py-0.5 text-[10.5px] font-semibold whitespace-nowrap ${SOURCE_BADGE_CLASS[row.overrideSource]}`}
-                                  title={
-                                    row.overrideSource === 'SIPARIS'
-                                      ? 'Satis gecmisi yok; min-max bekleyen musteri siparisine gore hesaplandi'
-                                      : undefined
-                                  }
-                                >
-                                  {row.overrideSource === 'SIPARIS'
-                                    ? `Siparis-bazli (satis yok, ${(row.pendingOrderQty ?? 0).toLocaleString('tr-TR')} bekleyen)`
-                                    : SOURCE_LABELS[row.overrideSource]}
-                                </span>
+                                {hasSales ? (
+                                  <span
+                                    className={`inline-flex flex-col gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-semibold whitespace-nowrap ${SOURCE_BADGE_CLASS.varsayilan}`}
+                                    title={`Satis gecmisine gore hesaplandi (${PARAM_SOURCE_SUFFIX[row.overrideSource]})`}
+                                  >
+                                    <span className="rounded bg-emerald-100 px-1 text-emerald-800">Satis</span>
+                                    <span className="text-[9px] font-medium text-gray-500">
+                                      {PARAM_SOURCE_SUFFIX[row.overrideSource]}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={`rounded px-1.5 py-0.5 text-[10.5px] font-semibold whitespace-nowrap ${SOURCE_BADGE_CLASS[row.overrideSource]}`}
+                                  >
+                                    {SOURCE_LABELS[row.overrideSource]}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                {onShowSalesHistory && (
+                                  <button
+                                    type="button"
+                                    className="rounded border border-gray-300 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 hover:bg-gray-50"
+                                    onClick={() => onShowSalesHistory(row.productCode)}
+                                    title="Bu urunun satis detayini goster (TOPLU isaretleme dahil)"
+                                  >
+                                    Satis detayi
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );
@@ -950,6 +1275,65 @@ export default function MinMaxV2Panel({ depot: depotProp }: { depot: DepotType }
                   <button type="button" className={btnPrimary} onClick={applySelected} disabled={applying}>
                     {applying ? 'Yaziliyor...' : `Onayla ve Yaz (${selectedRows.length})`}
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* HARIC TUTULANLAR MINI-MODALI */}
+          {exclusionsModalOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+              <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+                  <h3 className="text-[14px] font-bold text-gray-900">
+                    Hesaplama Disi Birakilanlar ({exclusionRows.length.toLocaleString('tr-TR')})
+                  </h3>
+                  <button type="button" className={btnGhost} onClick={() => setExclusionsModalOpen(false)}>
+                    Kapat
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto px-4 py-2">
+                  {exclusionsLoading ? (
+                    <p className="py-8 text-center text-[13px] text-gray-500">Yukleniyor...</p>
+                  ) : exclusionRows.length === 0 ? (
+                    <p className="py-8 text-center text-[13px] text-gray-500">
+                      Hesaplama disi birakilan urun yok. Onizlemede satir secip "Secilenleri hesaplama disi birak" ile ekleyebilirsiniz.
+                    </p>
+                  ) : (
+                    <table className="w-full border-collapse text-[12px]">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-left text-gray-600">
+                          <th className="px-2 py-2">Stok Kodu</th>
+                          <th className="px-2 py-2">Urun</th>
+                          <th className="px-2 py-2">Ekleyen</th>
+                          <th className="px-2 py-2">Tarih</th>
+                          <th className="px-2 py-2" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {exclusionRows.map((row) => (
+                          <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="px-2 py-1.5 font-mono">{row.productCode}</td>
+                            <td className="max-w-[280px] truncate px-2 py-1.5" title={row.productName || ''}>
+                              {row.productName || '-'}
+                            </td>
+                            <td className="px-2 py-1.5">{row.createdByName || '-'}</td>
+                            <td className="px-2 py-1.5">{formatShortDate(row.createdAt)}</td>
+                            <td className="px-2 py-1.5 text-right">
+                              <button
+                                type="button"
+                                className="rounded border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                onClick={() => removeExclusion(row.id, row.productCode)}
+                                disabled={removingExclusionId === row.id}
+                              >
+                                {removingExclusionId === row.id ? 'Kaldiriliyor...' : 'Geri al'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
             </div>

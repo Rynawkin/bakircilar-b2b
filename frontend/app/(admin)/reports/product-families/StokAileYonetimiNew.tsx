@@ -1,8 +1,32 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Save, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react';
+import toast from 'react-hot-toast';
+import adminApi from '@/lib/api/admin';
 import { useStokAileYonetimi } from './useStokAileYonetimi';
+
+// ---- Birim Uyumsuz Uyeler (sozlesme tipleri) ----
+interface UnitMismatchMember {
+  itemId: string;
+  productCode: string;
+  productName: string;
+  unit: string;
+  unit2: string | null;
+  unit2Factor: number | null;
+  unitFactorOverride: number | null;
+  // Backend getFamilyUnitMismatch normalize edilmis karsilastirma ile doldurur (es-anlamli birimler eslesir).
+  mismatched?: boolean;
+}
+interface UnitMismatchFamily {
+  familyId: string;
+  familyName: string;
+  dominantUnit: string;
+  members: UnitMismatchMember[];
+}
+
+type FamilyViewTab = 'MANAGE' | 'UNIT_MISMATCH';
 
 /**
  * Yeni gorunum: Stok Aile Yonetimi.
@@ -123,6 +147,80 @@ export default function StokAileYonetimiNew() {
     deleteFamily,
   } = useStokAileYonetimi();
 
+  // ---- Sekme + Birim Uyumsuz Uyeler (New tema, hook'a dokunmadan lokal) ----
+  const [viewTab, setViewTab] = useState<FamilyViewTab>('MANAGE');
+  const [mismatch, setMismatch] = useState<UnitMismatchFamily[]>([]);
+  const [mismatchLoading, setMismatchLoading] = useState(false);
+  const [mismatchError, setMismatchError] = useState<string | null>(null);
+  const [mismatchLoadedOnce, setMismatchLoadedOnce] = useState(false);
+  // Katsayi esle modal hedefi
+  const [factorTarget, setFactorTarget] = useState<{ family: UnitMismatchFamily; member: UnitMismatchMember } | null>(null);
+  const [factorInput, setFactorInput] = useState('');
+  const [factorBusy, setFactorBusy] = useState(false);
+
+  const loadMismatch = async () => {
+    setMismatchLoading(true);
+    setMismatchError(null);
+    try {
+      const response = await adminApi.getFamilyUnitMismatch();
+      setMismatch(response.data.families || []);
+      setMismatchLoadedOnce(true);
+    } catch (error: any) {
+      setMismatchError(error?.response?.data?.error || error?.message || 'Rapor yuklenemedi');
+    } finally {
+      setMismatchLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (viewTab === 'UNIT_MISMATCH' && !mismatchLoadedOnce && !mismatchLoading) {
+      loadMismatch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTab]);
+
+  const openFactorModal = (family: UnitMismatchFamily, member: UnitMismatchMember) => {
+    setFactorTarget({ family, member });
+    setFactorInput(member.unitFactorOverride != null ? String(member.unitFactorOverride) : '');
+  };
+
+  const applyFactor = async (clear: boolean) => {
+    if (!factorTarget) return;
+    let factor: number | null = null;
+    if (!clear) {
+      const parsed = Number(factorInput.replace(',', '.'));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        toast.error('Geçerli bir katsayı girin (0 dan büyük)');
+        return;
+      }
+      factor = parsed;
+    }
+    setFactorBusy(true);
+    try {
+      const response = await adminApi.setFamilyItemUnitFactor(factorTarget.member.itemId, factor);
+      const newOverride = response.data?.item?.unitFactorOverride ?? factor;
+      // Yerel state'i guncelle
+      setMismatch((prev) =>
+        prev.map((fam) =>
+          fam.familyId !== factorTarget.family.familyId
+            ? fam
+            : {
+                ...fam,
+                members: fam.members.map((m) =>
+                  m.itemId === factorTarget.member.itemId ? { ...m, unitFactorOverride: newOverride } : m
+                ),
+              }
+        )
+      );
+      toast.success(clear ? 'Katsayı temizlendi' : 'Katsayı kaydedildi');
+      setFactorTarget(null);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || error?.message || 'Katsayı kaydedilemedi');
+    } finally {
+      setFactorBusy(false);
+    }
+  };
+
   return (
     <div style={{ maxWidth: 1280, margin: '0 auto', padding: 24 }}>
       {/* Header: Geri (Ucarer Depo) + baslik + Yeni Aile */}
@@ -173,7 +271,39 @@ export default function StokAileYonetimiNew() {
         </button>
       </div>
 
-      {/* 2 kolon: sol Tanimli Aileler / sag Form */}
+      {/* Sekmeler: Aile Yonetimi / Birim Uyumsuz Uyeler */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
+        {([
+          ['MANAGE', 'Aile Yönetimi'],
+          ['UNIT_MISMATCH', 'Birim Uyumsuz Üyeler'],
+        ] as Array<[FamilyViewTab, string]>).map(([key, label]) => {
+          const active = viewTab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setViewTab(key)}
+              style={{
+                padding: '10px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                border: 'none',
+                background: 'transparent',
+                color: active ? PRIMARY : MUTED,
+                borderBottom: active ? `2px solid ${PRIMARY}` : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {viewTab === 'MANAGE' && (
+      /* 2 kolon: sol Tanimli Aileler / sag Form */
       <div
         style={{
           display: 'grid',
@@ -644,6 +774,254 @@ export default function StokAileYonetimiNew() {
           </div>
         </div>
       </div>
+      )}
+
+      {viewTab === 'UNIT_MISMATCH' && (
+        <div>
+          <div
+            style={{
+              ...cardStyle,
+              border: '1px solid #c7d7f2',
+              background: '#f4f8ff',
+              padding: '12px 14px',
+              marginBottom: 16,
+              color: PRIMARY,
+              fontSize: 12.5,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>
+              Katsayı, aile toplamlarında ve stok/aile önerilerinde kullanılır: farklı birimli üyeler ortak birime çevrilir.
+            </span>
+            <button
+              type="button"
+              onClick={loadMismatch}
+              disabled={mismatchLoading}
+              style={{ ...headBtn, height: 32, opacity: mismatchLoading ? 0.7 : 1 }}
+            >
+              <RefreshCw size={13} strokeWidth={2} className={mismatchLoading ? 'animate-spin' : undefined} />
+              Yenile
+            </button>
+          </div>
+
+          {mismatchLoading ? (
+            <div style={{ ...cardStyle, padding: '48px 16px', textAlign: 'center' }}>
+              <RefreshCw size={28} strokeWidth={2} className="animate-spin" style={{ margin: '0 auto 12px', color: FAINT, display: 'block' }} />
+              <p style={{ color: MUTED, margin: 0, fontSize: 12.5 }}>Yukleniyor...</p>
+            </div>
+          ) : mismatchError ? (
+            <div style={{ ...cardStyle, padding: '28px 16px', textAlign: 'center', color: RED, fontSize: 12.5 }}>
+              <AlertTriangle size={22} strokeWidth={2} style={{ margin: '0 auto 8px', display: 'block' }} />
+              {mismatchError}
+            </div>
+          ) : mismatch.length === 0 ? (
+            <div style={{ ...cardStyle, padding: '48px 16px', textAlign: 'center' }}>
+              <p style={{ color: MUTED, margin: 0, fontSize: 12.5 }}>Birim uyumsuz üye bulunamadı.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 14 }}>
+              {mismatch.map((family) => (
+                <div key={family.familyId} style={{ ...cardStyle, overflow: 'hidden' }}>
+                  <div style={{ padding: '13px 15px', borderBottom: `1px solid ${SOFT_LINE}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: INK }}>{family.familyName}</div>
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        color: PRIMARY,
+                        background: '#eef2fa',
+                        border: `1px solid ${ACTIVE_LINE}`,
+                        borderRadius: 6,
+                        padding: '2px 8px',
+                      }}
+                    >
+                      Baskın birim: {family.dominantUnit}
+                    </span>
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <div style={{ minWidth: 760 }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1.4fr 2fr 90px 120px 120px 130px',
+                          gap: 10,
+                          padding: '9px 15px',
+                          background: '#fafbfd',
+                          borderBottom: `1px solid ${SOFT_LINE}`,
+                          fontSize: 9.5,
+                          fontWeight: 600,
+                          color: FAINT,
+                          textTransform: 'uppercase',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span>Ürün</span>
+                        <span>Ürün Adı</span>
+                        <span>Birim</span>
+                        <span>2. Birim</span>
+                        <span>Katsayı</span>
+                        <span style={{ textAlign: 'right' }}>Aksiyon</span>
+                      </div>
+                      {family.members.map((member) => {
+                        // Backend'in normalize edilmis (es-anlamli birim farkindaligi olan) mismatched
+                        // bayragini kullan; alan yoksa ham buyuk-harf karsilastirmasina dus.
+                        const mismatched =
+                          member.mismatched ??
+                          (member.unit || '').toLocaleUpperCase('tr-TR') !== (family.dominantUnit || '').toLocaleUpperCase('tr-TR');
+                        return (
+                          <div
+                            key={member.itemId}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1.4fr 2fr 90px 120px 120px 130px',
+                              gap: 10,
+                              padding: '10px 15px',
+                              borderTop: `1px solid ${SOFT_LINE}`,
+                              fontSize: 11.5,
+                              color: INK,
+                              alignItems: 'center',
+                              background: mismatched ? '#fff7ed' : '#fff',
+                            }}
+                          >
+                            <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11, fontWeight: 600 }}>
+                              {member.productCode}
+                            </span>
+                            <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={member.productName}>
+                              {member.productName || '-'}
+                            </span>
+                            <span style={{ fontWeight: mismatched ? 700 : 500, color: mismatched ? AMBER : INK }}>
+                              {member.unit || '-'}
+                            </span>
+                            <span style={{ color: MUTED }}>
+                              {member.unit2 ? `${member.unit2}${member.unit2Factor != null ? ` (${member.unit2Factor})` : ''}` : '-'}
+                            </span>
+                            <span style={{ color: member.unitFactorOverride != null ? INK : FAINT, fontWeight: member.unitFactorOverride != null ? 600 : 400 }}>
+                              {member.unitFactorOverride != null ? member.unitFactorOverride : 'Yok (1)'}
+                            </span>
+                            <span style={{ textAlign: 'right' }}>
+                              {mismatched ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openFactorModal(family, member)}
+                                  style={{ ...headBtn, height: 30, padding: '0 10px', fontSize: 11.5, color: PRIMARY, borderColor: '#c7d7f2' }}
+                                >
+                                  Katsayı Eşle
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: 11, color: FAINT }}>-</span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Katsayi Esle modali */}
+      {factorTarget && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            zIndex: 60,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div style={{ ...cardStyle, width: 'min(460px, 100%)', padding: 20, boxShadow: '0 18px 50px rgba(15,23,42,.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: INK }}>Katsayı Eşle</div>
+              <button
+                type="button"
+                onClick={() => setFactorTarget(null)}
+                disabled={factorBusy}
+                style={{ ...headBtn, height: 28, padding: '0 8px' }}
+                aria-label="Kapat"
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.6, marginBottom: 12 }}>
+              <div style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11.5, color: INK, fontWeight: 600 }}>
+                {factorTarget.member.productCode}
+              </div>
+              <div style={{ marginTop: 2 }}>{factorTarget.member.productName}</div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 13,
+                color: INK,
+                marginBottom: 6,
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>1 {factorTarget.member.unit || 'birim'} =</span>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={factorInput}
+                onChange={(e) => setFactorInput(e.target.value)}
+                autoFocus
+                style={{ ...inputStyle, width: 120, height: 34 }}
+              />
+              <span>{factorTarget.family.dominantUnit}</span>
+            </div>
+            <div style={{ fontSize: 11, color: FAINT, marginBottom: 16 }}>
+              Mevcut değer: {factorTarget.member.unitFactorOverride != null ? factorTarget.member.unitFactorOverride : 'Yok (1 kabul edilir)'}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => applyFactor(true)}
+                disabled={factorBusy || factorTarget.member.unitFactorOverride == null}
+                style={{
+                  ...headBtn,
+                  height: 36,
+                  color: RED,
+                  borderColor: '#fecaca',
+                  opacity: factorBusy || factorTarget.member.unitFactorOverride == null ? 0.5 : 1,
+                }}
+              >
+                Temizle
+              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={() => setFactorTarget(null)} disabled={factorBusy} style={{ ...headBtn, height: 36 }}>
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyFactor(false)}
+                  disabled={factorBusy}
+                  style={{ ...primaryBtn, height: 36, opacity: factorBusy ? 0.7 : 1 }}
+                >
+                  {factorBusy && <RefreshCw size={14} strokeWidth={2} className="animate-spin" />}
+                  Kaydet
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

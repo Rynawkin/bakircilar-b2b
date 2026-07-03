@@ -2607,6 +2607,9 @@ export class CustomerController {
                   mikroCode: true,
                   imageUrl: true,
                   vatRate: true,
+                  unit: true,
+                  unit2: true,
+                  unit2Factor: true,
                 },
               },
             },
@@ -2622,13 +2625,15 @@ export class CustomerController {
         return sum + item.quantity * item.unitPrice;
       }, 0);
 
-      // Her item iÃ§in KDV bilgisini al
+      // Her item iÃ§in KDV bilgisini al. product artik unit/unit2/unit2Factor de icerir
+      // (birim gosterimi/kesirli miktar icin). selectedUnit item bazinda doner.
       const itemsWithVat = cart.items.map((item) => {
         const { vatRate, ...product } = item.product;
         return {
           id: item.id,
           product,
           quantity: item.quantity,
+          selectedUnit: item.selectedUnit || null,
           priceType: item.priceType,
           priceMode: item.priceMode,
           unitPrice: item.unitPrice,
@@ -2667,12 +2672,18 @@ export class CustomerController {
   async addToCart(req: Request, res: Response, next: NextFunction) {
     try {
       {
-        const { productId, quantity, priceType, priceMode } = req.body;
+        const { productId, quantity, priceType, priceMode, selectedUnit } = req.body;
         const requestedPriceMode = priceMode === 'EXCESS' ? 'EXCESS' : 'LIST';
+        // Miktar ANA birim cinsinden kesirli (Float) olabilir (alt birim secimi). Truncate ETME.
         const parsedQuantity = Number(quantity);
         if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
           return res.status(400).json({ error: 'Quantity must be greater than 0' });
         }
+        // Secilen birim adi (null/ana birim disinda ise saklanir). <=20 karakter, trim'li.
+        const normalizedSelectedUnit =
+          typeof selectedUnit === 'string' && selectedUnit.trim()
+            ? selectedUnit.trim().slice(0, 20)
+            : null;
 
         if (priceType !== 'INVOICED' && priceType !== 'WHITE') {
           return res.status(400).json({ error: 'Invalid price type' });
@@ -2730,10 +2741,20 @@ export class CustomerController {
           productId,
           product,
           priceType: safePriceType,
-          totalQuantity: currentQuantity + Math.trunc(parsedQuantity),
+          totalQuantity: currentQuantity + parsedQuantity,
           existingItems,
         });
         const cartItemId = rebalanceResult.cartItemIds[0];
+
+        // Secilen birim adini rebalance sonrasi olusan/guncellenen satirlara yaz.
+        // (rebalance servisi cart-pricing.service.ts B5 sahipligi disindadir; birim
+        // bilgisini burada persist ediyoruz.) selectedUnit null ise ana birim demektir.
+        if (rebalanceResult.cartItemIds.length > 0) {
+          await prisma.cartItem.updateMany({
+            where: { id: { in: rebalanceResult.cartItemIds } },
+            data: { selectedUnit: normalizedSelectedUnit },
+          });
+        }
 
         const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
         try {
@@ -2745,10 +2766,13 @@ export class CustomerController {
             productId: product.id,
             productCode: product.mikroCode,
             cartItemId,
-            quantity: Math.trunc(parsedQuantity),
+            // CustomerActivityEvent.quantity Int? oldugu icin analitik amacli yuvarlanir
+            // (fiyat/miktar mantigi bundan etkilenmez; asil miktar CartItem'da Float).
+            quantity: Math.round(parsedQuantity),
             meta: {
               priceType: safePriceType,
               requestedPriceMode,
+              selectedUnit: normalizedSelectedUnit,
               excessQuantity: rebalanceResult.excessQuantity,
               listQuantity: rebalanceResult.listQuantity,
             },
@@ -2774,14 +2798,23 @@ export class CustomerController {
     try {
       {
         const { itemId } = req.params;
-        const { quantity, lineNote } = req.body || {};
+        const { quantity, lineNote, selectedUnit } = req.body || {};
 
         const hasQuantity = quantity !== undefined && quantity !== null;
+        // Miktar ANA birim cinsinden kesirli (Float) olabilir; truncate ETME.
         const parsedQuantity = Number(quantity);
 
         if (hasQuantity && (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0)) {
           return res.status(400).json({ error: 'Quantity must be greater than 0' });
         }
+
+        // selectedUnit body'de yoksa (undefined) mevcut deger KORUNUR; verildiyse
+        // (bos string dahil) yeni deger uygulanir (bos -> null = ana birim).
+        const hasSelectedUnit = selectedUnit !== undefined;
+        const normalizedSelectedUnit =
+          typeof selectedUnit === 'string' && selectedUnit.trim()
+            ? selectedUnit.trim().slice(0, 20)
+            : null;
 
         const cartItem = await prisma.cartItem.findUnique({
           where: { id: itemId },
@@ -2820,7 +2853,7 @@ export class CustomerController {
           orderBy: { createdAt: 'asc' },
         });
 
-        const nextQuantity = hasQuantity ? Math.trunc(parsedQuantity) : cartItem.quantity;
+        const nextQuantity = hasQuantity ? parsedQuantity : cartItem.quantity;
         const otherQuantity = existingItems.reduce((sum, item) => (
           item.id === cartItem.id ? sum : sum + item.quantity
         ), 0);
@@ -2842,6 +2875,15 @@ export class CustomerController {
             : undefined,
         });
 
+        // selectedUnit body'de verildiyse rebalance sonrasi satirlara uygula.
+        // (verilmediyse mevcut deger korunur — updateMany cagrilmaz.)
+        if (hasSelectedUnit && rebalanceResult.cartItemIds.length > 0) {
+          await prisma.cartItem.updateMany({
+            where: { id: { in: rebalanceResult.cartItemIds } },
+            data: { selectedUnit: normalizedSelectedUnit },
+          });
+        }
+
         const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
         try {
           await customerActivityService.trackEvent({
@@ -2854,10 +2896,12 @@ export class CustomerController {
             cartItemId: rebalanceResult.cartItemIds.includes(cartItem.id)
               ? cartItem.id
               : rebalanceResult.cartItemIds[0],
-            quantity: hasQuantity ? nextQuantity : undefined,
+            // CustomerActivityEvent.quantity Int? -> analitik icin yuvarlanir.
+            quantity: hasQuantity ? Math.round(nextQuantity) : undefined,
             meta: {
               priceType: safePriceType,
               previousPriceMode: cartItem.priceMode,
+              selectedUnit: hasSelectedUnit ? normalizedSelectedUnit : undefined,
               excessQuantity: rebalanceResult.excessQuantity,
               listQuantity: rebalanceResult.listQuantity,
               lineNote: normalizedNote,
