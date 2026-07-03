@@ -1669,6 +1669,17 @@ export function useTeklifOlustur() {
       });
 
       setQuoteItems(mappedItems);
+      // Duzenlemeye acilan siparisin mevcut satirlarinda aile onerisini bastir:
+      // siparisin kendi miktari Mikro'da "bekleyen siparis" olarak stoktan dusuldugu icin
+      // motor sahte YETERSIZ/yatan-stok uyarisi uretir (kullanici urunu elle degistirirse
+      // kod eslesmesi bozulur ve oneri otomatik tekrar aktif olur).
+      setSuppressedFamilyLines(
+        Object.fromEntries(
+          mappedItems
+            .filter((item) => item.productCode)
+            .map((item) => [item.id, String(item.productCode)])
+        )
+      );
       setVatZeroed(mappedItems.length > 0 && mappedItems.every((item) => item.vatRate <= 0));
     } catch (error) {
       console.error('Siparis yuklenemedi:', error);
@@ -1847,6 +1858,30 @@ export function useTeklifOlustur() {
     addProductsToQuote([product], quantity ? { [product.mikroCode]: quantity } : undefined);
   };
 
+  // ===== Stok ailesi yonlendirme: satir bazli bastirma + diger satir kodlari =====
+  // Satir id -> urun kodu: kayitli kod satirin MEVCUT koduna esitse oneri bastirilir
+  // (Degistir/Bol sonrasi ayni uyarinin tekrar gelmemesi icin; kullanici urunu elle
+  // degistirirse kod eslesmez ve oneri otomatik acilir. Miktar degisse de bastirilmis kalir).
+  const [suppressedFamilyLines, setSuppressedFamilyLines] = useState<Record<string, string>>({});
+
+  const normalizeFamilyCode = (code?: string | null) => String(code || '').trim().toUpperCase();
+
+  const isFamilySuggestionSuppressed = (item: QuoteItemForm) => {
+    const saved = normalizeFamilyCode(suppressedFamilyLines[item.id]);
+    return !!saved && saved === normalizeFamilyCode(item.productCode);
+  };
+
+  // Her satir icin teklifin DIGER satirlarindaki urun kodlari (oneri motoru bunlari aday yapmasin).
+  const familyExcludeCodesByLine = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const it of quoteItems) {
+      if (it.isManualLine || !it.productCode) continue;
+      const own = normalizeFamilyCode(it.productCode);
+      map[it.id] = quoteProductCodes.filter((code) => normalizeFamilyCode(code) !== own);
+    }
+    return map;
+  }, [quoteItems, quoteProductCodes]);
+
   // ===== Stok ailesi yonlendirme: kalemi alternatifle DEGISTIR =====
   const applyFamilySwap = async (
     item: QuoteItemForm,
@@ -1860,8 +1895,29 @@ export function useTeklifOlustur() {
         return;
       }
       const newItem = buildQuoteItem(alt as QuoteProduct, item.quantity);
-      setQuoteItems((prev) => prev.map((it) => (it.id === item.id ? { ...newItem, id: it.id } : it)));
-      toast.success(`Kalem "${alt.name}" ile degistirildi.`);
+      // Fiyat/satir bilgilerini ESKI satirdan tasi: fiyat MANUAL kaynakla aynen korunur,
+      // vatRate yeni urunden gelir (buildQuoteItem zaten kuruyor).
+      const hasOldPrice = item.unitPrice !== undefined && item.unitPrice !== null;
+      const carriedItem: QuoteItemForm = {
+        ...newItem,
+        id: item.id,
+        unitPrice: item.unitPrice,
+        priceSource: hasOldPrice ? 'MANUAL' : '',
+        selectedSaleIndex: undefined,
+        priceType: item.priceType,
+        vatZeroed: item.vatZeroed,
+        lineDescription: item.lineDescription,
+        responsibilityCenter: item.responsibilityCenter,
+        reserveQty: item.reserveQty,
+      };
+      setQuoteItems((prev) => prev.map((it) => (it.id === item.id ? carriedItem : it)));
+      // Oneri dongusunu kes: bu satir icin yeni kod bastirilir (urun elle degisirse otomatik acilir).
+      setSuppressedFamilyLines((prev) => ({ ...prev, [item.id]: alt.mikroCode }));
+      toast.success(
+        hasOldPrice
+          ? `Kalem "${alt.name}" ile degistirildi - fiyat onceki satirdan tasindi (Manuel), kontrol edin.`
+          : `Kalem "${alt.name}" ile degistirildi.`
+      );
     } catch {
       toast.error('Degistirme basarisiz.');
     }
@@ -1885,13 +1941,31 @@ export function useTeklifOlustur() {
         toast.error('Onerilen urun bulunamadi.');
         return;
       }
-      const altItem = buildQuoteItem(alt as QuoteProduct, fromAlt);
+      // Yeni satir fiyat/satir bilgilerini ORIJINAL satirdan devralir (fiyat MANUAL kaynakla).
+      const hasOldPrice = item.unitPrice !== undefined && item.unitPrice !== null;
+      // Rezerveyi de miktarla birlikte bol: kalan satirda rezerve > miktar kalirsa
+      // validateQuote siparisi bloke eder; toplam rezerve mumkun oldugunca korunur.
+      const oldReserve = Math.max(0, Number(item.reserveQty || 0));
+      const keptQty = Math.max(0, roundUnitValue(fromEntered));
+      const keptReserve = Math.min(oldReserve, keptQty);
+      const movedReserve = Math.min(fromAlt, Math.max(0, oldReserve - keptReserve));
+      const altItem: QuoteItemForm = {
+        ...buildQuoteItem(alt as QuoteProduct, fromAlt),
+        unitPrice: item.unitPrice,
+        priceSource: hasOldPrice ? 'MANUAL' : '',
+        selectedSaleIndex: undefined,
+        priceType: item.priceType,
+        vatZeroed: item.vatZeroed,
+        lineDescription: item.lineDescription,
+        responsibilityCenter: item.responsibilityCenter,
+        reserveQty: movedReserve,
+      };
       setQuoteItems((prev) => {
         const next: QuoteItemForm[] = [];
         for (const it of prev) {
           if (it.id === item.id) {
             if (fromEntered > 0) {
-              next.push({ ...it, quantity: Math.max(0, roundUnitValue(fromEntered)) });
+              next.push({ ...it, quantity: keptQty, reserveQty: keptReserve });
             }
             next.push(altItem); // alternatifi hemen ardina koy
           } else {
@@ -1900,7 +1974,17 @@ export function useTeklifOlustur() {
         }
         return next;
       });
-      toast.success(`${fromAlt} adet yatan stoktan "${alt.name}" eklendi.`);
+      // Oneri dongusunu kes: hem orijinal hem yeni satir icin bastir (ping-pong onerileri onlenir).
+      setSuppressedFamilyLines((prev) => ({
+        ...prev,
+        [item.id]: item.productCode,
+        [altItem.id]: alt.mikroCode,
+      }));
+      toast.success(
+        hasOldPrice
+          ? `${fromAlt} adet yatan stoktan "${alt.name}" eklendi - fiyat orijinal satirdan tasindi (Manuel), kontrol edin.`
+          : `${fromAlt} adet yatan stoktan "${alt.name}" eklendi.`
+      );
     } catch {
       toast.error('Bolme basarisiz.');
     }
@@ -3097,6 +3181,7 @@ export function useTeklifOlustur() {
     editingOrderCustomerCode,
     editingQuote,
     expandedQuoteHistory,
+    familyExcludeCodesByLine,
     fetchCustomerContacts,
     fetchPurchasedProducts,
     fetchSearchResults,
@@ -3139,6 +3224,7 @@ export function useTeklifOlustur() {
     hasManualCustomerChange,
     includedWarehouses,
     isEditMode,
+    isFamilySuggestionSuppressed,
     isOrderEditMode,
     isOrderMode,
     isQuoteTableFullscreen,

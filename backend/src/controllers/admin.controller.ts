@@ -24,6 +24,7 @@ import emailService from '../services/email.service';
 import priceSyncService from '../services/priceSync.service';
 import priceHistoryNewService from '../services/priceHistoryNew.service';
 import exclusionService from '../services/exclusion.service';
+import marginExclusionService from '../services/margin-exclusion.service';
 import priceListService from '../services/price-list.service';
 import productComplementService from '../services/product-complement.service';
 import customerCategoryPurchaseService from '../services/customer-category-purchase.service';
@@ -3834,6 +3835,129 @@ export class AdminController {
       });
 
       res.json({ success: true, message: 'Mail gonderildi.' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /admin/reports/margin-compliance/exclusions
+   * Marj raporu dislama kurallarini listeler (aktif + pasif)
+   */
+  async getMarginExclusions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await marginExclusionService.list();
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /admin/reports/margin-compliance/exclusions
+   * Yeni marj raporu dislama kurali olusturur (marka / stok kodu / stok adi)
+   */
+  async createMarginExclusion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { type, value, label, note } = req.body || {};
+
+      const data = await marginExclusionService.create({
+        type,
+        value,
+        label,
+        note,
+        createdBy: req.user?.userId || null,
+      });
+
+      res.status(201).json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /admin/reports/margin-compliance/exclusions/:id
+   * Marj raporu dislama kuralini siler (gecmis veri silinmez, satirlar geri gorunur)
+   */
+  async deleteMarginExclusion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      await marginExclusionService.remove(id);
+
+      res.json({
+        success: true,
+        message: 'Dislama kurali silindi.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /admin/reports/margin-compliance/exclusion-options?type=BRAND|PRODUCT&search=...
+   * Dislama kurali eklerken marka / urun secim listesi
+   */
+  async getMarginExclusionOptions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const type = String(req.query.type || '').trim().toUpperCase();
+      const search = String(req.query.search || '').trim();
+
+      if (type === 'BRAND') {
+        const grouped = await prisma.product.groupBy({
+          by: ['brandCode'],
+          where: {
+            brandCode: {
+              not: null,
+              ...(search ? { contains: search, mode: 'insensitive' } : {}),
+            },
+          },
+          _count: { _all: true },
+          orderBy: { brandCode: 'asc' },
+          take: 50,
+        });
+
+        const data = grouped
+          .filter((entry) => entry.brandCode)
+          .map((entry) => ({
+            value: entry.brandCode,
+            label: entry.brandCode,
+            productCount: entry._count._all,
+          }));
+
+        return res.json({ success: true, data });
+      }
+
+      if (type === 'PRODUCT') {
+        const products = await prisma.product.findMany({
+          where: search
+            ? {
+                OR: [
+                  { mikroCode: { contains: search, mode: 'insensitive' } },
+                  { name: { contains: search, mode: 'insensitive' } },
+                ],
+              }
+            : {},
+          select: { mikroCode: true, name: true },
+          orderBy: { mikroCode: 'asc' },
+          take: 30,
+        });
+
+        const data = products.map((product) => ({
+          value: product.mikroCode,
+          label: product.name,
+        }));
+
+        return res.json({ success: true, data });
+      }
+
+      return res.status(400).json({ error: 'Gecersiz tip. BRAND veya PRODUCT olmali.' });
     } catch (error) {
       next(error);
     }

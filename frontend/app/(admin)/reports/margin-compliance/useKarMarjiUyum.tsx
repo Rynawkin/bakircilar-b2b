@@ -92,6 +92,32 @@ export interface Metadata {
   includeCompleted: number;
 }
 
+// ==================== Rapor Dislamalari (marka / urun) ====================
+
+export type MarginExclusionType = 'BRAND' | 'PRODUCT_CODE' | 'PRODUCT_NAME';
+
+export interface MarginExclusionRecord {
+  id: string;
+  type: MarginExclusionType;
+  value: string;
+  label?: string | null;
+  note?: string | null;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface MarginExclusionOption {
+  value: string;
+  label: string;
+  productCount?: number;
+}
+
+export const MARGIN_EXCLUSION_TYPE_LABELS: Record<MarginExclusionType, string> = {
+  BRAND: 'Marka',
+  PRODUCT_CODE: 'Ürün Kodu',
+  PRODUCT_NAME: 'Ürün Adı',
+};
+
 export type ColumnId = string;
 
 export interface ColumnConfig {
@@ -117,7 +143,16 @@ const DEFAULT_COLUMN_IDS: ColumnId[] = [
   'unitProfit',
   'totalProfit',
   'margin',
+  'entryUnitCost',
+  'entryProfit',
+  'entryMargin',
 ];
+
+// Yeni eklenen Son Giris baz kolonlari: kayitli kolon secimi olan kullanicilarda
+// bir defaya mahsus otomatik gorunur yapilir (asagidaki migration bayragi ile).
+// Kolon id'leri backend e-posta XLSX kolon anahtarlariyla (BASE_MARGIN_REPORT_COLUMNS) ayni olmali;
+// 'Mail excel kolonlarini kaydet' bu id'leri Settings.marginReportEmailColumns'a aynen yazar.
+const ENTRY_COLUMN_IDS: ColumnId[] = ['entryUnitCost', 'entryProfit', 'entryMargin'];
 
 const BASE_DATA_KEYS = new Set([
   'Evrak No',
@@ -137,6 +172,8 @@ const BASE_DATA_KEYS = new Set([
 ]);
 
 const COLUMN_STORAGE_KEY = 'margin-analysis-columns';
+// Son Giris kolonlari icin tek seferlik gorunurluk migration bayragi.
+const COLUMN_ENTRY_MIGRATION_KEY = 'margin-analysis-columns-entry-v1';
 
 const normalizeDataKey = (value: unknown) =>
   String(value || '')
@@ -207,8 +244,8 @@ const getHalfVatFactor = (row: MarginAnalysisRow) => {
   const vat = getRowNumber(row, ['Vergi'], 'vergi');
   if (revenue > 0 && vat > 0) return 1 + (vat / revenue) / 2;
 
-  const entryCost = getRowNumber(row, ['SÖ-BirimMaliyet', 'SO-BirimMaliyet'], 'sobirimmaliyet');
-  const entryCostVat = getRowNumber(row, ['Sö-BirimMaliyetKdv', 'SO-BirimMaliyetKdv'], 'sobirimmaliyetkdv');
+  const entryCost = getRowNumber(row, ['SÖ-BirimMaliyet', 'SO-BirimMaliyet', 'SÃ–-BirimMaliyet'], 'sobirimmaliyet');
+  const entryCostVat = getRowNumber(row, ['Sö-BirimMaliyetKdv', 'SO-BirimMaliyetKdv', 'SÃ¶-BirimMaliyetKdv'], 'sobirimmaliyetkdv');
   if (entryCost > 0 && entryCostVat > entryCost) return 1 + ((entryCostVat / entryCost) - 1) / 2;
 
   return 1.1;
@@ -224,10 +261,28 @@ const getRowNumberByExactToken = (row: MarginAnalysisRow, token: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+// Anahtar adaylarini once birebir (hasOwnProperty) dener; canli JSONB satirlarindaki
+// mojibake anahtarlar ('SÃ–-BirimMaliyet' vb.) NFKD normalizasyonunda bozuldugu icin
+// token eslesmesi onlari bulamaz — birebir adaylar bu yuzden sart.
+const getRowNumberFromExactKeys = (row: MarginAnalysisRow, keys: string[]) => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(row, key) && row[key] !== null && row[key] !== undefined) {
+      const value = row[key];
+      const parsed = typeof value === 'string' ? Number(value.replace(/\./g, '').replace(',', '.')) : Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return 0;
+};
+
 // Son giris (SO) birim maliyetini satirin KDV durumuna gore kar hesap bazina cevirir.
 const getEntryUnitCostBasis = (row: MarginAnalysisRow) => {
-  const net = getRowNumberByExactToken(row, 'SÖ-BirimMaliyet');
-  const withVat = getRowNumberByExactToken(row, 'Sö-BirimMaliyetKdv');
+  const net =
+    getRowNumberFromExactKeys(row, ['SÖ-BirimMaliyet', 'SO-BirimMaliyet', 'SÃ–-BirimMaliyet', 'SÃƒâ€“-BirimMaliyet']) ||
+    getRowNumberByExactToken(row, 'SÖ-BirimMaliyet');
+  const withVat =
+    getRowNumberFromExactKeys(row, ['Sö-BirimMaliyetKdv', 'SO-BirimMaliyetKdv', 'SÃ¶-BirimMaliyetKdv', 'SÃƒÂ¶-BirimMaliyetKdv']) ||
+    getRowNumberByExactToken(row, 'Sö-BirimMaliyetKdv');
   const halfVatFactor = getHalfVatFactor(row);
   const fullVatFactor = 1 + (halfVatFactor - 1) * 2;
   if (isNoVatSaleRow(row)) {
@@ -254,9 +309,9 @@ const getCurrentCostBasis = (row: MarginAnalysisRow) => {
     if (sameCost) return withoutVat / halfVatFactor;
     return withoutVat > 0 ? withoutVat : withVat / halfVatFactor;
   })();
-  // Kar hesap tabani: teklif maliyet korumasi kuraliyla ayni sekilde
-  // max(guncel maliyet, son giris maliyeti). Backend rapor/mail de ayni kurali kullanir.
-  return Math.max(currentCost, getEntryUnitCostBasis(row));
+  // Kar hesap tabani: SAF guncel maliyet (backend pickCurrentCostBasis ile birebir).
+  // Son giris tabani ayri kolonlarda gosterilir (getEntryUnitCostBasis / SÖ kolonlari).
+  return currentCost;
 };
 
 const getCurrentRevenueBasis = (row: MarginAnalysisRow) => {
@@ -285,6 +340,23 @@ const getCurrentMarginPercent = (row: MarginAnalysisRow) => {
   return totalCost > 0 ? (profit / totalCost) * 100 : revenue > 0 ? (profit / revenue) * 100 : 0;
 };
 
+// Son giris (SÖ) toplam kar: Mikro'nun ham SÖ-ToplamKar kolonundan okunur
+// (mojibake-toleransli dinamik cozumleyici ile; backend pickEntryProfit paraleli).
+const getEntryTotalProfit = (row: MarginAnalysisRow) =>
+  getRowNumber(row, ['SÖ-ToplamKar', 'SO-ToplamKar', 'SÃ–-ToplamKar', 'SÃƒâ€“-ToplamKar'], 'sotoplamkar');
+
+// Son giris kar yuzdesi: SÖ-KarYuzde kolonu varsa onu kullanir; yoksa
+// backend pickEntryMargin gibi entryProfit / ciro (Tutar) * 100 hesaplar.
+const getEntryMarginPercent = (row: MarginAnalysisRow) => {
+  const raw = getRowValue(row, ['SÖ-KarYuzde', 'SO-KarYuzde', 'SÖ-KarYüzde', 'SÃ–-KarYuzde', 'SÃƒâ€“-KarYuzde'], 'sokaryuzde');
+  if (raw !== null && raw !== undefined && raw !== '') {
+    const parsed = typeof raw === 'string' ? Number(raw.replace(/\./g, '').replace(',', '.')) : Number(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const revenue = getRowNumber(row, ['Tutar'], 'tutar');
+  return revenue > 0 ? (getEntryTotalProfit(row) / revenue) * 100 : 0;
+};
+
 const getDefaultDateValue = () => {
   const date = new Date();
   date.setDate(date.getDate() - 1);
@@ -299,6 +371,9 @@ export {
   getCurrentUnitProfit,
   getCurrentTotalProfit,
   getCurrentMarginPercent,
+  getEntryUnitCostBasis,
+  getEntryTotalProfit,
+  getEntryMarginPercent,
 };
 
 export function useKarMarjiUyum() {
@@ -326,6 +401,17 @@ export function useKarMarjiUyum() {
   const [syncingReport, setSyncingReport] = useState(false);
   const [sendingReportEmail, setSendingReportEmail] = useState(false);
 
+  // Rapor dislamalari (marka / stok kodu / stok adi)
+  const [exclusions, setExclusions] = useState<MarginExclusionRecord[]>([]);
+  const [excludedByUserRules, setExcludedByUserRules] = useState(0);
+  const [exclusionType, setExclusionType] = useState<MarginExclusionType>('BRAND');
+  const [exclusionSearch, setExclusionSearch] = useState('');
+  const [exclusionOptions, setExclusionOptions] = useState<MarginExclusionOption[]>([]);
+  const [exclusionOptionsLoading, setExclusionOptionsLoading] = useState(false);
+  const [exclusionNameInput, setExclusionNameInput] = useState('');
+  const [savingExclusion, setSavingExclusion] = useState(false);
+  const [deletingExclusionId, setDeletingExclusionId] = useState<string | null>(null);
+
   const isSingleDate = startDate === endDate;
 
   const fetchData = async () => {
@@ -349,6 +435,9 @@ export function useKarMarjiUyum() {
         setSummary(result.data.summary);
         setMetadata(result.data.metadata);
         setTotalPages(result.data.pagination.totalPages);
+        setExcludedByUserRules(
+          typeof result.data.excludedByUserRules === 'number' ? result.data.excludedByUserRules : 0
+        );
       } else {
         throw new Error('Bir hata oluÅŸtu');
       }
@@ -389,7 +478,55 @@ export function useKarMarjiUyum() {
     fetchSettings();
   }, []);
 
+  // Dislama kurallarini yukle (aktif + pasif; panel aktifleri gosterir).
+  const fetchExclusions = async () => {
+    try {
+      const result = await adminApi.getMarginExclusions();
+      setExclusions(Array.isArray(result.data) ? result.data : []);
+    } catch (err) {
+      console.error('Margin exclusions not loaded:', err);
+    }
+  };
+
   useEffect(() => {
+    fetchExclusions();
+  }, []);
+
+  // Marka / urun secim listesi: 300ms debounce ile exclusion-options endpointi.
+  useEffect(() => {
+    if (exclusionType === 'PRODUCT_NAME') {
+      setExclusionOptions([]);
+      return;
+    }
+    const optionType = exclusionType === 'BRAND' ? 'BRAND' : 'PRODUCT';
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setExclusionOptionsLoading(true);
+      try {
+        const result = await adminApi.getMarginExclusionOptions({
+          type: optionType,
+          search: exclusionSearch.trim() || undefined,
+        });
+        if (!cancelled) {
+          setExclusionOptions(Array.isArray(result.data) ? result.data : []);
+        }
+      } catch (err) {
+        if (!cancelled) setExclusionOptions([]);
+        console.error('Margin exclusion options not loaded:', err);
+      } finally {
+        if (!cancelled) setExclusionOptionsLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [exclusionType, exclusionSearch]);
+
+  useEffect(() => {
+    // Init effect'i localStorage'daki kayitli secimi okuyup migrate etmeden yazma;
+    // aksi halde mount'taki DEFAULT_COLUMN_IDS kullanicinin kayitli secimini ezer.
+    if (!hasInitializedColumns.current) return;
     localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
   }, [visibleColumns]);
 
@@ -502,6 +639,73 @@ export function useKarMarjiUyum() {
     }
   };
 
+  // ==================== Dislama kurali ekle / sil ====================
+
+  const createExclusion = async (payload: { type: MarginExclusionType; value: string; label?: string }) => {
+    setSavingExclusion(true);
+    try {
+      await adminApi.createMarginExclusion(payload);
+      toast.success('Dışlama kuralı eklendi');
+      setExclusionSearch('');
+      setExclusionNameInput('');
+      await fetchExclusions();
+      // Dislama degisince raporu otomatik yeniden cek; satir sayisi dusecegi icin
+      // sayfa 1'e don (kullanici bos bir sayfada kalmasin).
+      setPage(1);
+      fetchData();
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        toast.error('Bu dışlama zaten var');
+      } else {
+        const message = err.response?.data?.error || err.message || 'Dışlama eklenemedi';
+        toast.error(message);
+      }
+    } finally {
+      setSavingExclusion(false);
+    }
+  };
+
+  // BRAND/PRODUCT_CODE: dropdown'dan secilen secenegi kural olarak ekler.
+  const handleAddExclusionOption = (option: MarginExclusionOption) => {
+    if (savingExclusion) return;
+    createExclusion({
+      type: exclusionType === 'BRAND' ? 'BRAND' : 'PRODUCT_CODE',
+      value: option.value,
+      label: option.label && option.label !== option.value ? option.label : undefined,
+    });
+  };
+
+  // PRODUCT_NAME: serbest metin (urun adinda gecen ifadeyle kismi eslesme).
+  const handleAddNameExclusion = () => {
+    const value = exclusionNameInput.trim();
+    if (!value) {
+      toast.error('Ürün adında geçen bir ifade girin');
+      return;
+    }
+    createExclusion({ type: 'PRODUCT_NAME', value });
+  };
+
+  const handleDeleteExclusion = async (exclusion: MarginExclusionRecord) => {
+    const display = exclusion.label && exclusion.label !== exclusion.value
+      ? `${exclusion.value} (${exclusion.label})`
+      : exclusion.value;
+    if (!window.confirm(`"${display}" dışlaması silinsin mi? Satırlar raporda tekrar görünür.`)) return;
+    setDeletingExclusionId(exclusion.id);
+    try {
+      await adminApi.deleteMarginExclusion(exclusion.id);
+      toast.success('Dışlama kuralı silindi');
+      await fetchExclusions();
+      fetchData();
+    } catch (err: any) {
+      const message = err.response?.data?.error || err.message || 'Dışlama silinemedi';
+      toast.error(message);
+    } finally {
+      setDeletingExclusionId(null);
+    }
+  };
+
+  const activeExclusions = exclusions.filter((exclusion) => exclusion.active);
+
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined) return 'â‚º0.00';
     return new Intl.NumberFormat('tr-TR', {
@@ -565,7 +769,7 @@ export function useKarMarjiUyum() {
             <span className="font-semibold">{formatCurrency(bucket.totalRevenue)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar (KDV Haric)</span>
+            <span className="text-gray-500">Kar (Guncel, KDV Haric)</span>
             <span className="font-semibold">{formatCurrency(bucket.totalProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -573,7 +777,7 @@ export function useKarMarjiUyum() {
             <span className="font-semibold">{formatCurrency(bucket.entryProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar % (Kar/Maliyet)</span>
+            <span className="text-gray-500">Kar % (Kar/Ciro)</span>
             <span className="font-semibold">{formatPercent(bucket.avgMargin)}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -676,7 +880,7 @@ export function useKarMarjiUyum() {
     },
     {
       id: 'avgCost',
-      label: 'Maliyet (Kar Hesap Bazi: Guncel/Son Giris buyugu)',
+      label: 'Maliyet (Güncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(getCurrentCostBasis(row)),
@@ -684,7 +888,7 @@ export function useKarMarjiUyum() {
     },
     {
       id: 'unitProfit',
-      label: 'Birim Kar',
+      label: 'Birim Kar (Güncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(getCurrentUnitProfit(row)),
@@ -692,7 +896,7 @@ export function useKarMarjiUyum() {
     },
     {
       id: 'totalProfit',
-      label: 'Toplam Kar',
+      label: 'Toplam Kar (Güncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right font-semibold whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(getCurrentTotalProfit(row)),
@@ -700,11 +904,35 @@ export function useKarMarjiUyum() {
     },
     {
       id: 'margin',
-      label: 'Kar % (Kar/Maliyet)',
+      label: 'Kar % (Güncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => getMarginBadge(getCurrentMarginPercent(row)),
       exportValue: (row: MarginAnalysisRow) => getCurrentMarginPercent(row),
+    },
+    {
+      id: 'entryUnitCost',
+      label: 'Birim Maliyet (Son Giriş)',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row: MarginAnalysisRow) => formatCurrency(getEntryUnitCostBasis(row)),
+      exportValue: (row: MarginAnalysisRow) => getEntryUnitCostBasis(row),
+    },
+    {
+      id: 'entryProfit',
+      label: 'Toplam Kar (Son Giriş)',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right font-semibold whitespace-nowrap',
+      render: (row: MarginAnalysisRow) => formatCurrency(getEntryTotalProfit(row)),
+      exportValue: (row: MarginAnalysisRow) => getEntryTotalProfit(row),
+    },
+    {
+      id: 'entryMargin',
+      label: 'Kar % (Son Giriş)',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row: MarginAnalysisRow) => getMarginBadge(getEntryMarginPercent(row)),
+      exportValue: (row: MarginAnalysisRow) => getEntryMarginPercent(row),
     },
   ];
 
@@ -771,13 +999,22 @@ export function useKarMarjiUyum() {
         if (Array.isArray(parsed)) {
           const valid = parsed.filter((id) => columnDefs.some((column) => column.id === id));
           if (valid.length > 0) {
+            // Tek seferlik migration: eski kayitli secimlere Son Giris kolonlarini
+            // varsayilan gorunur olarak ekle. Kullanici sonradan gizlerse secimi korunur.
+            const entryMigrated = localStorage.getItem(COLUMN_ENTRY_MIGRATION_KEY);
+            const selection = entryMigrated
+              ? valid
+              : [...valid, ...ENTRY_COLUMN_IDS.filter((id) => !valid.includes(id))];
+            if (!entryMigrated) {
+              localStorage.setItem(COLUMN_ENTRY_MIGRATION_KEY, '1');
+            }
             const isDefaultSelection =
-              valid.length === DEFAULT_COLUMN_IDS.length &&
-              DEFAULT_COLUMN_IDS.every((id) => valid.includes(id));
+              selection.length === DEFAULT_COLUMN_IDS.length &&
+              DEFAULT_COLUMN_IDS.every((id) => selection.includes(id));
             if (isDefaultSelection && columnDefs.length > DEFAULT_COLUMN_IDS.length) {
               setVisibleColumns(columnDefs.map((column) => column.id));
             } else {
-              setVisibleColumns(valid);
+              setVisibleColumns(selection);
             }
             hasInitializedColumns.current = true;
             return;
@@ -787,6 +1024,7 @@ export function useKarMarjiUyum() {
         // Ignore invalid storage content.
       }
     }
+    localStorage.setItem(COLUMN_ENTRY_MIGRATION_KEY, '1');
     setVisibleColumns(columnDefs.map((column) => column.id));
     hasInitializedColumns.current = true;
   }, [columnIdSignature, data.length]);
@@ -861,6 +1099,20 @@ export function useKarMarjiUyum() {
     setIncludedSectorCodes,
     availableSectorCodes,
     savingSectorCodes,
+    // exclusion state (rapor dislamalari)
+    exclusions,
+    activeExclusions,
+    excludedByUserRules,
+    exclusionType,
+    setExclusionType,
+    exclusionSearch,
+    setExclusionSearch,
+    exclusionOptions,
+    exclusionOptionsLoading,
+    exclusionNameInput,
+    setExclusionNameInput,
+    savingExclusion,
+    deletingExclusionId,
     // report sync state
     syncingReport,
     sendingReportEmail,
@@ -874,6 +1126,10 @@ export function useKarMarjiUyum() {
     handleSearch,
     toggleColumn,
     toggleIncludedSectorCode,
+    fetchExclusions,
+    handleAddExclusionOption,
+    handleAddNameExclusion,
+    handleDeleteExclusion,
     handleResyncReport,
     handleSendReportEmail,
     handleSaveEmailColumns,

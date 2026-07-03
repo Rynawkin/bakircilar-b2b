@@ -96,6 +96,7 @@ export default function TeklifOlusturClassic() {
     editingOrderCustomerCode,
     editingQuote,
     expandedQuoteHistory,
+    familyExcludeCodesByLine,
     fetchCustomerContacts,
     fetchPurchasedProducts,
     fetchSearchResults,
@@ -140,6 +141,7 @@ export default function TeklifOlusturClassic() {
     hasManualCustomerChange,
     includedWarehouses,
     isEditMode,
+    isFamilySuggestionSuppressed,
     isOrderEditMode,
     isOrderMode,
     isQuoteTableFullscreen,
@@ -1404,6 +1406,8 @@ export default function TeklifOlusturClassic() {
                               <StockFamilySuggestion
                                 productCode={item.productCode}
                                 baseQuantity={item.quantity}
+                                excludeCodes={familyExcludeCodesByLine[item.id]}
+                                suppressed={isFamilySuggestionSuppressed(item)}
                                 onSwap={(rec) => applyFamilySwap(item, rec)}
                                 onSplit={(rec) => applyFamilySplit(item, rec)}
                               />

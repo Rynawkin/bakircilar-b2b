@@ -25,7 +25,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
-import { useKarMarjiUyum } from './useKarMarjiUyum';
+import { useKarMarjiUyum, MARGIN_EXCLUSION_TYPE_LABELS } from './useKarMarjiUyum';
+import type { MarginExclusionType } from './useKarMarjiUyum';
 
 /**
  * Klasik gorunum: Kar Marji Analizi (019703) raporu.
@@ -58,6 +59,21 @@ export default function KarMarjiUyumClassic() {
     setIncludedSectorCodes,
     availableSectorCodes,
     savingSectorCodes,
+    activeExclusions,
+    excludedByUserRules,
+    exclusionType,
+    setExclusionType,
+    exclusionSearch,
+    setExclusionSearch,
+    exclusionOptions,
+    exclusionOptionsLoading,
+    exclusionNameInput,
+    setExclusionNameInput,
+    savingExclusion,
+    deletingExclusionId,
+    handleAddExclusionOption,
+    handleAddNameExclusion,
+    handleDeleteExclusion,
     syncingReport,
     sendingReportEmail,
     isSingleDate,
@@ -174,7 +190,7 @@ export default function KarMarjiUyumClassic() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Kar % (Kar/Maliyet)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Kar % (Kar/Ciro)</CardTitle>
                   <Percent className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -384,6 +400,105 @@ export default function KarMarjiUyumClassic() {
 
             <details className="mt-4">
               <summary className="cursor-pointer text-sm font-medium text-gray-700">
+                Rapor Dislamalari ({activeExclusions.length})
+              </summary>
+
+              <div className="mt-3 space-y-2">
+                {activeExclusions.length === 0 ? (
+                  <p className="text-xs text-gray-500">Aktif dislama kurali yok.</p>
+                ) : (
+                  activeExclusions.map((exclusion) => (
+                    <div key={exclusion.id} className="flex items-center gap-2 text-sm text-gray-700">
+                      <Badge variant="outline">{MARGIN_EXCLUSION_TYPE_LABELS[exclusion.type]}</Badge>
+                      <span className="font-medium truncate">
+                        {exclusion.value}
+                        {exclusion.label && exclusion.label !== exclusion.value ? ` — ${exclusion.label}` : ''}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteExclusion(exclusion)}
+                        disabled={deletingExclusionId === exclusion.id}
+                      >
+                        Sil
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <select
+                  value={exclusionType}
+                  onChange={(e) => setExclusionType(e.target.value as MarginExclusionType)}
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="BRAND">Marka</option>
+                  <option value="PRODUCT_CODE">Urun Kodu</option>
+                  <option value="PRODUCT_NAME">Urun Adi (metin)</option>
+                </select>
+                {exclusionType === 'PRODUCT_NAME' ? (
+                  <>
+                    <Input
+                      value={exclusionNameInput}
+                      onChange={(e) => setExclusionNameInput(e.target.value)}
+                      placeholder="Urun adinda gecen ifade..."
+                      className="flex-1 min-w-[220px]"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleAddNameExclusion}
+                      isLoading={savingExclusion}
+                      disabled={savingExclusion}
+                    >
+                      Ekle
+                    </Button>
+                  </>
+                ) : (
+                  <Input
+                    value={exclusionSearch}
+                    onChange={(e) => setExclusionSearch(e.target.value)}
+                    placeholder={exclusionType === 'BRAND' ? 'Marka ara...' : 'Urun kodu veya adi ara...'}
+                    className="flex-1 min-w-[220px]"
+                  />
+                )}
+              </div>
+
+              {exclusionType === 'PRODUCT_NAME' ? (
+                <p className="mt-2 text-xs text-gray-500">Urun adinda gecen ifadeyle eslesir (kismi eslesme).</p>
+              ) : (
+                <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-gray-200">
+                  {exclusionOptionsLoading ? (
+                    <p className="p-3 text-xs text-gray-500">Yukleniyor...</p>
+                  ) : exclusionOptions.length === 0 ? (
+                    <p className="p-3 text-xs text-gray-500">Sonuc bulunamadi.</p>
+                  ) : (
+                    exclusionOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => handleAddExclusionOption(option)}
+                        disabled={savingExclusion}
+                        className="flex w-full items-center justify-between gap-2 border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                      >
+                        <span className="truncate">
+                          {exclusionType === 'BRAND' ? option.label : `${option.value} — ${option.label}`}
+                        </span>
+                        {typeof option.productCount === 'number' && (
+                          <span className="whitespace-nowrap text-xs text-gray-400">{option.productCount} urun</span>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+              <p className="mt-2 text-xs text-gray-500">
+                Dislama eklenince/silinince rapor otomatik yenilenir; gecmis veri silinmez, kural silinince satirlar geri gelir.
+              </p>
+            </details>
+
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm font-medium text-gray-700">
                 Kolonlar ({visibleColumns.length}/{columnDefs.length})
               </summary>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -424,6 +539,11 @@ export default function KarMarjiUyumClassic() {
             <CardTitle>Kar MarjÄ± DetaylarÄ±</CardTitle>
             <CardDescription>
               {metadata && `Rapor Tarihi: ${formatDate(metadata.reportDate)} | Tarih AralÄ±ÄŸÄ±: ${metadata.startDate} - ${metadata.endDate}`}
+              {excludedByUserRules > 0 && (
+                <span className="mt-1 block text-amber-600">
+                  Dislama kurallariniz bu aralikta {formatCount(excludedByUserRules)} satiri rapordan dusurdu.
+                </span>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>

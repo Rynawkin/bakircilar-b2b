@@ -743,6 +743,11 @@ const getYesterdayInTimeZone = (timeZone: string): Date => {
 
 let marginDefaultSectorCodesCache: { codes: string[]; fetchedAt: number } | null = null;
 
+// Marj raporu kullanici bazli dislama servisi (marka / stok kodu / stok adi).
+// Ust import blogu yerine require: marj bolgesi disina dokunmamak icin
+// (ayni kalip mikroFactory icin de kullaniliyor).
+const getMarginExclusionService = () => require('./margin-exclusion.service').default;
+
 const toNumber = (value: unknown): number => {
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -896,13 +901,6 @@ const pickEntryUnitCostBasis = (data: Record<string, any>): number => {
   return 0;
 };
 
-// Kar hesabinda kullanilan maliyet tabani: teklif maliyet korumasi kuralina uygun olarak
-// guncel maliyet ile son giris maliyetinin BUYUK olani (max kurali). Guncel maliyet bos/0
-// ise otomatik olarak son giris maliyetine duser.
-const pickMarginCostBasis = (data: Record<string, any>): number => {
-  return Math.max(pickCurrentCostBasis(data), pickEntryUnitCostBasis(data));
-};
-
 const pickCurrentRevenueBasis = (data: Record<string, any>): number => {
   const noVatSale = isNoVatSaleRow(data);
   const withoutVat = resolveDataValueByCandidates(data, ['Tutar'], 'tutar');
@@ -929,10 +927,11 @@ const pickCurrentUnitRevenueBasis = (data: Record<string, any>): number => {
   return toNumber(withVat);
 };
 
+// GUNCEL maliyet tabanina gore kar hesabi. Son giris tabani ayridir:
+// Mikro'nun kendi SO-... kolonlarindan okunur (pickEntryProfit / pickEntryMargin).
 const calculateCurrentProfit = (data: Record<string, any>): { unitProfit: number; totalProfit: number; margin: number; costBasis: number; revenueBasis: number; totalCost: number } => {
   const quantity = pickQuantity(data);
-  // Kar hesap tabani: max(guncel maliyet, son giris maliyeti) - teklif kuraliyla tutarli.
-  const costBasis = pickMarginCostBasis(data);
+  const costBasis = pickCurrentCostBasis(data);
   const revenueBasis = pickCurrentRevenueBasis(data);
   const unitRevenue = pickCurrentUnitRevenueBasis(data);
   const unitProfit = unitRevenue - costBasis;
@@ -1060,8 +1059,8 @@ const pickEntryProfit = (data: Record<string, any>): number => {
 };
 
 const pickCurrentCost = (data: Record<string, any>): number => {
-  // Kar hesabinda fiilen kullanilan maliyet (max: guncel / son giris).
-  return pickMarginCostBasis(data);
+  // Guncel maliyet, satirin KDV duzlemine cevrilmis hali.
+  return pickCurrentCostBasis(data);
 };
 
 const pickEntryMargin = (data: Record<string, any>, revenue?: number): number => {
@@ -1284,6 +1283,7 @@ const buildMarginAlertRow = (
     quantityLabel: unit ? `${quantity} ${unit}` : `${quantity}`,
     unitPrice: unitRevenue > 0 ? unitRevenue : pickUnitPrice(data),
     unitCost: computed.costBasis,
+    unitCostEntry: pickEntryUnitCostBasis(data),
     revenue,
     profit,
     entryProfit,
@@ -1394,18 +1394,9 @@ const aggregateRows = (
   });
 
   const results = Array.from(map.values()).map((entry) => {
-    // Marj tanimi satir bazi ile ayni: kar / maliyet.
-    const avgMargin = entry.cost > 0
-      ? (entry.profit / entry.cost) * 100
-      : entry.revenue > 0
-      ? (entry.profit / entry.revenue) * 100
-      : 0;
-    const entryCost = entry.revenue - entry.entryProfit;
-    const entryMargin = entryCost > 0
-      ? (entry.entryProfit / entryCost) * 100
-      : entry.revenue > 0
-      ? (entry.entryProfit / entry.revenue) * 100
-      : 0;
+    // Agregat marj tanimi: kar / ciro (iki taban icin de ayni tanim).
+    const avgMargin = entry.revenue > 0 ? (entry.profit / entry.revenue) * 100 : 0;
+    const entryMargin = entry.revenue > 0 ? (entry.entryProfit / entry.revenue) * 100 : 0;
     return {
       ...entry,
       avgMargin,
@@ -1499,6 +1490,9 @@ const DEFAULT_MARGIN_REPORT_EMAIL_COLUMNS = [
   'unitProfit',
   'totalProfit',
   'margin',
+  'entryUnitCost',
+  'entryProfit',
+  'entryMargin',
 ];
 
 const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data: Record<string, any>) => unknown }> = {
@@ -1543,20 +1537,32 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     resolve: (data) => resolveDataValueByCandidates(data, ['TutarKDV'], 'tutarkdv'),
   },
   avgCost: {
-    label: 'Maliyet (Kar Hesap Bazi: Guncel/Son Giris buyugu)',
+    label: 'Guncel Maliyet (KDV Duzlemine Gore)',
     resolve: (data) => pickCurrentCost(data),
   },
   unitProfit: {
-    label: 'Birim Kar',
+    label: 'Birim Kar (Guncel)',
     resolve: (data) => pickUnitProfit(data),
   },
   totalProfit: {
-    label: 'Toplam Kar',
+    label: 'Toplam Kar (Guncel)',
     resolve: (data) => pickTotalProfit(data),
   },
   margin: {
-    label: 'Kar % (Kar/Maliyet)',
+    label: 'Kar % (Guncel)',
     resolve: (data) => pickAvgMargin(data),
+  },
+  entryUnitCost: {
+    label: 'Birim Maliyet (Son Giris)',
+    resolve: (data) => pickEntryUnitCostBasis(data),
+  },
+  entryProfit: {
+    label: 'Toplam Kar (Son Giris)',
+    resolve: (data) => pickEntryProfit(data),
+  },
+  entryMargin: {
+    label: 'Kar % (Son Giris)',
+    resolve: (data) => pickEntryMargin(data),
   },
   TeklifAdetKar: {
     label: 'TeklifAdetKar (Hesaplanan)',
@@ -1642,6 +1648,7 @@ type MarginAlertRow = {
   quantityLabel: string;
   unitPrice: number;
   unitCost: number;
+  unitCostEntry: number;
   revenue: number;
   profit: number;
   entryProfit: number;
@@ -1705,6 +1712,8 @@ type MarginComplianceEmailSummary = MarginComplianceSummary & {
   alerts: MarginAlertGroups;
   topBottom: MarginTopBottomSummary;
   sevenDaySummary: MarginSevenDaySummary;
+  // Rapor sayfasindan yonetilen aktif marka/urun dislama kurali sayisi (dipnot icin).
+  activeExclusionCount: number;
 };
 
 const normalizeReportText = (value: unknown): string => {
@@ -1790,12 +1799,8 @@ const buildMarginSummaryBucket = (
     }
   }
 
-  // Satir bazindaki marj tanimi ile ayni: kar / maliyet (maliyet yoksa ciroya duser).
-  const avgMargin = totalCost > 0
-    ? (totalProfit / totalCost) * 100
-    : totalRevenue > 0
-    ? (totalProfit / totalRevenue) * 100
-    : 0;
+  // Agregat marj tanimi: kar / ciro. (Satir rozetleri kar/maliyet ile hesaplanir.)
+  const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   return {
     totalRecords: rows.length,
@@ -2399,8 +2404,16 @@ export class ReportsService {
     });
 
     const baseRows = allRows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    // Once sektor filtresi: excludedByUserRules sayaci gorunur rapordan gercekten
+    // dusen satir sayisini vermeli (dahil olmayan sektorlerin satirlari sayaca girmesin).
     const includedSectorCodes = await this.getResolvedMarginIncludedSectorCodes();
-    const sectorFilteredRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
+    const sectorScopedRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
+    // Kullanici bazli dislama kurallari (marka/urun) okuma aninda uygulanir;
+    // kural kapatilinca satirlar tekrar gorunur (sync verisi silinmez).
+    const { kept: sectorFilteredRows, excludedCount: excludedByUserRules }: {
+      kept: typeof sectorScopedRows;
+      excludedCount: number;
+    } = await getMarginExclusionService().applyToMarginRows(sectorScopedRows, pickStockCode, pickStockName);
     const filteredRows = sectorFilteredRows.filter((row) => {
       if (!status) return true;
       const marginValue = pickAvgMargin(getRowData(row));
@@ -2436,6 +2449,7 @@ export class ReportsService {
     return {
       data: pageRows.map((row) => row.data),
       summary,
+      excludedByUserRules,
       pagination: {
         page: pageValue,
         limit: limitValue,
@@ -2613,7 +2627,10 @@ export class ReportsService {
       },
     });
     const baseRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
-    const filteredRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
+    // Kullanici bazli dislama kurallari 7 gunluk ozete de uygulanir.
+    const { kept: userFilteredRows } =
+      await getMarginExclusionService().applyToMarginRows(baseRows, pickStockCode, pickStockName);
+    const filteredRows = filterMarginRowsBySectorCodes(userFilteredRows, includedSectorCodes);
     const { orderRows, salesRows } = splitRowsByType(filteredRows);
 
     return {
@@ -2630,8 +2647,13 @@ export class ReportsService {
   async buildMarginComplianceEmailPayload(reportDate: Date, columnIds: string[] = []) {
     const rows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate } });
     const baseRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    // Kullanici bazli dislama kurallari: ozet, alert, top/bottom ve XLSX satirlarina uygulanir.
+    const marginExclusionService = getMarginExclusionService();
+    const { kept: userFilteredRows } =
+      await marginExclusionService.applyToMarginRows(baseRows, pickStockCode, pickStockName);
+    const activeExclusionCount: number = await marginExclusionService.getActiveExclusionCount();
     const includedSectorCodes = await this.getResolvedMarginIncludedSectorCodes();
-    const filteredRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
+    const filteredRows = filterMarginRowsBySectorCodes(userFilteredRows, includedSectorCodes);
     const summary = buildMarginComplianceSummary(filteredRows);
     const { orderRows, salesRows } = splitRowsByType(filteredRows);
     const alerts: MarginAlertGroups = {
@@ -2645,6 +2667,7 @@ export class ReportsService {
       alerts,
       topBottom,
       sevenDaySummary,
+      activeExclusionCount,
     };
 
     const resolvedIds = columnIds && columnIds.length > 0

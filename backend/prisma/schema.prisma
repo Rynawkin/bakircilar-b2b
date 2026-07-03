@@ -1822,6 +1822,29 @@ model MarginComplianceReportRow {
   @@index([avgMargin])
 }
 
+// Marj raporu kullanici bazli dislama kurallari (rapor sayfasindan yonetilir).
+// Okuma aninda uygulanir; sync'te satir silinmez, kural kapatilinca veri geri gelir.
+enum MarginExclusionType {
+  BRAND
+  PRODUCT_CODE
+  PRODUCT_NAME
+}
+
+model MarginExclusion {
+  id        String              @id @default(uuid())
+  type      MarginExclusionType
+  value     String              // marka kodu / stok kodu / ad parcasi
+  label     String?             // gorunen ad (or. stok adi)
+  note      String?
+  active    Boolean             @default(true)
+  createdBy String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@index([type])
+  @@index([active])
+}
+
 
 // ==================== CAMPAIGNS ====================
 

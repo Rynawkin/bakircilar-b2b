@@ -54,6 +54,8 @@ class StockFamilySuggestionService {
   async getSuggestions(params: {
     productCode: string;
     quantity: number;
+    /** Teklifin DIGER satirlarindaki urun kodlari; bunlar aday olarak onerilmez (oneri dongusunu keser). */
+    excludeCodes?: string[];
   }): Promise<{
     product: { code: string; name: string; unit: string; available: number; excess: number } | null;
     family: { id: string; name: string } | null;
@@ -61,11 +63,17 @@ class StockFamilySuggestionService {
     enteredAvailable: number;
     shortfall: number;
     coversRequested: boolean;
+    enteredExcess: number;
     alternatives: FamilyAlternative[];
     warnings: StockFamilyWarning[];
   }> {
     const code = String(params.productCode || '').trim();
     const qty = Math.max(0, Number(params.quantity) || 0);
+    const excludedSet = new Set(
+      (params.excludeCodes || [])
+        .map((c) => String(c || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
 
     const empty = {
       product: null,
@@ -74,6 +82,7 @@ class StockFamilySuggestionService {
       enteredAvailable: 0,
       shortfall: 0,
       coversRequested: true,
+      enteredExcess: 0,
       alternatives: [] as FamilyAlternative[],
       warnings: [] as StockFamilyWarning[],
     };
@@ -92,6 +101,8 @@ class StockFamilySuggestionService {
     );
     const shortfall = Math.max(0, qty - enteredAvail);
     const coversRequested = shortfall <= 0;
+    const enteredExcess = entered.excessStock || 0;
+    const enteredUnit = String(entered.unit || '').trim().toUpperCase();
 
     const productShape = {
       code: entered.mikroCode,
@@ -114,6 +125,7 @@ class StockFamilySuggestionService {
         enteredAvailable: enteredAvail,
         shortfall,
         coversRequested,
+        enteredExcess,
       };
     }
 
@@ -129,6 +141,7 @@ class StockFamilySuggestionService {
         enteredAvailable: enteredAvail,
         shortfall,
         coversRequested,
+        enteredExcess,
       };
     }
 
@@ -138,6 +151,8 @@ class StockFamilySuggestionService {
         family.items
           .map((i) => i.productCode)
           .filter((c) => c && c.toUpperCase() !== upperCode)
+          // Teklifin diger satirlarinda zaten olan kardesleri aday yapma (oneri dongusunu keser)
+          .filter((c) => !excludedSet.has(String(c).trim().toUpperCase()))
       )
     );
 
@@ -146,6 +161,9 @@ class StockFamilySuggestionService {
       : [];
 
     const alternatives: FamilyAlternative[] = siblings
+      // Birim guvenligi: ana birimi girilen urunden farkli kardesler aday olamaz
+      // (miktar cevrimi yapilmadigi icin yanlis miktar olusur)
+      .filter((p) => String(p.unit || '').trim().toUpperCase() === enteredUnit)
       .map((p) => {
         const available = Math.max(
           0,
@@ -193,7 +211,9 @@ class StockFamilySuggestionService {
     }
 
     // Tip 2 — yatan (fazla) stok yonlendirme (girilen karsilasa bile)
-    const excessAlts = alternatives.filter((a) => a.excess > 0);
+    // Girilen urunun KENDI yatan stogu varsa uretme: urun zaten yatan stok eritiyor,
+    // kardese kaydirmanin anlami yok (oneri dongusunun ana kaynagi).
+    const excessAlts = enteredExcess > 0 ? [] : alternatives.filter((a) => a.excess > 0);
     if (excessAlts.length) {
       const top = excessAlts[0];
       const fromAlt = Math.min(top.excess, qty);
@@ -223,6 +243,7 @@ class StockFamilySuggestionService {
       enteredAvailable: enteredAvail,
       shortfall,
       coversRequested,
+      enteredExcess,
       alternatives,
       warnings,
     };

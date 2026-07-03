@@ -37,35 +37,56 @@ interface Props {
   productCode?: string;
   /** Kalemin ANA/BASE birim cinsinden miktari (parent cevirir). */
   baseQuantity: number;
+  /** Teklifin DIGER satirlarindaki urun kodlari; motor bunlari aday yapmaz (oneri dongusunu keser). */
+  excludeCodes?: string[];
+  /** true ise oneri kabul edilmis demektir: fetch yapilmaz, hicbir sey render edilmez. */
+  suppressed?: boolean;
   onSwap: (rec: Recommended) => void;
   onSplit: (rec: Recommended) => void;
 }
 
-export function StockFamilySuggestion({ productCode, baseQuantity, onSwap, onSplit }: Props) {
+export function StockFamilySuggestion({
+  productCode,
+  baseQuantity,
+  excludeCodes,
+  suppressed,
+  onSwap,
+  onSplit,
+}: Props) {
   const [warnings, setWarnings] = useState<Warning[]>([]);
   const [dismissed, setDismissed] = useState(false);
   const reqRef = useRef(0);
 
+  // Dizi kimligi her render'da degisebilir; useEffect bagimliligi icin stabil string turevi kullan.
+  const excludeKey = (excludeCodes || []).join('|');
+
+  // X ile yoksayma yalnizca BU satirin urunu/miktari degisince sifirlanir;
+  // excludeKey (diger satirlarin degisimi) kullanicinin kapattigi uyariyi geri acmamali.
   useEffect(() => {
     setDismissed(false);
-    if (!productCode || !baseQuantity || baseQuantity <= 0) {
+  }, [productCode, baseQuantity, suppressed]);
+
+  useEffect(() => {
+    if (suppressed || !productCode || !baseQuantity || baseQuantity <= 0) {
       setWarnings([]);
       return;
     }
+    // Controller en fazla 200 kod kabul ediyor; buyuk tekliflerde 400 yememek icin kirp.
+    const codes = (excludeKey ? excludeKey.split('|') : []).slice(0, 200);
     const myReq = ++reqRef.current;
     const t = setTimeout(async () => {
       try {
-        const res = await adminApi.getStockFamilySuggestions(productCode, baseQuantity);
+        const res = await adminApi.getStockFamilySuggestions(productCode, baseQuantity, codes);
         if (reqRef.current === myReq) setWarnings(res.warnings || []);
       } catch {
         if (reqRef.current === myReq) setWarnings([]);
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [productCode, baseQuantity]);
+  }, [productCode, baseQuantity, suppressed, excludeKey]);
 
-  // Yuklenirken/uyari yokken sessiz kal (satir basina gurultu olmasin).
-  if (dismissed || warnings.length === 0) return null;
+  // Bastirilmis/yuklenirken/uyari yokken sessiz kal (satir basina gurultu olmasin).
+  if (suppressed || dismissed || warnings.length === 0) return null;
 
   return (
     <div className="mt-1.5 space-y-1.5">

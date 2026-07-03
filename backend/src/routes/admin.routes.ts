@@ -595,6 +595,11 @@ router.get('/reports/cost-update-alerts', requirePermission('reports:cost-update
 router.get('/reports/margin-compliance', requirePermission('reports:margin-compliance'), adminController.getMarginComplianceReport);
 router.post('/reports/margin-compliance/sync', requirePermission('reports:margin-compliance'), adminController.syncMarginComplianceReport);
 router.post('/reports/margin-compliance/email', requirePermission('reports:margin-compliance'), adminController.sendMarginComplianceReportEmail);
+// Marj raporu dislama kurallari (marka / stok kodu / stok adi) - rapor sayfasindan yonetilir
+router.get('/reports/margin-compliance/exclusions', requirePermission('reports:margin-compliance'), adminController.getMarginExclusions);
+router.post('/reports/margin-compliance/exclusions', requirePermission('reports:margin-compliance'), adminController.createMarginExclusion);
+router.delete('/reports/margin-compliance/exclusions/:id', requirePermission('reports:margin-compliance'), adminController.deleteMarginExclusion);
+router.get('/reports/margin-compliance/exclusion-options', requirePermission('reports:margin-compliance'), adminController.getMarginExclusionOptions);
 router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing', 'reports:customer-recovery', 'reports:ucarer-depo', 'reports:ucarer-minmax', 'reports:price-family-costs', 'admin:supplier-costs']), adminController.getReportCategories);
 router.get('/reports/top-products', requirePermission('reports:top-products'), adminController.getTopProducts);
 router.get('/reports/top-customers', requirePermission('reports:top-customers'), adminController.getTopCustomers);

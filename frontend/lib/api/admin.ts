@@ -2490,6 +2490,8 @@ export const adminApi = {
           };
         }>;
       };
+      // Kullanici dislama kurallarinin (marka/urun) bu aralikta dusurdugu satir sayisi
+      excludedByUserRules: number;
       pagination: any;
       metadata: {
         reportDate: string;
@@ -2536,6 +2538,56 @@ export const adminApi = {
     error?: string;
   }> => {
     const response = await apiClient.post('/admin/reports/margin-compliance/email', params);
+    return response.data;
+  },
+
+  // Marj raporu dislama kurallari (marka / stok kodu / stok adi) - okuma aninda uygulanir
+  getMarginExclusions: async (): Promise<{
+    success: boolean;
+    data: Array<{
+      id: string;
+      type: 'BRAND' | 'PRODUCT_CODE' | 'PRODUCT_NAME';
+      value: string;
+      label?: string | null;
+      note?: string | null;
+      active: boolean;
+      createdBy?: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  }> => {
+    const response = await apiClient.get('/admin/reports/margin-compliance/exclusions');
+    return response.data;
+  },
+
+  // 409 = ayni type+value ile aktif kural zaten var
+  createMarginExclusion: async (params: {
+    type: 'BRAND' | 'PRODUCT_CODE' | 'PRODUCT_NAME';
+    value: string;
+    label?: string;
+    note?: string;
+  }): Promise<{ success: boolean; data: any }> => {
+    const response = await apiClient.post('/admin/reports/margin-compliance/exclusions', params);
+    return response.data;
+  },
+
+  deleteMarginExclusion: async (id: string): Promise<{ success: boolean; message?: string }> => {
+    const response = await apiClient.delete(`/admin/reports/margin-compliance/exclusions/${id}`);
+    return response.data;
+  },
+
+  // BRAND: { value, label, productCount } | PRODUCT: { value: mikroCode, label: name }
+  getMarginExclusionOptions: async (params: {
+    type: 'BRAND' | 'PRODUCT';
+    search?: string;
+  }): Promise<{
+    success: boolean;
+    data: Array<{ value: string; label: string; productCount?: number }>;
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('type', params.type);
+    if (params.search) queryParams.append('search', params.search);
+    const response = await apiClient.get(`/admin/reports/margin-compliance/exclusion-options?${queryParams.toString()}`);
     return response.data;
   },
 
@@ -4305,7 +4357,8 @@ export const adminApi = {
   // ===== Stok ailesi yonlendirme onerisi =====
   getStockFamilySuggestions: async (
     productCode: string,
-    quantity: number
+    quantity: number,
+    excludeCodes?: string[]
   ): Promise<{
     product: { code: string; name: string; unit: string; available: number; excess: number } | null;
     family: { id: string; name: string } | null;
@@ -4313,6 +4366,7 @@ export const adminApi = {
     enteredAvailable: number;
     shortfall: number;
     coversRequested: boolean;
+    enteredExcess: number;
     alternatives: { productCode: string; productName: string; unit: string; available: number; excess: number }[];
     warnings: {
       type: 'INSUFFICIENT' | 'OFFLOAD_EXCESS';
@@ -4329,7 +4383,7 @@ export const adminApi = {
       };
     }[];
   }> => {
-    const response = await apiClient.post('/admin/stock-family/suggestions', { productCode, quantity });
+    const response = await apiClient.post('/admin/stock-family/suggestions', { productCode, quantity, excludeCodes });
     return response.data;
   },
 

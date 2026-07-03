@@ -11,7 +11,8 @@ import {
   Mail,
   RotateCw,
 } from 'lucide-react';
-import { useKarMarjiUyum } from './useKarMarjiUyum';
+import { useKarMarjiUyum, MARGIN_EXCLUSION_TYPE_LABELS } from './useKarMarjiUyum';
+import type { MarginExclusionType } from './useKarMarjiUyum';
 
 /**
  * Yeni gorunum: Kar Marji Analizi (019703) raporu.
@@ -153,6 +154,21 @@ export default function KarMarjiUyumNew() {
     setIncludedSectorCodes,
     availableSectorCodes,
     savingSectorCodes,
+    activeExclusions,
+    excludedByUserRules,
+    exclusionType,
+    setExclusionType,
+    exclusionSearch,
+    setExclusionSearch,
+    exclusionOptions,
+    exclusionOptionsLoading,
+    exclusionNameInput,
+    setExclusionNameInput,
+    savingExclusion,
+    deletingExclusionId,
+    handleAddExclusionOption,
+    handleAddNameExclusion,
+    handleDeleteExclusion,
     syncingReport,
     sendingReportEmail,
     isSingleDate,
@@ -619,6 +635,160 @@ export default function KarMarjiUyumNew() {
           </p>
         </details>
 
+        {/* Rapor Dislamalari (marka / urun kodu / urun adi) */}
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: MUTED }}>
+            Rapor Dışlamaları ({activeExclusions.length})
+          </summary>
+
+          {/* Aktif kurallar */}
+          <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+            {activeExclusions.length === 0 ? (
+              <span style={{ fontSize: 12, color: FAINT }}>Aktif dışlama kuralı yok.</span>
+            ) : (
+              activeExclusions.map((exclusion) => (
+                <div
+                  key={exclusion.id}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: MUTED }}
+                >
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: PRIMARY,
+                      background: '#eef2f9',
+                      border: `1px solid ${LINE}`,
+                      borderRadius: 6,
+                      padding: '2px 6px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {MARGIN_EXCLUSION_TYPE_LABELS[exclusion.type]}
+                  </span>
+                  <span
+                    style={{
+                      color: INK,
+                      fontWeight: 500,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {exclusion.value}
+                    {exclusion.label && exclusion.label !== exclusion.value ? ` — ${exclusion.label}` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteExclusion(exclusion)}
+                    disabled={deletingExclusionId === exclusion.id}
+                    style={{
+                      ...smallBtn,
+                      height: 26,
+                      padding: '0 10px',
+                      color: RED,
+                      opacity: deletingExclusionId === exclusion.id ? 0.5 : 1,
+                      cursor: deletingExclusionId === exclusion.id ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Sil
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Yeni kural ekleme */}
+          <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <select
+                value={exclusionType}
+                onChange={(e) => setExclusionType(e.target.value as MarginExclusionType)}
+                style={{ ...inputStyle, width: 180, cursor: 'pointer' }}
+              >
+                <option value="BRAND">Marka</option>
+                <option value="PRODUCT_CODE">Ürün Kodu</option>
+                <option value="PRODUCT_NAME">Ürün Adı (metin)</option>
+              </select>
+              {exclusionType === 'PRODUCT_NAME' ? (
+                <>
+                  <input
+                    value={exclusionNameInput}
+                    onChange={(e) => setExclusionNameInput(e.target.value)}
+                    placeholder="Ürün adında geçen ifade..."
+                    style={{ ...inputStyle, flex: 1, minWidth: 220 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddNameExclusion}
+                    disabled={savingExclusion}
+                    style={{ ...smallBtn, height: 36, opacity: savingExclusion ? 0.6 : 1 }}
+                  >
+                    Ekle
+                  </button>
+                </>
+              ) : (
+                <input
+                  value={exclusionSearch}
+                  onChange={(e) => setExclusionSearch(e.target.value)}
+                  placeholder={exclusionType === 'BRAND' ? 'Marka ara...' : 'Ürün kodu veya adı ara...'}
+                  style={{ ...inputStyle, flex: 1, minWidth: 220 }}
+                />
+              )}
+            </div>
+
+            {exclusionType === 'PRODUCT_NAME' ? (
+              <span style={{ fontSize: 11, color: FAINT }}>Ürün adında geçen ifadeyle eşleşir (kısmi eşleşme).</span>
+            ) : (
+              <div style={{ border: `1px solid ${SOFT_LINE}`, borderRadius: 8, maxHeight: 200, overflowY: 'auto' }}>
+                {exclusionOptionsLoading ? (
+                  <div style={{ padding: 10, fontSize: 12, color: FAINT }}>Yükleniyor...</div>
+                ) : exclusionOptions.length === 0 ? (
+                  <div style={{ padding: 10, fontSize: 12, color: FAINT }}>Sonuç bulunamadı.</div>
+                ) : (
+                  exclusionOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleAddExclusionOption(option)}
+                      disabled={savingExclusion}
+                      style={{
+                        display: 'flex',
+                        width: '100%',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        padding: '8px 10px',
+                        border: 'none',
+                        borderBottom: `1px solid ${ROW_LINE}`,
+                        background: '#fff',
+                        fontSize: 12.5,
+                        color: INK,
+                        cursor: savingExclusion ? 'not-allowed' : 'pointer',
+                        textAlign: 'left',
+                        fontFamily: 'inherit',
+                        opacity: savingExclusion ? 0.6 : 1,
+                      }}
+                    >
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {exclusionType === 'BRAND' ? option.label : `${option.value} — ${option.label}`}
+                      </span>
+                      {typeof option.productCount === 'number' && (
+                        <span style={{ fontSize: 11, color: FAINT, whiteSpace: 'nowrap' }}>
+                          {option.productCount} ürün
+                        </span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+            <span style={{ fontSize: 11, color: FAINT }}>
+              Dışlama eklenince/silinince rapor otomatik yenilenir; geçmiş veri silinmez, kural silinince satırlar geri gelir.
+            </span>
+          </div>
+        </details>
+
         {/* Kolonlar (goster/gizle + mail kolonlari kaydet) */}
         <details style={{ marginTop: 12 }}>
           <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: MUTED }}>
@@ -671,6 +841,11 @@ export default function KarMarjiUyumNew() {
           {metadata && (
             <div style={{ fontSize: 11.5, color: FAINT, marginTop: 2 }}>
               Rapor Tarihi: {formatDate(metadata.reportDate)} | Tarih Aralığı: {metadata.startDate} - {metadata.endDate}
+            </div>
+          )}
+          {excludedByUserRules > 0 && (
+            <div style={{ fontSize: 11.5, color: AMBER, marginTop: 4 }}>
+              Dışlama kurallarınız bu aralıkta {formatCount(excludedByUserRules)} satırı rapordan düşürdü.
             </div>
           )}
         </div>

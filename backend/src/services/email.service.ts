@@ -104,6 +104,7 @@ type MarginAlertRow = {
   quantityLabel: string;
   unitPrice: number;
   unitCost: number;
+  unitCostEntry: number;
   revenue: number;
   profit: number;
   entryProfit: number;
@@ -184,6 +185,8 @@ type MarginComplianceEmailSummary = {
   alerts: MarginAlertGroups;
   topBottom: MarginTopBottomSummary;
   sevenDaySummary: MarginSevenDaySummary;
+  // Rapor sayfasindan yonetilen aktif marka/urun dislama kurali sayisi.
+  activeExclusionCount?: number;
 };
 
 class EmailService {
@@ -1155,47 +1158,56 @@ class EmailService {
         timeZone: 'UTC',
       }).format(new Date(date));
 
-    // Son giris marji: kar / (ciro - kar) = kar / maliyet.
+    // Son giris marji (agregat): kar / ciro — guncel taban ile ayni tanim.
     const entryMarginOf = (bucket: { totalRevenue: number; entryProfit: number }) => {
-      const entryCost = bucket.totalRevenue - bucket.entryProfit;
-      if (entryCost > 0) return (bucket.entryProfit / entryCost) * 100;
       return bucket.totalRevenue > 0 ? (bucket.entryProfit / bucket.totalRevenue) * 100 : 0;
     };
 
-    // ---- Veri hazirligi: sorunlu satirlar ----
-    type WorstRow = MarginAlertRow & { severity: 'negative' | 'low' | 'high'; source: string };
+    // ---- Veri hazirligi: iki maliyet tabani AYRI AYRI ----
+    type TaggedRow = MarginAlertRow & { source: string };
 
-    const tagRows = (rows: MarginAlertRow[], severity: WorstRow['severity'], source: string): WorstRow[] =>
-      (rows || []).map((row) => ({ ...row, severity, source }));
+    const tagRows = (rows: MarginAlertRow[], source: string): TaggedRow[] =>
+      (rows || []).map((row) => ({ ...row, source }));
 
-    const negativeRows = [
-      ...tagRows(summary.alerts.sales.current.negative, 'negative', 'Satış'),
-      ...tagRows(summary.alerts.order.current.negative, 'negative', 'Sipariş'),
+    // Guncel maliyet tabani: maliyet alti satirlar (satis + siparis birlesik)
+    const currentNegativeRows = [
+      ...tagRows(summary.alerts.sales.current.negative, 'Satış'),
+      ...tagRows(summary.alerts.order.current.negative, 'Sipariş'),
     ].sort((a, b) => a.profit - b.profit);
 
-    const lowRows = [
-      ...tagRows(summary.alerts.sales.current.low, 'low', 'Satış'),
-      ...tagRows(summary.alerts.order.current.low, 'low', 'Sipariş'),
-    ].sort((a, b) => a.avgMargin - b.avgMargin);
+    // Son giris maliyet tabani: maliyet alti satirlar (Mikro SO kolonlarina gore)
+    const entryNegativeRows = [
+      ...tagRows(summary.alerts.sales.entry.negative, 'Satış'),
+      ...tagRows(summary.alerts.order.entry.negative, 'Sipariş'),
+    ].sort((a, b) => a.entryProfit - b.entryProfit);
 
-    const highRows = [
-      ...tagRows(summary.alerts.sales.current.high, 'high', 'Satış'),
-      ...tagRows(summary.alerts.order.current.high, 'high', 'Sipariş'),
+    // %5 alti (dusuk marj) satirlar sadece not olarak gecer — guncel taban.
+    const currentLowRows = [
+      ...tagRows(summary.alerts.sales.current.low, 'Satış'),
+      ...tagRows(summary.alerts.order.current.low, 'Sipariş'),
+    ];
+
+    // Supheli yuksek marjlar (%70 ustu) — guncel taban.
+    const currentHighRows = [
+      ...tagRows(summary.alerts.sales.current.high, 'Satış'),
+      ...tagRows(summary.alerts.order.current.high, 'Sipariş'),
     ].sort((a, b) => b.avgMargin - a.avgMargin);
 
-    const totalLoss = Math.abs(negativeRows.reduce((acc, row) => acc + Math.min(row.profit, 0), 0));
+    const currentLoss = Math.abs(currentNegativeRows.reduce((acc, row) => acc + Math.min(row.profit, 0), 0));
+    const entryLoss = Math.abs(entryNegativeRows.reduce((acc, row) => acc + Math.min(row.entryProfit, 0), 0));
 
     const WORST_LIMIT = 15;
-    const worstRows = [...negativeRows, ...lowRows].slice(0, WORST_LIMIT);
-    const highlightRows = highRows.slice(0, 5);
+    const worstCurrentRows = currentNegativeRows.slice(0, WORST_LIMIT);
+    const worstEntryRows = entryNegativeRows.slice(0, WORST_LIMIT);
+    const highlightRows = currentHighRows.slice(0, 5);
 
-    // ---- Konu satiri: tek bakista gunun durumu ----
+    const activeExclusionCount = summary.activeExclusionCount || 0;
+
+    // ---- Konu satiri: iki tabanin durumu tek bakista ----
     const baseSubject = (params.subject || '').trim() || 'Marj Raporu';
-    const subjectDetail = negativeRows.length > 0
-      ? `${formatCount(negativeRows.length)} maliyet-altı satır, ${formatMoneyShort(totalLoss)} zarar`
-      : lowRows.length > 0
-        ? `maliyet-altı satır yok, ${formatCount(lowRows.length)} düşük marjlı satır`
-        : `maliyet-altı satır yok, ort. marj ${formatPercent(summary.avgMargin)}`;
+    const subjectDetail = currentNegativeRows.length === 0 && entryNegativeRows.length === 0
+      ? 'iki tabanda da maliyet altı satır yok — temiz gün'
+      : `Güncel: ${formatCount(currentNegativeRows.length)} zarar satırı ${formatMoneyShort(currentLoss)} | Son Giriş: ${formatCount(entryNegativeRows.length)} satır ${formatMoneyShort(entryLoss)}`;
     const subject = `${baseSubject} ${formatShortDate(params.reportDate)} — ${subjectDetail}`;
 
     // ---- HTML parcalari (e-posta uyumlu: tablo bazli + inline stil) ----
@@ -1230,6 +1242,11 @@ class EmailService {
       </td>
     `;
 
+    // ---- Ozet kartlari: ciro + iki tabanin kar/marji ayri ayri + maliyet alti sayaci ----
+    const salesBucket = summary.salesSummary;
+    const orderBucket = summary.orderSummary;
+    const negLineColor = (count: number) => (count > 0 ? '#b91c1c' : '#16a34a');
+
     const summaryCards = `
       <tr>
         <td style="padding: 12px 18px 0 18px; background: #f9fafb;">
@@ -1237,31 +1254,30 @@ class EmailService {
             <tr>
               ${card(
                 'Satış Cirosu (KDV Hariç)',
-                formatMoneyShort(summary.salesSummary.totalRevenue),
-                `Bekleyen sipariş tutarı: ${formatMoneyShort(summary.orderSummary.totalRevenue)}`,
+                formatMoneyShort(salesBucket.totalRevenue),
+                `Bekleyen sipariş tutarı: ${formatMoneyShort(orderBucket.totalRevenue)}`,
                 '#111827'
               )}
               ${card(
-                'İncelenen Satır',
-                formatCount(summary.totalRecords),
-                `${formatCount(summary.totalDocuments)} evrak · Ortalama marj ${formatPercent(summary.avgMargin)}`,
-                '#111827'
+                'Kâr & Marj — Güncel Maliyet',
+                `${formatMoneyShort(salesBucket.totalProfit)} · ${formatPercent(salesBucket.avgMargin)}`,
+                `Marj = kâr / ciro · Sipariş kârı: ${formatMoneyShort(orderBucket.totalProfit)} (${formatPercent(orderBucket.avgMargin)})`,
+                salesBucket.totalProfit < 0 ? '#b91c1c' : '#111827'
               )}
             </tr>
             <tr>
               ${card(
-                'Maliyet Altı Satır',
-                formatCount(negativeRows.length),
-                negativeRows.length > 0
-                  ? `Toplam zarar: <strong style="color: #b91c1c;">${formatMoneyShort(totalLoss)}</strong>`
-                  : 'Bugün maliyet altı satış yok',
-                negativeRows.length > 0 ? '#b91c1c' : '#16a34a'
+                'Kâr & Marj — Son Giriş Maliyeti',
+                `${formatMoneyShort(salesBucket.entryProfit)} · ${formatPercent(entryMarginOf(salesBucket))}`,
+                `Mikro SÖ toplamları · Sipariş kârı: ${formatMoneyShort(orderBucket.entryProfit)} (${formatPercent(entryMarginOf(orderBucket))})`,
+                salesBucket.entryProfit < 0 ? '#b91c1c' : '#111827'
               )}
               ${card(
-                'Düşük Marjlı Satır (%5 altı)',
-                formatCount(lowRows.length),
-                `Şüpheli yüksek marj (%70 üstü): ${formatCount(highRows.length)} satır`,
-                lowRows.length > 0 ? '#b45309' : '#16a34a'
+                'Maliyet Altı Satırlar',
+                `<div style="font-size: 15px; color: ${negLineColor(currentNegativeRows.length)};">Güncel: ${formatCount(currentNegativeRows.length)} satır / ${formatMoneyShort(currentLoss)}</div>
+                 <div style="font-size: 15px; color: ${negLineColor(entryNegativeRows.length)}; padding-top: 4px;">Son Giriş: ${formatCount(entryNegativeRows.length)} satır / ${formatMoneyShort(entryLoss)}</div>`,
+                'Aynı satır iki tabanda birden görünebilir',
+                '#111827'
               )}
             </tr>
           </table>
@@ -1269,16 +1285,32 @@ class EmailService {
       </tr>
     `;
 
-    const severityMeta: Record<'negative' | 'low' | 'high', { bg: string; color: string }> = {
-      negative: { bg: '#fef2f2', color: '#b91c1c' },
-      low: { bg: '#fffbeb', color: '#b45309' },
-      high: { bg: '#f0fdf4', color: '#15803d' },
-    };
+    // ---- Maliyet alti tablolari: iki tabanda ayni kolon seti, vurgu tabana gore ----
+    // Vurgulanan tabanin kolonlari renkli/kalin, diger tabanin kolonlari soluk gosterilir.
+    const fadedCell = 'white-space: nowrap; color: #9ca3af;';
+    const strongCell = (color: string) => `white-space: nowrap; font-weight: 700; color: ${color};`;
 
-    const renderAlertRow = (row: WorstRow) => {
-      const meta = severityMeta[row.severity];
+    const dualAlertHeader = (basis: 'current' | 'entry') => `
+      <tr>
+        <th style="${thStyle('left')}">Ürün</th>
+        <th style="${thStyle('left')}">Müşteri</th>
+        <th style="${thStyle('left')}">Tür / Evrak</th>
+        <th style="${thStyle('right')}">Miktar</th>
+        <th style="${thStyle('right')}">Birim Satış</th>
+        <th style="${thStyle('right')}">${basis === 'current' ? 'Birim Maliyet (Güncel)' : 'Birim Maliyet (Son Giriş)'}</th>
+        <th style="${thStyle('right')}">Kâr (Güncel)</th>
+        <th style="${thStyle('right')}">Marj (Güncel)</th>
+        <th style="${thStyle('right')}">Kâr (Son Giriş)</th>
+        <th style="${thStyle('right')}">Marj (Son Giriş)</th>
+      </tr>
+    `;
+
+    const renderDualAlertRow = (row: TaggedRow, basis: 'current' | 'entry', accent: string, bg: string) => {
+      const currentCellStyle = basis === 'current' ? strongCell(accent) : fadedCell;
+      const entryCellStyle = basis === 'entry' ? strongCell(accent) : fadedCell;
+      const unitCostValue = basis === 'current' ? row.unitCost : row.unitCostEntry;
       return `
-        <tr style="background: ${meta.bg};">
+        <tr style="background: ${bg};">
           <td style="${tdStyle('left')}">
             <div style="font-weight: 600;">${escapeHtml(row.productName || '-')}</div>
             <div style="${font} font-size: 10px; color: #6b7280;">${escapeHtml(row.productCode || '')}</div>
@@ -1290,50 +1322,62 @@ class EmailService {
           </td>
           <td style="${tdStyle('right', 'white-space: nowrap;')}">${escapeHtml(row.quantityLabel || '')}</td>
           <td style="${tdStyle('right', 'white-space: nowrap;')}">${formatMoney(row.unitPrice)}</td>
-          <td style="${tdStyle('right', 'white-space: nowrap;')}">${formatMoney(row.unitCost)}</td>
-          <td style="${tdStyle('right', `white-space: nowrap; font-weight: 700; color: ${meta.color};`)}">${formatPercent(row.avgMargin)}</td>
-          <td style="${tdStyle('right', `white-space: nowrap; font-weight: 700; color: ${meta.color};`)}">${formatMoney(row.profit)}</td>
+          <td style="${tdStyle('right', 'white-space: nowrap;')}">${formatMoney(unitCostValue)}</td>
+          <td style="${tdStyle('right', currentCellStyle)}">${formatMoney(row.profit)}</td>
+          <td style="${tdStyle('right', currentCellStyle)}">${formatPercent(row.avgMargin)}</td>
+          <td style="${tdStyle('right', entryCellStyle)}">${formatMoney(row.entryProfit)}</td>
+          <td style="${tdStyle('right', entryCellStyle)}">${formatPercent(row.entryMargin)}</td>
         </tr>
       `;
     };
 
-    const alertTableHeader = `
-      <tr>
-        <th style="${thStyle('left')}">Ürün</th>
-        <th style="${thStyle('left')}">Müşteri</th>
-        <th style="${thStyle('left')}">Tür / Evrak</th>
-        <th style="${thStyle('right')}">Miktar</th>
-        <th style="${thStyle('right')}">Birim Satış</th>
-        <th style="${thStyle('right')}">Birim Maliyet</th>
-        <th style="${thStyle('right')}">Marj</th>
-        <th style="${thStyle('right')}">Kâr / Zarar</th>
-      </tr>
-    `;
+    const dualAlertTable = (
+      rows: TaggedRow[],
+      basis: 'current' | 'entry',
+      accent: string,
+      bg: string,
+      totalCount: number,
+      emptyText: string
+    ) =>
+      rows.length === 0
+        ? `<div style="${font} font-size: 13px; color: #16a34a; padding: 4px 0 8px 0;">${emptyText}</div>`
+        : `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+            <thead>${dualAlertHeader(basis)}</thead>
+            <tbody>
+              ${rows.map((row) => renderDualAlertRow(row, basis, accent, bg)).join('')}
+            </tbody>
+          </table>
+          ${totalCount > rows.length
+            ? `<div style="${font} font-size: 11px; color: #6b7280; padding-top: 6px;">Toplam ${formatCount(totalCount)} satırın en kötü ${formatCount(rows.length)} tanesi gösteriliyor; tam liste ekteki Excel dosyasındadır.</div>`
+            : ''}
+        `;
 
-    const worstTable = worstRows.length === 0
-      ? `<div style="${font} font-size: 13px; color: #16a34a; padding: 4px 0 8px 0;">Bugün maliyet altı veya %5 altı marjlı satır yok.</div>`
-      : `
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
-          <thead>${alertTableHeader}</thead>
-          <tbody>
-            ${worstRows.map((row) => renderAlertRow(row)).join('')}
-          </tbody>
-        </table>
-        ${negativeRows.length + lowRows.length > worstRows.length
-          ? `<div style="${font} font-size: 11px; color: #6b7280; padding-top: 6px;">Toplam ${formatCount(negativeRows.length + lowRows.length)} sorunlu satırın en kötü ${formatCount(worstRows.length)} tanesi gösteriliyor; tam liste ekteki Excel dosyasındadır.</div>`
-          : ''}
-      `;
+    const worstCurrentTable = dualAlertTable(
+      worstCurrentRows,
+      'current',
+      '#b91c1c',
+      '#fef2f2',
+      currentNegativeRows.length,
+      'Güncel maliyet tabanında maliyet altı satır yok.'
+    );
+
+    const lowRowsNote = currentLowRows.length > 0
+      ? `<div style="${font} font-size: 11px; color: #b45309; padding-top: 6px;">Ayrıca güncel tabanda %5 altı marjlı ${formatCount(currentLowRows.length)} satır var; tam liste ekteki Excel dosyasındadır.</div>`
+      : '';
+
+    const worstEntryTable = dualAlertTable(
+      worstEntryRows,
+      'entry',
+      '#b91c1c',
+      '#fff7ed',
+      entryNegativeRows.length,
+      'Son giriş maliyet tabanında maliyet altı satır yok.'
+    );
 
     const highTable = highlightRows.length === 0
       ? `<div style="${font} font-size: 13px; color: #6b7280; padding: 4px 0 8px 0;">%70 üzeri marjlı satır yok.</div>`
-      : `
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
-          <thead>${alertTableHeader}</thead>
-          <tbody>
-            ${highlightRows.map((row) => renderAlertRow(row)).join('')}
-          </tbody>
-        </table>
-      `;
+      : dualAlertTable(highlightRows, 'current', '#15803d', '#f0fdf4', currentHighRows.length, '');
 
     const salespersonRows = (summary.salespersonSummary || [])
       .filter((entry) => entry.salesSummary.totalRecords > 0 || entry.orderSummary.totalRecords > 0)
@@ -1345,6 +1389,8 @@ class EmailService {
             <td style="${tdStyle('right')}">${formatMoneyShort(entry.salesSummary.totalRevenue)}</td>
             <td style="${tdStyle('right')}">${formatMoneyShort(entry.salesSummary.totalProfit)}</td>
             <td style="${tdStyle('right')}">${formatPercent(entry.salesSummary.avgMargin)}</td>
+            <td style="${tdStyle('right')}">${formatMoneyShort(entry.salesSummary.entryProfit)}</td>
+            <td style="${tdStyle('right')}">${formatPercent(entryMarginOf(entry.salesSummary))}</td>
             <td style="${tdStyle('right')}">${formatMoneyShort(entry.orderSummary.totalRevenue)}</td>
             <td style="${tdStyle('right')}">${formatPercent(entry.orderSummary.avgMargin)}</td>
             <td style="${tdStyle('right', negativeTotal > 0 ? 'color: #b91c1c; font-weight: 700;' : '')}">${formatCount(negativeTotal)}</td>
@@ -1360,8 +1406,10 @@ class EmailService {
             <tr>
               <th style="${thStyle('left')}">Personel</th>
               <th style="${thStyle('right')}">Satış Ciro</th>
-              <th style="${thStyle('right')}">Satış Kâr</th>
-              <th style="${thStyle('right')}">Satış Marj</th>
+              <th style="${thStyle('right')}">Kâr (Güncel)</th>
+              <th style="${thStyle('right')}">Marj (Güncel)</th>
+              <th style="${thStyle('right')}">Kâr (Son Giriş)</th>
+              <th style="${thStyle('right')}">Marj (Son Giriş)</th>
               <th style="${thStyle('right')}">Sipariş Ciro</th>
               <th style="${thStyle('right')}">Sipariş Marj</th>
               <th style="${thStyle('right')}">Zararlı Satır</th>
@@ -1379,6 +1427,7 @@ class EmailService {
         <td style="${tdStyle('right')}">${formatMoneyShort(bucket.totalRevenue)}</td>
         <td style="${tdStyle('right')}">${formatMoneyShort(bucket.totalProfit)}</td>
         <td style="${tdStyle('right')}">${formatPercent(bucket.avgMargin)}</td>
+        <td style="${tdStyle('right')}">${formatMoneyShort(bucket.entryProfit)}</td>
         <td style="${tdStyle('right')}">${formatPercent(entryMarginOf(bucket))}</td>
         <td style="${tdStyle('right', bucket.negativeLines > 0 ? 'color: #b91c1c; font-weight: 700;' : '')}">${formatCount(bucket.negativeLines)}</td>
       </tr>
@@ -1390,8 +1439,9 @@ class EmailService {
           <tr>
             <th style="${thStyle('left')}">&nbsp;</th>
             <th style="${thStyle('right')}">Ciro</th>
-            <th style="${thStyle('right')}">Kâr</th>
-            <th style="${thStyle('right')}">Marj</th>
+            <th style="${thStyle('right')}">Kâr (Güncel)</th>
+            <th style="${thStyle('right')}">Marj (Güncel)</th>
+            <th style="${thStyle('right')}">Kâr (Son Giriş)</th>
             <th style="${thStyle('right')}">Marj (Son Giriş)</th>
             <th style="${thStyle('right')}">Zararlı Satır</th>
           </tr>
@@ -1412,13 +1462,14 @@ class EmailService {
               <td style="padding: 14px 16px;">
                 <div style="${font} font-size: 12px; font-weight: 700; color: #374151; padding-bottom: 6px;">Bu rapor nasıl hesaplanır?</div>
                 <ul style="${font} font-size: 11px; color: #6b7280; line-height: 1.7; margin: 0; padding-left: 16px;">
-                  <li><strong>Maliyet:</strong> Her satırda güncel maliyet ile son giriş maliyetinin <strong>büyük olanı</strong> kullanılır (teklif maliyet koruması kuralıyla aynı taban).</li>
-                  <li><strong>KDV:</strong> Faturalı satırlarda tüm tutarlar KDV hariçtir. Beyaz (vergisiz) satırlarda satış KDV'siz alınır, maliyete yarım KDV yükü eklenir.</li>
-                  <li><strong>Marj %:</strong> Kâr / Maliyet oranıdır (satış fiyatına değil, maliyete göre hesaplanır).</li>
+                  <li><strong>İki maliyet tabanı ayrı ayrı gösterilir, birleştirilmez:</strong> güncel maliyet tabanı ve son giriş maliyet tabanı.</li>
+                  <li><strong>Güncel maliyet tabanı:</strong> A.Teklif maliyeti satışın KDV düzlemine çevrilerek B2B tarafında hesaplanır (beyaz/vergisiz satışta yarım KDV yüklü maliyet, faturalı satışta net maliyet).</li>
+                  <li><strong>Son giriş tabanı:</strong> Mikro'nun SÖ kolonları esas alınır (Mikro'nun kendi hesabı: açık satış açık maliyetten, faturalı satış faturalı maliyetten).</li>
+                  <li><strong>Marj %:</strong> Özetlerde ve tablolarda kâr / ciro oranıdır. Satır rozetlerinde (maliyet altı / %5 altı / %70 üstü) güncel taban kâr / maliyet ile, son giriş tabanı Mikro'nun SÖ marjı ile değerlendirilir.</li>
                   <li><strong>Kapsam:</strong> Yalnızca evrak tarihi ${formatRangeDate(params.reportDate)} olan satırlar dahildir; eski tarihli veya geriye dönük girilen satırlar bu rapora girmez.</li>
-                  <li><strong>Hariç tutulanlar:</strong> İade/iptal satırları, "Fiyat Farkı" tipi özel kodlar (B100963, B100964, B105959, MUHTELİF vb.) ve TOPLU sorumluluk merkezi satırları.</li>
+                  <li><strong>Hariç tutulanlar:</strong> İade/iptal satırları, negatif miktarlı satırlar, "Fiyat Farkı" tipi özel kodlar (B100963, B100964, B105959, MUHTELİF vb.), TOPLU sorumluluk merkezi satırları ve rapor sayfasından yönetilen marka/ürün dışlamaları${activeExclusionCount > 0 ? ` (şu an ${formatCount(activeExclusionCount)} aktif kural)` : ' (şu an aktif kural yok)'}.</li>
                   <li><strong>Satış / Sipariş:</strong> "Satış" kesilen fatura ve irsaliyeleri, "Sipariş" henüz faturalaşmamış bekleyen siparişleri ifade eder.</li>
-                  <li>Satır bazında tam liste ekteki Excel dosyasındadır.</li>
+                  <li>Satır bazında tam liste (iki tabanın kolonlarıyla birlikte) ekteki Excel dosyasındadır.</li>
                 </ul>
               </td>
             </tr>
@@ -1445,17 +1496,24 @@ class EmailService {
                 <tr>
                   <td style="background: #111c3f; padding: 22px 24px;">
                     <div style="${font} font-size: 20px; font-weight: 700; color: #ffffff;">Kâr Marjı Günlük Raporu</div>
-                    <div style="${font} font-size: 13px; color: #c7d2fe; padding-top: 6px;">${formatFullDate(params.reportDate)} — günün satışları ve bekleyen siparişleri</div>
+                    <div style="${font} font-size: 13px; color: #c7d2fe; padding-top: 6px;">${formatFullDate(params.reportDate)} — ${formatCount(summary.totalRecords)} satır · ${formatCount(summary.totalDocuments)} evrak — günün satışları ve bekleyen siparişleri</div>
                   </td>
                 </tr>
                 ${summaryCards}
-                ${sectionTitle('Günün En Kötü Satırları', 'Kırmızı: maliyet altı (zarar) · Sarı: %5 altı marj — en yüksek zarardan sıralı')}
+                ${sectionTitle('Maliyet Altı Satırlar — Güncel Maliyet Tabanı', 'B2B hesabı: güncel maliyet, satışın KDV düzlemine çevrilir — en yüksek zarardan sıralı')}
                 <tr>
                   <td style="padding: 0 24px;">
-                    ${worstTable}
+                    ${worstCurrentTable}
+                    ${lowRowsNote}
                   </td>
                 </tr>
-                ${sectionTitle('Şüpheli Yüksek Marjlar (%70 üstü)', 'Çoğu zaman eski veya eksik maliyet bilgisine işaret eder — maliyet kartını kontrol edin')}
+                ${sectionTitle('Maliyet Altı Satırlar — Son Giriş Tabanı', 'Mikro SÖ kolonlarına göre — en yüksek zarardan sıralı')}
+                <tr>
+                  <td style="padding: 0 24px;">
+                    ${worstEntryTable}
+                  </td>
+                </tr>
+                ${sectionTitle('Şüpheli Yüksek Marjlar (%70 üstü)', 'Güncel maliyet tabanına göre; çoğu zaman eski veya eksik maliyet bilgisine işaret eder — maliyet kartını kontrol edin')}
                 <tr>
                   <td style="padding: 0 24px;">
                     ${highTable}
