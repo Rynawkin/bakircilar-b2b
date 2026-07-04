@@ -4,10 +4,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Copy,
-  Download,
-  FileSpreadsheet,
   History,
-  PackagePlus,
+  Image as ImageIcon,
   Pencil,
   Plus,
   RefreshCw,
@@ -15,7 +13,7 @@ import {
   Search,
   ShieldCheck,
   Trash2,
-  Upload,
+  X,
   XCircle,
 } from 'lucide-react';
 import {
@@ -23,7 +21,6 @@ import {
   CopyableInput,
   FactorDirection,
   LookupField,
-  MAX_BULK_ITEMS,
   costPFromCostT,
   formatDateTime,
   useStokAcma,
@@ -35,8 +32,8 @@ import {
  * ink #14223b/#51607a/#8b97ac, durum renkleri emerald/amber/red, lucide ikon, EMOJI YOK.
  *
  * Tum mantik useStokAcma hook'undan gelir; lookup/kopyala ureten alanlar mantigi koruyan
- * paylasilan bilesenlerden (LookupField/CopyableInput/CopyButton) saglanir. Hicbir alan/buton/
- * sekme/rozet/modal/durum DUSMEZ; mevcut handler'lara birebir baglidir.
+ * paylasilan bilesenlerden (LookupField/CopyableInput/CopyButton) saglanir.
+ * SADECE tekli, gorsel-zorunlu stok acma akisi vardir (toplu/Excel akisi kaldirildi).
  */
 
 // Yeni tema input/label sinifi (acik, duz #15356b odakli). Mantik degismez, sadece gorsel.
@@ -50,19 +47,17 @@ export default function StokAcmaNew() {
     defaultTemplateCode,
     unitNames,
     form,
-    bulkItems,
     previewRows,
     historyRows,
     templateStock,
     templateLoading,
+    stockFamilyOptions,
+    priceFamilyOptions,
     editingStockCode,
     editLoading,
     updating,
     loading,
     creating,
-    activeTab,
-    setActiveTab,
-    activeItems,
     hasErrors,
     user,
     permissionsLoading,
@@ -79,14 +74,16 @@ export default function StokAcmaNew() {
     addExtraUnit,
     updateExtraUnit,
     removeExtraUnit,
+    setCalculateMinMax,
+    toggleStockFamily,
+    setPriceFamily,
+    handleImageChange,
+    clearImage,
     cancelEditMode,
     loadStockForEdit,
     preview,
     createStocks,
     updateExistingStock,
-    downloadTemplate,
-    handleFileUpload,
-    setPreviewRows,
   } = useStokAcma();
 
   if (!user || permissionsLoading) {
@@ -122,7 +119,7 @@ export default function StokAcmaNew() {
         {/* Baslik */}
         <div className="mb-4 mt-1">
           <h1 className="m-0 text-[24px] font-semibold tracking-[-0.02em] text-[#14223b]">Yeni Stok Acma</h1>
-          <div className="mt-1.5 text-[13px] text-[#8b97ac]">Mikro stok karti olustur · tekli veya toplu Excel</div>
+          <div className="mt-1.5 text-[13px] text-[#8b97ac]">Mikro stok karti olustur · gorsel zorunlu</div>
         </div>
 
         {/* Siradaki kod / varsayilan sablon seridi */}
@@ -141,39 +138,11 @@ export default function StokAcmaNew() {
           </div>
         </div>
 
-        {/* Sekmeler + ust aksiyonlar */}
+        {/* Ust aksiyonlar */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('single');
-              setPreviewRows([]);
-            }}
-            className={`rounded-lg border px-[14px] py-2 text-[12.5px] font-semibold transition ${
-              activeTab === 'single'
-                ? 'border-[#d6e0f1] bg-[#eef2fa] text-[#15356b]'
-                : 'border-transparent bg-transparent text-[#64748b] hover:bg-[#eef2fa]/60'
-            }`}
-          >
+          <div className="rounded-lg border border-[#d6e0f1] bg-[#eef2fa] px-[14px] py-2 text-[12.5px] font-semibold text-[#15356b]">
             {editingStockCode ? 'Stok Duzenle' : 'Tekli Stok Ac'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (editingStockCode && !window.confirm('Duzenleme modu kapatilip toplu ekrana gecilsin mi?')) return;
-              if (editingStockCode) cancelEditMode();
-              setActiveTab('bulk');
-              setPreviewRows([]);
-            }}
-            className={`rounded-lg border px-[14px] py-2 text-[12.5px] font-semibold transition ${
-              activeTab === 'bulk'
-                ? 'border-[#d6e0f1] bg-[#eef2fa] text-[#15356b]'
-                : 'border-transparent bg-transparent text-[#64748b] hover:bg-[#eef2fa]/60'
-            }`}
-          >
-            Toplu Excel
-          </button>
-
+          </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -184,26 +153,12 @@ export default function StokAcmaNew() {
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Yenile
             </button>
-            <button
-              type="button"
-              onClick={downloadTemplate}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-white px-[13px] py-[9px] text-[12.5px] font-medium text-[#51607a] transition hover:bg-[#f4f6fa]"
-            >
-              <Download className="h-4 w-4" />
-              Excel Sablonu
-            </button>
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#15356b] bg-[#15356b] px-[15px] py-[9px] text-[12.5px] font-semibold text-white transition hover:bg-[#1c4585]">
-              <Upload className="h-4 w-4" />
-              Excel Yukle
-              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileUpload} />
-            </label>
           </div>
         </div>
 
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-4">
-            {activeTab === 'single' ? (
-              <div className="rounded-xl border border-[#e7ebf2] bg-white p-[18px]">
+            <div className="rounded-xl border border-[#e7ebf2] bg-white p-[18px]">
                 {/* Form basligi + olusacak/duzenlenen kod */}
                 <div className="mb-3.5 flex items-start justify-between gap-4">
                   <div>
@@ -597,69 +552,128 @@ export default function StokAcmaNew() {
                     <input value={form.notes} onChange={(event) => updateForm({ notes: event.target.value })} className={nInput} placeholder="Opsiyonel islem notu" />
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-[#e7ebf2] bg-white p-[18px]">
-                <div className="mb-3.5 flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="m-0 text-[16px] font-semibold text-[#14223b]">Toplu Stok Acma</h2>
-                    <p className="mt-1 text-[12px] text-[#8b97ac]">Excel satirlari on kontrolden gecer; kodlar Mikroya yazim aninda kesinlesir.</p>
+
+                {/* Min-Max hesaplansin mi (ZORUNLU) */}
+                <div className="mt-3.5 border-t border-[#eef1f6] pt-3.5">
+                  <div className="mb-2.5">
+                    <h3 className="m-0 text-[12px] font-semibold text-[#14223b]">Min-Max hesaplansin mi? *</h3>
+                    <p className="mt-0.5 text-[11px] text-[#8b97ac]">
+                      Hayir → Ucarer min-max hesabina girmez (Mikro sto_model_kodu='HAYIR').
+                    </p>
                   </div>
-                  <div className="rounded-lg border border-[#e7ebf2] bg-[#fafbfd] px-[14px] py-2 text-right">
-                    <div className="text-[10px] font-medium uppercase tracking-wide text-[#8b97ac]">Yuklenen Satir</div>
-                    <div className="text-[18px] font-semibold text-[#14223b]">{bulkItems.length}</div>
+                  <div className="inline-flex rounded-lg border border-[#e3e8f0] bg-[#fafbfd] p-1">
+                    <button
+                      type="button"
+                      onClick={() => setCalculateMinMax(true)}
+                      className={`rounded-md px-[18px] py-[7px] text-[12.5px] font-semibold transition ${
+                        form.calculateMinMax === true ? 'bg-[#15356b] text-white shadow-sm' : 'bg-transparent text-[#51607a] hover:bg-[#eef2fa]'
+                      }`}
+                    >
+                      Evet
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCalculateMinMax(false)}
+                      className={`rounded-md px-[18px] py-[7px] text-[12.5px] font-semibold transition ${
+                        form.calculateMinMax === false ? 'bg-[#b91c1c] text-white shadow-sm' : 'bg-transparent text-[#51607a] hover:bg-[#eef2fa]'
+                      }`}
+                    >
+                      Hayir
+                    </button>
                   </div>
                 </div>
-                {bulkItems.length > MAX_BULK_ITEMS && (
-                  <div className="mb-3.5 flex items-start gap-2 rounded-lg border border-[#fde68a] bg-[#fffbeb] p-3.5 text-[12px] font-medium text-[#b45309]">
-                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                    <span>
-                      {bulkItems.length} satir yuklendi; tek seferde en fazla {MAX_BULK_ITEMS} satir islenir. Mikroya yazim engellenir.
-                      Kalan {bulkItems.length - MAX_BULK_ITEMS} satiri ayri bir parti olarak yukleyin.
-                    </span>
+
+                {/* Aile atamalari (opsiyonel) */}
+                <div className="mt-3.5 grid gap-3.5 border-t border-[#eef1f6] pt-3.5 lg:grid-cols-2">
+                  {/* Stok Ailesi - coklu secim */}
+                  <div>
+                    <label className={nLabel}>Stok Ailesi (opsiyonel · coklu)</label>
+                    {stockFamilyOptions.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-[#d8e0ec] bg-[#fafbfd] px-3 py-2.5 text-[11.5px] text-[#8b97ac]">Tanimli stok ailesi yok.</div>
+                    ) : (
+                      <div className="max-h-[168px] space-y-1 overflow-auto rounded-lg border border-[#e3e8f0] bg-white p-1.5">
+                        {stockFamilyOptions.map((family) => {
+                          const selected = form.stockFamilyIds.includes(family.id);
+                          return (
+                            <button
+                              key={family.id}
+                              type="button"
+                              onClick={() => toggleStockFamily(family.id)}
+                              className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-[7px] text-left text-[12px] transition ${
+                                selected ? 'bg-[#eef2fa] font-semibold text-[#15356b]' : 'text-[#51607a] hover:bg-[#f4f6fa]'
+                              }`}
+                            >
+                              <span className="line-clamp-1">{family.name}</span>
+                              {selected && <CheckCircle2 className="h-4 w-4 shrink-0 text-[#15356b]" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {form.stockFamilyIds.length > 0 && (
+                      <div className="mt-1 text-[11px] font-medium text-[#15356b]">{form.stockFamilyIds.length} aile secili</div>
+                    )}
                   </div>
-                )}
-                {bulkItems.length === 0 ? (
-                  <div className="flex min-h-[320px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#d8e0ec] bg-[#fafbfd] text-center">
-                    <FileSpreadsheet className="h-14 w-14 text-[#c7d2e3]" />
-                    <h3 className="mt-3.5 text-[16px] font-semibold text-[#14223b]">Excel yukleyin</h3>
-                    <p className="mt-1.5 max-w-md text-[12px] text-[#8b97ac]">Sablonu indirip doldurun. Zorunlu alanlar eksikse sistem satir satir gosterecek.</p>
+                  {/* Fiyat Ailesi - tekli secim */}
+                  <div>
+                    <label className={nLabel}>Fiyat Ailesi (opsiyonel · tekli)</label>
+                    <select
+                      value={form.priceFamilyId || ''}
+                      onChange={(event) => setPriceFamily(event.target.value || null)}
+                      className={`${nInput} cursor-pointer`}
+                      disabled={priceFamilyOptions.length === 0}
+                    >
+                      <option value="">Secilmedi</option>
+                      {priceFamilyOptions.map((family) => (
+                        <option key={family.id} value={family.id}>{family.name}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-[#8b97ac]">Bir urun yalnizca bir fiyat ailesinde olabilir.</p>
                   </div>
-                ) : (
-                  <div className="overflow-auto rounded-lg border border-[#e7ebf2]">
-                    <table className="w-full min-w-[1000px] text-left text-[12px]">
-                      <thead className="bg-[#fafbfd] text-[10px] uppercase tracking-wide text-[#8b97ac]">
-                        <tr>
-                          <th className="px-3 py-2.5">#</th>
-                          <th className="px-3 py-2.5">Stok Adi</th>
-                          <th className="px-3 py-2.5">Tedarikci</th>
-                          <th className="px-3 py-2.5">Marka</th>
-                          <th className="px-3 py-2.5">Kategori</th>
-                          <th className="px-3 py-2.5">Ambalaj</th>
-                          <th className="px-3 py-2.5">Ana Birim</th>
-                          <th className="px-3 py-2.5">Marjlar</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#f1f4f9] bg-white">
-                        {bulkItems.slice(0, 80).map((item, index) => (
-                          <tr key={`${item.name}-${index}`}>
-                            <td className="px-3 py-2.5 font-semibold text-[#8b97ac]">{index + 1}</td>
-                            <td className="max-w-[360px] px-3 py-2.5 font-medium text-[#14223b]">{item.name}</td>
-                            <td className="px-3 py-2.5 text-[#51607a]">{item.supplierCode}</td>
-                            <td className="px-3 py-2.5 text-[#51607a]">{item.brandCode}</td>
-                            <td className="px-3 py-2.5 text-[#51607a]">{item.categoryCode}</td>
-                            <td className="px-3 py-2.5 text-[#51607a]">{item.packageCode || '-'}</td>
-                            <td className="px-3 py-2.5 text-[#51607a]">{item.mainUnit}</td>
-                            <td className="px-3 py-2.5 text-[#51607a]">{item.margins.join(' / ')}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {bulkItems.length > 80 && <div className="bg-[#fafbfd] px-4 py-2.5 text-[12px] text-[#8b97ac]">Ilk 80 satir gosteriliyor.</div>}
+                </div>
+
+                {/* Urun gorseli (ZORUNLU) */}
+                <div className="mt-3.5 border-t border-[#eef1f6] pt-3.5">
+                  <div className="mb-2.5">
+                    <h3 className="m-0 text-[12px] font-semibold text-[#14223b]">Gorsel *</h3>
+                    <p className="mt-0.5 text-[11px] text-[#8b97ac]">
+                      Zorunlu. Gorselsiz stok acilmaz. Sadece resim dosyasi, 5MB alti.
+                      {editingStockCode ? ' Duzenlemede gorsel opsiyoneldir.' : ''}
+                    </p>
                   </div>
-                )}
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#e3e8f0] bg-[#fafbfd]">
+                      {form.imagePreviewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={form.imagePreviewUrl} alt="Onizleme" className="h-full w-full object-contain" />
+                      ) : (
+                        <ImageIcon className="h-8 w-8 text-[#c7d2e3]" />
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="block max-w-xs text-[11.5px] text-[#51607a] file:mr-2 file:rounded-md file:border-0 file:bg-[#eef2fa] file:px-3 file:py-1.5 file:text-[11.5px] file:font-semibold file:text-[#15356b] hover:file:bg-[#dde7f6]"
+                      />
+                      {form.image && (
+                        <div className="flex items-center gap-2">
+                          <span className="line-clamp-1 max-w-[220px] text-[11.5px] font-medium text-[#14223b]">{form.image.name}</span>
+                          <button
+                            type="button"
+                            onClick={clearImage}
+                            className="inline-flex items-center gap-1 rounded-md border border-[#d8e0ec] bg-white px-2 py-1 text-[11px] font-semibold text-[#b91c1c] transition hover:bg-[#fff7f7]"
+                          >
+                            <X className="h-3 w-3" />
+                            Kaldir
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
 
             {/* On kontrol / guncelleme paneli */}
             <div className="rounded-xl border border-[#e7ebf2] bg-white p-[18px]">
@@ -708,7 +722,14 @@ export default function StokAcmaNew() {
                       <button
                         type="button"
                         onClick={createStocks}
-                        disabled={creating || !previewRows.length || hasErrors || activeItems.length > MAX_BULK_ITEMS}
+                        disabled={
+                          creating ||
+                          !previewRows.length ||
+                          hasErrors ||
+                          !form.image ||
+                          (form.calculateMinMax !== true && form.calculateMinMax !== false)
+                        }
+                        title={!form.image ? 'Once urun gorseli secin' : undefined}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-[#15356b] bg-[#15356b] px-[18px] py-[9px] text-[12.5px] font-semibold text-white transition hover:bg-[#1c4585] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Save className="h-4 w-4" />
@@ -804,14 +825,15 @@ export default function StokAcmaNew() {
 
             <div className="rounded-xl border border-[#0c2247] bg-[#0c2247] p-[15px] text-white">
               <h2 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold">
-                <PackagePlus className="h-4 w-4 text-[#9bb0d4]" />
-                Excel Kolonlari
+                <ImageIcon className="h-4 w-4 text-[#9bb0d4]" />
+                Zorunlu Alanlar
               </h2>
               <div className="grid grid-cols-2 gap-2 text-[11px] text-[#cdd9ef]">
-                {['Stok Adi', 'Ana Saglayici Kodu', 'Marka Kodu/Adi', 'Kategori Kodu', 'Ambalaj Kodu/Adi (opsiyonel)', 'Ana Birim', 'Ana Birim Olculeri', 'KDV', 'Marj 1-5', '2. Birim', '2. Katsayi', 'Maliyet T/P', 'Raf Kodu'].map((item) => (
+                {['Stok Adi', 'Ana Saglayici', 'Marka', 'Kategori', 'Ana Birim', 'KDV', 'Marj 1-5', 'Min-Max secimi', 'Urun gorseli'].map((item) => (
                   <div key={item} className="rounded-md bg-white/10 px-2.5 py-1.5">{item}</div>
                 ))}
               </div>
+              <p className="mt-2.5 text-[10.5px] text-[#9bb0d4]">Gorsel olmadan stok acilamaz. Aile atamalari opsiyoneldir.</p>
             </div>
           </div>
         </div>

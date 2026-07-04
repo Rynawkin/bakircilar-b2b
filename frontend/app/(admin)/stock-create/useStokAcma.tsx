@@ -3,20 +3,24 @@
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
 import { Copy, Search } from 'lucide-react';
 import { apiClient } from '@/lib/api/client';
+import { adminApi } from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 
 /**
  * Yeni Stok Acma ekraninin TUM mantigi (state/effect/handler/turetilmis deger).
- * Klasik ve yeni gorunum bu hook'u kullanir; gorsel disindaki hicbir mantik degismez.
- * Asagidaki kod, eski page.tsx'in `return (` oncesindeki mantigin BIRE BIR tasinmis halidir.
+ * SADECE tekli, gorsel-zorunlu stok acma akisi vardir (toplu/Excel akisi kaldirildi).
  *
  * Tipler ve module-level yardimci bilesenler (LookupField/CopyButton/CopyableInput) ile
- * sabitler/fonksiyonlar buradan export edilir; Classic/New JSX'leri bunlari tuketir.
+ * sabitler/fonksiyonlar buradan export edilir; StokAcmaNew JSX'i bunlari tuketir.
  */
+
+export type FamilyOption = {
+  id: string;
+  name: string;
+};
 
 export type LookupType = 'supplier' | 'brand' | 'category' | 'package' | 'template';
 export type FactorDirection = 'larger' | 'smaller';
@@ -62,6 +66,14 @@ export type StockForm = {
   barcode: string;
   notes: string;
   extraUnits: ExtraUnit[];
+  // Uçarer min-max hesabina girsin mi (Mikro sto_model_kodu). Zorunlu secim, varsayilan true.
+  calculateMinMax: boolean;
+  // Stok ailesi (coklu) ve fiyat ailesi (tekli) atamalari. Opsiyonel.
+  stockFamilyIds: string[];
+  priceFamilyId: string | null;
+  // Zorunlu urun gorseli (yalniz CREATE) + onizleme URL'i. Drafta serialize edilmez.
+  image: File | null;
+  imagePreviewUrl: string | null;
 };
 
 export type TemplateStock = StockForm & {
@@ -96,8 +108,6 @@ export type CreationLog = {
 };
 
 const DRAFT_KEY = 'stock-create:draft:v2';
-// 10.3: Backend ile ayni tek seferlik satir limiti; toplu yuklemede sessiz kayip olmasin.
-export const MAX_BULK_ITEMS = 200;
 export const textInputClass = 'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100';
 export const labelClass = 'mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500';
 
@@ -137,6 +147,11 @@ export const defaultForm = (templateCode = 'B108423'): StockForm => ({
   barcode: '',
   notes: '',
   extraUnits: [],
+  calculateMinMax: true,
+  stockFamilyIds: [],
+  priceFamilyId: null,
+  image: null,
+  imagePreviewUrl: null,
 });
 
 export const normalizeNumberText = (value: unknown) => String(value ?? '').trim().replace('.', ',');
@@ -176,59 +191,6 @@ export function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
-}
-
-export function mapExcelRow(row: Record<string, any>, index: number, templateCode: string): StockForm {
-  const get = (...keys: string[]) => {
-    for (const key of keys) {
-      if (row[key] !== undefined && row[key] !== null) return String(row[key]).trim();
-    }
-    return '';
-  };
-
-  const extraUnits: ExtraUnit[] = [];
-  [2, 3, 4].forEach((unitIndex) => {
-    const name = get(`${unitIndex}. Birim`, `${unitIndex}.Birim`, `${unitIndex} Birim`, `Birim ${unitIndex}`);
-    const factor = get(`${unitIndex}. Katsayi`, `${unitIndex}.Katsayi`, `${unitIndex} Katsayi`, `Katsayi ${unitIndex}`);
-    if (!name && !factor) return;
-    extraUnits.push({
-      index: unitIndex,
-      name,
-      factor,
-      factorDirection: get(`${unitIndex}. Yon`, `${unitIndex}.Yön`, `Yon ${unitIndex}`).toLowerCase().includes('pozitif') ? 'smaller' : 'larger',
-      weightKg: get(`${unitIndex}. Kg`, `Kg ${unitIndex}`),
-      widthCm: get(`${unitIndex}. En cm`, `En cm ${unitIndex}`),
-      lengthCm: get(`${unitIndex}. Boy cm`, `Boy cm ${unitIndex}`),
-      heightCm: get(`${unitIndex}. Yukseklik cm`, `${unitIndex}. Yükseklik cm`, `Yukseklik cm ${unitIndex}`),
-    });
-  });
-
-  return {
-    templateCode: get('Sablon Stok', 'Şablon Stok', 'Template') || templateCode,
-    name: get('Stok Adi', 'Stok Adı', 'Urun Adi', 'Ürün Adı', 'name'),
-    foreignName: get('Tedarikci Urun Kodu', 'Tedarikçi Ürün Kodu', 'Yabanci Isim', 'Yabancı İsim'),
-    shortName: get('Kisa Isim', 'Kısa İsim'),
-    vatRatePercent: normalizeNumberText(get('KDV', 'KDV %', 'Kdv')),
-    supplierCode: get('Ana Saglayici Kodu', 'Ana Sağlayıcı Kodu', 'Tedarikci Kodu', 'Tedarikçi Kodu'),
-    brandCode: get('Marka Kodu', 'Marka'),
-    brandName: get('Marka Adi', 'Yeni Marka Adi'),
-    categoryCode: get('Kategori Kodu', 'Kategori'),
-    packageCode: get('Ambalaj Kodu', 'Ambalaj'),
-    packageName: get('Ambalaj Adi', 'Yeni Ambalaj Adi'),
-    shelfCode: get('Raf Kodu', 'Reyon Kodu'),
-    costT: normalizeNumberText(get('Maliyet T', 'Toptan Maliyet', 'Guncel Maliyet T', 'Güncel Maliyet T', 'Guncel Maliyet', 'Güncel Maliyet')),
-    costP: normalizeNumberText(get('Maliyet P', 'Perakende Maliyet', 'Guncel Maliyet P', 'Güncel Maliyet P')),
-    currentCost: normalizeNumberText(get('Maliyet T', 'Toptan Maliyet', 'Guncel Maliyet T', 'Güncel Maliyet T', 'Guncel Maliyet', 'Güncel Maliyet')),
-    mainUnit: get('Ana Birim', 'Birim 1', '1. Birim') || 'ADET',
-    mainUnitWeightKg: normalizeNumberText(get('Ana Birim Kg', '1. Birim Kg', 'Birim 1 Kg')),
-    mainUnitWidthCm: normalizeNumberText(get('Ana Birim En cm', '1. Birim En cm', 'Birim 1 En cm')),
-    mainUnitLengthCm: normalizeNumberText(get('Ana Birim Boy cm', '1. Birim Boy cm', 'Birim 1 Boy cm')),
-    mainUnitHeightCm: normalizeNumberText(get('Ana Birim Yukseklik cm', '1. Birim Yukseklik cm')),
-    margins: [1, 2, 3, 4, 5].map((marginIndex) => normalizeNumberText(get(`Marj ${marginIndex}`, `Marj${marginIndex}`))),
-    barcode: get('Barkod', 'Barcode'),
-    notes: get('Not', 'Aciklama', 'Açıklama'),
-    extraUnits,
-  };
 }
 
 export function LookupField({
@@ -411,12 +373,12 @@ export function useStokAcma() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
-  const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single');
   const [nextCode, setNextCode] = useState('');
   const [defaultTemplateCode, setDefaultTemplateCode] = useState('B108423');
   const [unitNames, setUnitNames] = useState<string[]>([]);
   const [form, setForm] = useState<StockForm>(defaultForm());
-  const [bulkItems, setBulkItems] = useState<StockForm[]>([]);
+  const [stockFamilyOptions, setStockFamilyOptions] = useState<FamilyOption[]>([]);
+  const [priceFamilyOptions, setPriceFamilyOptions] = useState<FamilyOption[]>([]);
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   const [historyRows, setHistoryRows] = useState<CreationLog[]>([]);
   const [templateStock, setTemplateStock] = useState<TemplateStock | null>(null);
@@ -444,20 +406,33 @@ export function useStokAcma() {
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
-        if (parsed.form) setForm({ ...defaultForm(parsed.form.templateCode || 'B108423'), ...parsed.form });
-        if (Array.isArray(parsed.bulkItems)) setBulkItems(parsed.bulkItems);
+        if (parsed.form) {
+          // Draft'ta File yoktur; gorseli her zaman bos yukle. Diger alanlar geri yuklenir.
+          const { image: _img, imagePreviewUrl: _prev, ...draftForm } = parsed.form || {};
+          setForm({ ...defaultForm(draftForm.templateCode || 'B108423'), ...draftForm, image: null, imagePreviewUrl: null });
+        }
       } catch {
         // ignore broken local draft
       }
     }
     void loadMetadata();
+    void loadFamilies();
   }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (editingStockCode) return;
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, bulkItems }));
-  }, [form, bulkItems, editingStockCode]);
+    // File objesini localStorage'a yazamayiz; drafttan haric tutulur.
+    const { image: _img, imagePreviewUrl: _prev, ...draftForm } = form;
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ form: draftForm }));
+  }, [form, editingStockCode]);
+
+  // Sekmedeyken olusturulan onizleme URL'lerini serbest birak (bellek sizintisini onle).
+  useEffect(() => {
+    return () => {
+      if (form.imagePreviewUrl) URL.revokeObjectURL(form.imagePreviewUrl);
+    };
+  }, [form.imagePreviewUrl]);
 
   useEffect(() => {
     if (editingStockCode) return;
@@ -488,6 +463,22 @@ export function useStokAcma() {
       toast.error(error.response?.data?.error || 'Stok acma bilgileri alinamadi');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Stok ailesi (coklu) ve fiyat ailesi (tekli) atama secenekleri; ekran acilisinda bir kez cekilir.
+  const loadFamilies = async () => {
+    try {
+      const [stockRes, priceRes] = await Promise.all([
+        adminApi.getProductFamilies(),
+        adminApi.getPriceFamilies(),
+      ]);
+      const mapFamilies = (list: any[]): FamilyOption[] =>
+        (list || []).map((family) => ({ id: String(family.id), name: family.name || family.code || String(family.id) }));
+      setStockFamilyOptions(mapFamilies(stockRes?.data));
+      setPriceFamilyOptions(mapFamilies(priceRes?.data));
+    } catch {
+      // Aile atamalari opsiyoneldir; cekilemezse sessizce bos birak (stok acma engellenmez).
     }
   };
 
@@ -555,6 +546,53 @@ export function useStokAcma() {
     setPreviewRows([]);
   };
 
+  // Min-max secimi (Evet/Hayir). Onizlemeyi etkilemez, o yuzden preview'i sifirlamiyoruz.
+  const setCalculateMinMax = (value: boolean) => {
+    setForm((prev) => ({ ...prev, calculateMinMax: value }));
+  };
+
+  // Stok ailesi coklu secim toggle. Aile atamalari onizlemeyi etkilemez.
+  const toggleStockFamily = (id: string) => {
+    setForm((prev) => {
+      const exists = prev.stockFamilyIds.includes(id);
+      return {
+        ...prev,
+        stockFamilyIds: exists ? prev.stockFamilyIds.filter((x) => x !== id) : [...prev.stockFamilyIds, id],
+      };
+    });
+  };
+
+  // Fiyat ailesi tekli secim (bir urun yalniz bir fiyat ailesinde olabilir).
+  const setPriceFamily = (id: string | null) => {
+    setForm((prev) => ({ ...prev, priceFamilyId: id }));
+  };
+
+  // Zorunlu urun gorseli secimi + istemci tarafi dogrulama (image/*, < 5MB) + onizleme.
+  const setImageFile = (file: File | null) => {
+    setForm((prev) => {
+      if (prev.imagePreviewUrl) URL.revokeObjectURL(prev.imagePreviewUrl);
+      if (!file) return { ...prev, image: null, imagePreviewUrl: null };
+      return { ...prev, image: file, imagePreviewUrl: URL.createObjectURL(file) };
+    });
+  };
+
+  const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Lutfen sadece resim dosyasi yukleyin');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Dosya boyutu 5MB altinda olmali');
+      return;
+    }
+    setImageFile(file);
+  };
+
+  const clearImage = () => setImageFile(null);
+
   const updateVatRatePercent = (vatRatePercent: string) => {
     setForm((prev) => {
       const costP = prev.costT ? costPFromCostT(prev.costT, vatRatePercent) : prev.costP;
@@ -608,6 +646,7 @@ export function useStokAcma() {
     setEditingStockCode(null);
     setTemplateStock(null);
     appliedTemplateRef.current = '';
+    setImageFile(null);
     setForm(defaultForm(defaultTemplateCode));
     setPreviewRows([]);
   };
@@ -619,11 +658,18 @@ export function useStokAcma() {
     try {
       const res = await apiClient.get(`/admin/stock-create/stocks/${encodeURIComponent(code)}`);
       const normalized = normalizeTemplateStock(res.data.stock);
-      setActiveTab('single');
       setEditingStockCode(code);
       setTemplateStock(null);
       appliedTemplateRef.current = code;
-      setForm({ ...defaultForm(code), ...normalized, templateCode: code });
+      // Duzenlemede gorsel opsiyoneldir; her zaman bos baslar. calculateMinMax backend'ten gelirse alinir, gelmezse true.
+      setForm({
+        ...defaultForm(code),
+        ...normalized,
+        templateCode: code,
+        calculateMinMax: typeof (res.data.stock as any)?.calculateMinMax === 'boolean' ? (res.data.stock as any).calculateMinMax : true,
+        image: null,
+        imagePreviewUrl: null,
+      });
       setPreviewRows([]);
       toast.success(`${code} duzenleme moduna alindi`);
       if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -634,27 +680,25 @@ export function useStokAcma() {
     }
   };
 
-  const activeItems = activeTab === 'single' ? [form] : bulkItems;
   const hasErrors = previewRows.some((row) => row.status === 'error');
   const hasWarnings = previewRows.some((row) => row.status === 'warning');
 
+  // Onizleme/olusturma'ya gonderilen tekil item: form alanlari + calculateMinMax.
+  // image/imagePreviewUrl ile aile alanlari item icinde YER ALMAZ (aile bilgisi payload ust seviyesinde gider).
+  const buildItem = () => {
+    const { image, imagePreviewUrl, stockFamilyIds, priceFamilyId, ...rest } = form;
+    return { ...rest };
+  };
+
   const preview = async () => {
-    if (activeItems.length === 0) {
-      toast.error('On kontrol icin satir yok');
-      return;
-    }
     setLoading(true);
     try {
-      const res = await apiClient.post('/admin/stock-create/preview', { items: activeItems });
+      const res = await apiClient.post('/admin/stock-create/preview', { items: [buildItem()] });
       setPreviewRows(res.data.results || []);
       const summary = res.data.summary;
-      // 10.3: Limit asildiysa kullaniciyi acikca uyar (sessiz kayip olmasin).
-      if (summary?.truncated) {
-        toast.error(summary.truncationMessage || `Sadece ilk ${summary.maxItems} satir on kontrolden gecti.`, { duration: 8000 });
-      }
       if (summary?.error > 0) toast.error(`${summary.error} satir hatali`);
       else if (summary?.warning > 0) toast(`${summary.warning} satir uyarili, yine de kaydedilebilir`);
-      else if (!summary?.truncated) toast.success('Tum satirlar kayda hazir');
+      else toast.success('Kayda hazir');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'On kontrol yapilamadi');
     } finally {
@@ -663,7 +707,6 @@ export function useStokAcma() {
   };
 
   const createStocks = async () => {
-    if (activeItems.length === 0) return;
     if (!previewRows.length) {
       toast.error('Once on kontrol calistirin');
       return;
@@ -672,16 +715,41 @@ export function useStokAcma() {
       toast.error('Hatali satirlar varken Mikroya yazilamaz');
       return;
     }
-    const confirmed = window.confirm(`${activeItems.length} stok karti Mikroda olusturulacak.${hasWarnings ? '\n\nUyarili satirlar var; devam etmek istiyor musunuz?' : ''}`);
+    // Gorsel ZORUNLU: gorselsiz stok acilmaz.
+    if (!form.image) {
+      toast.error('Urun gorseli zorunlu. Devam etmeden once gorsel secin.');
+      return;
+    }
+    // Min-max secimi her zaman true/false olmali (undefined/null kabul edilmez).
+    if (form.calculateMinMax !== true && form.calculateMinMax !== false) {
+      toast.error('Min-max hesaplansin mi secimini yapin (Evet/Hayir).');
+      return;
+    }
+    const confirmed = window.confirm(`Stok karti Mikroda olusturulacak.${hasWarnings ? '\n\nUyarili alanlar var; devam etmek istiyor musunuz?' : ''}`);
     if (!confirmed) return;
 
     setCreating(true);
     try {
-      const res = await apiClient.post('/admin/stock-create/create', { items: activeItems });
-      toast.success(`${res.data.created?.length || 0} stok karti olusturuldu`);
+      const formData = new FormData();
+      formData.append('image', form.image);
+      formData.append(
+        'payload',
+        JSON.stringify({
+          item: buildItem(),
+          stockFamilyIds: form.stockFamilyIds,
+          priceFamilyId: form.priceFamilyId,
+        })
+      );
+      const res = await adminApi.createStock(formData);
+      if (res.warnings?.length) {
+        // Aile/gorsel kismi hatalari olumcul degildir; kullaniciya bilgi olarak goster.
+        res.warnings.forEach((warning) => toast(warning, { duration: 7000 }));
+      }
+      toast.success(res.stockCode ? `${res.stockCode} stok karti olusturuldu` : 'Stok karti olusturuldu');
       setPreviewRows([]);
+      setImageFile(null);
       await loadMetadata();
-      if (activeTab === 'single') setForm(defaultForm(defaultTemplateCode));
+      setForm(defaultForm(defaultTemplateCode));
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Stok karti olusturulamadi');
     } finally {
@@ -696,9 +764,17 @@ export function useStokAcma() {
 
     setUpdating(true);
     try {
-      const res = await apiClient.put(`/admin/stock-create/stocks/${encodeURIComponent(editingStockCode)}`, form);
+      // Guncellemede gorsel/aile alanlari yer almaz; item + calculateMinMax gonderilir.
+      const res = await apiClient.put(`/admin/stock-create/stocks/${encodeURIComponent(editingStockCode)}`, buildItem());
       const normalized = normalizeTemplateStock(res.data.stock);
-      setForm({ ...defaultForm(editingStockCode), ...normalized, templateCode: editingStockCode });
+      setForm({
+        ...defaultForm(editingStockCode),
+        ...normalized,
+        templateCode: editingStockCode,
+        calculateMinMax: typeof (res.data.stock as any)?.calculateMinMax === 'boolean' ? (res.data.stock as any).calculateMinMax : form.calculateMinMax,
+        image: null,
+        imagePreviewUrl: null,
+      });
       setPreviewRows([]);
       await loadMetadata();
       toast.success(`${editingStockCode} guncellendi`);
@@ -709,90 +785,24 @@ export function useStokAcma() {
     }
   };
 
-  const downloadTemplate = () => {
-    const rows = [
-      {
-        'Sablon Stok': defaultTemplateCode,
-        'Stok Adi': "Focus Extra 21 cm Hareketli Kagit Havlu 130 mt 6'li Koli - 6 kg 50003071",
-        'Tedarikci Urun Kodu': '50003071',
-        'KDV': 20,
-        'Ana Saglayici Kodu': '320.01.211',
-        'Marka Kodu': 'FOCUS',
-        'Marka Adi': 'FOCUS',
-        'Kategori Kodu': '8.04.03',
-        'Ambalaj Kodu': '6',
-        'Ambalaj Adi': '6 KG',
-        'Ana Birim': 'KOLI',
-        'Ana Birim Kg': 6,
-        'Ana Birim En cm': '',
-        'Ana Birim Boy cm': '',
-        'Ana Birim Yukseklik cm': '',
-        '2. Birim': 'ADET',
-        '2. Katsayi': 6,
-        '2. Yon': 'Buyuk birim',
-        'Marj 1': 2,
-        'Marj 2': 1.5,
-        'Marj 3': 1.3,
-        'Marj 4': 1.2,
-        'Marj 5': 1.15,
-        'Maliyet T': '',
-        'Maliyet P': '',
-        'Raf Kodu': '',
-        'Barkod': '',
-        'Not': '',
-      },
-    ];
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Stok Acma');
-    XLSX.writeFile(workbook, `stok-acma-sablonu-${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
-  const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
-      const mapped = rows.map((row, index) => mapExcelRow(row, index + 1, defaultTemplateCode)).filter((item) => item.name.trim());
-      setBulkItems(mapped);
-      setActiveTab('bulk');
-      setPreviewRows([]);
-      toast.success(`${mapped.length} satir yuklendi`);
-      // 10.3: Limit asildiysa daha yukleme aninda acikca uyar.
-      if (mapped.length > MAX_BULK_ITEMS) {
-        toast.error(
-          `${mapped.length} satir yuklendi ancak tek seferde en fazla ${MAX_BULK_ITEMS} satir islenebilir. Kalan ${mapped.length - MAX_BULK_ITEMS} satir icin ayri parti yukleyin.`,
-          { duration: 9000 }
-        );
-      }
-    } catch (error) {
-      toast.error('Excel okunamadi');
-    } finally {
-      event.target.value = '';
-    }
-  };
-
   return {
     // router / auth / izin
     router,
     user,
     permissionsLoading,
-    // sekme / kod / sablon
-    activeTab,
-    setActiveTab,
+    // kod / sablon
     nextCode,
     defaultTemplateCode,
     unitNames,
-    // form / toplu / onizleme / gecmis
+    // form / onizleme / gecmis
     form,
-    bulkItems,
     previewRows,
     historyRows,
     templateStock,
     templateLoading,
+    // aile secenekleri
+    stockFamilyOptions,
+    priceFamilyOptions,
     // duzenleme / yuklenme durumlari
     editingStockCode,
     editLoading,
@@ -800,7 +810,6 @@ export function useStokAcma() {
     loading,
     creating,
     // turetilmis
-    activeItems,
     hasErrors,
     hasWarnings,
     // aksiyonlar
@@ -817,13 +826,16 @@ export function useStokAcma() {
     addExtraUnit,
     updateExtraUnit,
     removeExtraUnit,
+    setCalculateMinMax,
+    toggleStockFamily,
+    setPriceFamily,
+    handleImageChange,
+    clearImage,
     cancelEditMode,
     loadStockForEdit,
     preview,
     createStocks,
     updateExistingStock,
-    downloadTemplate,
-    handleFileUpload,
     setPreviewRows,
   };
 }

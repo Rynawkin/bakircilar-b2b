@@ -1,7 +1,12 @@
+import path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import pricingService from './pricing.service';
+import imageService from './image.service';
+import familyCandidateService from './family-candidate.service';
+import reportsService from './reports.service';
+import { getUploadsDir } from '../utils/storage';
 
 type LookupType = 'supplier' | 'brand' | 'category' | 'package' | 'template';
 type FactorDirection = 'larger' | 'smaller';
@@ -43,6 +48,9 @@ export type StockCreateInput = {
   margins?: Array<number | string | null> | null;
   barcode?: string | null;
   notes?: string | null;
+  // Min-Max: true => Mikro min-max hesaplasin (sto_model_kodu = ''),
+  // false => haric tut (sto_model_kodu = 'HAYIR'). Varsayilan true.
+  calculateMinMax?: boolean | null;
 };
 
 type NormalizedUnit = {
@@ -84,6 +92,7 @@ type NormalizedStockInput = {
   margins: string[];
   barcode: string;
   notes: string;
+  calculateMinMax: boolean;
 };
 
 type ValidationRef = {
@@ -284,6 +293,8 @@ class StockCreateService {
       margins: normalizedMargins,
       barcode: normalizeText(input.barcode),
       notes: normalizeText(input.notes),
+      // Min-Max varsayilani ACIK; yalnizca acikca false gelirse haric tutulur.
+      calculateMinMax: input.calculateMinMax === false ? false : true,
     };
   }
 
@@ -491,6 +502,7 @@ class StockCreateService {
         s.sto_isim AS name,
         s.sto_yabanci_isim AS foreignName,
         s.sto_kisa_ismi AS shortName,
+        s.sto_model_kodu AS modelKodu,
         CASE
           WHEN s.sto_toptan_vergi = 5 THEN 20
           WHEN s.sto_toptan_vergi = 7 THEN 10
@@ -582,6 +594,8 @@ class StockCreateService {
 
     return {
       templateCode: normalizeText(row.templateCode),
+      // Mikro sto_model_kodu === 'HAYIR' => min-max haric; edit'te mevcut secim korunsun diye don.
+      calculateMinMax: String(row.modelKodu ?? '').trim().toLocaleUpperCase('tr') !== 'HAYIR',
       name: normalizeText(row.name),
       foreignName: normalizeText(row.foreignName),
       shortName: normalizeText(row.shortName),
@@ -848,6 +862,9 @@ class StockCreateService {
       sto_create_date: 'GETDATE()',
       sto_lastup_date: 'GETDATE()',
       sto_resim_url: toSqlString(costDate),
+      // Min-Max: sablondan (SELECT ile klonlanan) deger sizmasin diye ACIKCA set ediyoruz.
+      // 'HAYIR' => min-max hesaplama disi; '' => hesaplansin (minmax.service excluded = modelKodu === 'HAYIR').
+      sto_model_kodu: toSqlString(item.calculateMinMax ? '' : 'HAYIR'),
     };
 
     if (direct[lower] !== undefined) return direct[lower];
@@ -1085,6 +1102,12 @@ class StockCreateService {
     // 10.3: Limit asildiysa sessizce ilk 200'u yazip "hepsi olustu" demeyelim.
     // Kullaniciya net hata don; partiyi bolup tekrar gondersin (sessiz kayip yok).
     const requestedTotal = Array.isArray(itemsInput) ? itemsInput.length : 0;
+    // Toplu/Excel akisi kaldirildi: yalnizca TEK stok karti acilir.
+    if (requestedTotal > 1) {
+      throw new Error(
+        `Stok acma yalnizca tek kart destekler; ${requestedTotal} satir gonderildi. Her stok karti ayri ayri acilmalidir.`
+      );
+    }
     if (requestedTotal > MAX_ITEMS) {
       throw new Error(
         `Tek seferde en fazla ${MAX_ITEMS} stok karti acilabilir. ${requestedTotal} satir gonderildi; sessiz kayip olmamasi icin satirlari ${MAX_ITEMS}'lik partilere bolup tekrar yazin.`
@@ -1248,6 +1271,129 @@ class StockCreateService {
     };
   }
 
+  /**
+   * Tek stok karti + zorunlu gorsel + opsiyonel aile atamalari.
+   * Akis:
+   *  1) Mikro STOKLAR INSERT (mevcut create yolu; sto_model_kodu dahil) + Product upsert (syncCreatedProduct).
+   *  2) Gorsel pipeline (Mikro mye_ImageData + Product.imageUrl). Stok olustuktan SONRA
+   *     gorsel adiminda hata olursa TUM istek basarisiz sayilmaz; uyari ile devam edilir.
+   *  3) Aile atamalari (stok aileleri + tek fiyat ailesi). Postgres-only, non-fatal.
+   */
+  async createSingleWithImage(params: {
+    item: StockCreateInput;
+    imageFile: Express.Multer.File;
+    stockFamilyIds?: string[] | null;
+    priceFamilyId?: string | null;
+    userId?: string | null;
+  }): Promise<{ success: boolean; stockCode?: string; productId?: string; warnings: string[]; error?: string }> {
+    const { item, imageFile, userId } = params;
+    const stockFamilyIds = Array.isArray(params.stockFamilyIds) ? params.stockFamilyIds : [];
+    const priceFamilyId = params.priceFamilyId ? String(params.priceFamilyId).trim() : null;
+    const warnings: string[] = [];
+
+    if (!imageFile) {
+      throw new Error('Gorsel zorunlu - gorsel yuklemeden stok acilamaz');
+    }
+
+    // 1) Mikro STOKLAR INSERT + Product upsert (mevcut, degistirilmemis create yolu).
+    const createResult = await this.create([item], userId);
+    const createdRow = createResult.created?.[0];
+    const stockCode = normalizeText(createdRow?.stockCode);
+    if (!stockCode) {
+      // Mikro kaydi donmediyse ne gorsel ne aile atanabilir.
+      throw new Error('Stok Mikroya yazilamadi (stok kodu donmedi)');
+    }
+
+    // create() icinde syncCreatedProduct zaten Product'i upsert etti; id'sini al.
+    const product = await prisma.product.findUnique({
+      where: { mikroCode: stockCode },
+      select: { id: true, name: true },
+    });
+    const productId = product?.id;
+    const productName = product?.name || normalizeText(item.name) || stockCode;
+
+    // 2) Gorsel pipeline - stok OLUSTUKTAN sonra; hata olursa istek basarisiz olmaz.
+    let processedFilePath: string | null = null;
+    try {
+      const tempPath = (imageFile as any).path || path.join(getUploadsDir(), imageFile.filename);
+      const processed = await imageService.processUploadedProductImage(tempPath, stockCode);
+      processedFilePath = processed.filePath;
+
+      const guidRows = await mikroService.getProductGuidsByCodes([stockCode]);
+      const productGuid = guidRows.find((row) => row.code === stockCode)?.guid || guidRows[0]?.guid;
+      if (!productGuid) {
+        throw new Error('Mikro GUID bulunamadi');
+      }
+
+      await imageService.uploadImageToMikro(productGuid, processed.buffer);
+
+      if (productId) {
+        await prisma.product.update({
+          where: { id: productId },
+          data: {
+            imageUrl: processed.imageUrl,
+            imageChecksum: processed.checksum,
+            imageSyncStatus: 'SUCCESS',
+            imageSyncErrorType: null,
+            imageSyncErrorMessage: null,
+            imageSyncUpdatedAt: new Date(),
+          },
+        });
+      }
+    } catch (imageError: any) {
+      // Stok zaten olustu; gorseli sonra Urunler ekranindan ekletebiliriz.
+      if (processedFilePath) {
+        await imageService.removeLocalFile(processedFilePath).catch(() => {});
+      }
+      console.error('Stock create image pipeline failed:', imageError?.message || imageError);
+      warnings.push('Stok olusturuldu ancak gorsel yuklenemedi - Urunler ekranindan ekleyin');
+    }
+
+    // 3) Stok aileleri (cok secimli, non-fatal). 409 "zaten ailede" sessizce yutulur.
+    for (const rawId of stockFamilyIds) {
+      const familyId = String(rawId || '').trim();
+      if (!familyId) continue;
+      try {
+        await familyCandidateService.addProductToFamily(familyId, { productCode: stockCode, productName });
+      } catch (familyError: any) {
+        const status = familyError?.statusCode || familyError?.status;
+        if (status === 409) continue; // zaten ailede - sorun degil
+        console.error('Stock create stock-family assign failed:', familyId, familyError?.message || familyError);
+        warnings.push(`Stok ailesine eklenemedi (${familyId}): ${familyError?.message || 'bilinmeyen hata'}`);
+      }
+    }
+
+    // 3b) Tek fiyat ailesi (opsiyonel, non-fatal). reportsService'te incremental add yok;
+    // mevcut ailenin productCodes'una yeni kodu ekleyip upsertPriceFamily ile geri yaziyoruz.
+    if (priceFamilyId) {
+      try {
+        const families = await reportsService.getPriceFamilies();
+        const target = families.find((family) => family.id === priceFamilyId);
+        if (!target) {
+          warnings.push('Fiyat ailesi bulunamadi; fiyat ailesi atanmadi');
+        } else {
+          const existingCodes = target.items.map((entry) => String(entry.productCode || '').trim().toUpperCase());
+          const nextCodes = Array.from(new Set([...existingCodes, stockCode.toUpperCase()])).filter(Boolean);
+          // upsertPriceFamily imzasinda userId yok; ailenin kendi ad/kod/not/aktif degerlerini koruyup
+          // yalnizca yeni stok kodunu productCodes'a ekliyoruz (bir urun tek fiyat ailesinde kurali servis icinde).
+          await reportsService.upsertPriceFamily({
+            id: target.id,
+            name: target.name,
+            code: target.code,
+            note: target.note,
+            active: target.active,
+            productCodes: nextCodes,
+          });
+        }
+      } catch (priceFamilyError: any) {
+        console.error('Stock create price-family assign failed:', priceFamilyId, priceFamilyError?.message || priceFamilyError);
+        warnings.push(`Fiyat ailesine eklenemedi: ${priceFamilyError?.message || 'bilinmeyen hata'}`);
+      }
+    }
+
+    return { success: true, stockCode, productId, warnings };
+  }
+
   async updateStock(stockCode: string, input: StockCreateInput, userId?: string | null) {
     const code = upperText(stockCode);
     if (!code) {
@@ -1322,6 +1468,8 @@ class StockCreateService {
       `sto_standartmaliyet = ${currentCostSql}`,
       `sto_resim_url = CASE WHEN ${costChangedExpression} THEN ${toSqlString(marginDate)} ELSE sto_resim_url END`,
       `sto_reyon_kodu = ${toSqlString(item.shelfCode)}`,
+      // Min-Max ac/kapa: 'HAYIR' => hesaplama disi, '' => hesaplansin (duzenleme + pasif-aktiflestirme bunu set edebilsin).
+      `sto_model_kodu = ${toSqlString(item.calculateMinMax ? '' : 'HAYIR')}`,
     ];
 
     UNIT_INDEXES.forEach((unitIndex) => {

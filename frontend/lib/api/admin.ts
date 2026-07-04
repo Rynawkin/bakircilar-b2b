@@ -2493,6 +2493,19 @@ export const adminApi = {
     return response.data;
   },
 
+  // Stok Acma - tekli stok kartini gorsel ile birlikte (multipart) olusturur.
+  // payload = JSON string { item, stockFamilyIds, priceFamilyId }
+  createStock: async (
+    formData: FormData
+  ): Promise<{ success: boolean; stockCode?: string; productId?: string; warnings?: string[]; error?: string }> => {
+    const response = await apiClient.post('/admin/stock-create/create', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
   // Quote Item Images
   uploadQuoteItemImage: async (formData: FormData): Promise<{ imageUrl: string; message?: string }> => {
     const response = await apiClient.post('/admin/quotes/items/upload-image', formData, {

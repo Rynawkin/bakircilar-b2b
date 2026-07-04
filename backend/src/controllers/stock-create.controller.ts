@@ -77,12 +77,45 @@ class StockCreateController {
 
   async create(req: Request, res: Response) {
     try {
-      const items = Array.isArray(req.body?.items) ? req.body.items : [];
-      const data = await stockCreateService.create(items, req.user?.userId);
+      // Yeni sozlesme: multipart/form-data.
+      //   image   : File (ZORUNLU)
+      //   payload : JSON string = { item: <tek stok>, stockFamilyIds: string[], priceFamilyId: string|null }
+      if (!req.file) {
+        res.status(400).json({ error: 'Gorsel zorunlu - gorsel yuklemeden stok acilamaz' });
+        return;
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(String(req.body?.payload ?? ''));
+      } catch {
+        res.status(400).json({ error: 'payload gecerli bir JSON degil' });
+        return;
+      }
+
+      const item = parsed?.item;
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        res.status(400).json({ error: 'payload.item tek bir stok nesnesi olmalidir' });
+        return;
+      }
+
+      const stockFamilyIds = Array.isArray(parsed?.stockFamilyIds) ? parsed.stockFamilyIds : [];
+      const priceFamilyId =
+        parsed?.priceFamilyId === null || parsed?.priceFamilyId === undefined || parsed?.priceFamilyId === ''
+          ? null
+          : String(parsed.priceFamilyId);
+
+      const data = await stockCreateService.createSingleWithImage({
+        item,
+        imageFile: req.file,
+        stockFamilyIds,
+        priceFamilyId,
+        userId: req.user?.userId,
+      });
       res.json(data);
     } catch (error: any) {
       console.error('Stock create failed:', error);
-      res.status(400).json({ error: error.message || 'Stok karti olusturulamadi' });
+      res.status(400).json({ success: false, error: error.message || 'Stok karti olusturulamadi' });
     }
   }
 
