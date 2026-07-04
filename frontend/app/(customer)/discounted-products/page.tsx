@@ -213,8 +213,12 @@ export default function DiscountedProductsPage() {
   const filteredProducts = useMemo(() => {
     // Shared fiyat araligi filtresi (advancedFilters.sortBy 'none' — sort'u yerelde yapiyoruz)
     let base = applyProductFilters(products, advancedFilters);
-    const railActive = railFilters.stockStatus !== 'all' || railFilters.onlyAgreement || railFilters.onlyDiscount;
-    if (railActive) base = base.filter((p) => railMatches(p, combinedRailFilters));
+    // ONEMLI: bu sayfa zaten SERVER-SIDE mode:'discounted' -> onlyDiscount CLIENT filtresini UYGULAMA.
+    // (Sunucu garanti ediyor; ayrica discounted-mode payload'unda excessPrices/excessStock alan sekli
+    //  farkli oldugundan railMatches.onlyDiscount yanlislikla TUM kalemleri elerdi -> "indirimli urun yok".)
+    // Sadece stok durumu / "sadece anlasmali" client filtreleri gecerli.
+    const railActive = railFilters.stockStatus !== 'all' || railFilters.onlyAgreement;
+    if (railActive) base = base.filter((p) => railMatches(p, { ...combinedRailFilters, onlyDiscount: false }));
 
     // Siralama: 'discount-desc' yerel; digerleri applyProductFilters'a delege
     if (sortBy === 'discount-desc') {
