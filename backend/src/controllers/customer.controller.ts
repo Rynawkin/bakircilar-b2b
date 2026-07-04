@@ -3216,6 +3216,174 @@ export class CustomerController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/unbought-category-products
+   * "Henuz denemediginiz kategoriler" sayfasi (kategori kartlari yerine URUN listesi).
+   * Carinin HIC almadigi kategorilerdeki gorunur urunler (cok-satan sirali), sayfali.
+   * - categoryId verilirse: SADECE o kategori (denenmemis set icinde olmak zorunda).
+   * - categoryId yoksa: TUM denenmemis kategorilerdeki urunler.
+   * Urun payload'i /products ile AYNI (buildCustomerProductPayloads reuse) -> ayni ProductCard.
+   * categories = denenmemis yaprak kategori listesi (sol ray). getUnboughtCategories ile ayni mantik.
+   */
+  async getUnboughtCategoryProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const context = await loadCustomerContext(req.user!.userId);
+      const {
+        customer,
+        priceListRules,
+        basePriceListPair,
+        includedWarehouses,
+        effectiveVisibility,
+      } = context;
+
+      // Denenmemis (hic alinmayan) yaprak kategoriler — getUnboughtCategories ile AYNI cache/mantik.
+      const unboughtCategories = await getCachedValue(
+        `customer:unbought-categories:${customer.id}`,
+        async () => {
+          const purchased = await giftCampaignService.getPurchasedCategoryIds({
+            id: customer.id,
+            mikroCariCode: customer.mikroCariCode ?? null,
+          });
+          const allCats = await getVisibleCategories();
+          return allCats
+            .filter((c) => c.hasProducts && !purchased.has(c.id))
+            .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+        },
+        10 * 60 * 1000
+      );
+
+      const unboughtIdSet = new Set(unboughtCategories.map((c) => c.id));
+      const categories = unboughtCategories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        mikroCode: c.mikroCode,
+        imageUrl: c.imageUrl,
+      }));
+
+      // Sol ray listesi (categories) her zaman doner; urun sorgusunu daralt.
+      const requestedCategoryId = typeof req.query.categoryId === 'string' ? req.query.categoryId.trim() : '';
+      // Istenen kategori denenmemis set disindaysa: urun dondurme (ama kategori rayini koru).
+      if (requestedCategoryId && !unboughtIdSet.has(requestedCategoryId)) {
+        return res.json({ products: [], totalCount: 0, categories });
+      }
+
+      const categoryWhere = requestedCategoryId
+        ? { categoryId: requestedCategoryId }
+        : { categoryId: { in: Array.from(unboughtIdSet) } };
+
+      // Hic denenmemis kategori yoksa: bos liste.
+      if (!requestedCategoryId && unboughtIdSet.size === 0) {
+        return res.json({ products: [], totalCount: 0, categories });
+      }
+
+      const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
+
+      const rawLimit = Number(req.query.limit);
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 60;
+      const rawOffset = Number(req.query.offset);
+      const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+
+      // Sort: /products ile ayni cok-satan varsayilani (popularSalesValue desc).
+      const requestedSort = typeof req.query.sort === 'string' ? req.query.sort : '';
+      const productSort = requestedSort || 'bestsellerValue';
+      const bestsellerOrderBy = [{ popularSalesValue: 'desc' as const }, { name: 'asc' as const }];
+      const nameOrderBy = [{ name: 'asc' as const }];
+
+      const productWhere: any = {
+        active: true,
+        hiddenFromCustomers: false,
+        ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+        ...categoryWhere,
+      };
+
+      const [totalCount, products] = await Promise.all([
+        prisma.product.count({ where: productWhere }),
+        prisma.product.findMany({
+          where: productWhere,
+          select: {
+            id: true,
+            name: true,
+            mikroCode: true,
+            brandCode: true,
+            unit: true,
+            unit2: true,
+            unit2Factor: true,
+            vatRate: true,
+            currentCost: true,
+            lastEntryPrice: true,
+            excessStock: true,
+            imageUrl: true,
+            warehouseStocks: true,
+            warehouseExcessStocks: true,
+            pendingCustomerOrdersByWarehouse: true,
+            prices: true,
+            category: { select: { id: true, name: true } },
+          },
+          orderBy: productSort === 'bestsellerValue' ? bestsellerOrderBy : nameOrderBy,
+          skip: offset,
+          take: limit,
+        }),
+      ]);
+
+      // /products ile AYNI serializasyon/fiyatlandirma -> ayni ProductCard payload'i.
+      const payload = await buildCustomerProductPayloads({
+        products: products as any,
+        customer,
+        priceListRules,
+        basePriceListPair,
+        includedWarehouses,
+        effectiveVisibility,
+      });
+
+      res.json({ products: payload, totalCount, categories });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/brand-facets
+   * Marka filtre rayi: gorunur (aktif + gizli-degil) urunlerden distinct marka + sayac.
+   * - categoryId: opsiyonel baglam (o kategorideki markalar).
+   * - search: marka koduna gore filtre (marka adi ayri alan degil; brandCode = kod = ad).
+   * Sayfalama YOK; TUM katalogu kapsayan marka listesi doner (groupBy, tek agregat sorgu).
+   */
+  async getBrandFacets(req: Request, res: Response, next: NextFunction) {
+    try {
+      const categoryId = typeof req.query.categoryId === 'string' ? req.query.categoryId.trim() : '';
+      const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+      const where: any = {
+        active: true,
+        hiddenFromCustomers: false,
+        brandCode: {
+          not: null,
+          ...(search ? { contains: search, mode: 'insensitive' } : {}),
+        },
+      };
+      if (categoryId) where.categoryId = categoryId;
+
+      const grouped = await prisma.product.groupBy({
+        by: ['brandCode'],
+        where,
+        _count: { _all: true },
+        orderBy: { brandCode: 'asc' },
+        take: 500,
+      });
+
+      const brands = grouped
+        // brandCode = hem kod hem ad (Product'ta ayri marka adi yok).
+        .map((entry) => ({ code: (entry.brandCode || '').trim(), count: entry._count._all }))
+        .filter((b) => b.code)
+        .map((b) => ({ code: b.code, name: b.code, count: b.count }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+
+      res.json({ brands });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new CustomerController();

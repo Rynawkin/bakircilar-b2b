@@ -262,11 +262,11 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
   return (
     <header className="sticky top-0 z-50 w-full overflow-x-clip bg-white">
-      {/* ── ÜST BAR ──────────────────────────────────────────────── */}
+      {/* ── ÜST BAR (sticky 64px) ────────────────────────────────── */}
       <div className="border-b border-[var(--line)]">
-        <div className="mx-auto flex h-16 w-full max-w-[1900px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:gap-4 lg:px-8">
-          {/* Logo */}
-          <Link href="/home" className="flex flex-shrink-0 items-center gap-2.5">
+        <div className="mx-auto flex h-16 w-full max-w-[1900px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:gap-[18px] lg:px-8">
+          {/* Logo (sola sabit) */}
+          <Link href="/home" className="flex flex-none items-center gap-2.5">
             <span className="flex h-10 items-center justify-center rounded-lg bg-primary-600 px-2.5 sm:px-3">
               <img src="/logo.png" alt="Bakırcılar" className="h-[22px] w-auto object-contain" />
             </span>
@@ -275,18 +275,21 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             </span>
           </Link>
 
-          {/* Arama */}
-          <div className="relative flex h-10 min-w-0 flex-1 items-center">
-            <form onSubmit={handleSearch} className="flex h-10 w-full items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-0)] px-3">
-              <Search className="h-4 w-4 flex-shrink-0 text-[var(--ink-3)]" />
+          {/* Arama (flex:1, min-w-0, ÜST SINIR YOK → sağ küme en sağa yaslanır) */}
+          <div className="relative flex h-[42px] min-w-0 flex-1 items-center">
+            <form onSubmit={handleSearch} className="flex h-[42px] w-full items-center gap-2.5 rounded-[10px] border border-[var(--line)] bg-[#f6f8fc] px-3.5">
+              <Search className="h-[18px] w-[18px] flex-none text-[var(--ink-3)]" />
               <input
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => window.setTimeout(() => setSearchFocused(false), 150)}
                 placeholder="Ürün adı, Mikro kodu veya marka ara…"
-                className="min-w-0 flex-1 border-none bg-transparent text-sm text-[var(--ink-1)] outline-none placeholder:text-[var(--ink-3)]"
+                className="min-w-0 flex-1 border-none bg-transparent text-sm text-[var(--ink-1)] outline-none placeholder:text-[#9aa6b8]"
               />
+              <span className="hidden select-none rounded-[5px] border border-[var(--line)] bg-white px-1.5 py-px text-[11px] text-[#9aa6b8] sm:inline">
+                /
+              </span>
             </form>
 
             {/* Kategori onerileri (yazdikca, Turkce-foldlu) */}
@@ -337,19 +340,19 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             )}
           </div>
 
-          {/* Bakiye / Vadesi gecen */}
+          {/* Bakiye / Vadesi gecen (bakiye pill) */}
           {financials && (
-            <div className="hidden flex-shrink-0 items-center gap-3 rounded-xl border border-[var(--line)] px-3.5 py-1.5 xl:flex">
-              <div className="flex flex-col leading-tight">
-                <span className="text-[10px] font-medium text-[var(--ink-3)]">Bakiye</span>
+            <div className="hidden h-[42px] flex-none items-center gap-3.5 rounded-[10px] border border-[var(--line)] px-3.5 xl:flex">
+              <div className="flex flex-col leading-[1.2]">
+                <span className="text-[10px] font-medium text-[#8b97ac]">Bakiye</span>
                 <span className="text-[13px] font-semibold text-[var(--ink-1)]">{formatCurrency(financials.totalBalance)}</span>
               </div>
               {financials.pastDueBalance > 0 && (
                 <>
                   <span className="h-6 w-px bg-[var(--line)]" />
-                  <div className="flex flex-col leading-tight">
-                    <span className="text-[10px] font-medium text-[var(--ink-3)]">Vadesi geçen</span>
-                    <span className="text-[13px] font-semibold text-amber-700">{formatCurrency(financials.pastDueBalance)}</span>
+                  <div className="flex flex-col leading-[1.2]">
+                    <span className="text-[10px] font-medium text-[#8b97ac]">Vadesi gelen</span>
+                    <span className="text-[13px] font-semibold text-[#b45309]">{formatCurrency(financials.pastDueBalance)}</span>
                   </div>
                 </>
               )}
@@ -357,15 +360,15 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           )}
 
           {/* Bildirim */}
-          <Menu as="div" className="relative flex-shrink-0">
+          <Menu as="div" className="relative flex-none">
             <Menu.Button
               onClick={fetchNotifications}
-              className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--line)] text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+              className="relative flex h-[42px] w-[42px] items-center justify-center rounded-[10px] border border-[var(--line)] text-[var(--ink-2)] transition-colors hover:bg-[#f6f8fc]"
               aria-label="Bildirimler"
             >
-              <Bell className="h-[18px] w-[18px]" />
+              <Bell className="h-[19px] w-[19px]" />
               {unreadCount > 0 && (
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
+                <span className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-[#dc2626] ring-[1.5px] ring-white" />
               )}
             </Menu.Button>
             <Transition
@@ -415,9 +418,9 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           </Menu>
 
           {/* Hesap menüsü */}
-          <Menu as="div" className="relative hidden flex-shrink-0 md:block">
-            <Menu.Button className="flex items-center gap-2 rounded-xl border border-[var(--line)] py-1 pl-1 pr-2.5 transition-colors hover:bg-[var(--surface-0)]">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-[12.5px] font-semibold text-primary-600">
+          <Menu as="div" className="relative hidden flex-none md:block">
+            <Menu.Button className="flex h-[42px] items-center gap-2.5 rounded-[10px] border border-[var(--line)] py-1 pl-[5px] pr-2.5 transition-colors hover:bg-[#f6f8fc]">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#eef2fa] text-[12.5px] font-semibold text-primary-700">
                 {user?.name?.charAt(0).toUpperCase()}
               </span>
               <span className="hidden flex-col items-start leading-tight lg:flex">
@@ -491,21 +494,21 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             </Transition>
           </Menu>
 
-          {/* Sepet */}
+          {/* Sepet (lacivert) */}
           <Link
             href="/cart"
-            className="flex h-10 flex-shrink-0 items-center gap-2.5 rounded-xl bg-primary-600 px-2.5 text-white transition-colors hover:bg-primary-700 sm:px-3.5"
+            className="flex h-[42px] flex-none items-center gap-2.5 rounded-[10px] bg-primary-700 px-2.5 text-white transition-colors hover:bg-primary-600 sm:px-[15px]"
           >
             <span className="relative flex">
-              <ShoppingCart className="h-[18px] w-[18px]" />
+              <ShoppingCart className="h-[19px] w-[19px]" />
               {cartCount > 0 && (
-                <span className="absolute -right-2.5 -top-2 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-primary-600">
+                <span className="absolute -right-[9px] -top-[7px] flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[10px] font-semibold text-primary-700">
                   {cartCount}
                 </span>
               )}
             </span>
-            <span className="hidden flex-col items-start leading-tight sm:flex">
-              <span className="text-[10px] font-medium text-primary-100">Sepet</span>
+            <span className="hidden flex-col items-start leading-[1.2] sm:flex">
+              <span className="text-[10px] font-medium text-[#a9bce0]">Sepet</span>
               <span className="text-[13px] font-semibold">{formatCurrency(cartTotal)}</span>
             </span>
           </Link>
@@ -513,7 +516,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           {/* Mobil menü butonu (hamburger = hesap/gezinme menusu) */}
           <button
             onClick={openMobileMenu}
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--line)] text-[var(--ink-2)] lg:hidden"
+            className="flex h-[42px] w-[42px] flex-none items-center justify-center rounded-[10px] border border-[var(--line)] text-[var(--ink-2)] lg:hidden"
             aria-label="Menü"
             aria-expanded={mobileMenuOpen}
           >
@@ -522,35 +525,37 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
         </div>
       </div>
 
-      {/* ── KATEGORİ / GEZİNME SATIRI ────────────────────────────── */}
-      <div className="relative hidden border-b border-[var(--line)] md:block" onMouseLeave={() => setMegaOpen(false)}>
+      {/* ── KATEGORİ / GEZİNME SATIRI (48px) ─────────────────────── */}
+      <div className="relative hidden border-b border-[#eef1f6] md:block" onMouseLeave={() => setMegaOpen(false)}>
         <div className="mx-auto flex h-12 w-full max-w-[1900px] items-center justify-between px-4 sm:px-6 lg:px-8">
+          {/* Sol — Tüm Kategoriler (hover mega) + Tüm Ürünler */}
           <nav className="flex items-center gap-0.5 whitespace-nowrap">
             <button
               type="button"
               onMouseEnter={() => setMegaOpen(true)}
               onClick={() => router.push('/products')}
-              className="flex h-12 items-center gap-2 px-3 text-[13.5px] font-semibold text-primary-600"
+              className="flex h-12 items-center gap-2 px-[13px] text-[13.5px] font-semibold text-primary-700"
             >
-              <LayoutGrid className="h-4 w-4" />
+              <LayoutGrid className="h-[17px] w-[17px]" />
               Tüm Kategoriler
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
-            <Link href="/products" className="flex h-12 items-center px-3 text-[13.5px] font-semibold text-primary-600 hover:text-primary-700">
+            <Link href="/products" className="flex h-12 items-center px-3 text-[13.5px] font-semibold text-primary-700 transition-colors hover:text-primary-600">
               Tüm Ürünler
             </Link>
           </nav>
 
-          <div className="flex items-center">
+          {/* Sağ — İndirimli (emerald) + Anlaşmalı (koşullu) + Daha Önce Aldıklarım */}
+          <div className="flex items-center gap-px">
             {rightLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`flex h-12 items-center gap-1.5 px-3 text-[13px] font-medium transition-colors ${
-                  link.accent ? 'text-emerald-700 hover:text-emerald-800' : 'text-[var(--ink-2)] hover:text-primary-600'
+                className={`flex h-12 items-center gap-1.5 px-[11px] text-[13px] font-medium transition-colors ${
+                  link.accent ? 'text-[#047857] hover:text-[#065f46]' : 'text-[var(--ink-2)] hover:text-primary-700'
                 } ${isActive(link.href) ? 'underline decoration-2 underline-offset-[14px]' : ''}`}
               >
-                <link.icon className="h-4 w-4" />
+                <link.icon className="h-[15px] w-[15px]" />
                 {link.name}
               </Link>
             ))}
@@ -568,12 +573,11 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
-            <div className="mx-auto w-full max-w-[1900px] px-4 py-5 sm:px-6 lg:px-8">
-              <div className="w-full max-w-[1180px]">
-              <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--line)] md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[262px_minmax(0,1fr)_230px]">
-                {/* Sol — ANA kategoriler */}
-                <div className="max-h-[460px] overflow-y-auto border-b border-[var(--line)] bg-[var(--surface-0)] py-2 md:border-b-0 md:border-r">
+          <div className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] border-t border-t-[#eef1f6] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
+            <div className="mx-auto w-full max-w-[1900px] px-4 py-[18px] sm:px-6 lg:px-8">
+              <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--line)] md:grid-cols-[262px_minmax(0,1fr)] lg:grid-cols-[262px_minmax(0,1fr)_240px]">
+                {/* Sol — ANA (kök) kategoriler; hover orta kolonu değiştirir */}
+                <div className="max-h-[436px] overflow-y-auto border-b border-[var(--line)] bg-[#f6f8fc] py-2 md:border-b-0 md:border-r">
                   {roots.map((root) => {
                     const active = root.id === megaActiveRootId;
                     return (
@@ -587,16 +591,16 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                         }`}
                       >
                         <span className="min-w-0 truncate">{root.name}</span>
-                        <ChevronRight className={`h-4 w-4 shrink-0 ${active ? 'text-primary-600' : 'text-[var(--ink-3)]'}`} />
+                        <ChevronRight className={`h-[15px] w-[15px] shrink-0 ${active ? 'text-primary-600' : 'text-[var(--ink-3)]'}`} />
                       </button>
                     );
                   })}
                 </div>
 
-                {/* Sag — secili ananin ALT + EN-ALT'lari (cok kolon, genislige yayilir) */}
-                <div className="max-h-[460px] overflow-y-auto p-5">
+                {/* Orta — seçili kökün alt kategorileri (kolon akışı) + Tümünü gör → */}
+                <div className="max-h-[436px] overflow-y-auto px-[22px] py-[18px]">
                   {megaActiveRoot && (
-                    <div className="mb-4 flex items-center justify-between gap-3 border-b border-[var(--line)] pb-2">
+                    <div className="mb-[13px] flex items-center justify-between gap-3 border-b border-[#eef1f6] pb-[9px]">
                       <span className="min-w-0 truncate text-[13px] font-bold text-[var(--ink-1)]">{megaActiveRoot.name}</span>
                       <Link
                         href={`/products?categoryId=${megaActiveRoot.id}`}
@@ -610,7 +614,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                   {megaAlts.length === 0 ? (
                     <div className="text-[12.5px] text-[var(--ink-3)]">Bu kategoride alt kırılım yok.</div>
                   ) : (
-                    <div className="columns-1 [column-gap:1.75rem] sm:columns-2 lg:columns-3">
+                    <div className="[column-gap:22px] [column-width:150px]">
                       {megaAlts.map((alt) => {
                         const leaves = (childrenById.get(alt.id) || [])
                           .map((id) => nodesById.get(id))
@@ -620,18 +624,18 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                             <Link
                               href={`/products?categoryId=${alt.id}`}
                               onClick={() => setMegaOpen(false)}
-                              className="block truncate text-[12.5px] font-semibold text-[var(--ink-1)] transition-colors hover:text-primary-700"
+                              className="block truncate py-[5px] text-[12.5px] font-semibold text-[var(--ink-1)] transition-colors hover:text-primary-700"
                             >
                               {alt.name}
                             </Link>
                             {leaves.length > 0 && (
-                              <div className="mt-1 flex flex-col gap-0.5">
+                              <div className="flex flex-col">
                                 {leaves.map((leaf) => (
                                   <Link
                                     key={leaf.id}
                                     href={`/products?categoryId=${leaf.id}`}
                                     onClick={() => setMegaOpen(false)}
-                                    className="truncate text-[12px] text-[var(--ink-2)] transition-colors hover:text-primary-700"
+                                    className="block truncate py-[5px] text-[12.5px] text-[var(--ink-2)] transition-colors hover:text-primary-700"
                                   >
                                     {leaf.name}
                                   </Link>
@@ -645,26 +649,25 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                   )}
                 </div>
 
-                {/* Sag — promo kart (Vitrin: lacivert gradient, net fiyat) */}
+                {/* Sağ — lacivert gradient promo → /discounted-products */}
                 <Link
                   href="/discounted-products"
                   onClick={() => setMegaOpen(false)}
-                  className="relative m-4 hidden flex-col justify-end overflow-hidden rounded-xl bg-gradient-to-br from-primary-700 to-primary-800 p-4 text-white transition-transform hover:-translate-y-0.5 lg:flex"
+                  className="relative hidden flex-col justify-end overflow-hidden bg-gradient-to-br from-primary-700 to-primary-800 p-5 text-white lg:flex"
                 >
                   <div className="absolute inset-0 bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.05)_10px,transparent_10px,transparent_20px)]" />
                   <div className="relative">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
-                      <Percent className="h-3.5 w-3.5" />
+                    <span className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-[#6ee7b7]">
+                      <Percent className="h-[13px] w-[13px]" />
                       NET FİYAT
                     </span>
-                    <div className="mt-2 text-[17px] font-extrabold leading-tight">İndirimli ürünlerde fırsatlar</div>
-                    <div className="mt-2.5 inline-flex items-center gap-1.5 text-[12.5px] font-semibold">
+                    <div className="mt-[9px] text-[16px] font-bold leading-[1.25]">İndirimli ürünlerde fırsatlar</div>
+                    <div className="mt-[11px] inline-flex items-center gap-1.5 text-[12.5px] font-semibold">
                       Keşfet
                       <ChevronRight className="h-3.5 w-3.5" />
                     </div>
                   </div>
                 </Link>
-              </div>
               </div>
             </div>
           </div>

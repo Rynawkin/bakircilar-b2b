@@ -254,20 +254,20 @@ export function ProductCard({
   };
 
   const segClass = (active: boolean) =>
-    `flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+    `rounded-[7px] px-[13px] py-[5px] text-[12px] transition-colors ${
       active
-        ? 'bg-white text-primary-600 shadow-sm ring-1 ring-[var(--line-strong)]'
-        : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
+        ? 'border border-[#d3deef] bg-white font-semibold text-primary-600 shadow-[0_1px_2px_rgba(20,34,59,0.06)]'
+        : 'border border-transparent font-medium text-[#8b97ac] hover:text-[var(--ink-1)]'
     }`;
 
   return (
     <>
-    <div className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-white transition-all duration-200 hover:border-[var(--line-strong)] hover:shadow-[0_8px_22px_rgba(20,34,59,0.10)]">
+    <div className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-white shadow-[0_1px_2px_rgba(20,34,59,0.05)] transition-all duration-200 hover:border-[#d3deef] hover:shadow-[0_8px_22px_rgba(20,34,59,0.10)]">
       {/* ── Gorsel ──────────────────────────────────────────────── */}
       <Link
         href={detailHref}
         prefetch
-        className="relative block aspect-square overflow-hidden border-b border-[var(--line)] bg-[var(--surface-0)]"
+        className="relative block aspect-square overflow-hidden border-b border-[#eef1f6] bg-[#f4f6fa]"
       >
         {product.imageUrl ? (
           <img
@@ -278,8 +278,8 @@ export function ProductCard({
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <svg className="h-11 w-11 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-              <path d="m7.5 4.27 9 5.15" />
+            <svg className="h-[52px] w-[52px] text-[#c2cbda]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7.5 4.27 16.5 9.4" />
               <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
               <path d="m3.3 7 8.7 5 8.7-5" />
               <path d="M12 22V12" />
@@ -288,59 +288,69 @@ export function ProductCard({
         )}
 
         {!isSupply ? (
-          <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-100">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[#a7f3d0] bg-[#ecfdf5] px-2 py-[3px] text-[11px] font-semibold text-[#047857]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#10b981]" />
             Stok {stockBadgeText} {product.unit}
           </span>
         ) : (
-          <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
+          <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[#fde68a] bg-[#fffbeb] px-2 py-[3px] text-[11px] font-semibold text-[#b45309]">
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 9v4" />
+              <path d="M12 17h.01" />
+              <path d="m10.29 3.86-8.18 14a2 2 0 0 0 1.71 3h16.36a2 2 0 0 0 1.71-3l-8.18-14a2 2 0 0 0-3.42 0Z" />
+            </svg>
             Tedarikle
           </span>
         )}
 
         {hasDiscount && discountPct && (
-          <span className="absolute left-2.5 top-2.5 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+          <span className="absolute left-2.5 top-2.5 rounded-full bg-[#047857] px-2 py-[3px] text-[11px] font-semibold text-white">
             %{discountPct} avantaj
           </span>
         )}
       </Link>
 
       {/* ── Bilgi ───────────────────────────────────────────────── */}
-      <div className="flex flex-1 flex-col gap-2 p-3.5">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--ink-3)]">
+      <div className="flex flex-1 flex-col gap-[9px] px-3.5 pb-3.5 pt-[13px]">
+        <div className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[#8b97ac]">
           {product.category.name}
         </div>
 
         <Link
           href={detailHref}
           prefetch
-          className="line-clamp-2 min-h-[36px] text-[13.5px] font-medium leading-snug text-[var(--ink-1)] transition-colors hover:text-primary-700"
+          className="line-clamp-2 min-h-[38px] text-[14px] font-medium leading-[1.35] text-[#14223b] transition-colors hover:text-primary-600"
           title={product.name}
         >
           {product.name}
         </Link>
 
-        <div className="font-mono text-[11px] text-gray-500">{product.mikroCode}</div>
+        <div className="font-mono text-[11.5px] tracking-[0.01em] text-[#64748b]">{product.mikroCode}</div>
 
         <div className="flex flex-wrap gap-1.5">
           {unitLabel && (
-            <span className="rounded-md border border-[var(--line)] bg-[var(--surface-0)] px-2 py-0.5 text-[11px] text-[var(--ink-2)]">
+            <span className="whitespace-nowrap rounded-md border border-[#eaeef5] bg-[#f5f7fb] px-2 py-[3px] text-[11px] text-[#51607a]">
               {unitLabel}
             </span>
           )}
-          <span className="rounded-md border border-[var(--line)] bg-[var(--surface-0)] px-2 py-0.5 text-[11px] text-[var(--ink-2)]">
+          <span className="whitespace-nowrap rounded-md border border-[#eaeef5] bg-[#f5f7fb] px-2 py-[3px] text-[11px] text-[#51607a]">
             KDV %{vatPercent}
           </span>
         </div>
 
         {hasAgreement && (
-          <div className="rounded-lg border border-primary-100 bg-primary-50 px-2.5 py-1.5">
-            <div className="flex items-center gap-2">
-              <span className="text-[11.5px] font-semibold text-primary-700">
+          <div className="rounded-lg border border-[#d6e0f1] bg-[#eef2fa] px-[9px] py-1.5">
+            <div className="flex items-center gap-[7px]">
+              <svg className="h-3.5 w-3.5 flex-none text-primary-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 12H3" />
+                <path d="m15 16 4-4-4-4" />
+                <path d="M21 12h-8" />
+              </svg>
+              <span className="whitespace-nowrap text-[11.5px] font-semibold text-primary-700">
                 Anlaşma: min {product.agreement?.minQuantity ?? 1} {product.unit}
               </span>
               {product.agreement?.customerProductCode && (
-                <span className="ml-auto font-mono text-[10.5px] text-[var(--ink-3)]">
+                <span className="ml-auto whitespace-nowrap font-mono text-[10.5px] text-[#7c8aa5]">
                   {product.agreement.customerProductCode}
                 </span>
               )}
@@ -351,23 +361,25 @@ export function ProductCard({
               </div>
             )}
             {variant === 'agreement' && agreementValidTo && (
-              <div className="mt-0.5 text-[10.5px] text-[var(--ink-2)]">Geçerli: {agreementValidTo}</div>
+              <div className="mt-0.5 text-[10.5px] text-[#7c8aa5]">
+                Geçerlilik: <b className="font-semibold text-primary-700">{agreementValidTo}</b> tarihine kadar
+              </div>
             )}
           </div>
         )}
 
         {lastBuy?.date && (
-          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-1)] px-2.5 py-1.5">
-            <CalendarDays className="h-3.5 w-3.5 flex-shrink-0 text-[var(--ink-3)]" />
-            <span className="text-[10.5px] text-[var(--ink-2)]">
-              Son alış <b className="font-semibold text-[var(--ink-1)]">{lastBuy.date}</b>
+          <div className="flex flex-wrap items-center gap-[7px] rounded-lg border border-[var(--line)] bg-[#f6f8fc] px-[9px] py-1.5">
+            <CalendarDays className="h-[13px] w-[13px] flex-shrink-0 text-[#8b97ac]" />
+            <span className="text-[10.5px] text-[#51607a]">
+              Son alış <b className="font-semibold text-[#14223b]">{lastBuy.date}</b>
             </span>
-            {lastBuy.belge && <span className="font-mono text-[10px] text-[var(--ink-3)]">{lastBuy.belge}</span>}
+            {lastBuy.belge && <span className="font-mono text-[10px] text-[#9aa6b8]">{lastBuy.belge}</span>}
             {onHistory && (
               <button
                 type="button"
                 onClick={onHistory}
-                className="ml-auto whitespace-nowrap text-[10.5px] font-semibold text-primary-700 hover:underline"
+                className="ml-auto whitespace-nowrap text-[10.5px] font-semibold text-primary-600 hover:underline"
               >
                 Son 5 Alış →
               </button>
@@ -376,8 +388,13 @@ export function ProductCard({
         )}
 
         {isSupply && (
-          <div className="flex gap-1.5 rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-1.5">
-            <span className="text-[10.5px] leading-snug text-amber-700">
+          <div className="flex gap-[7px] rounded-lg border border-[#fde68a] bg-[#fffbeb] px-[9px] py-2">
+            <svg className="mt-px h-3.5 w-3.5 flex-none text-[#b45309]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4" />
+              <path d="M12 16h.01" />
+            </svg>
+            <span className="text-[11px] leading-[1.45] text-[#92500a]">
               Stokta yok — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez.
             </span>
           </div>
@@ -388,9 +405,9 @@ export function ProductCard({
             type="button"
             onClick={handleShowAlternatives}
             disabled={altLoading}
-            className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-primary-100 bg-primary-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-primary-700 transition-colors hover:bg-primary-100 disabled:opacity-60"
+            className="inline-flex w-fit items-center gap-[7px] self-start rounded-lg border border-[#d6e0f1] bg-[#eef2fa] px-[11px] py-1.5 text-[11.5px] font-semibold text-primary-600 transition-colors hover:bg-[#e2e9f7] disabled:opacity-60"
           >
-            <Repeat className="h-3.5 w-3.5" />
+            <Repeat className="h-[13px] w-[13px]" />
             {altLoading ? 'Aranıyor…' : 'Eşdeğer ürünler'}
           </button>
         )}
@@ -398,7 +415,7 @@ export function ProductCard({
         {/* ── Fiyat ─────────────────────────────────────────────── */}
         <div className="mt-auto">
           {showPriceTypeSelector && (
-            <div className="mb-2 flex rounded-lg bg-[var(--surface-0)] p-0.5">
+            <div className="mb-[9px] inline-flex rounded-[9px] bg-[#f1f4f9] p-0.5">
               {allowedPriceTypes.includes('INVOICED') && (
                 <button type="button" onClick={() => setPriceType('INVOICED')} className={segClass(priceType === 'INVOICED')}>
                   Faturalı
@@ -414,26 +431,26 @@ export function ProductCard({
 
           {hasDiscount && displayOld !== undefined ? (
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="text-[13px] text-gray-400 line-through">{formatCurrency(displayOld)}</span>
-              <span className="text-xl font-semibold text-emerald-700">{formatCurrency(displayShown)}</span>
-              <span className="text-[10.5px] text-[var(--ink-3)]">{vatLabel}</span>
+              <span className="text-[13px] text-[#9aa6b8] line-through">{formatCurrency(displayOld)}</span>
+              <span className="text-[22px] font-semibold tracking-[-0.01em] text-[#14223b]">{formatCurrency(displayShown)}</span>
+              <span className="text-[11px] text-[#8b97ac]">{vatLabel}</span>
             </div>
           ) : (
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-xl font-semibold text-[var(--ink-1)]">{formatCurrency(displayShown)}</span>
-              <span className="text-[10.5px] text-[var(--ink-3)]">{vatLabel}</span>
+              <span className="text-[22px] font-semibold tracking-[-0.01em] text-[#14223b]">{formatCurrency(displayShown)}</span>
+              <span className="text-[11px] text-[#8b97ac]">{vatLabel}</span>
             </div>
           )}
 
           {unit2Active && (
-            <div className="mt-0.5 text-[11px] font-medium text-[var(--ink-2)]">
-              {unitInfo.altUnit} fiyatı: {formatCurrency(displayShown * unitInfo.altPriceFactor)} {vatLabel}
+            <div className="mt-1 text-[11.5px] font-medium text-[#51607a]">
+              {unitInfo.altUnit} fiyatı: <b className="font-semibold text-[#14223b]">{formatCurrency(displayShown * unitInfo.altPriceFactor)}</b> {vatLabel}
             </div>
           )}
 
-          <div className="mt-1 min-h-[15px]">
+          <div className="mt-1.5 min-h-[16px]">
             {hasDiscount && totalExcessStock > 0 && (
-              <span className="text-[11px] text-amber-700">
+              <span className="text-[11px] text-[#b45309]">
                 İlk {totalExcessStock} {product.unit} indirimli fiyattan
               </span>
             )}
@@ -444,14 +461,14 @@ export function ProductCard({
              Mobil (~170px): tam-genislik satir, iki secenek esit boluner. */}
         {unitInfo.hasToggle && (
           <div className="flex flex-col gap-1">
-            <div className="flex w-full rounded-lg bg-[var(--surface-0)] p-0.5">
+            <div className="flex w-full gap-0.5 rounded-[9px] bg-[#f1f4f9] p-0.5">
               <button
                 type="button"
                 onClick={() => setUseUnit2(false)}
-                className={`min-h-[34px] flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${
+                className={`min-h-[34px] flex-1 rounded-[7px] px-2 py-1.5 text-center text-[11.5px] transition-colors ${
                   !useUnit2
-                    ? 'bg-white text-primary-700 shadow-sm ring-1 ring-[var(--line-strong)]'
-                    : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
+                    ? 'border border-[#d3deef] bg-white font-semibold text-primary-600 shadow-[0_1px_2px_rgba(20,34,59,0.06)]'
+                    : 'border border-transparent font-medium text-[#64748b] hover:text-[var(--ink-1)]'
                 }`}
               >
                 {product.unit}
@@ -459,17 +476,17 @@ export function ProductCard({
               <button
                 type="button"
                 onClick={() => setUseUnit2(true)}
-                className={`min-h-[34px] flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${
+                className={`min-h-[34px] flex-1 rounded-[7px] px-2 py-1.5 text-center text-[11.5px] transition-colors ${
                   useUnit2
-                    ? 'bg-white text-primary-700 shadow-sm ring-1 ring-[var(--line-strong)]'
-                    : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
+                    ? 'border border-[#d3deef] bg-white font-semibold text-primary-600 shadow-[0_1px_2px_rgba(20,34,59,0.06)]'
+                    : 'border border-transparent font-medium text-[#64748b] hover:text-[var(--ink-1)]'
                 }`}
               >
                 {unitInfo.altUnit}
               </button>
             </div>
             {unitInfo.ratioLabel && (
-              <span className="text-[10.5px] text-[var(--ink-3)]">{unitInfo.ratioLabel}</span>
+              <span className="text-[10.5px] text-[#9aa6b8]">{unitInfo.ratioLabel}</span>
             )}
           </div>
         )}
@@ -479,14 +496,14 @@ export function ProductCard({
              altinda tam-genislik Sepete Ekle. 170px kartta kirpilmaz. */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <div className="flex flex-1 items-center overflow-hidden rounded-lg border border-[var(--line-strong)]">
+            <div className="flex flex-1 items-center overflow-hidden rounded-lg border border-[#d8e0ec]">
               <button
                 type="button"
                 onClick={() => commitQty(String(qty - 1))}
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                className="flex h-[34px] w-[30px] flex-shrink-0 items-center justify-center text-[#51607a] transition-colors hover:bg-[#f4f6fa]"
                 aria-label="Azalt"
               >
-                <Minus className="h-4 w-4" strokeWidth={2.4} />
+                <Minus className="h-3.5 w-3.5" strokeWidth={2.4} />
               </button>
               <input
                 type="text"
@@ -503,19 +520,19 @@ export function ProductCard({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') e.currentTarget.blur();
                 }}
-                className="h-10 min-w-0 flex-1 border-x border-[var(--line)] text-center text-sm font-semibold text-[var(--ink-1)] focus:outline-none"
+                className="h-[34px] min-w-0 flex-1 border-x border-[#eef1f6] text-center text-[14px] font-semibold text-[#14223b] focus:outline-none"
                 aria-label={`${product.name} miktarı`}
               />
               <button
                 type="button"
                 onClick={() => commitQty(String(qty + 1))}
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                className="flex h-[34px] w-[30px] flex-shrink-0 items-center justify-center text-[#51607a] transition-colors hover:bg-[#f4f6fa]"
                 aria-label="Artır"
               >
-                <Plus className="h-4 w-4" strokeWidth={2.4} />
+                <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
               </button>
             </div>
-            <span className="max-w-[64px] flex-shrink-0 truncate text-[11px] font-medium text-[var(--ink-3)]" title={selectedUnitName}>
+            <span className="max-w-[58px] flex-shrink-0 truncate text-[11px] font-medium text-[#8b97ac]" title={selectedUnitName}>
               {selectedUnitName}
             </span>
           </div>
@@ -523,14 +540,14 @@ export function ProductCard({
             type="button"
             onClick={handleAdd}
             disabled={adding}
-            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-primary-600 text-xs font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
+            className="flex h-9 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-600 text-[13px] font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
           >
             {adding ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
             ) : added ? (
-              <Check className="h-4 w-4" strokeWidth={2.4} />
+              <Check className="h-[15px] w-[15px]" strokeWidth={2.4} />
             ) : (
-              <ShoppingCart className="h-4 w-4" />
+              <ShoppingCart className="h-[15px] w-[15px]" />
             )}
             {added ? 'Eklendi' : 'Sepete Ekle'}
           </button>

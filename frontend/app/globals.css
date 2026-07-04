@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Vitrin animasyonlari (kategori kesfi marquee + kart fade) */
+@keyframes bkr-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes bkr-fade { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+
 @layer base {
   :root {
     --background: 0 0% 100%;

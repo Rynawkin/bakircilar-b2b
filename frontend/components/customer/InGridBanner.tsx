@@ -51,9 +51,9 @@ export function InGridBanner() {
           </picture>
           <div className="absolute inset-0 bg-gradient-to-r from-[#081630]/85 to-[#081630]/25" />
           <div className="relative">
-            <div className="text-[20px] font-bold leading-tight sm:text-[22px]">{banner.title}</div>
+            <div className="text-[20px] font-semibold leading-tight sm:text-[22px]">{banner.title}</div>
             {banner.subtitle && <p className="mt-1 max-w-[85%] text-[13px] text-white/85">{banner.subtitle}</p>}
-            <span className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-bold">
+            <span className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-semibold">
               {banner.buttonText || 'Gör'} <ArrowRight className="h-4 w-4" />
             </span>
           </div>
@@ -63,10 +63,10 @@ export function InGridBanner() {
           <div className="absolute inset-0 bg-gradient-to-br from-[#12305c] to-[#1c4a8f]" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#081630]/70 to-transparent" />
           <div className="relative">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[10.5px] font-bold tracking-wide">KAMPANYA</span>
-            <div className="mt-2 text-[20px] font-bold leading-tight sm:text-[22px]">İndirimli fırsatları kaçırmayın</div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[10.5px] font-semibold tracking-wide">KAMPANYA</span>
+            <div className="mt-2 text-[20px] font-semibold leading-tight sm:text-[22px]">İndirimli fırsatları kaçırmayın</div>
             <p className="mt-1 max-w-[85%] text-[13px] text-white/80">Net fiyat avantajlı ürünlerde sınırlı stok.</p>
-            <span className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-bold">
+            <span className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-semibold">
               Fırsatları gör <ArrowRight className="h-4 w-4" />
             </span>
           </div>

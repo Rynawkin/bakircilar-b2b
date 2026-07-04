@@ -263,6 +263,31 @@ export const customerApi = {
     return response.data;
   },
 
+  // Hic alinmayan kategorilerdeki urunler (cok-satan sirali) + sol ray icin denenmemis kategori listesi.
+  // NOT: customer route'lari /api altinda mount'lu -> dogru yol '/unbought-category-products'.
+  getUnboughtCategoryProducts: async (params?: {
+    categoryId?: string;
+    sort?: string;
+    offset?: number;
+    limit?: number;
+  }): Promise<{
+    products: Product[];
+    totalCount: number;
+    categories: Array<{ id: string; name: string; mikroCode?: string; imageUrl?: string; count?: number }>;
+  }> => {
+    const response = await apiClient.get('/unbought-category-products', { params });
+    return response.data;
+  },
+
+  // Marka filtre rayi icin: gorunur urunlerden distinct marka + sayac (opsiyonel categoryId/search baglami).
+  getBrandFacets: async (params?: {
+    categoryId?: string;
+    search?: string;
+  }): Promise<{ brands: Array<{ code: string; name: string; count: number }> }> => {
+    const response = await apiClient.get('/brand-facets', { params });
+    return response.data;
+  },
+
   // Warehouses
   getWarehouses: async (): Promise<{ warehouses: string[] }> => {
     const response = await apiClient.get('/warehouses');

@@ -194,6 +194,13 @@ router.get(
 // Kullanici bazli hesap (parent-aware) — controller icinde 10 dk cache'li
 router.get('/unbought-categories', requireCustomer, customerController.getUnboughtCategories);
 
+// Denenmemis kategorilerdeki URUNLER (cok-satan sirali, sayfali) + sol ray icin kategori listesi.
+// /products ile ayni urun payload'i (buildCustomerProductPayloads reuse) -> ayni ProductCard.
+router.get('/unbought-category-products', requireCustomer, customerController.getUnboughtCategoryProducts);
+
+// Marka filtre rayi: gorunur urunlerden distinct marka + sayac (opsiyonel categoryId/search).
+router.get('/brand-facets', requireCustomer, customerController.getBrandFacets);
+
 // Anlasmali urunler erisilebilirligi (nav linkini sadece AKTIF anlasma varsa goster)
 router.get('/agreements/available', customerController.getAgreementsAvailability);
 

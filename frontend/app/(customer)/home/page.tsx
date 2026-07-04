@@ -7,7 +7,6 @@ import customerApi, { Banner, CustomerFinancials, CollectionCard } from '@/lib/a
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
-import { PersonalRecommendations } from '@/components/customer/PersonalRecommendations';
 import { GiftCampaignBanner } from '@/components/customer/GiftCampaignBanner';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { formatCurrency } from '@/lib/utils/format';
@@ -174,14 +173,14 @@ export default function CustomerHomePage() {
     setHeroIndex((prev) => (prev + 1) % heroBanners.length);
   }, [heroBanners.length]);
 
-  // Kategori kesfi: her yuklenişte RASTGELE 6 kategori (alfabetik degil)
+  // Kategori kesfi: her yuklenişte RASTGELE kategoriler (alfabetik degil), kayan serit icin en fazla 12
   const topCategories = useMemo(() => {
     const arr = [...categories];
     for (let i = arr.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-    return arr.slice(0, 6);
+    return arr.slice(0, 12);
   }, [categories]);
   const firstName = user?.name?.split(' ')[0] || '';
 
@@ -215,27 +214,27 @@ export default function CustomerHomePage() {
 
           {/* ── BAKIYE KUTUSU ─────────────────────────────────────── */}
           {financials && (
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-[var(--line)] bg-white px-5 py-4">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-xl border border-[#e7ebf2] bg-white px-5 py-4 shadow-[0_1px_2px_rgba(20,34,59,.04)]">
               <div>
-                <div className="text-[12px] font-medium text-[#7a879c]">Cari bakiye</div>
-                <div className="text-[22px] font-bold tabular-nums tracking-tight text-[#14223b]">{formatCurrency(financials.totalBalance)}</div>
+                <div className="text-[12px] font-medium text-[#8b97ac]">Cari bakiye</div>
+                <div className="text-[22px] font-semibold tabular-nums tracking-tight text-[#14223b]">{formatCurrency(financials.totalBalance)}</div>
               </div>
               {financials.pastDueBalance > 0 && (
-                <div className="rounded-lg bg-[#fff7ec] px-3.5 py-2 ring-1 ring-inset ring-[#f3dca8]">
-                  <div className="text-[12px] font-semibold text-[#b45309]">Vadesi geçen</div>
-                  <div className="text-[18px] font-bold tabular-nums text-[#b45309]">{formatCurrency(financials.pastDueBalance)}</div>
+                <div className="rounded-[10px] border border-[#fde68a] bg-[#fffbeb] px-3.5 py-1.5">
+                  <div className="text-[11.5px] font-semibold text-[#b45309]">Vadesi geçen</div>
+                  <div className="text-[16px] font-semibold tabular-nums text-[#b45309]">{formatCurrency(financials.pastDueBalance)}</div>
                 </div>
               )}
               <Link
                 href="/invoices"
-                className="inline-flex items-center gap-2 rounded-lg bg-[#b45309] px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#96450a]"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-[#b45309] px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#96450a]"
               >
                 <Wallet className="h-4 w-4" />
                 Ödeme / Ekstre
               </Link>
               {financials.notDueBalance > 0 && (
                 <div className="ml-auto text-right">
-                  <div className="text-[12px] font-medium text-[#7a879c]">Vadesi gelmemiş</div>
+                  <div className="text-[12px] font-medium text-[#8b97ac]">Vadesi gelmemiş</div>
                   <div className="text-[15px] font-semibold tabular-nums text-[#51607a]">{formatCurrency(financials.notDueBalance)}</div>
                 </div>
               )}
@@ -243,10 +242,11 @@ export default function CustomerHomePage() {
           )}
 
           {/* ── HERO + DIKEY BANNER ─────────────────────────────────── */}
-          <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          {/* Grid 3.5fr:1fr + items-start; HERO 2.8:1 ile SIDE 4:5 ayni yukseklige gelir -> HERO altinda bosluk yok, kirpma yok */}
+          <section className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[3.5fr_1fr]">
             {/* Hero (carousel) */}
-            {/* Sabit yukseklik yerine kirpma oraniyla ayni en-boy: mobil 768x600, masaustu 1920x640 -> gorsel tam gorunur, ekstra kirpma yok */}
-            <div className="relative aspect-[768/600] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[#12305c] sm:aspect-[1920/640]">
+            {/* Kutu orani = yukleme orani: mobil 768x600, masaustu 2.8:1 (1680x600) -> gorsel tam gorunur, ekstra kirpma yok */}
+            <div className="relative aspect-[768/600] overflow-hidden rounded-2xl border border-[var(--line)] bg-[#12305c] lg:aspect-[2.8/1]">
               {bannersLoading ? (
                 <div className="h-full w-full animate-pulse bg-gray-100" />
               ) : heroBanners.length > 0 ? (
@@ -363,7 +363,7 @@ export default function CustomerHomePage() {
                 <Link
                   href={href || '/products'}
                   onClick={side ? () => logBannerClick(side) : undefined}
-                  className="relative hidden aspect-[600/800] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[#12305c] lg:block"
+                  className="relative hidden aspect-[4/5] overflow-hidden rounded-2xl border border-[var(--line)] bg-[#12305c] lg:block"
                 >
                   {inner}
                 </Link>
@@ -375,8 +375,8 @@ export default function CustomerHomePage() {
           {stripBanners.length > 0 && stripBanners.map((banner) => {
             const href = bannerHref(banner);
             const content = (banner.imageUrl || banner.mobileImageUrl) ? (
-              // Kirpma oraniyla ayni en-boy wrapper'a tasindi: mobil 375x160, masaustu 1200x140 -> gorsel tam gorunur
-              <div className="relative aspect-[375/160] overflow-hidden rounded-xl border border-[#d6e0f1] sm:aspect-[1200/140]">
+              // Kutu orani = yukleme orani: mobil 375x160, masaustu 1200x140 + min-h-[92px] -> gorsel tam gorunur
+              <div className="relative aspect-[375/160] min-h-[92px] overflow-hidden rounded-[14px] border border-[#d9e2f2] sm:aspect-[1200/140]">
                 <picture>
                   {/* Dar ekranda (<=640px) mobil görsel varsa onu kullan, yoksa geniş görsele düş */}
                   <source media="(max-width: 640px)" srcSet={(banner.mobileImageUrl || banner.imageUrl) ?? undefined} />
@@ -393,7 +393,7 @@ export default function CustomerHomePage() {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-3 overflow-hidden rounded-xl border border-[#d6e0f1] bg-gradient-to-r from-[#e9f0fb] to-[#f5f8fd] px-4 py-3">
+              <div className="flex min-h-[92px] items-center gap-3 overflow-hidden rounded-[14px] border border-[#d9e2f2] bg-gradient-to-r from-[#eef2fa] to-[#f5f8fd] px-5 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[14px] font-semibold text-[#14223b]">{banner.title}</p>
                   {banner.subtitle && <p className="truncate text-[12.5px] text-[#51607a]">{banner.subtitle}</p>}
@@ -416,9 +416,9 @@ export default function CustomerHomePage() {
 
           {/* ── SIZIN ICIN KOLEKSIYONLAR ────────────────────────────── */}
           <section>
-            <div className="mb-4">
-              <h3 className="text-[19px] font-bold tracking-tight text-[#14223b] sm:text-[21px]">Sizin için koleksiyonlar</h3>
-              <p className="mt-0.5 text-[13px] text-[#7a879c]">Alışverişinizi hızlandıracak seçkiler</p>
+            <div className="mb-3.5">
+              <h3 className="text-[18px] font-semibold tracking-tight text-[#14223b]">Sizin için koleksiyonlar</h3>
+              <p className="mt-0.5 text-[13px] text-[#8b97ac]">Alışverişinizi hızlandıracak seçkiler</p>
             </div>
             {adminCollections.length > 0 ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -426,7 +426,7 @@ export default function CustomerHomePage() {
                   <Link
                     key={c.id}
                     href={c.href}
-                    className="group relative flex min-h-[140px] flex-col justify-between overflow-hidden rounded-[18px] p-6 text-white transition-transform hover:-translate-y-0.5"
+                    className="group relative flex min-h-[132px] flex-col justify-between overflow-hidden rounded-2xl px-[22px] py-5 text-white transition-transform hover:-translate-y-0.5"
                     style={
                       c.imageUrl
                         ? undefined
@@ -440,11 +440,11 @@ export default function CustomerHomePage() {
                       </>
                     )}
                     <div className="relative">
-                      <div className="text-[20px] font-bold tracking-tight drop-shadow-sm">{c.title}</div>
-                      {c.subtitle && <div className="mt-1 text-[13.5px] text-white/85">{c.subtitle}</div>}
+                      <div className="text-[19px] font-semibold tracking-tight drop-shadow-sm">{c.title}</div>
+                      {c.subtitle && <div className="mt-1 text-[13px] text-white/85">{c.subtitle}</div>}
                     </div>
-                    <span className="relative flex items-center gap-1.5 text-[13px] font-bold">
-                      Keşfet <ArrowRight className="h-4 w-4" />
+                    <span className="relative mt-3.5 flex items-center gap-1.5 text-[13px] font-semibold">
+                      Keşfet <ArrowRight className="h-[15px] w-[15px]" />
                     </span>
                   </Link>
                 ))}
@@ -455,15 +455,15 @@ export default function CustomerHomePage() {
                   <Link
                     key={c.href}
                     href={c.href}
-                    className="relative flex min-h-[140px] flex-col justify-between overflow-hidden rounded-[18px] p-6 text-white transition-transform hover:-translate-y-0.5"
+                    className="relative flex min-h-[132px] flex-col justify-between overflow-hidden rounded-2xl px-[22px] py-5 text-white transition-transform hover:-translate-y-0.5"
                     style={{ background: c.g }}
                   >
                     <div>
-                      <div className="text-[20px] font-bold tracking-tight">{c.t}</div>
-                      <div className="mt-1 text-[13.5px]" style={{ color: c.fg }}>{c.d}</div>
+                      <div className="text-[19px] font-semibold tracking-tight">{c.t}</div>
+                      <div className="mt-1 text-[13px]" style={{ color: c.fg }}>{c.d}</div>
                     </div>
-                    <span className="flex items-center gap-1.5 text-[13px] font-bold">
-                      Keşfet <ArrowRight className="h-4 w-4" />
+                    <span className="mt-3.5 flex items-center gap-1.5 text-[13px] font-semibold">
+                      Keşfet <ArrowRight className="h-[15px] w-[15px]" />
                     </span>
                   </Link>
                 ))}
@@ -471,40 +471,54 @@ export default function CustomerHomePage() {
             )}
           </section>
 
-          {/* ── KATEGORI KESFI ──────────────────────────────────────── */}
+          {/* ── KATEGORI KESFI (kayan serit + gercek gorseller) ──────── */}
           {topCategories.length > 0 && (
             <section>
-              <div className="mb-4 flex items-end justify-between">
-                <h3 className="text-[19px] font-bold tracking-tight text-[#14223b] sm:text-[21px]">Kategori keşfi</h3>
-                <Link href="/products" className="flex items-center gap-1 text-[13px] font-semibold text-[#15356b]">
+              <div className="mb-3.5 flex items-baseline justify-between">
+                <h3 className="text-[18px] font-semibold tracking-tight text-[#14223b]">Kategori keşfi</h3>
+                <Link href="/products" className="flex items-center gap-1 text-[13px] font-medium text-[#15356b]">
                   Tüm kategoriler <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                {topCategories.map((category) => (
-                  <Link
-                    key={category.id}
-                    href={`/products?categoryId=${category.id}`}
-                    className="group flex flex-col overflow-hidden rounded-2xl border border-[#e7ebf2] bg-white transition-transform hover:-translate-y-0.5"
-                  >
-                    {category.imageUrl ? (
-                      // Otomatik (urun) gorseli genelde portre -> contain ile TAMAMI gorunsun (kirpma yok).
-                      // Admin yukledigi gorsel ise kutuyu doldursun (cover).
-                      <div className={`flex h-[104px] w-full items-center justify-center overflow-hidden ${category.autoImage ? 'bg-white p-2' : ''}`}>
-                        <img
-                          src={category.imageUrl}
-                          alt={category.name}
-                          className={`h-full w-full ${category.autoImage ? 'object-contain' : 'object-cover'}`}
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex h-[104px] items-center justify-center bg-gradient-to-br from-[#f4f6fa] to-[#eef2f8] text-[#c3ccd9]">
-                        <LayoutGrid className="h-8 w-8" strokeWidth={1.5} />
-                      </div>
-                    )}
-                    <span className="px-3 py-3 text-[13px] font-semibold text-[#14223b]">{category.name}</span>
-                  </Link>
-                ))}
+              {/* Kenarlar maskelenir; ic serit x2 kopyalanir -> kesintisiz dongu. Hover'da animasyon durur. */}
+              <div
+                className="group relative overflow-hidden"
+                style={{
+                  WebkitMaskImage: 'linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent)',
+                  maskImage: 'linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent)',
+                }}
+              >
+                <div className="flex w-max gap-3.5 animate-[bkr-marquee_46s_linear_infinite] group-hover:[animation-play-state:paused]">
+                  {[...topCategories, ...topCategories].map((category, idx) => {
+                    const isClone = idx >= topCategories.length;
+                    return (
+                      <Link
+                        key={`${category.id}-${idx}`}
+                        href={`/products?categoryId=${category.id}`}
+                        aria-hidden={isClone}
+                        tabIndex={isClone ? -1 : undefined}
+                        className="group/card flex w-[206px] flex-none flex-col overflow-hidden rounded-xl border border-[#e7ebf2] bg-white shadow-[0_1px_2px_rgba(20,34,59,.04)] transition-all hover:-translate-y-0.5 hover:border-[#d3deef] hover:shadow-[0_6px_16px_rgba(20,34,59,.07)]"
+                      >
+                        {category.imageUrl ? (
+                          // Otomatik (urun) gorseli genelde portre -> contain ile TAMAMI gorunsun (kirpma yok).
+                          // Admin yukledigi gorsel ise kutuyu doldursun (cover).
+                          <div className={`flex h-[104px] w-full items-center justify-center overflow-hidden ${category.autoImage ? 'bg-white p-2' : ''}`}>
+                            <img
+                              src={category.imageUrl}
+                              alt={category.name}
+                              className={`h-full w-full ${category.autoImage ? 'object-contain' : 'object-cover'}`}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-[104px] items-center justify-center bg-gradient-to-br from-[#f4f6fa] to-[#eef2f8] text-[#c3ccd9]">
+                            <LayoutGrid className="h-8 w-8" strokeWidth={1.5} />
+                          </div>
+                        )}
+                        <span className="truncate px-4 py-3 text-[13px] font-semibold text-[#14223b]">{category.name}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
               </div>
             </section>
           )}
@@ -512,18 +526,18 @@ export default function CustomerHomePage() {
           {/* ── SIK ALDIKLARINIZ (serit) ────────────────────────────── */}
           {purchased.length > 0 && (
             <section>
-              <div className="mb-4 flex items-end justify-between">
+              <div className="mb-3.5 flex items-end justify-between">
                 <div>
-                  <h3 className="text-[19px] font-bold tracking-tight text-[#14223b] sm:text-[21px]">Sık aldıklarınız</h3>
-                  <p className="mt-0.5 text-[13px] text-[#7a879c]">Bir bakışta yeniden sipariş</p>
+                  <h3 className="text-[18px] font-semibold tracking-tight text-[#14223b]">Sık aldıklarınız</h3>
+                  <p className="mt-0.5 text-[13px] text-[#8b97ac]">Bir bakışta yeniden sipariş</p>
                 </div>
-                <Link href="/previously-purchased" className="flex items-center gap-1 text-[13px] font-semibold text-[#15356b]">
+                <Link href="/previously-purchased" className="flex items-center gap-1 text-[13px] font-medium text-[#15356b]">
                   Tümü <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
-              <div className="flex gap-3.5 overflow-x-auto pb-2">
+              <div className="flex gap-4 overflow-x-auto pb-1.5">
                 {purchased.map((product) => (
-                  <div key={product.id} className="w-[210px] flex-none">
+                  <div key={product.id} className="w-[236px] flex-none">
                     <ProductCard
                       product={product}
                       allowedPriceTypes={allowedPriceTypes}
@@ -541,32 +555,25 @@ export default function CustomerHomePage() {
           {/* ── HEDIYELI KAMPANYA (GWP) ─────────────────────────────── */}
           <GiftCampaignBanner />
 
-          {/* ── KISISEL ONERILER + EKSIK KATEGORILERINIZ ────────────── */}
-          <PersonalRecommendations
-            allowedPriceTypes={allowedPriceTypes}
-            vatDisplayPreference={vatDisplayPreference}
-            showMissingCategories
-          />
-
           {/* ── DESTEK BLOGU ────────────────────────────────────────── */}
-          <section className="overflow-hidden rounded-[18px] border border-[#e7ebf2] bg-white">
-            <div className="flex flex-col gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3">
+          <section className="overflow-hidden rounded-2xl border border-[#e7ebf2] bg-white shadow-[0_1px_2px_rgba(20,34,59,.04)]">
+            <div className="flex flex-col gap-3.5 px-6 py-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3.5">
                 <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#eef2fa] text-[#15356b]">
                   <Headphones className="h-5 w-5" />
                 </span>
                 <div>
-                  <div className="text-[17px] font-bold tracking-tight text-[#14223b]">Bir sorunuz mu var?</div>
-                  <div className="mt-0.5 text-[13.5px] text-[#7a879c]">
+                  <div className="text-[16px] font-semibold tracking-tight text-[#14223b]">Bir sorunuz mu var?</div>
+                  <div className="mt-0.5 text-[13px] text-[#8b97ac]">
                     Sipariş, teslimat ve fatura konularında yanınızdayız — talep oluşturun, ekibimiz dönsün.
                   </div>
                 </div>
               </div>
               <div className="flex flex-shrink-0 gap-2.5">
-                <Link href="/my-requests" className="inline-flex items-center gap-2 rounded-xl bg-[#15356b] px-4 py-2.5 text-[13.5px] font-semibold text-white hover:bg-[#1c4585]">
+                <Link href="/my-requests" className="inline-flex items-center gap-2 rounded-[10px] bg-[#15356b] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1c4585]">
                   <Package className="h-4 w-4" /> Talep oluştur
                 </Link>
-                <Link href="/my-requests" className="inline-flex items-center gap-2 rounded-xl border border-[#d8e0ec] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#15356b] hover:bg-[#f4f6fa]">
+                <Link href="/my-requests" className="inline-flex items-center gap-2 rounded-[10px] border border-[#d8e0ec] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#15356b] hover:bg-[#f6f8fc]">
                   Taleplerim
                 </Link>
               </div>
@@ -576,20 +583,20 @@ export default function CustomerHomePage() {
           {/* ── HAFTANIN ONE CIKANLARI ──────────────────────────────── */}
           {featured.length > 0 && (
             <section>
-              <div className="mb-4 flex items-end justify-between">
+              <div className="mb-4 flex items-baseline justify-between">
                 <div className="flex items-center gap-2">
                   {featuredMode === 'discounted' ? (
-                    <Percent className="h-5 w-5 text-emerald-600" />
+                    <Percent className="h-[18px] w-[18px] text-emerald-600" />
                   ) : (
-                    <Sparkles className="h-5 w-5 text-[#15356b]" />
+                    <Sparkles className="h-[18px] w-[18px] text-[#15356b]" />
                   )}
-                  <h3 className="text-[19px] font-bold tracking-tight text-[#14223b] sm:text-[21px]">
+                  <h3 className="text-[18px] font-semibold tracking-tight text-[#14223b]">
                     {featuredMode === 'discounted' ? 'Öne çıkan indirimli ürünler' : 'Haftanın öne çıkanları'}
                   </h3>
                 </div>
                 <Link
                   href={featuredMode === 'discounted' ? '/discounted-products' : '/products'}
-                  className="flex items-center gap-1 text-[13px] font-semibold text-[#15356b]"
+                  className="flex items-center gap-1 text-[13px] font-medium text-[#15356b]"
                 >
                   Tümünü gör <ArrowRight className="h-4 w-4" />
                 </Link>

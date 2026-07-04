@@ -27,9 +27,9 @@ export const POSITION_BADGE: Record<BannerPosition, string> = {
 
 // Pozisyona gore hedef ebat (kirpma bu orana/ebata gore yapilir)
 export const POSITION_DIMS: Record<BannerPosition, { w: number; h: number }> = {
-  HERO: { w: 1920, h: 640 },
+  HERO: { w: 1680, h: 600 }, // 2.8:1 — SIDE (4:5) ile 3.5fr:1fr grid'de aynı yükseklik (boşluk/kırpma yok)
   STRIP: { w: 1200, h: 140 },
-  SIDE: { w: 600, h: 800 },
+  SIDE: { w: 800, h: 1000 }, // 4:5 dikey — HERO ile yan yana eşit yükseklik
   GRID: { w: 800, h: 360 },
 };
 
@@ -68,9 +68,9 @@ export const isBrandsLink = (linkUrl?: string | null): boolean => linkToBrands(l
 // Pozisyona gore onerilen gorsel olcusu.
 // Vitrin bu oranlari aspect-ratio ile birebir kullanir: gorsel tam bu oranda gosterilir, EKSTRA KIRPMA YOK.
 export const RECOMMENDED_SIZE: Record<BannerPosition, string> = {
-  HERO: 'Görsel tam 1920 × 640 px (3:1) oranında gösterilir — kırpılmaz. Maks 5MB',
+  HERO: 'Görsel tam 1680 × 600 px (2.8:1) oranında gösterilir — kırpılmaz. Maks 5MB',
   STRIP: 'Görsel tam 1200 × 140 px (~8.6:1 ince şerit) oranında gösterilir — kırpılmaz. Maks 5MB',
-  SIDE: 'Görsel tam 600 × 800 px (3:4 dikey) oranında gösterilir — kırpılmaz. Maks 5MB',
+  SIDE: 'Görsel tam 800 × 1000 px (4:5 dikey) oranında gösterilir — kırpılmaz. Maks 5MB',
   GRID: 'Görsel tam 800 × 360 px (~2.2:1) oranında gösterilir — kırpılmaz. Maks 5MB',
 };
 

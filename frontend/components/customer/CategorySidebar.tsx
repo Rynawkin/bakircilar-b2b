@@ -76,8 +76,8 @@ export function CategorySidebar({ categories, selectedCategoryId, onSelect, bann
       </div>
 
       {/* Dikey banner — admin SIDE banner varsa ondan, yoksa statik promo.
-          aspect-[600/800] = SIDE crop orani (kirpma olmasin diye yukseklik sabit degil). */}
-      <Link href={bannerLink} className="relative block aspect-[600/800] overflow-hidden rounded-2xl border border-[var(--line)]">
+          aspect-[4/5] = SIDE crop orani (admin 800x1000 ile birebir; kirpma yok). */}
+      <Link href={bannerLink} className="relative block aspect-[4/5] overflow-hidden rounded-2xl border border-[var(--line)]">
         {sideBanner?.imageUrl ? (
           <>
             <img src={sideBanner.imageUrl} alt={sideBanner.title} className="absolute inset-0 h-full w-full object-cover" />
