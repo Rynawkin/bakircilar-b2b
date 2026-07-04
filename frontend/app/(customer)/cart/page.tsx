@@ -30,7 +30,7 @@ import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel, getVatStatusLabel } from '@/lib/utils/vatDisplay';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
-import { getUnitOptions, formatUnitFactor, normalizeUnitName } from '@/lib/utils/unit';
+import { getUnitOptions, normalizeUnitName } from '@/lib/utils/unit';
 
 type RecommendationGroup = {
   baseProduct: { id: string; name: string; mikroCode: string };
@@ -380,9 +380,16 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
                 </button>
               </div>
               {lineUnit.isSubUnit && (
-                <span className="whitespace-nowrap text-[10px] font-medium text-primary-600">
-                  {lineUnit.displayUnit} · ≈ {formatUnitFactor(item.quantity)} {item.product.unit}
-                </span>
+                <div className="flex flex-col items-center leading-tight">
+                  <span className="whitespace-nowrap text-[10.5px] font-semibold text-primary-700">
+                    {lineUnit.displayUnit}
+                  </span>
+                  {lineUnit.info.ratioLabel && (
+                    <span className="whitespace-nowrap text-[9.5px] text-[var(--ink-3)]">
+                      {lineUnit.info.ratioLabel}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
 

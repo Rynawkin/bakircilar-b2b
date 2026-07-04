@@ -638,6 +638,15 @@ export const rebalanceCartProductPriceType = async (params: {
       return updated.id;
     }
 
+    // Grup kararliligi: bu urunun bu fiyat-tipinde zaten satiri varsa (mode split
+    // -> ornegin LIST varken EXCESS satiri aciliyor), yeni satir urunun ILK ekleme
+    // zamanini miras alsin ki tum satirlari ayni createdAt ile gruplu kalsin ve
+    // sepetteki konumu (getCart createdAt desc) miktar/birim duzenlemesinde kaymasin.
+    // existingItems createdAt asc siralidir; [0] en erken eklemedir.
+    // existingItems bos ise (tamamen yeni urun) createdAt varsayilana (now) birakilir
+    // -> yeni urun en ustte gorunur.
+    const inheritedCreatedAt =
+      existingItems.length > 0 ? existingItems[0].createdAt : undefined;
     const created = await prisma.cartItem.create({
       data: {
         cartId,
@@ -647,6 +656,7 @@ export const rebalanceCartProductPriceType = async (params: {
         priceMode: mode,
         unitPrice,
         lineNote: fallbackNote || null,
+        ...(inheritedCreatedAt ? { createdAt: inheritedCreatedAt } : {}),
       },
     });
     return created.id;

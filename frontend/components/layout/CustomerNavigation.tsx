@@ -10,6 +10,7 @@ import customerApi, { CustomerFinancials } from '@/lib/api/customer';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { buildCategoryTree, getCategoryPath } from '@/lib/utils/categoryTree';
 import { normalizeSearchText } from '@/lib/utils/search';
+import { MobileCategoryPanel } from '@/components/customer/MobileCategoryPanel';
 import { Notification, Category } from '@/types';
 import {
   Search,
@@ -48,6 +49,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const { user, logout } = useAuthStore();
   const { cart } = useCartStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileCategoriesOpen, setMobileCategoriesOpen] = useState(false);
   const [megaOpen, setMegaOpen] = useState(false);
   const [megaRootId, setMegaRootId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -161,22 +163,45 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.parentCustomerId]);
 
-  // Mobil menu acikken arka plan (body) kaymasini kilitle — dropdown kendi scroll'unu
-  // kullansin, arkadaki sayfayi surumesin. Menu kapaninca eski overflow geri gelir.
+  // Mobil menu VEYA kategori paneli acikken arka plan (body) kaymasini kilitle —
+  // panel/dropdown kendi scroll'unu kullansin, arkadaki sayfayi surumesin.
+  // Menu kapaninca eski overflow geri gelir.
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    if (!mobileMenuOpen) return;
+    if (!mobileMenuOpen && !mobileCategoriesOpen) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = previous;
     };
-  }, [mobileMenuOpen]);
+  }, [mobileMenuOpen, mobileCategoriesOpen]);
 
-  // Rota degisince mobil menuyu kapat (link tiklamalari zaten kapatiyor; guvence)
+  // Rota degisince mobil menu ve kategori panelini kapat
+  // (link tiklamalari zaten kapatiyor; guvence)
   useEffect(() => {
     setMobileMenuOpen(false);
+    setMobileCategoriesOpen(false);
   }, [pathname]);
+
+  // Hesap menusu ve kategori paneli birbirini disar (ayni anda bir tanesi acik)
+  const openMobileMenu = () => {
+    setMobileCategoriesOpen(false);
+    setMobileMenuOpen((prev) => !prev);
+  };
+  const openMobileCategories = () => {
+    setMobileMenuOpen(false);
+    setMobileCategoriesOpen((prev) => !prev);
+  };
+
+  // Kategori panelinden bir kategoriye git: paneli kapat + urunler sayfasina yonlendir
+  const goToCategory = (categoryId: string) => {
+    setMobileCategoriesOpen(false);
+    router.push(`/products?categoryId=${categoryId}`);
+  };
+  const goToAllProducts = () => {
+    setMobileCategoriesOpen(false);
+    router.push('/products');
+  };
 
   const handleLogout = () => {
     logout();
@@ -485,9 +510,9 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             </span>
           </Link>
 
-          {/* Mobil menü butonu */}
+          {/* Mobil menü butonu (hamburger = hesap/gezinme menusu) */}
           <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            onClick={openMobileMenu}
             className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--line)] text-[var(--ink-2)] lg:hidden"
             aria-label="Menü"
             aria-expanded={mobileMenuOpen}
@@ -690,6 +715,17 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
         </div>
       )}
 
+      {/* ── MOBİL KATEGORİ PANELİ (mega menünün mobil karşılığı) ──── */}
+      <MobileCategoryPanel
+        open={mobileCategoriesOpen}
+        onClose={() => setMobileCategoriesOpen(false)}
+        roots={roots}
+        childrenById={childrenById}
+        nodesById={nodesById}
+        onNavigateCategory={goToCategory}
+        onNavigateAllProducts={goToAllProducts}
+      />
+
       {/* ── MOBİL ALT SEKME ÇUBUĞU ───────────────────────────────── */}
       <nav
         className="fixed inset-x-0 bottom-0 z-50 flex items-stretch border-t border-[var(--line)] bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
@@ -697,7 +733,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
       >
         <Link
           href="/home"
-          onClick={() => setMobileMenuOpen(false)}
+          onClick={() => { setMobileMenuOpen(false); setMobileCategoriesOpen(false); }}
           className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
             isActive('/home') ? 'text-primary-600' : 'text-[var(--ink-3)]'
           }`}
@@ -708,20 +744,20 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
         <button
           type="button"
-          onClick={() => setMobileMenuOpen((prev) => !prev)}
+          onClick={openMobileCategories}
           className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
-            mobileMenuOpen ? 'text-primary-600' : 'text-[var(--ink-3)]'
+            mobileCategoriesOpen ? 'text-primary-600' : 'text-[var(--ink-3)]'
           }`}
-          aria-label="Kategoriler ve menü"
-          aria-expanded={mobileMenuOpen}
+          aria-label="Kategoriler"
+          aria-expanded={mobileCategoriesOpen}
         >
-          <Package className={`h-5 w-5 ${mobileMenuOpen ? 'stroke-[2.4]' : ''}`} />
+          <Package className={`h-5 w-5 ${mobileCategoriesOpen ? 'stroke-[2.4]' : ''}`} />
           <span>Kategoriler</span>
         </button>
 
         <Link
           href="/cart"
-          onClick={() => setMobileMenuOpen(false)}
+          onClick={() => { setMobileMenuOpen(false); setMobileCategoriesOpen(false); }}
           className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
             isActive('/cart') ? 'text-primary-600' : 'text-[var(--ink-3)]'
           }`}
@@ -739,7 +775,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
         <button
           type="button"
-          onClick={() => setMobileMenuOpen((prev) => !prev)}
+          onClick={openMobileMenu}
           className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
             mobileMenuOpen ? 'text-primary-600' : 'text-[var(--ink-3)]'
           }`}

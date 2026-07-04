@@ -26,9 +26,13 @@ import {
 } from 'lucide-react';
 
 // Banner gorseli yoksa veya hatali yuklenirse kart kirik gorunmesin diye placeholder.
-function BannerImage({ src, alt }: { src?: string | null; alt: string }) {
+// Dar (<=640px) ekranlarda mobileSrc varsa o kullanilir; yoksa src'ye duser (ve tersi).
+function BannerImage({ src, mobileSrc, alt }: { src?: string | null; mobileSrc?: string | null; alt: string }) {
   const [error, setError] = useState(false);
-  if (!src || error) {
+  // Geniş ve mobil görsellerin ikisinden en az biri olmalı; ana <img> için ikisinden dolu olanı seç.
+  const desktopSrc = src || mobileSrc;
+  const narrowSrc = mobileSrc || src;
+  if (!desktopSrc || error) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#12305c] to-[#163a72]">
         <Sparkles className="h-16 w-16 text-white/20" strokeWidth={1.5} />
@@ -36,7 +40,10 @@ function BannerImage({ src, alt }: { src?: string | null; alt: string }) {
     );
   }
   return (
-    <img src={src} alt={alt} className="h-full w-full object-cover" onError={() => setError(true)} />
+    <picture className="block h-full w-full">
+      <source media="(max-width: 640px)" srcSet={narrowSrc ?? undefined} />
+      <img src={desktopSrc} alt={alt} className="h-full w-full object-cover" onError={() => setError(true)} />
+    </picture>
   );
 }
 
@@ -247,7 +254,7 @@ export default function CustomerHomePage() {
                     const href = bannerHref(banner);
                     const inner = (
                       <>
-                        <BannerImage src={banner.imageUrl} alt={banner.title} />
+                        <BannerImage src={banner.imageUrl} mobileSrc={banner.mobileImageUrl} alt={banner.title} />
                         {/* Metin altta -> soldan degil ALTTAN karart (sol taraf artik karanlik degil) */}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                         <div className="absolute inset-0 flex flex-col justify-end gap-2 p-5 sm:p-9 md:max-w-[70%]">
@@ -326,7 +333,7 @@ export default function CustomerHomePage() {
               const href = side ? bannerHref(side) : '/discounted-products';
               const inner = side ? (
                 <>
-                  <BannerImage src={side.imageUrl} alt={side.title} />
+                  <BannerImage src={side.imageUrl} mobileSrc={side.mobileImageUrl} alt={side.title} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
                   <div className="absolute inset-0 flex flex-col justify-end gap-1.5 p-5">
                     <h3 className="text-lg font-bold leading-tight text-white">{side.title}</h3>
@@ -366,9 +373,13 @@ export default function CustomerHomePage() {
           {/* ── SLIM STRIP (admin banner) ───────────────────────────── */}
           {stripBanners.length > 0 && stripBanners.map((banner) => {
             const href = bannerHref(banner);
-            const content = banner.imageUrl ? (
+            const content = (banner.imageUrl || banner.mobileImageUrl) ? (
               <div className="relative overflow-hidden rounded-xl border border-[#d6e0f1]">
-                <img src={banner.imageUrl} alt={banner.title} className="h-[84px] w-full object-cover sm:h-[104px]" />
+                <picture>
+                  {/* Dar ekranda (<=640px) mobil görsel varsa onu kullan, yoksa geniş görsele düş */}
+                  <source media="(max-width: 640px)" srcSet={(banner.mobileImageUrl || banner.imageUrl) ?? undefined} />
+                  <img src={(banner.imageUrl || banner.mobileImageUrl) ?? undefined} alt={banner.title} className="h-[84px] w-full object-cover sm:h-[104px]" />
+                </picture>
                 {(banner.title || banner.subtitle) && (
                   <>
                     <div className="absolute inset-0 bg-gradient-to-r from-black/45 via-black/10 to-transparent" />

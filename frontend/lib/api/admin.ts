@@ -274,6 +274,7 @@ export interface AdminBanner {
   title: string;
   subtitle?: string | null;
   imageUrl?: string | null;
+  mobileImageUrl?: string | null; // dar (mobil) ekran icin ayri gorsel; bos ise imageUrl kullanilir
   linkUrl?: string | null;
   productCode?: string | null;
   buttonText?: string | null;
@@ -290,6 +291,7 @@ export interface BannerInput {
   title: string;
   subtitle?: string | null;
   imageUrl?: string | null;
+  mobileImageUrl?: string | null; // dar (mobil) ekran icin ayri gorsel; bos ise imageUrl kullanilir
   linkUrl?: string | null;
   productCode?: string | null;
   buttonText?: string | null;

@@ -30,7 +30,9 @@ import {
   useBannerlar,
   POSITION_OPTIONS,
   RECOMMENDED_SIZE,
+  RECOMMENDED_SIZE_MOBILE,
   POSITION_DIMS,
+  POSITION_DIMS_MOBILE,
   brandsToLink,
   linkToBrands,
   isBrandsLink,
@@ -366,17 +368,30 @@ export default function BannerlarNew() {
                       />
                     </div>
 
-                    {/* Görsel: yükle + o pozisyonun oranında çerçeveye sığdır (kırp) */}
-                    <div>
+                    {/* Görseller: geniş (masaüstü) + dar (mobil). Mobil boşsa vitrinde geniş görsel kullanılır. */}
+                    <div className="space-y-4 rounded-xl border border-[#e7ebf2] bg-[#fafbfd] p-4">
+                      {/* Geniş (masaüstü) görsel: o pozisyonun oranında çerçeveye sığdır (kırp) */}
                       <ImageCropUpload
                         value={formData.imageUrl}
                         onChange={(url) => setFormData({ ...formData, imageUrl: url })}
                         aspect={POSITION_DIMS[formData.position ?? 'HERO'].w / POSITION_DIMS[formData.position ?? 'HERO'].h}
                         targetWidth={POSITION_DIMS[formData.position ?? 'HERO'].w}
                         targetHeight={POSITION_DIMS[formData.position ?? 'HERO'].h}
-                        label="Görsel"
+                        label="Görsel (geniş / masaüstü)"
                         hint={RECOMMENDED_SIZE[formData.position ?? 'HERO']}
                       />
+                      {/* Dar (mobil) görsel: telefon/dar ekranlar için ayrı kırpım (opsiyonel) */}
+                      <div className="border-t border-[#e7ebf2] pt-4">
+                        <ImageCropUpload
+                          value={formData.mobileImageUrl}
+                          onChange={(url) => setFormData({ ...formData, mobileImageUrl: url })}
+                          aspect={POSITION_DIMS_MOBILE[formData.position ?? 'HERO'].w / POSITION_DIMS_MOBILE[formData.position ?? 'HERO'].h}
+                          targetWidth={POSITION_DIMS_MOBILE[formData.position ?? 'HERO'].w}
+                          targetHeight={POSITION_DIMS_MOBILE[formData.position ?? 'HERO'].h}
+                          label="Mobil Görsel (dar ekran)"
+                          hint={RECOMMENDED_SIZE_MOBILE[formData.position ?? 'HERO']}
+                        />
+                      </div>
                     </div>
 
                     {/* Link & Ürün kodu */}

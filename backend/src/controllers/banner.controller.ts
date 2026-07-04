@@ -12,6 +12,8 @@ const sanitize = (body: any) => {
   if (body.title !== undefined) out.title = String(body.title).trim();
   if (body.subtitle !== undefined) out.subtitle = body.subtitle ? String(body.subtitle).trim() : null;
   if (body.imageUrl !== undefined) out.imageUrl = body.imageUrl ? String(body.imageUrl).trim() : null;
+  // Dar (mobil) ekran icin ayri gorsel; bos ise musteri tarafinda imageUrl'e dusulur.
+  if (body.mobileImageUrl !== undefined) out.mobileImageUrl = body.mobileImageUrl ? String(body.mobileImageUrl).trim() : null;
   if (body.linkUrl !== undefined) out.linkUrl = body.linkUrl ? String(body.linkUrl).trim() : null;
   if (body.productCode !== undefined) out.productCode = body.productCode ? String(body.productCode).trim() : null;
   if (body.buttonText !== undefined) out.buttonText = body.buttonText ? String(body.buttonText).trim() : null;
@@ -74,6 +76,7 @@ class BannerController {
           title: data.title ?? '',
           subtitle: data.subtitle ?? null,
           imageUrl: data.imageUrl ?? null,
+          mobileImageUrl: data.mobileImageUrl ?? null,
           linkUrl: data.linkUrl ?? null,
           productCode: data.productCode ?? null,
           buttonText: data.buttonText ?? null,

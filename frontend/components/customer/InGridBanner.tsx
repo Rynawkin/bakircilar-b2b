@@ -38,9 +38,17 @@ export function InGridBanner() {
 
   return (
     <Link href={href} onClick={handleClick} className="relative col-span-2 flex min-h-[150px] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white">
-      {banner?.imageUrl ? (
+      {(banner?.imageUrl || banner?.mobileImageUrl) ? (
         <>
-          <img src={banner.imageUrl} alt={banner.title} className="absolute inset-0 h-full w-full object-cover" />
+          <picture>
+            {/* Dar ekranda (<=640px) mobil görsel varsa onu kullan, yoksa geniş görsele düş (ve tersi) */}
+            <source media="(max-width: 640px)" srcSet={(banner.mobileImageUrl || banner.imageUrl) ?? undefined} />
+            <img
+              src={(banner.imageUrl || banner.mobileImageUrl) ?? undefined}
+              alt={banner.title}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          </picture>
           <div className="absolute inset-0 bg-gradient-to-r from-[#081630]/85 to-[#081630]/25" />
           <div className="relative">
             <div className="text-[20px] font-bold leading-tight sm:text-[22px]">{banner.title}</div>

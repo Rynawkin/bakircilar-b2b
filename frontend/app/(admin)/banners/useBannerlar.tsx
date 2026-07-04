@@ -33,6 +33,15 @@ export const POSITION_DIMS: Record<BannerPosition, { w: number; h: number }> = {
   GRID: { w: 800, h: 360 },
 };
 
+// Pozisyona gore MOBIL (dar ekran) hedef ebat — geniş görselden ayrı, dikeye yakın oranlar.
+// Vitrin bu görseli max-width:640px ekranlarda kullanır; boş bırakılırsa geniş görsele döner.
+export const POSITION_DIMS_MOBILE: Record<BannerPosition, { w: number; h: number }> = {
+  HERO: { w: 768, h: 600 }, // ~1.28:1 — mobil hero için daha kısa/kare-ye yakın
+  STRIP: { w: 375, h: 160 }, // ~2.34:1 — ince şerit ama telefonda okunur yükseklik
+  SIDE: { w: 375, h: 500 }, // ~3:4 dikey
+  GRID: { w: 375, h: 280 }, // ~4:3 ızgara içi
+};
+
 // ---- Coklu marka -> link donusum yardimcilari ----
 // Banner "birden fazla marka" secimi linkUrl'de /products?brands=A,B,C olarak saklanir.
 export const brandsToLink = (codes: string[]): string =>
@@ -64,10 +73,19 @@ export const RECOMMENDED_SIZE: Record<BannerPosition, string> = {
   GRID: 'Önerilen ölçü: 800 × 360 px (ızgara içi, ~2:1) · maks 5MB',
 };
 
+// Pozisyona gore onerilen MOBIL gorsel olcusu (dar ekran)
+export const RECOMMENDED_SIZE_MOBILE: Record<BannerPosition, string> = {
+  HERO: 'Mobil ölçü: 768 × 600 px (dar/kısa) · boş bırakılırsa geniş görsel kullanılır',
+  STRIP: 'Mobil ölçü: 375 × 160 px (dar şerit) · boş bırakılırsa geniş görsel kullanılır',
+  SIDE: 'Mobil ölçü: 375 × 500 px (dikey) · boş bırakılırsa geniş görsel kullanılır',
+  GRID: 'Mobil ölçü: 375 × 280 px (dar ızgara) · boş bırakılırsa geniş görsel kullanılır',
+};
+
 const emptyForm: BannerInput = {
   title: '',
   subtitle: '',
   imageUrl: '',
+  mobileImageUrl: '',
   linkUrl: '',
   productCode: '',
   buttonText: '',
@@ -194,6 +212,7 @@ export function useBannerlar() {
       title: banner.title ?? '',
       subtitle: banner.subtitle ?? '',
       imageUrl: banner.imageUrl ?? '',
+      mobileImageUrl: banner.mobileImageUrl ?? '',
       linkUrl: banner.linkUrl ?? '',
       productCode: banner.productCode ?? '',
       buttonText: banner.buttonText ?? '',
@@ -217,6 +236,7 @@ export function useBannerlar() {
     title: formData.title.trim(),
     subtitle: formData.subtitle?.trim() || null,
     imageUrl: formData.imageUrl?.trim() || null,
+    mobileImageUrl: formData.mobileImageUrl?.trim() || null,
     linkUrl: formData.linkUrl?.trim() || null,
     productCode: formData.productCode?.trim() || null,
     buttonText: formData.buttonText?.trim() || null,

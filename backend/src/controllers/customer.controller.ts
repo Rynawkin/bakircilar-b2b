@@ -2599,6 +2599,10 @@ export class CustomerController {
                 ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
               },
             },
+            // En son eklenen urun en ustte gorunsun. Ayni urunun (LIST+EXCESS)
+            // satirlari, rebalance sirasinda ilk-ekleme zamanini (createdAt)
+            // miras aldigi icin birlikte gruplu kalir (bkz. cart-pricing.service).
+            orderBy: { createdAt: 'desc' },
             include: {
               product: {
                 select: {

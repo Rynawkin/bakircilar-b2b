@@ -6,17 +6,24 @@
  * girdiler normalizeSearchText ile, aile uyeleri Product.searchText (DB generated,
  * ayni normalizasyon; migration 20260630120000) ile eslestirilir.
  *
- * KALITE KAPILARI (2026-07 Round 4):
- * pg_trgm skoru taban olarak kalir; ama kullanicidan gelen kotu oneriler icin
- * (400gr cop poseti -> 500gr aile, dispenser pecete -> Z-katli havlu aile,
- * 1500gr aluminyum kase -> 250gr aile) benzerlik skoru YETMIYOR. Bu yuzden asagidaki
- * SERT filtreler uygulanir (skoru gecen bir aday, kapilardan biri tetiklenirse elenir):
- *  a) KATEGORI kisiti: aday urunun categoryId'si vs ailenin cogunluk categoryId'si;
- *     ikisi de biliniyor ve farkliysa -> aile reddedilir.
- *  b) SAYISAL kapilar: gramaj (gr/g/kg/ml/lt/l/cc/oz), olcu (NxM), adet-ici (Nlu/N adet).
- *     Iki tarafta da gramaj varsa ve goreli fark > %15 -> red. Olcu farkliysa -> red.
- *  c) URUN-TIPI kapisi: PECETE/HAVLU/BARDAK/KASE/POSET... anahtar-kelime siniflari;
- *     iki tarafta da taninan tip var ve kesisim bossa -> red.
+ * ONERI KALIBRASYONU (2026-07 Round 5 — Round 4'un asiri sert kapilari gevsetildi):
+ * Round 4'te eklenen SERT kapilar (kategori esitligi + %15 gramaj + tam oz/adet-ici/olcu +
+ * tip-kesisim) yakaladigi az sayida kotu oneriden cok daha fazla IYI oneriyi de eliyordu.
+ * Kullanici Round 3'teki bol-oneri davranisini tercih ettigi icin oneri motoru yeniden
+ * ayarlandi (bkz. scoreSuggestionCandidate + suggestFamilies):
+ *  - FINAL skor = pg_trgm taban skoru + kategori TESVIKI (- gevsek cezalar).
+ *  - KATEGORI: sert red DEGIL, yumusak +0.08 tesvik (Mikro kategorileri tutarsiz oldugu icin).
+ *  - SERT RED yalnizca gercekten celiskili adaylar icin:
+ *     a) TIP-SINIFI ayrik (pecete vs havlu, dispenser pecete vs z-havlu),
+ *     b) ASIRI gramaj uyumsuzlugu (goreli fark > %50; 250g vs 1500g gibi),
+ *     c) ASIRI oz uyumsuzlugu (goreli fark > %50).
+ *  - GEVSEK (red DEGIL, ufak -0.03 ceza): orta gramaj farki (%15-50), olcu (NxM) uyumsuz,
+ *     adet-ici (Nlu) uyumsuz — bunlar genelde ayni ailenin boy/paket varyantidir.
+ *  - FINAL skoru >= 0.35 olan en yuksek FINAL skorlu aday secilir (aileye gore dedup).
+ *
+ * NOT: evaluateNameGuards SERT kapisi (gramaj %15 / tam oz-adet-olcu / tip-kesisim) DEGISMEDI;
+ * family-report.service kume olusturma ve aykiri uye tespitinde bu sikiligi kullanmaya devam
+ * ediyor. Oneri motoru artik o sert kapiyi cagirmiyor; scoreSuggestionCandidate'i kullaniyor.
  *
  * addProductToFamily: oneriyi tek tusla uygular (ProductFamilyItem.create),
  * UcarerOperationLog 'PRODUCT_FAMILY_UPDATE' kaydi yazar. Mikro'ya yazma YOKTUR.
@@ -33,7 +40,46 @@ const CHUNK_SIZE = 50;
 const MIN_SCORE = 0.35;
 
 // Gramaj esitlik toleransi: iki taraf da gramajliysa goreli fark bunu asarsa red.
+// NOT: bu tolerans SADECE evaluateNameGuards (SERT kapi) icin gecerli; bu kapi
+// family-report.service tarafindan kume/aykiri tespitinde kullanilir ve orada
+// sikiliginin korunmasi ISTENIR. suggestFamilies (Aday Aile onerisi) ARTIK bu sert
+// kapiyi KULLANMAZ; bunun yerine asagidaki gevsek "scoreSuggestionCandidate" mantigini
+// kullanir (bkz. Round 5 rekalibrasyonu).
 const WEIGHT_REL_TOLERANCE = 0.15;
+
+/* ============================================================================
+ * ROUND 5 REKALIBRASYON — ADAY AILE ONERI ESIKLERI
+ *
+ * GEREKCE: Round 4'te suggestFamilies'e eklenen SERT kapilar (kategori esitligi +
+ * evaluateNameGuards: gramaj %15 / oz-tam / adet-ici-tam / olcu-tam / tip-kesisim)
+ * yakaladigi az sayida kotu oneriden cok daha fazla IYI oneriyi de reddediyordu.
+ * Kullanici Round 3'teki bol-oneri davranisini tercih ediyor. Bu yuzden oneri motoru
+ * yeniden ayarlanir: kategori ARTIK asla reddetmez (yalnizca yumusak +0.08 tesvik),
+ * ve yalnizca gercekten CELISKILI durumlar SERT reddedilir:
+ *   (a) TIP-SINIFI ayrik: her iki tarafta da taninan urun-tipi var ve kesisim BOS
+ *       (pecete vs havlu, dispenser pecete vs z-havlu -> gercekten farkli urun).
+ *   (b) ASIRI gramaj uyumsuzlugu: iki tarafta da gramaj var ve goreli fark > %50
+ *       (250g vs 1500g = %83 -> red; 400g vs 500g = %20 -> KAL).
+ *   (c) ASIRI oz uyumsuzlugu: iki tarafta da oz var ve goreli fark > %50.
+ * Orta gramaj farki (%15-50), olcu (NxM) uyumsuzlugu ve adet-ici (Nlu) uyumsuzlugu
+ * ARTIK REDDETMEZ; bunlar genelde AYNI ailenin farkli boy/paket varyantlaridir.
+ * Sadece siralamada ufak bir ceza (-0.03) alirlar, boylece tam uyumlu aday one gecer.
+ * ==========================================================================*/
+
+// Kategori esitligi: sert red DEGIL, yumusak tesvik. Mikro kategorileri tutarsiz
+// oldugu icin kategori farki oneriyi ELEMEZ; sadece ayni kategoriye kucuk bonus.
+const CATEGORY_MATCH_BOOST = 0.08;
+
+// Sert red esigi: gramaj/oz goreli farki bunu asarsa (iki tarafta da olcum varsa) red.
+// %50 = 0.5. denom = max(a,b). 400/500 = 0.2 -> KAL; 250/1500 = 0.83 -> RED.
+const EXTREME_REL_TOLERANCE = 0.5;
+
+// Orta gramaj farki bandi: bu banttaki (WEIGHT_REL_TOLERANCE < fark <= EXTREME)
+// aday reddedilmez, sadece ufak siralama cezasi alir.
+const SOFT_MISMATCH_PENALTY = 0.03;
+
+// Oneri motorunun kabul esigi (pg_trgm taban skoru). Round 3 ile ayni: 0.35.
+const SUGGEST_MIN_SCORE = MIN_SCORE;
 
 export interface FamilySuggestion {
   familyId: string;
@@ -353,14 +399,167 @@ export function evaluateNameGuards(
   return { rejected: false, reason: null };
 }
 
+/* ============================================================================
+ * ROUND 5: ADAY AILE ONERI SKORLAMASI (gevsek)
+ *
+ * evaluateNameGuards SERT kapisi (family-report kume/aykiri tespiti icin) DEGISMEDEN
+ * kalir. Aday Aile ONERI motoru ise asagidaki gevsek mantigi kullanir:
+ *  - HARD REJECT yalnizca: tip-sinifi ayrik | asiri gramaj (>%50) | asiri oz (>%50).
+ *  - DEMOTE (red DEGIL, ufak -0.03 ceza): orta gramaj farki (%15-50), olcu uyumsuz,
+ *    adet-ici uyumsuz. Bunlar genelde ayni ailenin boy/paket varyantidir.
+ * Donen 'penalty' final skordan cikarilir; 'rejected' true ise aday tamamen elenir.
+ * ==========================================================================*/
+
+export interface SuggestScore {
+  rejected: boolean;
+  penalty: number; // final skordan cikarilacak toplam ceza (>= 0)
+  reason: string | null; // red/ceza gerekcesi (log/debug icin)
+}
+
+/**
+ * Bir aday aile-eslesmesini oneri motoru icin degerlendirir. evaluateNameGuards'in
+ * aksine cogu uyumsuzluk REDDETMEZ; yalnizca gercekten celiskili uc durumlar reddedilir.
+ * candidateName: aday (ailesiz) urun adi.
+ * referenceNames: aday ailenin kanit isimleri (eslesen uye adi + aile adi).
+ */
+export function scoreSuggestionCandidate(
+  candidateName: string,
+  referenceNames: string[]
+): SuggestScore {
+  const cand = String(candidateName || '');
+  const refs = (referenceNames || []).map((n) => String(n || '')).filter(Boolean);
+  if (!cand || refs.length === 0) return { rejected: false, penalty: 0, reason: null };
+
+  let penalty = 0;
+  const notes: string[] = [];
+
+  // --- (a) TIP-SINIFI kapisi: SERT RED (ayrik ise) ---
+  // Iki tarafta da taninan urun-tipi var ve kesisim BOS ise gercekten farkli urundur
+  // (pecete vs havlu, dispenser pecete vs z-havlu). Bu kapi Round 4'ten aynen korunur.
+  const candT = extractTypeClasses(cand);
+  const refT = new Set<string>();
+  refs.forEach((n) => extractTypeClasses(n).forEach((c) => refT.add(c)));
+  if (candT.size > 0 && refT.size > 0) {
+    let intersects = false;
+    for (const c of candT) {
+      if (refT.has(c)) {
+        intersects = true;
+        break;
+      }
+    }
+    if (!intersects) {
+      return {
+        rejected: true,
+        penalty: 0,
+        reason: `Urun tipi ayrik (${Array.from(candT).join('/')} vs ${Array.from(refT).join('/')})`,
+      };
+    }
+  }
+
+  // --- (b) GRAMAJ kapisi: ASIRI fark SERT RED, orta fark yalnizca ufak ceza ---
+  const candW = extractWeights(cand);
+  const refW = refs.flatMap((n) => extractWeights(n));
+  if (candW.length > 0 && refW.length > 0) {
+    const cg = candW[0].grams;
+    // En yakin referans gramaji ile goreli fark (denom = max, boylece simetrik).
+    let bestRel = Infinity;
+    let nearest = refW[0];
+    for (const r of refW) {
+      const denom = Math.max(cg, r.grams) || 1;
+      const rel = Math.abs(cg - r.grams) / denom;
+      if (rel < bestRel) {
+        bestRel = rel;
+        nearest = r;
+      }
+    }
+    if (bestRel > EXTREME_REL_TOLERANCE) {
+      // Asiri uyumsuz (>%50): 250g vs 1500g gibi -> gercekten farkli boy sinifi.
+      return {
+        rejected: true,
+        penalty: 0,
+        reason: `Gramaj asiri uyumsuz (${candW[0].raw} vs ${nearest.raw})`,
+      };
+    }
+    if (bestRel > WEIGHT_REL_TOLERANCE) {
+      // Orta fark (%15-50): 400g vs 500g -> ayni aile, farkli boy; sadece ufak ceza.
+      penalty += SOFT_MISMATCH_PENALTY;
+      notes.push(`Gramaj orta fark (${candW[0].raw} vs ${nearest.raw})`);
+    }
+  }
+
+  // --- (c) OZ kapisi: ASIRI fark SERT RED, aksi halde dokunma ---
+  const candOz = extractOunces(cand);
+  const refOz = refs.flatMap((n) => extractOunces(n));
+  if (candOz.length > 0 && refOz.length > 0) {
+    const co = candOz[0];
+    let bestRel = Infinity;
+    let nearest = refOz[0];
+    for (const r of refOz) {
+      const denom = Math.max(co, r) || 1;
+      const rel = Math.abs(co - r) / denom;
+      if (rel < bestRel) {
+        bestRel = rel;
+        nearest = r;
+      }
+    }
+    if (bestRel > EXTREME_REL_TOLERANCE) {
+      return {
+        rejected: true,
+        penalty: 0,
+        reason: `Oz asiri uyumsuz (${co}oz vs ${nearest}oz)`,
+      };
+    }
+    // Orta oz farki icin ceza uygulamayiz: oz zaten kaba bir sinyal.
+  }
+
+  // --- OLCU (NxM) kapisi: red DEGIL, yalnizca ufak ceza ---
+  // 80x110 vs 70x120 gibi farkli boy ayni ailenin varyantidir; elenmemeli.
+  const candD = extractDimensions(cand);
+  const refD = refs.flatMap((n) => extractDimensions(n));
+  if (candD.length > 0 && refD.length > 0) {
+    const cd = candD[0];
+    const anyEqual = refD.some(
+      (r) =>
+        (Math.abs(r.a - cd.a) < 0.01 && Math.abs(r.b - cd.b) < 0.01) ||
+        (Math.abs(r.a - cd.b) < 0.01 && Math.abs(r.b - cd.a) < 0.01)
+    );
+    if (!anyEqual) {
+      penalty += SOFT_MISMATCH_PENALTY;
+      notes.push(`Olcu farkli (${cd.a}x${cd.b})`);
+    }
+  }
+
+  // --- ADET-ICI (Nlu / N adet) kapisi: red DEGIL, yalnizca ufak ceza ---
+  // 12'li vs 24'lu ayni urunun farkli paketidir; elenmemeli.
+  const candPacks = extractPackCounts(cand);
+  const refPacks = refs.flatMap((n) => extractPackCounts(n));
+  if (candPacks.length > 0 && refPacks.length > 0) {
+    const cp = candPacks[0];
+    const anyEqual = refPacks.some((r) => Math.abs(r - cp) < 0.01);
+    if (!anyEqual) {
+      penalty += SOFT_MISMATCH_PENALTY;
+      notes.push(`Adet-ici farkli (${cp}'lu)`);
+    }
+  }
+
+  return { rejected: false, penalty, reason: notes.length ? notes.join('; ') : null };
+}
+
 class FamilyCandidateService {
   /**
-   * Verilen urun kodlari icin en benzer aktif aileyi onerir.
+   * Verilen urun kodlari icin en uygun aktif aileyi onerir (Aday Aile).
    * Donen map'te oneri bulunamayan (veya PG Product cache'inde olmayan) kodlar null'dur.
    *
-   * Skorun uzerine SERT kapilar uygulanir:
-   *  - Kategori kisiti (aday urun categoryId vs ailenin cogunluk categoryId).
-   *  - Sayisal + tip kapilari (evaluateNameGuards).
+   * ROUND 5 REKALIBRASYONU (bol ve isabetli oneri):
+   *  - pg_trgm taban skoru + kategori tesviki ile FINAL skor hesaplanir.
+   *    categoryBoost = +0.08 aday kategorisi ailenin cogunluk kategorisiyle esitse, aksi
+   *    halde 0. Kategori ASLA reddetmez (Mikro kategorileri tutarsiz).
+   *  - Aday SADECE su durumlarda SERT reddedilir (scoreSuggestionCandidate):
+   *    tip-sinifi ayrik | asiri gramaj (>%50) | asiri oz (>%50).
+   *  - Orta gramaj farki (%15-50), olcu ve adet-ici uyumsuzluklari REDDETMEZ; final
+   *    skordan ufak (-0.03) ceza alir (tam uyumlu aday one gecsin diye).
+   *  - Aileye gore dedup edilir (aile basina en yuksek FINAL skorlu aday), FINAL skoru
+   *    >= 0.35 olan en yuksek FINAL skorlu aday secilir. Gosterilen 'score' = FINAL skor.
    */
   async suggestFamilies(productCodes: string[]): Promise<FamilySuggestionMap> {
     const codes = Array.from(
@@ -403,22 +602,22 @@ class FamilyCandidateService {
       return result;
     }
 
-    // Ailelerin cogunluk kategorisini onceden hesapla (kategori kapisi icin).
+    // Ailelerin cogunluk kategorisini onceden hesapla (kategori TESVIKI icin; red DEGIL).
     const familyMajorityCategory = await this.computeFamilyMajorityCategories();
 
-    // Chunk'la: her chunk tek sorguda LATERAL ile en iyi aile eslesmesini bulur.
-    // Aday kume aktif aile + aktif uye ile sinirli; LIMIT 1 ile N x M patlamasi kontrollu.
-    // Kapilar bir adayi elerse, "bir sonraki en iyi aday" LATERAL LIMIT 1 ile gorulmez;
-    // pratikte tek-en-iyi yeterli (yanlis aile skoru dogru aileninkinden dusuk kalir).
-    // Guvenli olmak icin LATERAL'de TOP birkac aday cekip JS'te kapilardan gecen ILK
-    // adayi secelim.
+    // Chunk'la: her chunk tek sorguda LATERAL ile aday urun basina en iyi 5 aile-eslesmesini
+    // bulur (aile-ici birden fazla uye de gelebilir). JS'te her aile bir kez (en iyi uyesiyle)
+    // degerlendirilir; kategori tesviki + gevsek ceza uygulanip FINAL skor hesaplanir ve
+    // FINAL skoru en yuksek (>= 0.35) aday secilir. LIMIT 5 tabani, bir SERT-red aday
+    // elendiginde bir sonraki iyi adayin gorulebilmesi icin gerekli.
     for (let offset = 0; offset < queryItems.length; offset += CHUNK_SIZE) {
       const chunk = queryItems.slice(offset, offset + CHUNK_SIZE);
       const chunkCodes = chunk.map((item) => item.code);
       const chunkNorms = chunk.map((item) => item.norm);
 
-      // Her aday urun icin skoru MIN_SCORE ustunde olan en iyi 5 aile-eslesmesi
-      // dondur; JS'te kapilardan gecen ilkini sec.
+      // Her aday urun icin taban skoru SUGGEST_MIN_SCORE ustunde olan en iyi 5
+      // aile-eslesmesi dondur; JS'te kategori tesviki + gevsek ceza ile FINAL skoru
+      // en yuksek adayi sec.
       const rows = await prisma.$queryRaw<SuggestionRow[]>(Prisma.sql`
         SELECT
           q.code AS "code",
@@ -472,38 +671,64 @@ class FamilyCandidateService {
           : null;
         const candName = candProduct?.name || '';
 
-        // Kapilardan gecen ilk (en yuksek skorlu) adayi sec.
-        // candidateRows skor-desc sirali; ayni aileden birden fazla uye gelebilir,
-        // her aileyi bir kez (en iyi uyesiyle) degerlendir.
+        // Her aileyi bir kez (en iyi taban skorlu uyesiyle) degerlendir. candidateRows
+        // taban-skor desc sirali oldugu icin bir aile ilk gorunusunde en iyi uyesidir.
+        // Kategori TESVIKI (+0.08) + gevsek ceza uygulayip FINAL skoru hesapla; SERT-red
+        // adaylar (tip-ayrik / asiri gramaj / asiri oz) elenir. Aile basina en yuksek
+        // FINAL skoru tut, sonra global en yuksek FINAL (>= SUGGEST_MIN_SCORE) adayi sec.
         const seenFamilies = new Set<string>();
-        const accepted = candidateRows.find((row) => {
+        let best: {
+          familyId: string;
+          familyName: string;
+          matchedProductName: string;
+          baseScore: number;
+          finalScore: number;
+        } | null = null;
+
+        for (const row of candidateRows) {
           const familyId = String(row.familyId);
-          if (seenFamilies.has(familyId)) return false;
+          if (seenFamilies.has(familyId)) continue; // aile-ici dedup: en iyi uye zaten ilk
           seenFamilies.add(familyId);
 
           const familyName = String(row.familyName || '').trim();
           const matchedName = String(row.matchedProductName || '').trim();
+          const baseScore = Number(row.score);
+          if (!Number.isFinite(baseScore)) continue;
 
-          // (a) KATEGORI kapisi
+          // Gevsek degerlendirme: yalnizca gercekten celiskili adaylar reddedilir.
+          const evalRes = scoreSuggestionCandidate(candName, [matchedName, familyName]);
+          if (evalRes.rejected) continue;
+
+          // Kategori TESVIKI (asla red): ayni cogunluk kategorisi -> +0.08.
           const familyCat = familyMajorityCategory.get(familyId) || null;
-          if (candCategoryId && familyCat && candCategoryId !== familyCat) {
-            return false;
+          const categoryBoost =
+            candCategoryId && familyCat && candCategoryId === familyCat
+              ? CATEGORY_MATCH_BOOST
+              : 0;
+
+          // FINAL skor = taban + kategori tesviki - gevsek cezalar.
+          const finalScore = baseScore + categoryBoost - evalRes.penalty;
+
+          if (!best || finalScore > best.finalScore) {
+            best = { familyId, familyName, matchedProductName: matchedName, baseScore, finalScore };
           }
+        }
 
-          // (b)+(c) sayisal + tip kapilari (aday adi vs eslesen uye adi + aile adi)
-          const guard = evaluateNameGuards(candName, [matchedName, familyName]);
-          if (guard.rejected) return false;
-
-          return true;
-        });
-
-        if (accepted) {
-          const score = Number(accepted.score);
+        // KABUL esigi TABAN skora bakar (gevsek cezalar SADECE siralama icindir, red degil):
+        // taban >= SUGGEST_MIN_SCORE olan her red-edilmemis aile gosterilir; cezalar
+        // yalnizca hangi ailenin one gececegini belirler. Boylece 'demote, reject etme'
+        // ilkesi bit-bit korunur ve yigilan cezalar taban-gecerli varyanti dusurmez.
+        if (best && best.baseScore >= SUGGEST_MIN_SCORE) {
+          // Kategori tesviki taban skoru 1.0 uzerine cikarabilir (0.95 + 0.08). Frontend
+          // yuzdeyi 'score <= 1 ? score*100 : score' ile hesapladigi icin 1.0'a kirp;
+          // boylece near-perfect eslesme "%1" degil "%100" gorunur.
+          const displayScore = Math.min(1, best.finalScore);
           result[code] = {
-            familyId: String(accepted.familyId),
-            familyName: String(accepted.familyName || '').trim(),
-            score: Math.round(score * 1000) / 1000,
-            matchedProductName: String(accepted.matchedProductName || '').trim(),
+            familyId: best.familyId,
+            familyName: best.familyName,
+            // Gosterilen skor = FINAL skor (taban + kategori tesviki - ceza), 3 haneli.
+            score: Math.round(displayScore * 1000) / 1000,
+            matchedProductName: best.matchedProductName,
           };
         } else {
           result[code] = null;

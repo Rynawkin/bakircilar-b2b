@@ -85,7 +85,10 @@ export function GiftCampaignBanner() {
     <section className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-[#0f2a57] to-[#15356b] p-4 sm:p-5 text-white">
       {campaign.bannerImageUrl && (
         <>
-          <img src={campaign.bannerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          {/* GWP kampanya banner'inin ayri mobil gorseli yok; tek gorsel <picture> ile sarilir (yapisal tutarlilik) */}
+          <picture>
+            <img src={campaign.bannerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          </picture>
           <div className="absolute inset-0 bg-gradient-to-r from-[#0f2a57]/95 via-[#0f2a57]/80 to-[#15356b]/55" />
         </>
       )}
