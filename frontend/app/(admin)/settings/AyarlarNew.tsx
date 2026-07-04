@@ -175,6 +175,33 @@ export default function AyarlarNew() {
                   <option value="DYNAMIC">Dinamik Hesaplama</option>
                 </select>
               </div>
+
+              <div>
+                <label className={LABEL}>
+                  <span className="inline-flex items-center gap-[5px]">
+                    <Calculator size={11} className="text-[#8b97ac]" />
+                    Varsayılan Kâr Marjı (%)
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  className={FIELD}
+                  placeholder="15"
+                  value={Math.round((settings.defaultProfitMargin ?? 0.15) * 1000) / 10}
+                  onChange={(e) => {
+                    const pct = parseFloat(e.target.value);
+                    setSettings({
+                      ...settings,
+                      defaultProfitMargin: Number.isFinite(pct) ? pct / 100 : settings.defaultProfitMargin,
+                    });
+                  }}
+                />
+                <p className="text-[11px] text-[#8b97ac] mt-[5px] m-0">
+                  Kategori/ürün marj kuralı olmayan ürünlere uygulanır. 15 = %15. İndirimli (excess) fiyatlar dahil tüm marj-motoru fiyatlarını etkiler.
+                </p>
+              </div>
             </div>
 
             {/* DYNAMIC alt blok — klasikteki tum alanlar korunur */}

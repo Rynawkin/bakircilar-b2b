@@ -602,6 +602,8 @@ router.post('/users/bulk-create', requirePermission('admin:staff'), adminControl
 
 // Reports - Staff (all can access reports)
 router.get('/reports/cost-update-alerts', requirePermission('reports:cost-update-alerts'), adminController.getCostUpdateAlerts);
+// İndirimli fiyatı son giriş maliyetinin altında kalan ürünler (hatalı/eski güncel maliyet tespiti)
+router.get('/reports/discount-below-entry-cost', requirePermission('reports:cost-update-alerts'), adminController.getDiscountBelowEntryCostReport);
 router.get('/reports/margin-compliance', requirePermission('reports:margin-compliance'), adminController.getMarginComplianceReport);
 router.post('/reports/margin-compliance/sync', requirePermission('reports:margin-compliance'), adminController.syncMarginComplianceReport);
 router.post('/reports/margin-compliance/email', requirePermission('reports:margin-compliance'), adminController.sendMarginComplianceReportEmail);

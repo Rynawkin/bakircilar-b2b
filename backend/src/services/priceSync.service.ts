@@ -8,6 +8,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import mikroService from './mikro.service';
+import pricingService from './pricing.service';
 import { randomUUID } from 'crypto';
 
 const prisma = new PrismaClient();
@@ -235,6 +236,16 @@ class PriceSyncService {
       await this.syncPriceStatsFromMikro(priceListMap);
 
       await mikroService.disconnect();
+
+      // Kullanici talebi: fiyat-sync de musteriye giden INDIRIMLI/excess fiyati (Product.prices)
+      // guncel maliyet + ayarlardaki marj ile yeniden hesaplasin. Recalc DB-only (Mikro gerekmez);
+      // hata price-sync'i cokertmesin diye try/catch. calculatedCost + prices JSON guncellenir.
+      try {
+        const priced = await pricingService.recalculateAllPrices();
+        console.log(`✅ Indirimli/excess fiyatlar yeniden hesaplandi (price-sync sonu): ${priced} urun`);
+      } catch (recalcErr: any) {
+        console.error('⚠️ Fiyat recalc (price-sync sonu) hatasi:', recalcErr?.message || recalcErr);
+      }
 
       // Sync log'u güncelle - completed
       const endTime = new Date();

@@ -3751,6 +3751,23 @@ export class AdminController {
   }
 
   /**
+   * GET /admin/reports/discount-below-entry-cost
+   * İndirimli fiyatı son giriş maliyetinin altında kalan ürünler raporu
+   * (hatalı/eski güncel maliyet tespiti için, salt-okunur)
+   */
+  async getDiscountBelowEntryCostReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportsService.getDiscountBelowEntryCostReport();
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /admin/reports/margin-compliance
    * Marj Uyumsuzluğu Raporu
    */

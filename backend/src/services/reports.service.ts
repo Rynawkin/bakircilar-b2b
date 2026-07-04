@@ -9730,6 +9730,96 @@ export class ReportsService {
       },
     };
   }
+
+  /**
+   * GET /admin/reports/discount-below-entry-cost
+   *
+   * İndirimli (özel/OZEL faturalı, KDV hariç) fiyatı son giriş maliyetinin
+   * (lastEntryPrice) ALTINDA kalan, indirimli havuzdaki ürünleri listeler.
+   * Amaç: güncel maliyeti hatalı/eski kalmış ürünleri periyodik olarak yakalamak.
+   *
+   * Kural (hepsi sağlanmalı):
+   *  - active = true, hiddenFromCustomers = false
+   *  - excessStock > 0 (indirimli/fazla stok havuzunda)
+   *  - lastEntryPrice IS NOT NULL AND > 0
+   *  - discountedInvoiced < lastEntryPrice
+   *    discountedInvoiced = (prices -> 'OZEL' ->> 'INVOICED')::float
+   */
+  async getDiscountBelowEntryCostReport(): Promise<{
+    items: Array<{
+      mikroCode: string;
+      name: string;
+      discountedInvoiced: number;
+      lastEntryPrice: number;
+      currentCost: number | null;
+      calculatedCost: number | null;
+      excessStock: number;
+      vatRate: number;
+      gap: number;
+      lossPct: number;
+    }>;
+    totalCount: number;
+    totalRiskTL: number;
+  }> {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        mikroCode: string;
+        name: string;
+        discountedInvoiced: number;
+        lastEntryPrice: number;
+        currentCost: number | null;
+        calculatedCost: number | null;
+        excessStock: number;
+        vatRate: number;
+        gap: number;
+      }>
+    >(Prisma.sql`
+      SELECT
+        "mikroCode",
+        "name",
+        ("prices" -> 'OZEL' ->> 'INVOICED')::float8 AS "discountedInvoiced",
+        "lastEntryPrice",
+        "currentCost",
+        "calculatedCost",
+        "excessStock",
+        "vatRate",
+        ("lastEntryPrice" - ("prices" -> 'OZEL' ->> 'INVOICED')::float8) AS "gap"
+      FROM "Product"
+      WHERE "active" = true
+        AND "hiddenFromCustomers" = false
+        AND "excessStock" > 0
+        AND "lastEntryPrice" IS NOT NULL
+        AND "lastEntryPrice" > 0
+        AND ("prices" -> 'OZEL' ->> 'INVOICED') IS NOT NULL
+        AND ("prices" -> 'OZEL' ->> 'INVOICED')::float8 < "lastEntryPrice"
+      ORDER BY "gap" DESC
+    `);
+
+    const items = rows.map((row) => {
+      const gap = Number(row.gap) || 0;
+      const lastEntryPrice = Number(row.lastEntryPrice) || 0;
+      return {
+        mikroCode: row.mikroCode,
+        name: row.name,
+        discountedInvoiced: Number(row.discountedInvoiced) || 0,
+        lastEntryPrice,
+        currentCost: row.currentCost !== null ? Number(row.currentCost) : null,
+        calculatedCost: row.calculatedCost !== null ? Number(row.calculatedCost) : null,
+        excessStock: Number(row.excessStock) || 0,
+        vatRate: Number(row.vatRate) || 0,
+        gap,
+        lossPct: lastEntryPrice > 0 ? (gap / lastEntryPrice) * 100 : 0,
+      };
+    });
+
+    const totalRiskTL = items.reduce((sum, it) => sum + it.gap * it.excessStock, 0);
+
+    return {
+      items,
+      totalCount: items.length,
+      totalRiskTL,
+    };
+  }
 }
 
 export default new ReportsService();

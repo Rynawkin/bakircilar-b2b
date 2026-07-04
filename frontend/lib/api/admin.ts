@@ -3822,6 +3822,32 @@ export const adminApi = {
     return response.data;
   },
 
+  // ==================== Indirimli fiyati giris maliyeti altinda raporu ====================
+  // Indirimli (OZEL faturali, KDV haric) fiyati son giris maliyetinin altinda kalan urunler.
+  // Amac: hatali/eski guncel maliyeti olan urunleri periyodik yakalamak (salt-okunur).
+  getDiscountBelowEntryCost: async (): Promise<{
+    success: boolean;
+    data: {
+      items: Array<{
+        mikroCode: string;
+        name: string;
+        discountedInvoiced: number;
+        lastEntryPrice: number;
+        currentCost: number | null;
+        calculatedCost: number | null;
+        excessStock: number;
+        vatRate: number;
+        gap: number;
+        lossPct: number;
+      }>;
+      totalCount: number;
+      totalRiskTL: number;
+    };
+  }> => {
+    const response = await apiClient.get('/admin/reports/discount-below-entry-cost');
+    return response.data;
+  },
+
   // Round 4: TOPLU adaylari (isaretlenmemis ama spike gosteren satislar) + toplu isaretleme
   getTopluCandidates: async (params?: {
     months?: number;

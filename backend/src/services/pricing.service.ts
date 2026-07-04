@@ -158,8 +158,10 @@ class PricingService {
     productId: string;
     cost: number;
     vatRate: number;
+    /** Kategori/urun kurali yoksa uygulanacak varsayilan marj (Settings.defaultProfitMargin). Yoksa 0.15. */
+    defaultMargin?: number;
   }): Promise<ProductPrices> {
-    const { productId, cost, vatRate } = params;
+    const { productId, cost, vatRate, defaultMargin } = params;
 
     // Ürünün kategorisini bul
     const product = await prisma.product.findUnique({
@@ -191,7 +193,7 @@ class PricingService {
       const override = productOverrides.find((o) => o.customerType === customerType);
       const categoryRule = categoryRules.find((r) => r.customerType === customerType);
 
-      const profitMargin = override?.profitMargin ?? categoryRule?.profitMargin ?? 0.15; // Varsayılan %15
+      const profitMargin = override?.profitMargin ?? categoryRule?.profitMargin ?? defaultMargin ?? 0.15; // Ayarlardan varsayilan marj, yoksa %15
 
       // Faturalı fiyat (KDV hariç satış fiyatı)
       const invoiced = this.calculateInvoicedPrice(cost, profitMargin);
@@ -299,6 +301,7 @@ class PricingService {
         productId: product.id,
         cost,
         vatRate: product.vatRate,
+        defaultMargin: settings.defaultProfitMargin ?? 0.15,
       });
 
       await prisma.product.update({
@@ -357,6 +360,7 @@ class PricingService {
         productId: product.id,
         cost,
         vatRate: product.vatRate,
+        defaultMargin: settings.defaultProfitMargin ?? 0.15,
       });
 
       await prisma.product.update({

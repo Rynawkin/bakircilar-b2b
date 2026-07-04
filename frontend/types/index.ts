@@ -716,6 +716,8 @@ export interface Settings {
   includedWarehouses: string[];
   minimumExcessThreshold: number;
   costCalculationMethod: 'LAST_ENTRY' | 'CURRENT_COST' | 'DYNAMIC';
+  /** Kategori/urun kurali olmayan urunlere uygulanan varsayilan kar marji (0.15 = %15) */
+  defaultProfitMargin?: number;
   dynamicCostParams?: {
     dayThreshold?: number;
     priceWeightNew?: number;

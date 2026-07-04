@@ -570,6 +570,9 @@ model Settings {
   // Maliyet hesaplama yöntemi
   costCalculationMethod     CostCalculationMethod   @default(LAST_ENTRY)
 
+  // Varsayilan kar marji: kategori/urun kurali yoksa uygulanir (0.15 = %15). Admin ayarlardan degistirir.
+  defaultProfitMargin       Float                   @default(0.15)
+
   // Dinamik maliyet hesaplama parametreleri (JSON)
   // Örnek: { "dayThreshold": 30, "priceWeightNew": 0.7, "priceWeightOld": 0.3 }
   dynamicCostParams         Json?
