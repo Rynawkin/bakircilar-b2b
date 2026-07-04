@@ -65,20 +65,22 @@ export const linkToBrands = (linkUrl?: string | null): string[] => {
 
 export const isBrandsLink = (linkUrl?: string | null): boolean => linkToBrands(linkUrl).length > 0;
 
-// Pozisyona gore onerilen gorsel olcusu
+// Pozisyona gore onerilen gorsel olcusu.
+// Vitrin bu oranlari aspect-ratio ile birebir kullanir: gorsel tam bu oranda gosterilir, EKSTRA KIRPMA YOK.
 export const RECOMMENDED_SIZE: Record<BannerPosition, string> = {
-  HERO: 'Önerilen ölçü: 1920 × 640 px (yatay, ~3:1) · maks 5MB',
-  STRIP: 'Önerilen ölçü: 1200 × 140 px (ince şerit) · maks 5MB',
-  SIDE: 'Önerilen ölçü: 600 × 800 px (dikey) · maks 5MB',
-  GRID: 'Önerilen ölçü: 800 × 360 px (ızgara içi, ~2:1) · maks 5MB',
+  HERO: 'Görsel tam 1920 × 640 px (3:1) oranında gösterilir — kırpılmaz. Maks 5MB',
+  STRIP: 'Görsel tam 1200 × 140 px (~8.6:1 ince şerit) oranında gösterilir — kırpılmaz. Maks 5MB',
+  SIDE: 'Görsel tam 600 × 800 px (3:4 dikey) oranında gösterilir — kırpılmaz. Maks 5MB',
+  GRID: 'Görsel tam 800 × 360 px (~2.2:1) oranında gösterilir — kırpılmaz. Maks 5MB',
 };
 
-// Pozisyona gore onerilen MOBIL gorsel olcusu (dar ekran)
+// Pozisyona gore onerilen MOBIL gorsel olcusu (dar ekran, <640px).
+// Vitrin dar ekranda bu oranla gosterir; bos birakilirsa genis gorsel kullanilir.
 export const RECOMMENDED_SIZE_MOBILE: Record<BannerPosition, string> = {
-  HERO: 'Mobil ölçü: 768 × 600 px (dar/kısa) · boş bırakılırsa geniş görsel kullanılır',
-  STRIP: 'Mobil ölçü: 375 × 160 px (dar şerit) · boş bırakılırsa geniş görsel kullanılır',
-  SIDE: 'Mobil ölçü: 375 × 500 px (dikey) · boş bırakılırsa geniş görsel kullanılır',
-  GRID: 'Mobil ölçü: 375 × 280 px (dar ızgara) · boş bırakılırsa geniş görsel kullanılır',
+  HERO: 'Mobil görsel tam 768 × 600 px (~1.28:1) oranında gösterilir — kırpılmaz. Boş bırakılırsa geniş görsel kullanılır',
+  STRIP: 'Mobil görsel tam 375 × 160 px (~2.34:1) oranında gösterilir — kırpılmaz. Boş bırakılırsa geniş görsel kullanılır',
+  SIDE: 'Mobil görsel tam 375 × 500 px (3:4 dikey) oranında gösterilir — kırpılmaz. Boş bırakılırsa geniş görsel kullanılır',
+  GRID: 'Mobil görsel tam 375 × 280 px (~4:3) oranında gösterilir — kırpılmaz. Boş bırakılırsa geniş görsel kullanılır',
 };
 
 const emptyForm: BannerInput = {

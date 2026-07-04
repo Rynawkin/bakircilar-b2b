@@ -257,7 +257,9 @@ export const customerApi = {
   getUnboughtCategories: async (): Promise<{
     categories: Array<{ id: string; name: string; mikroCode: string; imageUrl?: string | null }>;
   }> => {
-    const response = await apiClient.get('/customer/unbought-categories');
+    // NOT: customer route'lari /api altinda mount'lu (getCategories '/categories'),
+    // dogru yol '/unbought-categories' — '/customer/...' 404 verir.
+    const response = await apiClient.get('/unbought-categories');
     return response.data;
   },
 

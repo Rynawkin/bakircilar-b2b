@@ -37,7 +37,7 @@ export function InGridBanner() {
   };
 
   return (
-    <Link href={href} onClick={handleClick} className="relative col-span-2 flex min-h-[150px] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white">
+    <Link href={href} onClick={handleClick} className="relative col-span-2 flex aspect-[375/280] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white sm:aspect-[800/360]">
       {(banner?.imageUrl || banner?.mobileImageUrl) ? (
         <>
           <picture>

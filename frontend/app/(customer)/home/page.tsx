@@ -245,7 +245,8 @@ export default function CustomerHomePage() {
           {/* ── HERO + DIKEY BANNER ─────────────────────────────────── */}
           <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
             {/* Hero (carousel) */}
-            <div className="relative h-[240px] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[#12305c] sm:h-[320px] lg:h-[384px]">
+            {/* Sabit yukseklik yerine kirpma oraniyla ayni en-boy: mobil 768x600, masaustu 1920x640 -> gorsel tam gorunur, ekstra kirpma yok */}
+            <div className="relative aspect-[768/600] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[#12305c] sm:aspect-[1920/640]">
               {bannersLoading ? (
                 <div className="h-full w-full animate-pulse bg-gray-100" />
               ) : heroBanners.length > 0 ? (
@@ -362,7 +363,7 @@ export default function CustomerHomePage() {
                 <Link
                   href={href || '/products'}
                   onClick={side ? () => logBannerClick(side) : undefined}
-                  className="relative hidden h-[384px] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[#12305c] lg:block"
+                  className="relative hidden aspect-[600/800] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[#12305c] lg:block"
                 >
                   {inner}
                 </Link>
@@ -374,11 +375,12 @@ export default function CustomerHomePage() {
           {stripBanners.length > 0 && stripBanners.map((banner) => {
             const href = bannerHref(banner);
             const content = (banner.imageUrl || banner.mobileImageUrl) ? (
-              <div className="relative overflow-hidden rounded-xl border border-[#d6e0f1]">
+              // Kirpma oraniyla ayni en-boy wrapper'a tasindi: mobil 375x160, masaustu 1200x140 -> gorsel tam gorunur
+              <div className="relative aspect-[375/160] overflow-hidden rounded-xl border border-[#d6e0f1] sm:aspect-[1200/140]">
                 <picture>
                   {/* Dar ekranda (<=640px) mobil görsel varsa onu kullan, yoksa geniş görsele düş */}
                   <source media="(max-width: 640px)" srcSet={(banner.mobileImageUrl || banner.imageUrl) ?? undefined} />
-                  <img src={(banner.imageUrl || banner.mobileImageUrl) ?? undefined} alt={banner.title} className="h-[84px] w-full object-cover sm:h-[104px]" />
+                  <img src={(banner.imageUrl || banner.mobileImageUrl) ?? undefined} alt={banner.title} className="absolute inset-0 h-full w-full object-cover" />
                 </picture>
                 {(banner.title || banner.subtitle) && (
                   <>

@@ -71,7 +71,13 @@ export function GiftCampaignBanner() {
   };
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-[#0f2a57] to-[#15356b] p-4 sm:p-5 text-white">
+    <section
+      className={`relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-[#0f2a57] to-[#15356b] p-4 sm:p-5 text-white${
+        // Gorsel varsa hero kirpma oraniyla ayni en-boy (mobil 768x600, masaustu 1920x640) -> gorsel tam gorunur, kirpma yok.
+        // Gorsel yoksa (gradient kart) icerik-yuksekligi korunur ki ilerleme cubugu/butonlar kirpilmasin.
+        campaign.bannerImageUrl ? ' aspect-[768/600] sm:aspect-[1920/640]' : ''
+      }`}
+    >
       {campaign.bannerImageUrl && (
         <>
           {/* GWP kampanya banner'inin ayri mobil gorseli yok; tek gorsel <picture> ile sarilir (yapisal tutarlilik) */}
