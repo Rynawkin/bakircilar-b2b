@@ -818,18 +818,31 @@ export function useUcarerDepo() {
         redirectSuggestions,
       };
     });
-  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, incomingOrderColumn, outgoingOrderColumn, productNameColumn]);
+  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, maxQtyColumn, incomingOrderColumn, outgoingOrderColumn, productNameColumn]);
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
+  // Onerilen siparis: MIN'de TETIKLE, MAX'a DOLDUR (patron karari 2026-07-04).
+  // efektif = REEL (stok + gelen alis - alinan musteri siparisi) + depoya GELECEK DSV.
+  // Tetik: efektif kendi minimumunu karsiliyorsa oneri 0. Aksi halde MAX'a tamamla:
+  // ihtiyac = max(0, MAX - efektif). Boylece bekleyen alis + gelecek DSV dogru dusulur.
+  // (Onceki hata: INCLUDE_MINMAX modunda ham 4.SORUN kolonu kullaniliyordu; artik
+  //  ayni deger acikca MAX kolonu + efektif'ten hesaplaniyor -> aile ve aile-disi ayni.)
   function getRawSuggestedQty(row: Record<string, any>): number {
-    const sourceColumn = suggestionMode === 'INCLUDE_MINMAX' ? fourthIssueColumn : thirdIssueColumn;
-    if (!sourceColumn) return 0;
-    const base = toNumberFlexible(row[sourceColumn]);
     const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
     const minQty = getFamilyItemMinimum(row);
     const netQty = getFamilyItemNetQuantity(row);
-    if (netQty + incomingDsv >= minQty && minQty > 0) return 0;
-    return base - incomingDsv;
+    const effective = netQty + incomingDsv;
+    // MIN tetikleyici: efektif kendi minimumunu karsiliyorsa siparis onerme.
+    if (minQty > 0 && effective >= minQty) return 0;
+    if (suggestionMode !== 'INCLUDE_MINMAX') {
+      // EXCLUDE_MINMAX: min-max'siz ham ihtiyac (3.SORUN = REEL) — eski davranis korunur.
+      if (!thirdIssueColumn) return 0;
+      return toNumberFlexible(row[thirdIssueColumn]) - incomingDsv;
+    }
+    // INCLUDE_MINMAX: MAX'a doldur.
+    const maxQty = getFamilyItemMaximum(row);
+    if (maxQty <= 0) return 0;
+    return Math.max(0, maxQty - effective);
   }
   function getSuggestedQty(row: Record<string, any>): number {
     return Math.max(0, getRawSuggestedQty(row));
@@ -862,6 +875,9 @@ export function useUcarerDepo() {
   function getFamilyItemMinimum(row: Record<string, any>): number {
     return minQtyColumn ? Math.max(0, toNumberFlexible(row[minQtyColumn])) : 0;
   }
+  function getFamilyItemMaximum(row: Record<string, any>): number {
+    return maxQtyColumn ? Math.max(0, toNumberFlexible(row[maxQtyColumn])) : 0;
+  }
   function getFamilyItemNetQuantity(row: Record<string, any>): number {
     const directColumn = realQtyColumn || thirdIssueColumn;
     if (directColumn) {
@@ -884,26 +900,30 @@ export function useUcarerDepo() {
   function getFamilyItemExcess(row: Record<string, any>): number {
     return Math.max(0, getFamilyItemEffectiveQuantity(row) - getFamilyItemMinimum(row));
   }
-  function getFamilyCoverage(family: ProductFamily): { minimum: number; effective: number } {
+  function getFamilyCoverage(family: ProductFamily): { minimum: number; maximum: number; effective: number } {
     let minimum = 0;
+    let maximum = 0;
     let effective = 0;
     getVisibleFamilyItems(family).forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
       if (!row) return;
       minimum += getFamilyItemMinimum(row);
+      maximum += getFamilyItemMaximum(row);
       effective += getFamilyItemEffectiveQuantity(row);
     });
-    return { minimum, effective };
+    return { minimum, maximum, effective };
   }
   function isFamilyCoveredByMinimum(coverage: { minimum: number; effective: number }): boolean {
     return coverage.minimum > 0 && coverage.effective >= coverage.minimum;
   }
-  // Patron kurali: aile toplam stok + bekleyen satinalma - alinan musteri siparisi,
-  // minimum TOPLAM mantigiyla degerlendirilir. Aile onerilen TOPLAMI icin tavan:
-  // max(0, aile toplam minimum - aile toplam efektif stok). Urun bazli dagitim kendi
-  // ihtiyacina orantili yapilir ama toplam bu tavani ASAMAZ (kardes urun fazlasi
-  // aile efektif toplami uzerinden dusulmus olur).
+  // Patron kurali (2026-07-04 guncel): aile toplam stok + bekleyen satinalma + gelecek DSV
+  // - alinan musteri siparisi = efektif. TETIK: efektif < aile toplam MINIMUM ise aile
+  // onerilir. DOLDURMA HEDEFI: aile toplam MAXIMUM (min degil!). Tavan:
+  // max(0, aile toplam MAX - aile toplam efektif). Urun bazli ihtiyac = max(0, urun MAX -
+  // urun efektif) (her uye kendi MAX'ina tamamlanir); kardes urun fazlasi tavani dusurur,
+  // toplam bu tavani ASAMAZ (orantili dagitim). ONCEKI HATA: tavan MIN'e kisiliyordu ->
+  // uyeler MAX yerine MIN'e tamamlaniyordu (19/27 gibi dusuk oneriler).
   function computeFamilyCappedNeeds(family: ProductFamily): {
     covered: boolean;
     cap: number;
@@ -920,13 +940,18 @@ export function useUcarerDepo() {
     if (covered) {
       return { covered, cap: 0, totalNeed: 0, perItem };
     }
+    // DOLDURMA TAVANI = aile toplam MAX - aile toplam efektif (MIN degil).
     const cap =
-      coverage.minimum > 0 ? Math.max(0, Math.ceil(coverage.minimum - coverage.effective)) : Number.POSITIVE_INFINITY;
+      coverage.maximum > 0 ? Math.max(0, Math.ceil(coverage.maximum - coverage.effective)) : Number.POSITIVE_INFINITY;
     const needs: Array<{ code: string; need: number }> = [];
     visibleItems.forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
-      const need = row ? Math.max(0, Math.trunc(getRawSuggestedQty(row))) : 0;
+      // Aile tetiklendiginde her uye KENDI MAX'ina tamamlanir (bireysel min kapisi
+      // aile seviyesinde uygulanir, uye seviyesinde degil): ihtiyac = max(0, MAX - efektif).
+      const need = row
+        ? Math.max(0, Math.trunc(getFamilyItemMaximum(row) - getFamilyItemEffectiveQuantity(row)))
+        : 0;
       needs.push({ code, need });
     });
     const naturalTotal = needs.reduce((sum, entry) => sum + entry.need, 0);
@@ -961,7 +986,7 @@ export function useUcarerDepo() {
   }
   const totalSuggestedQty = useMemo(
     () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
-    [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, incomingOrderColumn, outgoingOrderColumn]
+    [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, maxQtyColumn, incomingOrderColumn, outgoingOrderColumn]
   );
   const nonFamilyRows = useMemo(() => {
     if (!stockCodeColumn) return [];
@@ -973,7 +998,7 @@ export function useUcarerDepo() {
       .filter((item) => item.code && !familyCodeSet.has(item.code))
       .filter((item) => !isRowOperationallyEmpty(item.row))
       .filter((item) => getSuggestedQty(item.row) > 0);
-  }, [depotRows, stockCodeColumn, familyCodeSet, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, incomingOrderColumn, outgoingOrderColumn]);
+  }, [depotRows, stockCodeColumn, familyCodeSet, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, maxQtyColumn, incomingOrderColumn, outgoingOrderColumn]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1022,7 +1047,7 @@ export function useUcarerDepo() {
       });
       return next;
     });
-  }, [nonFamilyRows, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn]);
+  }, [nonFamilyRows, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn, maxQtyColumn]);
 
   useEffect(() => {
     let active = true;
@@ -3040,7 +3065,7 @@ export function useUcarerDepo() {
       nonFamilyCount: nonFamilyRows.length,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [families, nonFamilyRows, currentCostByCode, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, incomingOrderColumn, outgoingOrderColumn]);
+  }, [families, nonFamilyRows, currentCostByCode, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, maxQtyColumn, incomingOrderColumn, outgoingOrderColumn]);
 
   // Gorunur (filtrelenmis) aile-disi satirlarin kodlari icin aday aile sorgusu (300'luk chunk, cache'li).
   useEffect(() => {
