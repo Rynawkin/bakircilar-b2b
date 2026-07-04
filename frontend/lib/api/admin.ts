@@ -314,6 +314,7 @@ export interface AdminGiftCampaignGift {
   imageUrl?: string | null;
   unit?: string | null;
   value?: number;
+  giftQuantity?: number;
   sortOrder?: number;
 }
 
@@ -359,7 +360,7 @@ export interface GiftCampaignInput {
   active?: boolean;
   validFrom?: string | null;
   validTo?: string | null;
-  gifts?: Array<{ productId: string; sortOrder?: number }>;
+  gifts?: Array<{ productId: string; sortOrder?: number; giftQuantity?: number }>;
 }
 
 // ==================== Koleksiyonlar ("Sizin icin koleksiyonlar") ====================

@@ -11,7 +11,7 @@ import adminApi, {
   GiftTargetType,
 } from '@/lib/api/admin';
 
-type GiftItem = { productId: string; name?: string; mikroCode?: string; imageUrl?: string | null };
+type GiftItem = { productId: string; name?: string; mikroCode?: string; imageUrl?: string | null; giftQuantity?: number };
 
 type FormState = {
   id?: string;
@@ -145,7 +145,7 @@ export default function GiftCampaignsPage() {
       active: !!c.active,
       validFrom: c.validFrom ? String(c.validFrom).slice(0, 10) : '',
       validTo: c.validTo ? String(c.validTo).slice(0, 10) : '',
-      gifts: (c.gifts || []).map((g) => ({ productId: g.productId, name: g.name, mikroCode: g.mikroCode, imageUrl: g.imageUrl })),
+      gifts: (c.gifts || []).map((g) => ({ productId: g.productId, name: g.name, mikroCode: g.mikroCode, imageUrl: g.imageUrl, giftQuantity: g.giftQuantity ?? 1 })),
     });
   };
 
@@ -154,11 +154,19 @@ export default function GiftCampaignsPage() {
     const item: GiftItem = { productId: product.id, name: product.name, mikroCode: product.mikroCode, imageUrl: product.imageUrl };
     if (searchFor === 'gifts') {
       if (form.gifts.some((g) => g.productId === item.productId)) return;
-      setForm({ ...form, gifts: [...form.gifts, item] });
+      setForm({ ...form, gifts: [...form.gifts, { ...item, giftQuantity: 1 }] });
     } else {
       if (form.scopeProducts.some((g) => g.productId === item.productId)) return;
       setForm({ ...form, scopeProducts: [...form.scopeProducts, item] });
     }
+  };
+
+  const changeGiftQty = (productId: string, qty: number) => {
+    setForm((f) =>
+      f
+        ? { ...f, gifts: f.gifts.map((g) => (g.productId === productId ? { ...g, giftQuantity: qty } : g)) }
+        : f
+    );
   };
 
   const save = async () => {
@@ -180,7 +188,7 @@ export default function GiftCampaignsPage() {
       active: form.active,
       validFrom: form.validFrom || null,
       validTo: form.validTo || null,
-      gifts: form.gifts.map((g, i) => ({ productId: g.productId, sortOrder: i })),
+      gifts: form.gifts.map((g, i) => ({ productId: g.productId, sortOrder: i, giftQuantity: Math.max(1, Math.trunc(Number(g.giftQuantity ?? 1)) || 1) })),
     };
     setSaving(true);
     try {
@@ -442,7 +450,11 @@ export default function GiftCampaignsPage() {
             {/* Hediye havuzu */}
             <div className="md:col-span-2">
               <label className={label}>Hediye havuzu (müşterinin seçebileceği ürünler)</label>
-              <ProductChips items={form.gifts} onRemove={(id) => setForm({ ...form, gifts: form.gifts.filter((g) => g.productId !== id) })} />
+              <ProductChips
+                items={form.gifts}
+                onRemove={(id) => setForm({ ...form, gifts: form.gifts.filter((g) => g.productId !== id) })}
+                onChangeQty={changeGiftQty}
+              />
               <button onClick={() => setSearchFor('gifts')} className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[#d8e0ec] px-3 py-1.5 text-[12px] text-[#51607a] hover:bg-[#f4f6fa]">
                 <Search className="h-3.5 w-3.5" /> Hediye ürün ara & ekle
               </button>
@@ -507,9 +519,47 @@ export default function GiftCampaignsPage() {
   );
 }
 
-function ProductChips({ items, onRemove }: { items: GiftItem[]; onRemove: (id: string) => void }) {
+function ProductChips({
+  items,
+  onRemove,
+  onChangeQty,
+}: {
+  items: GiftItem[];
+  onRemove: (id: string) => void;
+  onChangeQty?: (id: string, qty: number) => void;
+}) {
   if (items.length === 0) {
     return <div className="text-[12px] text-[#9aa6b8]">Henüz ürün eklenmedi.</div>;
+  }
+  // Hediye havuzu: her ürün için adet girilebilen düzenlenebilir satırlar
+  if (onChangeQty) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        {items.map((it) => (
+          <div key={it.productId} className="flex items-center gap-2 rounded-lg border border-[#e3e8f0] bg-[#f7f9fc] py-1.5 pl-2.5 pr-1.5">
+            <span className="min-w-0 flex-1 truncate text-[12.5px] text-[#14223b]">
+              {it.name || it.mikroCode || it.productId}
+            </span>
+            <div className="flex flex-shrink-0 items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                value={it.giftQuantity ?? 1}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.trunc(Number(e.target.value)) || 1);
+                  onChangeQty(it.productId, v);
+                }}
+                className="h-7 w-14 rounded-md border border-[#d8e0ec] bg-white px-1.5 text-center text-[12px] text-[#14223b] outline-none focus:border-[#15356b]"
+              />
+              <span className="text-[11px] text-[#8b97ac]">adet</span>
+            </div>
+            <button onClick={() => onRemove(it.productId)} className="rounded-full p-1 text-[#8b97ac] hover:bg-white hover:text-red-600">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    );
   }
   return (
     <div className="flex flex-wrap gap-2">

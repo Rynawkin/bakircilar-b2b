@@ -2915,6 +2915,7 @@ model GiftCampaignItem {
   campaignId   String
   campaign     GiftCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   productId    String       // Product.id (iliskisiz scalar; detay ayrica cekilir)
+  giftQuantity Int          @default(1)   // bu urunden kac adet hediye edilir
   sortOrder    Int          @default(0)
   createdAt    DateTime     @default(now())
 

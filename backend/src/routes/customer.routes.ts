@@ -190,6 +190,10 @@ router.get(
   customerController.getCategories
 );
 
+// Cari'nin HIC alisveris yapmadigi kategoriler ("Henuz Denemediginiz Kategoriler")
+// Kullanici bazli hesap (parent-aware) — controller icinde 10 dk cache'li
+router.get('/unbought-categories', requireCustomer, customerController.getUnboughtCategories);
+
 // Anlasmali urunler erisilebilirligi (nav linkini sadece AKTIF anlasma varsa goster)
 router.get('/agreements/available', customerController.getAgreementsAvailability);
 

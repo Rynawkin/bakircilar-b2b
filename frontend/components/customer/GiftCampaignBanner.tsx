@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { Gift, ArrowRight } from 'lucide-react';
 import { customerApi, GiftCampaignActive } from '@/lib/api/customer';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils/format';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
+import { GiftPreviewModal } from './GiftPreviewModal';
 
 // Kapsam PRODUCT_IDS iken banner altinda mini serit gosterilecek azami urun sayisi
 const MAX_SCOPE_STRIP_PRODUCTS = 8;
@@ -19,9 +19,9 @@ const MAX_SCOPE_STRIP_PRODUCTS = 8;
  * CATEGORY_IDS -> ilk kategorinin urun listesi, PRODUCT_IDS -> mini urun seridi.
  */
 export function GiftCampaignBanner() {
-  const router = useRouter();
   const [campaign, setCampaign] = useState<GiftCampaignActive | null>(null);
   const [scopeProducts, setScopeProducts] = useState<Product[]>([]);
+  const [giftModalOpen, setGiftModalOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -61,14 +61,8 @@ export function GiftCampaignBanner() {
   const remaining = campaign.remaining || 0;
   const gifts = campaign.gifts || [];
 
-  // CTA hedefi: kapsam turune gore
-  const scopeType = campaign.qualifyingScope?.type || 'ALL';
-  const firstCategoryId = campaign.qualifyingScope?.categoryIds?.[0];
-  const ctaHref =
-    scopeType === 'CATEGORY_IDS' && firstCategoryId
-      ? `/products?categoryId=${encodeURIComponent(firstCategoryId)}`
-      : '/products';
-  const ctaText = campaign.buttonText || 'Kampanya ürünlerini gör';
+  // 2. buton metni (musteri tarafinda "kategorileri goster" davranisi)
+  const categoriesText = campaign.buttonText || 'Kategorileri Göster';
 
   // Banner tik olcumu (best-effort; hata yutulur)
   const logBannerClick = () => {
@@ -76,20 +70,15 @@ export function GiftCampaignBanner() {
     trackCustomerActivity({ type: 'CLICK', meta: { bannerId: campaign.id, position: 'GWP' } });
   };
 
-  const handleCtaClick = () => {
-    logBannerClick();
-    router.push(ctaHref);
-  };
-
   return (
     <section className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-[#0f2a57] to-[#15356b] p-4 sm:p-5 text-white">
       {campaign.bannerImageUrl && (
         <>
           {/* GWP kampanya banner'inin ayri mobil gorseli yok; tek gorsel <picture> ile sarilir (yapisal tutarlilik) */}
+          {/* Metin karartma overlay'i KALDIRILDI — gorsel oldugu gibi gorunur. */}
           <picture>
             <img src={campaign.bannerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
           </picture>
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0f2a57]/95 via-[#0f2a57]/80 to-[#15356b]/55" />
         </>
       )}
       <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -99,7 +88,9 @@ export function GiftCampaignBanner() {
             <Gift className="h-3.5 w-3.5" />
             SİZE ÖZEL · HEDİYELİ KAMPANYA
           </span>
-          <h2 className="mt-2 text-lg font-bold leading-tight sm:text-xl">{campaign.title}</h2>
+          {campaign.title && (
+            <h2 className="mt-2 text-lg font-bold leading-tight sm:text-xl">{campaign.title}</h2>
+          )}
           {campaign.subtitle && (
             <p className="mt-1 text-[13px] text-white/70">{campaign.subtitle}</p>
           )}
@@ -155,14 +146,29 @@ export function GiftCampaignBanner() {
               )}
             </div>
           )}
-          <button
-            type="button"
-            onClick={handleCtaClick}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-[13px] font-semibold text-white hover:bg-emerald-600 transition-colors"
-          >
-            {ctaText}
-            <ArrowRight className="h-4 w-4" />
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row lg:flex-col xl:flex-row">
+            {/* Buton 1: hediyeleri gosteren modal */}
+            <button
+              type="button"
+              onClick={() => {
+                logBannerClick();
+                setGiftModalOpen(true);
+              }}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-[13px] font-semibold text-white hover:bg-emerald-600 transition-colors"
+            >
+              <Gift className="h-4 w-4" />
+              Hediyeleri Gör
+            </button>
+            {/* Buton 2: hic alinmayan kategoriler sayfasi */}
+            <Link
+              href="/new-categories"
+              onClick={logBannerClick}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-white/15 px-4 py-2 text-[13px] font-semibold text-white ring-1 ring-inset ring-white/30 hover:bg-white/25 transition-colors"
+            >
+              {categoriesText}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -197,6 +203,9 @@ export function GiftCampaignBanner() {
           </div>
         </div>
       )}
+
+      {/* Hediye onizleme modalı (Buton 1) */}
+      <GiftPreviewModal isOpen={giftModalOpen} onClose={() => setGiftModalOpen(false)} gifts={gifts} />
     </section>
   );
 }

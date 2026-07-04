@@ -53,7 +53,9 @@ export interface GiftCampaignGift {
   mikroCode?: string;
   imageUrl?: string | null;
   unit?: string | null;
-  value?: number;
+  value?: number; // birim basi normal deger
+  giftQuantity?: number; // bu urunden kac adet hediye edilir
+  normalPrice?: number; // birim deger x giftQuantity (ustu cizili gosterilecek toplam)
 }
 
 export interface GiftCampaignActive {
@@ -248,6 +250,14 @@ export const customerApi = {
   // Categories
   getCategories: async (): Promise<{ categories: Category[] }> => {
     const response = await apiClient.get('/categories');
+    return response.data;
+  },
+
+  // Musterinin hic alisveris yapmadigi ("henuz denemedigi") kategoriler
+  getUnboughtCategories: async (): Promise<{
+    categories: Array<{ id: string; name: string; mikroCode: string; imageUrl?: string | null }>;
+  }> => {
+    const response = await apiClient.get('/customer/unbought-categories');
     return response.data;
   },
 

@@ -139,14 +139,28 @@ export function CartGiftPicker({ refreshKey }: { refreshKey?: number }) {
                 <div className="mt-1.5 line-clamp-2 min-h-[32px] text-[11.5px] font-medium leading-tight text-[#14223b]">
                   {gift.name}
                 </div>
-                <div className="mt-1 flex items-center gap-1.5">
-                  {gift.value && gift.value > 0 ? (
-                    <span className="text-[10.5px] text-[#9aa6b8] line-through tabular-nums">
-                      {formatCurrency(gift.value)}
-                    </span>
-                  ) : null}
-                  <span className="text-[11.5px] font-bold text-emerald-700">₺0,00 · Bedelsiz</span>
-                </div>
+                {(() => {
+                  const qty = gift.giftQuantity && gift.giftQuantity > 0 ? gift.giftQuantity : 1;
+                  const strikeTotal =
+                    gift.normalPrice != null && gift.normalPrice > 0
+                      ? gift.normalPrice
+                      : gift.value && gift.value > 0
+                      ? gift.value * qty
+                      : 0;
+                  return (
+                    <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                      {qty > 1 && (
+                        <span className="text-[11px] font-semibold text-[#0f2a57] tabular-nums">×{qty} adet</span>
+                      )}
+                      {strikeTotal > 0 && (
+                        <span className="text-[13px] text-gray-400 line-through tabular-nums">
+                          {formatCurrency(strikeTotal)}
+                        </span>
+                      )}
+                      <span className="text-[11.5px] font-bold text-emerald-700">₺0,00 · Bedelsiz</span>
+                    </div>
+                  );
+                })()}
               </button>
             );
           })}

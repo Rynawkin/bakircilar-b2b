@@ -16,6 +16,7 @@ import warehouseWorkflowService from '../services/warehouse-workflow.service';
 import exclusionService from '../services/exclusion.service';
 import cartPricingService, { CartPriceType } from '../services/cart-pricing.service';
 import vadeService from '../services/vade.service';
+import giftCampaignService from '../services/gift-campaign.service';
 import { splitSearchTokens, normalizeSearchText } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
@@ -102,6 +103,116 @@ export const invalidateCustomerStaticCache = (key?: string): void => {
   if (key) customerStaticCache.delete(key);
   else customerStaticCache.clear();
 };
+
+/**
+ * Musteriye gosterilebilir kategori agaci (yaprak + ata kodlari) + otomatik gorsel.
+ * getCategories ve getUnboughtCategories ayni sonucu paylassin diye tek yerde;
+ * 'customer:categories' cache'i (10 dk) altinda tek sefer hesaplanir.
+ */
+type VisibleCategory = {
+  id: string;
+  name: string;
+  mikroCode: string;
+  imageUrl: string | null;
+  autoImage: boolean;
+  // true = kendi urunu OLAN (yaprak/gercek) kategori; false = sadece ata/ara dugum
+  // (urunu yok). "Hic almadigi kategoriler" sayfasi yalniz hasProducts=true gosterir.
+  hasProducts: boolean;
+};
+
+const getVisibleCategories = async (): Promise<VisibleCategory[]> =>
+  getCachedValue(
+    'customer:categories',
+    async () => {
+      // 1) Musteriye gosterilebilir urunu OLAN kategoriler (genelde en-alt / yaprak seviye)
+      const withProducts = await prisma.category.findMany({
+        where: {
+          active: true,
+          products: { some: { active: true, hiddenFromCustomers: false } },
+        },
+        select: { mikroCode: true },
+      });
+      // Kendi urunu olan (yaprak) kategori kodlari — ata dugumlerden ayirmak icin.
+      const withProductsSet = new Set(withProducts.map((c) => c.mikroCode).filter(Boolean));
+
+      // 2) Hiyerarsinin (ana -> alt -> en alt) kurulabilmesi icin yaprak kategorilerin
+      //    TUM ust (ata) kategori kodlarini da topla. Kodlar nokta-ayracli: "1.02.03"
+      //    atalari "1.02" ve "1". (Ara seviyelerin kendi urunu olmadigi icin eski
+      //    sorgu onlari eliyordu; bu yuzden menude sadece yaprak gozukuyordu.)
+      const neededCodes = new Set<string>();
+      for (const cat of withProducts) {
+        const code = cat.mikroCode;
+        if (!code) continue;
+        neededCodes.add(code);
+        const parts = code.split('.');
+        for (let i = 1; i < parts.length; i += 1) {
+          neededCodes.add(parts.slice(0, i).join('.'));
+        }
+      }
+
+      // 3) Yaprak + ata kategorileri birlikte dondur (ara seviyeler urunu olmasa da gelir)
+      const cats = await prisma.category.findMany({
+        where: {
+          active: true,
+          mikroCode: { in: Array.from(neededCodes) },
+        },
+        select: { id: true, name: true, mikroCode: true, imageUrl: true },
+        orderBy: { name: 'asc' },
+      });
+
+      // 4) Otomatik gorsel: admin gorsel yuklemediyse (imageUrl null), kategorinin
+      //    EN COK SATAN (gorseli olan) urununun gorselini varsayilan olarak kullan.
+      //    Cache icinde tek DISTINCT ON sorgusuyla hesaplanir (site hizini etkilemez).
+      const hasMissing = cats.some((c) => !c.imageUrl);
+      if (hasMissing) {
+        try {
+          const rows = await prisma.$queryRaw<
+            Array<{ mikroCode: string | null; imageUrl: string | null; pop: number | null }>
+          >`
+            SELECT DISTINCT ON (p."categoryId")
+              c."mikroCode" AS "mikroCode",
+              p."imageUrl" AS "imageUrl",
+              p."popularSalesValue" AS "pop"
+            FROM "Product" p
+            JOIN "Category" c ON c."id" = p."categoryId"
+            WHERE p."active" = true
+              AND p."hiddenFromCustomers" = false
+              AND p."imageUrl" IS NOT NULL
+            ORDER BY p."categoryId", p."popularSalesValue" DESC NULLS LAST
+          `;
+
+          // Her kategori kodu (yaprak + atalar) icin en populer urun gorselini sec.
+          const bestImageByCode = new Map<string, { url: string; pop: number }>();
+          for (const row of rows) {
+            const code = row.mikroCode;
+            const url = row.imageUrl;
+            if (!code || !url) continue;
+            const pop = Number(row.pop) || 0;
+            const parts = code.split('.');
+            for (let i = parts.length; i >= 1; i -= 1) {
+              const prefix = parts.slice(0, i).join('.');
+              const cur = bestImageByCode.get(prefix);
+              if (!cur || pop > cur.pop) bestImageByCode.set(prefix, { url, pop });
+            }
+          }
+
+          return cats.map((c) => ({
+            ...c,
+            imageUrl: c.imageUrl || bestImageByCode.get(c.mikroCode)?.url || null,
+            autoImage: !c.imageUrl && Boolean(bestImageByCode.get(c.mikroCode)?.url),
+            hasProducts: withProductsSet.has(c.mikroCode),
+          }));
+        } catch (err) {
+          console.error('Kategori otomatik gorsel hesabi basarisiz', err);
+          return cats.map((c) => ({ ...c, autoImage: false, hasProducts: withProductsSet.has(c.mikroCode) }));
+        }
+      }
+
+      return cats.map((c) => ({ ...c, autoImage: false, hasProducts: withProductsSet.has(c.mikroCode) }));
+    },
+    // Kategori + otomatik gorsel nadiren degisir; agir sorguyu seyrek calistir (10 dk).
+    10 * 60 * 1000
+  );
 
 const getCustomerProductContext = async (customerId: string) =>
   getCachedValue(`product-context:${customerId}`, async () => {
@@ -2417,93 +2528,47 @@ export class CustomerController {
    */
   async getCategories(req: Request, res: Response, next: NextFunction) {
     try {
+      const categories = await getVisibleCategories();
+      res.json({ categories });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/customer/unbought-categories
+   * Cari'nin (parent-aware) HIC alisveris yapmadigi kategoriler:
+   *   gorunur kategoriler − (satin alinan kategoriler)
+   * "Satin alinan kategoriler" GWP ile ayni kaynaktan gelir
+   * (giftCampaignService.getPurchasedCategoryIds — yerel siparisler, yoksa Mikro fallback).
+   * Kullanici bazli 10 dk cache'lenir.
+   */
+  async getUnboughtCategories(req: Request, res: Response, next: NextFunction) {
+    try {
+      const context = await loadCustomerContext(req.user!.userId);
+      const customer = context.customer;
+
       const categories = await getCachedValue(
-        'customer:categories',
+        `customer:unbought-categories:${customer.id}`,
         async () => {
-          // 1) Musteriye gosterilebilir urunu OLAN kategoriler (genelde en-alt / yaprak seviye)
-          const withProducts = await prisma.category.findMany({
-            where: {
-              active: true,
-              products: { some: { active: true, hiddenFromCustomers: false } },
-            },
-            select: { mikroCode: true },
+          // Satin alinan kategori id'leri (parent-aware; GWP mantigiyla ayni, 1 saat cache'li)
+          const purchased = await giftCampaignService.getPurchasedCategoryIds({
+            id: customer.id,
+            mikroCariCode: customer.mikroCariCode ?? null,
           });
 
-          // 2) Hiyerarsinin (ana -> alt -> en alt) kurulabilmesi icin yaprak kategorilerin
-          //    TUM ust (ata) kategori kodlarini da topla. Kodlar nokta-ayracli: "1.02.03"
-          //    atalari "1.02" ve "1". (Ara seviyelerin kendi urunu olmadigi icin eski
-          //    sorgu onlari eliyordu; bu yuzden menude sadece yaprak gozukuyordu.)
-          const neededCodes = new Set<string>();
-          for (const cat of withProducts) {
-            const code = cat.mikroCode;
-            if (!code) continue;
-            neededCodes.add(code);
-            const parts = code.split('.');
-            for (let i = 1; i < parts.length; i += 1) {
-              neededCodes.add(parts.slice(0, i).join('.'));
-            }
-          }
+          // Gorunur kategori seti (getCategories ile AYNI sorgu/cache)
+          const allCats = await getVisibleCategories();
 
-          // 3) Yaprak + ata kategorileri birlikte dondur (ara seviyeler urunu olmasa da gelir)
-          const cats = await prisma.category.findMany({
-            where: {
-              active: true,
-              mikroCode: { in: Array.from(neededCodes) },
-            },
-            select: { id: true, name: true, mikroCode: true, imageUrl: true },
-            orderBy: { name: 'asc' },
-          });
-
-          // 4) Otomatik gorsel: admin gorsel yuklemediyse (imageUrl null), kategorinin
-          //    EN COK SATAN (gorseli olan) urununun gorselini varsayilan olarak kullan.
-          //    Cache icinde tek DISTINCT ON sorgusuyla hesaplanir (site hizini etkilemez).
-          const hasMissing = cats.some((c) => !c.imageUrl);
-          if (hasMissing) {
-            try {
-              const rows = await prisma.$queryRaw<
-                Array<{ mikroCode: string | null; imageUrl: string | null; pop: number | null }>
-              >`
-                SELECT DISTINCT ON (p."categoryId")
-                  c."mikroCode" AS "mikroCode",
-                  p."imageUrl" AS "imageUrl",
-                  p."popularSalesValue" AS "pop"
-                FROM "Product" p
-                JOIN "Category" c ON c."id" = p."categoryId"
-                WHERE p."active" = true
-                  AND p."hiddenFromCustomers" = false
-                  AND p."imageUrl" IS NOT NULL
-                ORDER BY p."categoryId", p."popularSalesValue" DESC NULLS LAST
-              `;
-
-              // Her kategori kodu (yaprak + atalar) icin en populer urun gorselini sec.
-              const bestImageByCode = new Map<string, { url: string; pop: number }>();
-              for (const row of rows) {
-                const code = row.mikroCode;
-                const url = row.imageUrl;
-                if (!code || !url) continue;
-                const pop = Number(row.pop) || 0;
-                const parts = code.split('.');
-                for (let i = parts.length; i >= 1; i -= 1) {
-                  const prefix = parts.slice(0, i).join('.');
-                  const cur = bestImageByCode.get(prefix);
-                  if (!cur || pop > cur.pop) bestImageByCode.set(prefix, { url, pop });
-                }
-              }
-
-              return cats.map((c) => ({
-                ...c,
-                imageUrl: c.imageUrl || bestImageByCode.get(c.mikroCode)?.url || null,
-                autoImage: !c.imageUrl && Boolean(bestImageByCode.get(c.mikroCode)?.url),
-              }));
-            } catch (err) {
-              console.error('Kategori otomatik gorsel hesabi basarisiz', err);
-              return cats.map((c) => ({ ...c, autoImage: false }));
-            }
-          }
-
-          return cats.map((c) => ({ ...c, autoImage: false }));
+          // "Hic almadigi" = gorunur (SADECE kendi urunu olan yaprak) − satin alinan.
+          // Ata/ara dugumler (hasProducts=false) haric: onlar hicbir zaman purchased'ta
+          // olmaz (urun leaf kategoriye baglidir) -> aksi halde tum ust kategoriler her
+          // musteride "hic alinmadi" gorunurdu. Ada gore (tr) sirali.
+          return allCats
+            .filter((c) => c.hasProducts && !purchased.has(c.id))
+            .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
         },
-        // Kategori + otomatik gorsel nadiren degisir; agir sorguyu seyrek calistir (10 dk).
+        // Satin alma gecmisi ve kategori agaci nadiren degisir; 10 dk cache yeterli.
         10 * 60 * 1000
       );
 

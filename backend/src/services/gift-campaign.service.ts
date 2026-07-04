@@ -40,7 +40,7 @@ type CampaignInput = {
   active?: boolean;
   validFrom?: string | null;
   validTo?: string | null;
-  gifts?: Array<{ productId: string; sortOrder?: number }>;
+  gifts?: Array<{ productId: string; sortOrder?: number; giftQuantity?: number }>;
 };
 
 const SCOPE_TO_STR: Record<GiftScopeType, string> = {
@@ -69,13 +69,34 @@ const TARGET_TO_STR: Record<GiftTargetType, string> = {
 const toStrArray = (value: any): string[] =>
   Array.isArray(value) ? value.map((v) => String(v).trim()).filter(Boolean) : [];
 
-const giftValueFromPrices = (prices: any): number => {
+// Urunun normal (musteriye tanimli) birim INVOICED fiyati. Product.prices sekli
+// MUSTERI-TIPI anahtarli: { BAYI:{INVOICED,WHITE}, PERAKENDE:{...}, ... } (pricing.service
+// calculateAllPricesForProduct). Eski hata: ust-seviye prices.invoiced okunuyordu ->
+// gercek urunlerde 0 donuyordu -> ustu cizili "₺0,00". customerType verilirse o tipin
+// INVOICED'i, yoksa herhangi bir pozitif tip fiyati kullanilir (+ geriye donuk ust-seviye).
+const giftValueFromPrices = (prices: any, customerType?: string | null): number => {
   if (!prices || typeof prices !== 'object') return 0;
+  const readInvoiced = (entry: any): number => {
+    if (!entry || typeof entry !== 'object') return 0;
+    const v = entry.INVOICED ?? entry.invoiced;
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  // 1) Musterinin kendi tipi
+  if (customerType && prices[customerType]) {
+    const v = readInvoiced(prices[customerType]);
+    if (v > 0) return v;
+  }
+  // 2) Herhangi bir tipin pozitif INVOICED'i (admin onizleme / tip bilinmiyor)
+  for (const key of Object.keys(prices)) {
+    const v = readInvoiced(prices[key]);
+    if (v > 0) return v;
+  }
+  // 3) Geriye donuk: eski ust-seviye sekil
   const inv = (prices as any).invoiced ?? (prices as any).INVOICED;
-  if (typeof inv === 'number') return inv;
+  if (typeof inv === 'number' && inv > 0) return inv;
   if (inv && typeof inv === 'object') {
-    const nested = (inv.LIST ?? inv.list ?? Object.values(inv).find((x) => typeof x === 'number'));
-    if (typeof nested === 'number') return nested;
+    const nested = inv.LIST ?? inv.list ?? Object.values(inv).find((x) => typeof x === 'number');
+    if (typeof nested === 'number' && nested > 0) return nested;
   }
   return 0;
 };
@@ -133,7 +154,11 @@ class GiftCampaignService {
         gifts: {
           create: gifts
             .filter((g) => g && g.productId)
-            .map((g, index) => ({ productId: String(g.productId), sortOrder: Number(g.sortOrder ?? index) })),
+            .map((g, index) => ({
+              productId: String(g.productId),
+              sortOrder: Number(g.sortOrder ?? index),
+              giftQuantity: Math.max(1, Math.trunc(Number(g.giftQuantity ?? 1))),
+            })),
         },
       },
       include: { gifts: { orderBy: { sortOrder: 'asc' } } },
@@ -152,7 +177,12 @@ class GiftCampaignService {
           await tx.giftCampaignItem.createMany({
             data: gifts
               .filter((g) => g && g.productId)
-              .map((g, index) => ({ campaignId: id, productId: String(g.productId), sortOrder: Number(g.sortOrder ?? index) })),
+              .map((g, index) => ({
+                campaignId: id,
+                productId: String(g.productId),
+                sortOrder: Number(g.sortOrder ?? index),
+                giftQuantity: Math.max(1, Math.trunc(Number(g.giftQuantity ?? 1))),
+              })),
           });
         }
       }
@@ -192,7 +222,10 @@ class GiftCampaignService {
     };
   }
 
-  private async hydrateGifts(items: Array<{ id: string; productId: string; sortOrder: number }>) {
+  private async hydrateGifts(
+    items: Array<{ id: string; productId: string; sortOrder: number; giftQuantity?: number }>,
+    customerType?: string | null
+  ) {
     if (!items || items.length === 0) return [];
     const productIds = items.map((i) => i.productId);
     const products = await prisma.product.findMany({
@@ -204,6 +237,8 @@ class GiftCampaignService {
       .map((item) => {
         const p = map.get(item.productId);
         if (!p) return null;
+        const giftQuantity = Math.max(1, Math.trunc(Number(item.giftQuantity ?? 1)));
+        const value = giftValueFromPrices(p.prices, customerType);
         return {
           id: item.id,
           productId: item.productId,
@@ -211,7 +246,9 @@ class GiftCampaignService {
           mikroCode: p.mikroCode,
           imageUrl: p.imageUrl,
           unit: p.unit,
-          value: giftValueFromPrices(p.prices),
+          value, // birim normal deger
+          giftQuantity,
+          normalPrice: value * giftQuantity, // adet x birim normal deger (ustu cizili gosterim icin)
         };
       })
       .filter(Boolean);
@@ -222,9 +259,17 @@ class GiftCampaignService {
   async getActiveForCustomer(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, mikroCariCode: true, sectorCode: true },
+      select: {
+        id: true,
+        mikroCariCode: true,
+        sectorCode: true,
+        customerType: true,
+        parentCustomer: { select: { customerType: true } },
+      },
     });
     if (!user) return { active: false };
+    // Alt kullanicida fiyat tipi ust cariden gelir.
+    const custType = user.parentCustomer?.customerType || user.customerType || null;
 
     const now = new Date();
     const campaigns = await prisma.giftCampaign.findMany({
@@ -243,7 +288,7 @@ class GiftCampaignService {
     if (!campaign) return { active: false };
 
     const qualifyingTotal = await this.computeQualifyingTotal(user, campaign);
-    const gifts = await this.hydrateGifts(campaign.gifts || []);
+    const gifts = await this.hydrateGifts(campaign.gifts || [], custType);
     const remaining = Math.max(0, campaign.threshold - qualifyingTotal);
 
     // Sepette bu kampanya icin secili hediye(ler) — restore icin
@@ -334,6 +379,10 @@ class GiftCampaignService {
     if (!(campaign.threshold > 0 && qualifyingTotal >= campaign.threshold)) return [];
 
     const validGiftProductIds = new Set(campaign.gifts.map((g) => g.productId));
+    // Urun basina hediye adedi (min 1) — siparis satiri miktarini bu belirler.
+    const giftQtyByProduct = new Map(
+      campaign.gifts.map((g) => [g.productId, Math.max(1, Math.trunc(Number((g as any).giftQuantity ?? 1)))])
+    );
     const selected = cart.giftProductIds
       .filter((id) => validGiftProductIds.has(id))
       .slice(0, Math.max(1, campaign.giftPickCount || 1));
@@ -367,7 +416,7 @@ class GiftCampaignService {
         productId: p.id,
         productName: p.name,
         mikroCode: p.mikroCode,
-        quantity: 1,
+        quantity: giftQtyByProduct.get(pid) ?? 1,
         unitPrice: GIFT_UNIT_PRICE,
         priceType: giftPriceType,
         lineNote: `KAMPANYA HEDIYESI: ${campaign.title}`,
@@ -491,7 +540,7 @@ class GiftCampaignService {
     return total;
   }
 
-  private async getPurchasedCategoryIds(user: { id: string; mikroCariCode: string | null }): Promise<Set<string>> {
+  async getPurchasedCategoryIds(user: { id: string; mikroCariCode: string | null }): Promise<Set<string>> {
     const cached = await cacheService.get<string[]>(PURCHASED_CATS_NS, user.id);
     if (cached) return new Set(cached);
 
