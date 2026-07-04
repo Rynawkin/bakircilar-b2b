@@ -498,9 +498,10 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-start gap-5 lg:flex-row">
-            {/* SOL: kalemler */}
-            <div className="min-w-0 flex-1 space-y-5">
+          <div className="flex flex-col items-stretch gap-5 lg:flex-row lg:items-start">
+            {/* SOL: kalemler — mobilde w-full ile viewport'a gerilir (items-start icerige gore
+                boyutlayip uzun urun adi/fiyatlarla tasmaya yol aciyordu; lg'de sticky aside icin items-start) */}
+            <div className="w-full min-w-0 space-y-5 lg:flex-1">
               {/* Hediyeli kampanya (GWP) — hediye secici (Vitrin: kalemlerin ustunde) */}
               <CartGiftPicker refreshKey={cart?.total} />
               {invoicedItems.length > 0 && (
