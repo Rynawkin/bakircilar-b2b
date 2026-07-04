@@ -87,6 +87,8 @@ export default function AgreementProductsPage() {
     () => (selectedCategory ? getDescendantCategoryIds(selectedCategory, categories) : []),
     [selectedCategory, categories]
   );
+  // Kategori rayi = FACET: sadece mevcut arama/marka/depo sonuclarinda gecen kok kategoriler.
+  const [facetCategories, setFacetCategories] = useState<RailCategory[]>([]);
   // Bu sayfada varsayilan sort = "Onerilen" (design). 'none' → applyProductFilters siralama yapmaz.
   const [sortBy, setSortBy] = useState<FilterState['sortBy']>('none');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({ sortBy: 'none', priceType: 'invoiced' });
@@ -227,10 +229,27 @@ export default function AgreementProductsPage() {
     setBrandCodes((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
   }, []);
 
-  const rootRailCategories = useMemo<RailCategory[]>(() => {
-    const roots = categories.filter((c) => !String((c as any).mikroCode || '').includes('.'));
-    return (roots.length > 0 ? roots : categories).slice(0, 14).map((c) => ({ id: c.id, name: c.name }));
-  }, [categories]);
+  // Kategori facet'lerini arama/marka/depo baglamiyla cek (kategori secimi rail'i daraltmaz —
+  // backend categoryId'yi bilerek uygulamaz). debouncedSearch zaten var; onunla senkron kalir.
+  useEffect(() => {
+    let cancelled = false;
+    customerApi
+      .getCategoryFacets({
+        search: debouncedSearch || undefined,
+        brands: brandCodes.length ? brandCodes.join(',') : undefined,
+        warehouse: warehouse || undefined,
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setFacetCategories((data.categories || []).map((c) => ({ id: c.id, name: c.name, count: c.count })));
+      })
+      .catch(() => {
+        if (!cancelled) setFacetCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, brandCodes, warehouse]);
 
   const clientFilterActive =
     railFilters.stockStatus !== 'all' ||
@@ -364,7 +383,7 @@ export default function AgreementProductsPage() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-4">
                   <FilterRail
-                    categories={rootRailCategories}
+                    categories={facetCategories}
                     selectedCategoryId={selectedCategory}
                     onSelectCategory={(id) => { setSelectedCategory(id); setOffset(0); }}
                     brandCodes={brandCodes}
@@ -383,7 +402,7 @@ export default function AgreementProductsPage() {
           {/* Masaustu rail */}
           <div className="hidden lg:block">
             <FilterRail
-              categories={rootRailCategories}
+              categories={facetCategories}
               selectedCategoryId={selectedCategory}
               onSelectCategory={(id) => { setSelectedCategory(id); setOffset(0); }}
               brandCodes={brandCodes}

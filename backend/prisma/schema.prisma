@@ -2882,6 +2882,7 @@ model GiftCampaign {
   title                String
   subtitle             String?
   bannerImageUrl       String?
+  mobileBannerImageUrl String?                       // dar (mobil) gorunum icin ayri gorsel; bos ise bannerImageUrl
   buttonText           String?
 
   threshold            Float          @default(0)   // hediye baraji (₺)

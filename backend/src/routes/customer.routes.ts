@@ -201,6 +201,9 @@ router.get('/unbought-category-products', requireCustomer, customerController.ge
 // Marka filtre rayi: gorunur urunlerden distinct marka + sayac (opsiyonel categoryId/search).
 router.get('/brand-facets', requireCustomer, customerController.getBrandFacets);
 
+// Kategori filtre rayi: mevcut sonuclarda gecen KOK kategoriler + urun sayaci (search/brands/warehouse).
+router.get('/category-facets', requireCustomer, customerController.getCategoryFacets);
+
 // Anlasmali urunler erisilebilirligi (nav linkini sadece AKTIF anlasma varsa goster)
 router.get('/agreements/available', customerController.getAgreementsAvailability);
 

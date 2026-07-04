@@ -18,6 +18,7 @@ type FormState = {
   title: string;
   subtitle: string;
   bannerImageUrl: string;
+  mobileBannerImageUrl: string;
   buttonText: string;
   threshold: string;
   thresholdPriceType: 'invoiced' | 'white';
@@ -38,6 +39,7 @@ const emptyForm: FormState = {
   title: '',
   subtitle: '',
   bannerImageUrl: '',
+  mobileBannerImageUrl: '',
   buttonText: '',
   threshold: '0',
   thresholdPriceType: 'invoiced',
@@ -132,6 +134,7 @@ export default function GiftCampaignsPage() {
       title: c.title || '',
       subtitle: c.subtitle || '',
       bannerImageUrl: c.bannerImageUrl || '',
+      mobileBannerImageUrl: c.mobileBannerImageUrl || '',
       buttonText: c.buttonText || '',
       threshold: String(c.threshold ?? 0),
       thresholdPriceType: c.thresholdPriceType,
@@ -175,6 +178,7 @@ export default function GiftCampaignsPage() {
       title: form.title.trim(),
       subtitle: form.subtitle.trim() || null,
       bannerImageUrl: form.bannerImageUrl.trim() || null,
+      mobileBannerImageUrl: form.mobileBannerImageUrl.trim() || null,
       buttonText: form.buttonText.trim() || null,
       threshold: Number(form.threshold) || 0,
       thresholdPriceType: form.thresholdPriceType,
@@ -314,11 +318,22 @@ export default function GiftCampaignsPage() {
               <ImageCropUpload
                 value={form.bannerImageUrl}
                 onChange={(url) => setForm((f) => (f ? { ...f, bannerImageUrl: url } : f))}
-                aspect={1600 / 400}
-                targetWidth={1600}
-                targetHeight={400}
-                label="Banner görseli"
-                hint="Yükleyince çerçeveye sığdırırsın — 1600 × 400 px olarak kaydedilir"
+                aspect={1920 / 640}
+                targetWidth={1920}
+                targetHeight={640}
+                label="Banner görseli (masaüstü)"
+                hint="Yükleyince çerçeveye sığdırırsın — 1920 × 640 px (3:1) olarak kaydedilir, kırpılmaz"
+              />
+            </div>
+            <div>
+              <ImageCropUpload
+                value={form.mobileBannerImageUrl}
+                onChange={(url) => setForm((f) => (f ? { ...f, mobileBannerImageUrl: url } : f))}
+                aspect={768 / 600}
+                targetWidth={768}
+                targetHeight={600}
+                label="Mobil banner görseli (768 × 600, opsiyonel)"
+                hint="Boş bırakılırsa masaüstü görsel kullanılır — 768 × 600 px olarak kaydedilir"
               />
             </div>
             <div>

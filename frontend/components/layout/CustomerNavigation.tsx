@@ -284,6 +284,13 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => window.setTimeout(() => setSearchFocused(false), 150)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    // Enter her zaman TERIM aramasina gitsin (kategori onerisi acikken de).
+                    e.preventDefault();
+                    goToSearch();
+                  }
+                }}
                 placeholder="Ürün adı, Mikro kodu veya marka ara…"
                 className="min-w-0 flex-1 border-none bg-transparent text-sm text-[var(--ink-1)] outline-none placeholder:text-[#9aa6b8]"
               />

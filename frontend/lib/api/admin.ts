@@ -323,6 +323,7 @@ export interface AdminGiftCampaign {
   title: string;
   subtitle?: string | null;
   bannerImageUrl?: string | null;
+  mobileBannerImageUrl?: string | null;
   buttonText?: string | null;
   threshold: number;
   thresholdPriceType: 'invoiced' | 'white';
@@ -346,6 +347,7 @@ export interface GiftCampaignInput {
   title: string;
   subtitle?: string | null;
   bannerImageUrl?: string | null;
+  mobileBannerImageUrl?: string | null;
   buttonText?: string | null;
   threshold?: number;
   thresholdPriceType?: 'invoiced' | 'white';

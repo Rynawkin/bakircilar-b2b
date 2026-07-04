@@ -64,6 +64,7 @@ export interface GiftCampaignActive {
   title?: string;
   subtitle?: string | null;
   bannerImageUrl?: string | null;
+  mobileBannerImageUrl?: string | null;
   buttonText?: string | null;
   threshold?: number;
   thresholdPriceType?: 'invoiced' | 'white';
@@ -285,6 +286,17 @@ export const customerApi = {
     search?: string;
   }): Promise<{ brands: Array<{ code: string; name: string; count: number }> }> => {
     const response = await apiClient.get('/brand-facets', { params });
+    return response.data;
+  },
+
+  // Kategori facet'leri: mevcut arama/marka/depo baglamindaki SONUCLARDA gecen (kok) kategoriler.
+  // Rail tum kategorileri degil, yalnizca sonuclarda bulunan kategorileri gostersin diye.
+  getCategoryFacets: async (params?: {
+    search?: string;
+    brands?: string;
+    warehouse?: string;
+  }): Promise<{ categories: Array<{ id: string; name: string; count: number }> }> => {
+    const response = await apiClient.get('/category-facets', { params });
     return response.data;
   },
 

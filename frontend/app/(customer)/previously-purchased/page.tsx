@@ -103,6 +103,8 @@ export default function PreviouslyPurchasedPage() {
   });
 
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
+  // Kategori rayi = FACET: sadece mevcut arama/marka/depo sonuclarinda gecen kok kategoriler.
+  const [facetCategories, setFacetCategories] = useState<RailCategory[]>([]);
 
   useEffect(() => {
     setAdvancedFilters((prev) =>
@@ -266,10 +268,27 @@ export default function PreviouslyPurchasedPage() {
     }
   }, []);
 
-  const rootRailCategories = useMemo<RailCategory[]>(() => {
-    const roots = categories.filter((c) => !String((c as any).mikroCode || '').includes('.'));
-    return (roots.length > 0 ? roots : categories).slice(0, 14).map((c) => ({ id: c.id, name: c.name }));
-  }, [categories]);
+  // Kategori facet'lerini urun-adi aramasi (debouncedNameSearch = getProducts.search) + marka/depo
+  // baglamiyla cek. Kategori secimi rail'i daraltmaz — backend categoryId'yi bilerek uygulamaz.
+  useEffect(() => {
+    let cancelled = false;
+    customerApi
+      .getCategoryFacets({
+        search: debouncedNameSearch || undefined,
+        brands: brandCodes.length ? brandCodes.join(',') : undefined,
+        warehouse: warehouse || undefined,
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setFacetCategories((data.categories || []).map((c) => ({ id: c.id, name: c.name, count: c.count })));
+      })
+      .catch(() => {
+        if (!cancelled) setFacetCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedNameSearch, brandCodes, warehouse]);
 
   const clientFilterActive =
     railFilters.stockStatus !== 'all' ||
@@ -397,7 +416,7 @@ export default function PreviouslyPurchasedPage() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-4">
                   <FilterRail
-                    categories={rootRailCategories}
+                    categories={facetCategories}
                     selectedCategoryId={selectedCategory}
                     onSelectCategory={(id) => { setSelectedCategory(id); setOffset(0); }}
                     brandCodes={brandCodes}
@@ -415,7 +434,7 @@ export default function PreviouslyPurchasedPage() {
           {/* Masaustu rail */}
           <div className="hidden lg:block">
             <FilterRail
-              categories={rootRailCategories}
+              categories={facetCategories}
               selectedCategoryId={selectedCategory}
               onSelectCategory={(id) => { setSelectedCategory(id); setOffset(0); }}
               brandCodes={brandCodes}

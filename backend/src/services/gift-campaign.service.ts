@@ -26,6 +26,7 @@ type CampaignInput = {
   title?: string;
   subtitle?: string | null;
   bannerImageUrl?: string | null;
+  mobileBannerImageUrl?: string | null;
   buttonText?: string | null;
   threshold?: number;
   thresholdPriceType?: string;
@@ -125,6 +126,7 @@ class GiftCampaignService {
     if (input.title !== undefined) data.title = String(input.title).trim();
     if (input.subtitle !== undefined) data.subtitle = input.subtitle ? String(input.subtitle).trim() : null;
     if (input.bannerImageUrl !== undefined) data.bannerImageUrl = input.bannerImageUrl ? String(input.bannerImageUrl).trim() : null;
+    if (input.mobileBannerImageUrl !== undefined) data.mobileBannerImageUrl = input.mobileBannerImageUrl ? String(input.mobileBannerImageUrl).trim() : null;
     if (input.buttonText !== undefined) data.buttonText = input.buttonText ? String(input.buttonText).trim() : null;
     if (input.threshold !== undefined) data.threshold = Number.isFinite(Number(input.threshold)) ? Number(input.threshold) : 0;
     if (input.thresholdPriceType !== undefined) {
@@ -202,6 +204,7 @@ class GiftCampaignService {
       title: campaign.title,
       subtitle: campaign.subtitle,
       bannerImageUrl: campaign.bannerImageUrl,
+      mobileBannerImageUrl: campaign.mobileBannerImageUrl,
       buttonText: campaign.buttonText,
       threshold: campaign.threshold,
       thresholdPriceType: campaign.thresholdPriceType === PriceType.WHITE ? 'white' : 'invoiced',
@@ -305,6 +308,7 @@ class GiftCampaignService {
       title: campaign.title,
       subtitle: campaign.subtitle,
       bannerImageUrl: campaign.bannerImageUrl,
+      mobileBannerImageUrl: campaign.mobileBannerImageUrl,
       buttonText: campaign.buttonText,
       threshold: campaign.threshold,
       thresholdPriceType: campaign.thresholdPriceType === PriceType.WHITE ? 'white' : 'invoiced',

@@ -97,6 +97,8 @@ export default function DiscountedProductsPage() {
     () => (selectedCategory ? getDescendantCategoryIds(selectedCategory, categories) : []),
     [selectedCategory, categories]
   );
+  // Kategori rayi = FACET: sadece mevcut arama/marka/depo sonuclarinda gecen kok kategoriler.
+  const [facetCategories, setFacetCategories] = useState<RailCategory[]>([]);
   // Per-mode varsayilan sort = "En cok indirim". 'discount-desc' yerel; digerleri shared.
   const [sortBy, setSortBy] = useState<'discount-desc' | FilterState['sortBy']>('discount-desc');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({ sortBy: 'none', priceType: 'invoiced' });
@@ -244,10 +246,27 @@ export default function DiscountedProductsPage() {
     setBrandCodes((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
   }, []);
 
-  const rootRailCategories = useMemo<RailCategory[]>(() => {
-    const roots = categories.filter((c) => !String((c as any).mikroCode || '').includes('.'));
-    return (roots.length > 0 ? roots : categories).slice(0, 14).map((c) => ({ id: c.id, name: c.name }));
-  }, [categories]);
+  // Kategori facet'lerini arama/marka/depo baglamiyla cek (kategori secimi rail'i daraltmaz —
+  // backend categoryId'yi bilerek uygulamaz). debouncedSearch zaten var; onunla senkron kalir.
+  useEffect(() => {
+    let cancelled = false;
+    customerApi
+      .getCategoryFacets({
+        search: debouncedSearch || undefined,
+        brands: brandCodes.length ? brandCodes.join(',') : undefined,
+        warehouse: warehouse || undefined,
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setFacetCategories((data.categories || []).map((c) => ({ id: c.id, name: c.name, count: c.count })));
+      })
+      .catch(() => {
+        if (!cancelled) setFacetCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, brandCodes, warehouse]);
 
   // "Sadece indirimli" bu sayfada baseline (pre-checked). onlyDiscount === false = baseline'dan sapma.
   const clientFilterActive =
@@ -382,7 +401,7 @@ export default function DiscountedProductsPage() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-4">
                   <FilterRail
-                    categories={rootRailCategories}
+                    categories={facetCategories}
                     selectedCategoryId={selectedCategory}
                     onSelectCategory={(id) => { setSelectedCategory(id); setOffset(0); }}
                     brandCodes={brandCodes}
@@ -400,7 +419,7 @@ export default function DiscountedProductsPage() {
           {/* Masaustu rail */}
           <div className="hidden lg:block">
             <FilterRail
-              categories={rootRailCategories}
+              categories={facetCategories}
               selectedCategoryId={selectedCategory}
               onSelectCategory={(id) => { setSelectedCategory(id); setOffset(0); }}
               brandCodes={brandCodes}

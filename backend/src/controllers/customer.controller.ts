@@ -3384,6 +3384,99 @@ export class CustomerController {
       next(error);
     }
   }
+
+  /**
+   * GET /category-facets — mevcut arama/marka/depo baglamindaki SONUCLARDA gecen KOK kategoriler.
+   * Rail tum kategori agacini degil, yalnizca sonuclarda bulunan (kok) kategorileri gostersin diye.
+   * getProducts (mode: 'all') urun-filtresini aynen yansitir: active + hiddenFromCustomers=false +
+   * exclusion + arama (searchText token) + marka. categoryId UYGULANMAZ (kategori secilince rail
+   * tek kalana dusmesin). Urunun leaf kategorisi mikroCode ilk segmentine gore koke eslenir.
+   */
+  async getCategoryFacets(req: Request, res: Response, next: NextFunction) {
+    try {
+      const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+      const rawBrands = req.query.brands;
+      const rawBrand = req.query.brand;
+      const brandCodes = Array.from(
+        new Set(
+          (Array.isArray(rawBrands) ? rawBrands : [rawBrands, rawBrand])
+            .flatMap((value) => String(value || '').split(','))
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      );
+      const brandFilter =
+        brandCodes.length > 0
+          ? { brandCode: brandCodes.length === 1 ? brandCodes[0] : { in: brandCodes } }
+          : {};
+      const searchTokens = splitSearchTokens(search);
+
+      const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
+
+      // getProducts (mode: 'all') where'i ile ayni — KATEGORI filtresi HARIC.
+      const where: any = {
+        active: true,
+        hiddenFromCustomers: false,
+        ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+        ...brandFilter,
+        ...(searchTokens.length > 0
+          ? {
+              AND: searchTokens.map((token) => ({
+                OR: [{ searchText: { contains: normalizeSearchText(token) } }],
+              })),
+            }
+          : {}),
+      };
+
+      // Eslesen urunleri leaf kategoriye gore grupla (tek grouped sorgu).
+      const grouped = await prisma.product.groupBy({
+        by: ['categoryId'],
+        where,
+        _count: { _all: true },
+      });
+
+      if (grouped.length === 0) {
+        return res.json({ categories: [] });
+      }
+
+      // Kategori haritasi (id -> mikroCode/name) ve mikroCode -> id: leaf->kok eslemesi icin.
+      const allCategories = await prisma.category.findMany({
+        select: { id: true, mikroCode: true, name: true },
+      });
+      const catById = new Map(allCategories.map((c) => [c.id, c]));
+      const codeToId = new Map(allCategories.map((c) => [c.mikroCode, c.id]));
+
+      // Leaf kategorinin kokunu bul: mikroCode'un ilk '.' oncesi segmenti (rail'in
+      // !mikroCode.includes('.') kok tanimiyla tutarli). Kok yoksa kategori kendi kokudur.
+      const resolveRootId = (leafId: string): string | null => {
+        const leaf = catById.get(leafId);
+        if (!leaf) return null;
+        const code = String(leaf.mikroCode || '');
+        if (!code) return leafId;
+        const dot = code.indexOf('.');
+        if (dot < 0) return leafId; // zaten kok
+        const rootCode = code.slice(0, dot);
+        return codeToId.get(rootCode) || leafId; // kok kategori kaydi yoksa leaf'in kendisi
+      };
+
+      // Kok bazinda eslesen urun sayilarini topla.
+      const rootCounts = new Map<string, number>();
+      for (const row of grouped) {
+        const rootId = resolveRootId(row.categoryId);
+        if (!rootId) continue;
+        rootCounts.set(rootId, (rootCounts.get(rootId) || 0) + row._count._all);
+      }
+
+      const categories = Array.from(rootCounts.entries())
+        .map(([id, count]) => ({ id, name: catById.get(id)?.name || '', count }))
+        .filter((c) => c.name)
+        .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+
+      res.json({ categories });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new CustomerController();

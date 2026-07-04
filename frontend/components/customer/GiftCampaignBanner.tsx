@@ -80,8 +80,11 @@ export function GiftCampaignBanner() {
     >
       {campaign.bannerImageUrl && (
         <>
-          {/* GWP kampanya banner'inin ayri mobil gorseli yok; tek gorsel <picture> ile sarilir (yapisal tutarlilik) */}
+          {/* Mobil ayri gorsel varsa <640px'de onu kullan; yoksa genis gorsele don */}
           <picture>
+            {campaign.mobileBannerImageUrl && (
+              <source media="(max-width: 640px)" srcSet={campaign.mobileBannerImageUrl} />
+            )}
             <img src={campaign.bannerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
           </picture>
           {/* Agir karartma YOK — soldan yumusak gradient: sol metin okunur, sag gorsel gorunur */}
@@ -132,8 +135,9 @@ export function GiftCampaignBanner() {
           </div>
         </div>
 
-        {/* Sag: hediye onizleme + CTA */}
-        <div className="flex flex-col items-start gap-3 lg:items-end">
+        {/* Sag: hediye onizleme + CTA — banner gorselinin acik/renkli tarafinda okunsun diye
+            yari-saydam koyu kutu (backdrop) icine alindi; boylece kucuk gorseller ve butonlar net gorunur. */}
+        <div className="flex flex-none flex-col items-start gap-3 rounded-xl bg-[#0a1730]/55 p-3 ring-1 ring-white/10 backdrop-blur-sm lg:items-end">
           {gifts.length > 0 && (
             <div className="flex items-center gap-2">
               {gifts.slice(0, 4).map((gift) => (
