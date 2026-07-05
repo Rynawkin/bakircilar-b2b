@@ -338,12 +338,21 @@ export class OrderRequestController {
       const cart = await prisma.cart.findUnique({
         where: { userId: user.id },
         include: {
-          items: true,
+          items: { include: { product: { select: { isBundle: true, name: true } } } },
         },
       });
 
       if (!cart || cart.items.length === 0) {
         return res.status(400).json({ error: 'Cart is empty' });
+      }
+
+      // Paketler (bundle) talep akisinda desteklenmiyor: talep->siparis cevriminde bilesen
+      // patlatma yok, sentetik kod Mikro'ya yazilamaz. Paket iceren talep reddedilir.
+      const bundleItem = cart.items.find((it: any) => it.product?.isBundle);
+      if (bundleItem) {
+        return res.status(400).json({
+          error: `Paket urunler talep olarak gonderilemez (${(bundleItem as any).product?.name || ''}). Ana hesap siparise eklemelidir.`,
+        });
       }
 
       const request = await prisma.customerRequest.create({

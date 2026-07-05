@@ -75,6 +75,11 @@ export interface Product {
     white: number;
   };
   pricingMode?: 'LIST' | 'EXCESS';
+  // Paket (bundle) alanlari
+  isBundle?: boolean;
+  bundleDiscountPercent?: number;
+  bundleItemCount?: number;
+  bundleContents?: Array<{ mikroCode: string; name: string; quantity: number; unit?: string | null }>;
   lastSales?: Array<{
     saleDate: string;
     quantity: number;

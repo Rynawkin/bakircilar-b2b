@@ -217,9 +217,12 @@ class PricingService {
     prices: ProductPrices,
     customerType: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL'
   ): { invoiced: number; white: number } {
+    // Null-safe: paket (isBundle) urunlerin prices JSON'i bostur ({}) ve fiyatlari
+    // bundle-pricing.service ile hesaplanir. Bos/eksik tipte {0,0} don, ASLA patlama.
+    const typePrices = (prices as any)?.[customerType];
     return {
-      invoiced: prices[customerType].INVOICED,
-      white: prices[customerType].WHITE,
+      invoiced: Number(typePrices?.INVOICED) || 0,
+      white: Number(typePrices?.WHITE) || 0,
     };
   }
 
@@ -323,7 +326,9 @@ class PricingService {
    */
   async recalculateAllPrices(syncLogId?: string): Promise<number> {
     const products = await prisma.product.findMany({
-      where: { active: true },
+      // Paketler (isBundle) haric: fiyatlari bilesen toplamindan (bundle-pricing) gelir;
+      // currentCost=null oldugu icin buradaki hesap onlari sifir/cop fiyatla ezerdi.
+      where: { active: true, isBundle: false },
     });
 
     const settings = await prisma.settings.findFirst();

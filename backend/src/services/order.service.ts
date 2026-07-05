@@ -14,7 +14,8 @@ import { generateOrderNumber } from '../utils/orderNumber';
 import mikroService from './mikroFactory.service';
 import pricingService from './pricing.service';
 import priceListService from './price-list.service';
-import cartPricingService from './cart-pricing.service';
+import cartPricingService, { loadCartCustomerContext, CartPriceType } from './cart-pricing.service';
+import bundlePricingService, { BundleComponentSnapshot } from './bundle-pricing.service';
 import giftCampaignService from './gift-campaign.service';
 import { ProductPrices, MikroCustomerSaleMovement } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
@@ -43,6 +44,9 @@ type RepricedCartItem = {
   unit2?: string | null;
   unit2Factor?: number | null;
   selectedUnit?: string | null;
+  // Paket (bundle) satiri: musteri tek satir gorur; Mikro'ya bilesenlere patlatilir.
+  // Snapshot = paket BASINA bilesen dokumu (iskonto gomulu birim fiyatlar).
+  bundleComponents?: BundleComponentSnapshot[] | null;
 };
 
 type LinkedMikroOrderRow = {
@@ -744,6 +748,30 @@ class OrderService {
       }
     }
 
+    // Paket (bundle) satirlari: siparis aninda bilesen dokumunu (iskonto gomulu birim
+    // fiyatlar) hesapla; Mikro'ya bu bilesenler yazilacak (paketin sentetik kodu DEGIL).
+    const bundleResults = new Map<string, { unitPrice: number; components: BundleComponentSnapshot[] }>();
+    const bundleCartItems = cart.items.filter((it: any) => it.product?.isBundle);
+    if (bundleCartItems.length > 0) {
+      const bundleCtx = await loadCartCustomerContext(userId);
+      const includedWarehouses =
+        (await prisma.settings.findFirst({ select: { includedWarehouses: true } }))?.includedWarehouses || [];
+      for (const it of bundleCartItems) {
+        const pType: CartPriceType = it.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+        try {
+          const res = await bundlePricingService.buildOrderBundleComponents(
+            bundleCtx,
+            includedWarehouses,
+            it.productId,
+            pType
+          );
+          if (res && res.components.length > 0) bundleResults.set(it.id, res);
+        } catch (error) {
+          console.error('Bundle order pricing failed', { userId, productId: it.productId, error });
+        }
+      }
+    }
+
     const repriced = cart.items.map((item) => {
       const product = item.product;
       if (!product) {
@@ -766,6 +794,33 @@ class OrderService {
       const priceType: PriceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
       if (!isPriceTypeAllowed(effectiveVisibility, priceType)) {
         throw new Error(`Price type not allowed for ${product.mikroCode || product.name}`);
+      }
+
+      // Paket satiri: onceden hesaplanan bilesen snapshot'i ile TEK satir olustur.
+      // (Mikro'ya yazimda bilesenlere patlatilir.)
+      if (product.isBundle) {
+        const br = bundleResults.get(item.id);
+        if (!br) {
+          // Paket fiyatlanamadi (bilesen pasif/gizli/eksik) -> satiri sessizce atla.
+          if (skippedHidden) skippedHidden.push(product.name || product.mikroCode || 'Paket');
+          return null;
+        }
+        return {
+          productId: item.productId,
+          productName: product.name,
+          mikroCode: product.mikroCode,
+          quantity,
+          priceType,
+          unitPrice: br.unitPrice,
+          // Mikro'ya patlatilan bilesen satir toplamlariyla birebir essin diye ek yuvarlama YOK.
+          totalPrice: quantity * br.unitPrice,
+          lineNote: item.lineNote ? String(item.lineNote).trim() : null,
+          unit: product.unit || 'SET',
+          unit2: null,
+          unit2Factor: null,
+          selectedUnit: null,
+          bundleComponents: br.components,
+        } as RepricedCartItem;
       }
 
       const prices = product.prices as unknown as ProductPrices;
@@ -941,6 +996,8 @@ class OrderService {
                   totalPrice: item.totalPrice,
                   lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
                   isGift: false,
+                  // Paket satiri ise bilesen dokumu (Mikro yazimda patlatilir).
+                  bundleComponents: item.bundleComponents ? (item.bundleComponents as any) : undefined,
                 })),
                 // GWP hediye satir(lar)i — 0,1 ₺, isGift bayrakli, musteri toplamina dahil degil
                 ...giftLines.map((gift) => ({
@@ -1094,6 +1151,11 @@ class OrderService {
 
       if (!product) {
         throw new Error(`Product not found for line ${index + 1}`);
+      }
+
+      // Paket (bundle) manuel/duzenleme yoluyla siparise eklenemez (bilesen patlatma bu yolda yok).
+      if ((product as any).isBundle) {
+        throw new Error(`Paket (${product.name}) bu yolla siparise eklenemez. Musteri sepetinden eklenmelidir.`);
       }
 
       const quantity = Number(item.quantity);
@@ -1484,6 +1546,7 @@ class OrderService {
             mikroCode: true,
             priceType: true,
             mikroOrderId: true,
+            bundleComponents: true,
           },
         },
       },
@@ -1495,6 +1558,13 @@ class OrderService {
 
     if (!['PENDING', 'APPROVED'].includes(order.status)) {
       throw new Error('Only pending or approved orders can be updated');
+    }
+
+    // Paket (bundle) satirlari Mikro'ya bilesenlerine patlatilarak yazilir; duzenleme
+    // yolunda bilesen bazli guncelleme/kapatma bu ilk surumde desteklenmiyor. Sessiz
+    // Mikro bozulmasini onlemek icin paket iceren siparisin duzenlenmesi engellenir.
+    if ((order.items as any[]).some((it) => it.bundleComponents != null)) {
+      throw new Error('Paket iceren siparisler duzenlenemez. Siparisi reddedip yeniden olusturun.');
     }
 
     if (!input?.items || !Array.isArray(input.items) || input.items.length == 0) {
@@ -1530,6 +1600,11 @@ class OrderService {
 
       if (!product) {
         throw new Error(`Product not found for line ${index + 1}`);
+      }
+
+      // Paket (bundle) manuel/duzenleme yoluyla siparise eklenemez (bilesen patlatma bu yolda yok).
+      if ((product as any).isBundle) {
+        throw new Error(`Paket (${product.name}) bu yolla siparise eklenemez. Musteri sepetinden eklenmelidir.`);
       }
 
       const quantity = Number(item.quantity);
@@ -2117,14 +2192,8 @@ class OrderService {
         const invoicedSeries = normalizeSeries(series?.invoiced, 'B2BF');
         const invoicedOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
-          items: invoicedItems.map((item: any) => ({
-            productCode: item.product.mikroCode,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            vatRate: this.resolveItemVatRate(item),
-            // Alt birim secildiyse "{altMiktar} {birim}" mevcut nota eklenir (depo okur).
-            lineDescription: this.buildMikroLineDescription(item),
-          })),
+          // Paket satirlari bilesenlerine patlatilir (buildMikroOrderLines).
+          items: invoicedItems.flatMap((item: any) => this.buildMikroOrderLines(item, false)),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı${adminNote ? ` | ${adminNote}` : ''}`,
@@ -2142,14 +2211,8 @@ class OrderService {
         const whiteSeries = normalizeSeries(series?.white, 'B2BB');
         const whiteOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
-          items: whiteItems.map((item: any) => ({
-            productCode: item.product.mikroCode,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            vatRate: 0, // Beyaz için KDV=0
-            // Alt birim secildiyse "{altMiktar} {birim}" mevcut nota eklenir (depo okur).
-            lineDescription: this.buildMikroLineDescription(item),
-          })),
+          // Paket satirlari bilesenlerine patlatilir; beyazda KDV=0.
+          items: whiteItems.flatMap((item: any) => this.buildMikroOrderLines(item, true)),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
           description: `B2B Sipariş ${order.orderNumber} - Beyaz${adminNote ? ` | ${adminNote}` : ''}`,
@@ -2209,6 +2272,41 @@ class OrderService {
     } finally {
       releaseLock();
     }
+  }
+
+  /**
+   * Bir OrderItem'i Mikro satir(lar)ina cevirir.
+   * - Normal urun: tek satir (mevcut mantik; alt-birim aciklamasi + KDV kurali korunur).
+   * - Paket (bundleComponents dolu): bilesenlere PATLATILIR. Paketin sentetik kodu Mikro'ya
+   *   YAZILMAZ. Bilesen miktari = paketBasinaAdet × paketAdedi; birim fiyat iskonto gomulu.
+   *   Beyaz tarafta KDV=0 zorlanir; faturalida bilesenin kendi KDV orani kullanilir.
+   */
+  private buildMikroOrderLines(
+    item: any,
+    whiteZeroVat: boolean
+  ): Array<{ productCode: string; quantity: number; unitPrice: number; vatRate: number; lineDescription?: string }> {
+    const comps = Array.isArray(item?.bundleComponents) ? item.bundleComponents : null;
+    if (comps && comps.length > 0) {
+      const bundleQty = Number(item.quantity) || 0;
+      const baseNote = item?.lineNote && String(item.lineNote).trim() ? ` ${String(item.lineNote).trim()}` : '';
+      const setLabel = `SET: ${String(item.productName || '').trim()}${baseNote}`.slice(0, 50);
+      return comps
+        .filter((c: any) => c && c.mikroCode && Number(c.quantity) > 0)
+        .map((c: any) => ({
+          productCode: String(c.mikroCode),
+          quantity: (Number(c.quantity) || 0) * bundleQty,
+          unitPrice: Number(c.unitPrice) || 0,
+          vatRate: whiteZeroVat ? 0 : (Number(c.vatRate) || 0),
+          lineDescription: setLabel,
+        }));
+    }
+    return [{
+      productCode: item.product.mikroCode,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      vatRate: whiteZeroVat ? 0 : this.resolveItemVatRate(item),
+      lineDescription: this.buildMikroLineDescription(item),
+    }];
   }
 
   /**
@@ -2327,13 +2425,8 @@ class OrderService {
         const invoicedSeries = normalizeSeries(series?.invoiced, 'B2BF');
         const invoicedOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
-          items: invoicedItems.map((item: any) => ({
-            productCode: item.product.mikroCode,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            vatRate: this.resolveItemVatRate(item),
-            lineDescription: item.lineNote || undefined,
-          })),
+          // Paket satirlari bilesenlerine patlatilir (buildMikroOrderLines).
+          items: invoicedItems.flatMap((item: any) => this.buildMikroOrderLines(item, false)),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
@@ -2361,13 +2454,8 @@ class OrderService {
         const whiteSeries = normalizeSeries(series?.white, 'B2BB');
         const whiteOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
-          items: whiteItems.map((item: any) => ({
-            productCode: item.product.mikroCode,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            vatRate: 0,
-            lineDescription: item.lineNote || undefined,
-          })),
+          // Paket satirlari bilesenlerine patlatilir; beyazda KDV=0.
+          items: whiteItems.flatMap((item: any) => this.buildMikroOrderLines(item, true)),
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
           description: `B2B Sipariş ${order.orderNumber} - Beyaz (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,

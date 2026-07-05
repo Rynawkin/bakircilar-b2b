@@ -32,6 +32,7 @@ import {
   Search,
   Bell,
   BellRing,
+  Package,
 } from 'lucide-react';
 
 export default function ProductDetailPage() {
@@ -517,6 +518,30 @@ export default function ProductDetailPage() {
                 ? 'Resim hatası bildirildi'
                 : 'Resim hatası bildir'}
             </button>
+
+            {/* Set İçeriği (paket ürünü) */}
+            {product.isBundle && product.bundleContents && product.bundleContents.length > 0 && (
+              <div className="mt-1 rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] p-4">
+                <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-[var(--ink-1)]">
+                  <Package className="h-4 w-4" /> Set İçeriği
+                </div>
+                <ul className="space-y-1.5">
+                  {product.bundleContents.map((c, i) => (
+                    <li key={`${c.mikroCode}-${i}`} className="flex items-center justify-between gap-3 text-[13px]">
+                      <span className="min-w-0 truncate text-[var(--ink-2)]">{c.name}</span>
+                      <span className="flex-none font-semibold text-[var(--ink-1)]">
+                        {c.quantity} {c.unit || 'adet'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {product.bundleDiscountPercent ? (
+                  <div className="mt-2 text-[12px] font-semibold text-emerald-700">
+                    Sete özel indirim: %{product.bundleDiscountPercent}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
 
           {/* SAĞ: bilgi + sipariş */}

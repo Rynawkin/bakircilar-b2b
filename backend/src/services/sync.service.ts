@@ -394,6 +394,9 @@ class SyncService {
           where: {
             active: true,
             mikroCode: { notIn: mikroCodes },
+            // Paketler (isBundle) sentetik koda sahiptir; Mikro listesinde olmadigi icin
+            // asla pasife cekilmemeli (guard).
+            isBundle: false,
           },
           data: { active: false },
         });

@@ -784,6 +784,11 @@ class QuoteService {
         if (!product) {
           throw new Error(`Product not found for item ${index + 1}`);
         }
+        // Paket (bundle) sentetik koda sahiptir; teklif->siparis yolunda bilesenlere
+        // patlatma yoktur, sentetik kod Mikro'ya yazilamaz. Teklife paket eklenemez.
+        if ((product as any).isBundle) {
+          throw new Error(`Paket (${(product as any).name}) teklife eklenemez. Musteri sepetinden siparise eklenmelidir.`);
+        }
       }
       const productCode = isManualLine
         ? item.productCode || ""
@@ -1113,6 +1118,11 @@ class QuoteService {
           null;
         if (!product) {
           throw new Error(`Product not found for item ${index + 1}`);
+        }
+        // Paket (bundle) sentetik koda sahiptir; teklif->siparis yolunda bilesenlere
+        // patlatma yoktur, sentetik kod Mikro'ya yazilamaz. Teklife paket eklenemez.
+        if ((product as any).isBundle) {
+          throw new Error(`Paket (${(product as any).name}) teklife eklenemez. Musteri sepetinden siparise eklenmelidir.`);
         }
       }
       const productCode = isManualLine

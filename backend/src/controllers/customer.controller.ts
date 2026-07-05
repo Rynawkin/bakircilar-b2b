@@ -15,6 +15,7 @@ import customerActivityService from '../services/customer-activity.service';
 import warehouseWorkflowService from '../services/warehouse-workflow.service';
 import exclusionService from '../services/exclusion.service';
 import cartPricingService, { CartPriceType } from '../services/cart-pricing.service';
+import bundlePricingService from '../services/bundle-pricing.service';
 import vadeService from '../services/vade.service';
 import giftCampaignService from '../services/gift-campaign.service';
 import { splitSearchTokens, normalizeSearchText } from '../utils/search';
@@ -509,12 +510,15 @@ export class CustomerController {
             .filter(Boolean)
         )
       );
-      const categoryFilter =
-        categoryIds.length > 0
-          ? { categoryId: categoryIds.length === 1 ? categoryIds[0] : { in: categoryIds } }
-          : categoryId
-            ? { categoryId: categoryId as string }
-            : {};
+      // Kategori filtresi: normal urunler categoryId'den; paketler ise "Paketler" ana
+      // kategorisine EK OLARAK secilen ikinci kategoride de (bundleSecondaryCategoryId)
+      // gorunmeli. Bu yuzden filtre categoryId VEYA bundleSecondaryCategoryId eslesmesi.
+      const categoryIdList = categoryIds.length > 0 ? categoryIds : (categoryId ? [categoryId as string] : []);
+      const categoryMatch = categoryIdList.length === 1 ? categoryIdList[0] : { in: categoryIdList };
+      const categoryFilter: any =
+        categoryIdList.length > 0
+          ? { OR: [{ categoryId: categoryMatch }, { bundleSecondaryCategoryId: categoryMatch }] }
+          : {};
       // Coklu marka filtresi (banner "birden fazla marka" tiklamasi -> /products?brands=A,B,C)
       const brandCodes = Array.from(
         new Set(
@@ -1068,6 +1072,8 @@ export class CustomerController {
 
                 excludeFromDiscount: true,
 
+                isBundle: true,
+
                 imageUrl: true,
 
                 warehouseStocks: true,
@@ -1144,6 +1150,8 @@ export class CustomerController {
                 excessStock: true,
 
                 excludeFromDiscount: true,
+
+                isBundle: true,
 
                 imageUrl: true,
 
@@ -1482,6 +1490,20 @@ export class CustomerController {
         };
       });
 
+      // Paketleri (isBundle) musteri-bazli yeniden fiyatla: bilesen fiyat toplami + %iskonto +
+      // harmanli KDV + stok=min(bilesen). Sayfada paket yoksa hicbir ek sorgu yapilmaz.
+      const bundleIdSet = new Set(
+        (pageProducts as any[]).filter((p) => (p as any).isBundle).map((p) => p.id)
+      );
+      if (bundleIdSet.size > 0) {
+        productsWithPrices = await bundlePricingService.decorateBundlePayloads({
+          payloads: productsWithPrices,
+          bundleIds: bundleIdSet,
+          userId: req.user!.userId,
+          effectiveVisibility,
+        });
+      }
+
       if (warehouse) {
         productsWithPrices = productsWithPrices.filter((p) => p.maxOrderQuantity > 0);
       }
@@ -1695,6 +1717,7 @@ export class CustomerController {
           prices: true,
           active: true,
           hiddenFromCustomers: true,
+          isBundle: true,
 
           category: {
 
@@ -1717,6 +1740,13 @@ export class CustomerController {
 
       if (excludedProductCodeSet.has(normalizeMikroCode(product.mikroCode))) {
         return res.status(404).json({ error: 'Product not found' });
+      }
+
+      // Paket (bundle): fiyat bilesen toplamindan gelir; ayri detay yolu (icerik + galeri).
+      if ((product as any).isBundle) {
+        const bundlePayload = await bundlePricingService.buildBundleDetailPayload(req.user!.userId, product.id);
+        if (!bundlePayload) return res.status(404).json({ error: 'Product not found' });
+        return res.json(bundlePayload);
       }
 
       // Indirime sokulmamasi istenen urunde fazla stok gosterimde sifirlanir; boylece
@@ -2691,6 +2721,7 @@ export class CustomerController {
                   unit: true,
                   unit2: true,
                   unit2Factor: true,
+                  isBundle: true,
                 },
               },
             },
@@ -2794,6 +2825,50 @@ export class CustomerController {
 
         if (!cartPricingService.isCartPriceTypeAllowed(context.effectiveVisibility, safePriceType)) {
           return res.status(400).json({ error: 'Price type not allowed for customer' });
+        }
+
+        // Paket (bundle): tek satir, LIST modu, birim fiyat = bilesen fiyat toplami + %iskonto.
+        // Rebalance/EXCESS mantigi paketlere UYGULANMAZ; fiyat siparis aninda yeniden hesaplanir.
+        if ((product as any).isBundle) {
+          // Alt kullanicilar (talep akisi) paket ekleyemez: talep->siparis cevriminde bilesen
+          // patlatma yok. Paketi ana hesap dogrudan siparise eklemeli.
+          if (user.parentCustomerId) {
+            return res.status(400).json({ error: 'Paketler yalnizca ana hesaptan siparise eklenebilir.' });
+          }
+          const priced = await bundlePricingService.priceBundleForCart(user.id, product.id, safePriceType);
+          if (!priced || !(priced.unitPrice > 0)) {
+            return res.status(400).json({ error: 'Paket fiyati hesaplanamadi' });
+          }
+          // Bilesenlerden biri pasif/gizli/silinmis ise (availableStock=0) veya paket
+          // stokta degilse ekleme; eksik paket siparise gitmesin.
+          if (!(priced.availableStock > 0)) {
+            return res.status(400).json({ error: 'Bu paket su an stokta yok' });
+          }
+          let bundleCart = await prisma.cart.findUnique({ where: { userId: user.id } });
+          if (!bundleCart) {
+            bundleCart = await prisma.cart.create({ data: { userId: user.id } });
+          }
+          const existingBundle = await prisma.cartItem.findFirst({
+            where: { cartId: bundleCart.id, productId, priceType: safePriceType, priceMode: 'LIST' },
+          });
+          if (existingBundle) {
+            await prisma.cartItem.update({
+              where: { id: existingBundle.id },
+              data: { quantity: existingBundle.quantity + parsedQuantity, unitPrice: priced.unitPrice },
+            });
+          } else {
+            await prisma.cartItem.create({
+              data: {
+                cartId: bundleCart.id,
+                productId,
+                quantity: parsedQuantity,
+                priceType: safePriceType,
+                priceMode: 'LIST',
+                unitPrice: priced.unitPrice,
+              },
+            });
+          }
+          return res.json({ message: 'Product added to cart' });
         }
 
         let cart = await prisma.cart.findUnique({

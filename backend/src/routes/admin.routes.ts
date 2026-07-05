@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import adminController from '../controllers/admin.controller';
+import bundleController from '../controllers/bundle.controller';
 import quoteController from '../controllers/quote.controller';
 import taskController from '../controllers/task.controller';
 import notificationController from '../controllers/notification.controller';
@@ -327,6 +328,12 @@ router.post('/products/:id/images', requireAnyPermission(['admin:products', 'adm
 router.patch('/products/:id/images/reorder', requireAnyPermission(['admin:products', 'admin:order-tracking']), adminController.reorderProductImages);
 router.patch('/products/:id/images/:imageId/primary', requireAnyPermission(['admin:products', 'admin:order-tracking']), adminController.setPrimaryProductImage);
 router.delete('/products/:id/images/:imageId', requireAnyPermission(['admin:products', 'admin:order-tracking']), adminController.deleteProductGalleryImage);
+
+// Paketler (bundle) — admin CRUD (gorsel zorunlu; multipart)
+router.get('/bundles', requirePermission('admin:products'), bundleController.list);
+router.post('/bundles', requirePermission('admin:products'), upload.single('image'), bundleController.create);
+router.put('/bundles/:id', requirePermission('admin:products'), upload.single('image'), bundleController.update);
+router.delete('/bundles/:id', requirePermission('admin:products'), bundleController.remove);
 
 router.get('/stock-create/metadata', requirePermission('admin:stock-create'), stockCreateController.getMetadata);
 router.get('/stock-create/history', requirePermission('admin:stock-create'), stockCreateController.getHistory);

@@ -63,6 +63,37 @@ export interface ProductImageDto {
   uploadedByName: string | null;
 }
 
+// Paketler (bundle)
+export interface AdminBundleItem {
+  id?: string;
+  productId: string;
+  quantity: number;
+  useDiscountedPrice: boolean;
+  productName?: string;
+  productCode?: string;
+  imageUrl?: string | null;
+  missing?: boolean;
+}
+export interface AdminBundle {
+  id: string;
+  title: string;
+  code: string;
+  imageUrl: string | null;
+  active: boolean;
+  hiddenFromCustomers: boolean;
+  discountPercent: number;
+  secondaryCategoryId: string | null;
+  createdAt: string;
+  items: AdminBundleItem[];
+}
+export interface BundleInputPayload {
+  title: string;
+  secondaryCategoryId?: string | null;
+  discountPercent?: number;
+  active?: boolean;
+  items: Array<{ productId: string; quantity: number; useDiscountedPrice: boolean }>;
+}
+
 // ==================== Min-Max v2 tipleri ====================
 export interface MinMaxV2Settings {
   lookbackDays: number;
@@ -2525,6 +2556,30 @@ export const adminApi = {
   },
   deleteProductGalleryImage: async (productId: string, imageId: string): Promise<{ success: boolean; images: ProductImageDto[] }> => {
     const response = await apiClient.delete(`/admin/products/${productId}/images/${imageId}`);
+    return response.data;
+  },
+
+  // Paketler (bundle)
+  listBundles: async (): Promise<{ bundles: AdminBundle[] }> => {
+    const response = await apiClient.get('/admin/bundles');
+    return response.data;
+  },
+  createBundle: async (payload: BundleInputPayload, image: File): Promise<{ success: boolean; id: string }> => {
+    const fd = new FormData();
+    fd.append('payload', JSON.stringify(payload));
+    fd.append('image', image);
+    const response = await apiClient.post('/admin/bundles', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  },
+  updateBundle: async (id: string, payload: BundleInputPayload, image?: File | null): Promise<{ success: boolean; id: string }> => {
+    const fd = new FormData();
+    fd.append('payload', JSON.stringify(payload));
+    if (image) fd.append('image', image);
+    const response = await apiClient.put(`/admin/bundles/${id}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  },
+  deleteBundle: async (id: string): Promise<{ success: boolean }> => {
+    const response = await apiClient.delete(`/admin/bundles/${id}`);
     return response.data;
   },
 

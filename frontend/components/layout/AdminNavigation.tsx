@@ -44,7 +44,8 @@ import {
   Search,
   Gift,
   LayoutGrid,
-  Activity
+  Activity,
+  Boxes
 } from 'lucide-react';
 
 export interface NavItem {
@@ -89,6 +90,7 @@ export const navItems: NavItem[] = [
   { name: 'Vade Takip', href: '/vade', icon: Clock, description: 'Vade ve alacak takibi', permission: 'admin:vade' },
   { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF arşivi', permission: 'admin:einvoices' },
   { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi', permission: 'admin:products' },
+  { name: 'Paketler', href: '/bundles', icon: Boxes, description: 'Paket urun yonetimi', permission: 'admin:products' },
   { name: 'Stok Acma', href: '/stock-create', icon: PackagePlus, description: 'Mikro yeni stok karti', permission: 'admin:stock-create' },
   { name: 'Pasif Stoklar', href: '/passive-stocks', icon: PackageSearch, description: 'Pasif Mikro stoklarini bul ve aktiflestir', permission: 'admin:stock-create' },
   { name: 'Tedarik Maliyetleri', href: '/supplier-costs', icon: HandCoins, description: 'Coklu tedarikci maliyet ve fiyat teyidi', permission: ['admin:supplier-costs', 'admin:quotes', 'admin:orders', 'admin:field-sales'] },
