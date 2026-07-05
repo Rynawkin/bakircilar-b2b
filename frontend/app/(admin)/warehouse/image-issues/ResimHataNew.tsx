@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   Search,
   RefreshCw,
@@ -11,8 +12,10 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Images,
 } from 'lucide-react';
 import { useResimHata, ImageIssueStatus } from './useResimHata';
+import { ProductImageManager } from '@/components/admin/ProductImageManager';
 
 const CARD = 'bg-white border border-[#e7ebf2] rounded-xl';
 
@@ -46,6 +49,9 @@ export default function ResimHataNew() {
     statusBadge,
     formatDateShort,
   } = useResimHata();
+
+  // Hangi talebin coklu-gorsel galerisi acik (tek seferde biri; her karta ayri fetch olmasin diye)
+  const [galleryReportId, setGalleryReportId] = useState<string | null>(null);
 
   // Durum rozeti (yeni stil) — OPEN red / REVIEWED amber / FIXED emerald
   const renderStatusBadge = (status: ImageIssueStatus) => {
@@ -276,8 +282,24 @@ export default function ResimHataNew() {
                             className="h-9 inline-flex items-center gap-1.5 rounded-lg bg-[#15356b] px-3.5 text-[12px] font-semibold text-white hover:bg-[#1c4585] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Upload width={13} height={13} stroke="currentColor" strokeWidth={2} />
-                            {uploadingReportId === report.id ? 'Resim Yukleniyor...' : 'Yeni Resim Yukle'}
+                            {uploadingReportId === report.id ? 'Resim Yukleniyor...' : 'Ana Resmi Degistir'}
                           </button>
+                          {report.productId && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setGalleryReportId((prev) => (prev === report.id ? null : report.id))
+                              }
+                              className={
+                                galleryReportId === report.id
+                                  ? 'h-9 inline-flex items-center gap-1.5 rounded-lg border border-[#15356b] bg-[#eef3fb] px-3.5 text-[12px] font-semibold text-[#15356b] transition-colors'
+                                  : 'h-9 inline-flex items-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-white px-3.5 text-[12px] font-medium text-[#51607a] hover:bg-[#f4f6fa] transition-colors'
+                              }
+                            >
+                              <Images width={13} height={13} stroke="currentColor" strokeWidth={2} />
+                              {galleryReportId === report.id ? 'Galeriyi Kapat' : 'Galeri (coklu resim)'}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleStatusChange(report, 'OPEN')}
@@ -315,6 +337,13 @@ export default function ResimHataNew() {
                             Duzeltildi
                           </button>
                         </div>
+
+                        {/* Coklu gorsel galerisi (acilir) */}
+                        {galleryReportId === report.id && report.productId && (
+                          <div className="rounded-[10px] border border-[#eef1f6] bg-[#f9fafc] p-3">
+                            <ProductImageManager productId={report.productId} />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

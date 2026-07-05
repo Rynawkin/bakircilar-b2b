@@ -883,6 +883,17 @@ model Product {
   activityEvents          CustomerActivityEvent[]
   hotSaleItems            HotSaleTransactionItem[]
   stockAlerts             ProductStockAlert[]
+  images                  ProductImage[]
+
+  // ===== Paket (bundle) alanlari =====
+  // Paket = isBundle=true olan gercek Product satiri. mikroCode sentetiktir (B2B-PKT-*),
+  // asla Mikro'ya satir olarak yazilmaz; siparis aninda bilesenlere patlatilir.
+  // Sync bu satirlara DOKUNMAZ (guard).
+  isBundle                Boolean   @default(false)
+  bundleDiscountPercent   Float?    // pakete ozel % iskonto (toplam uzerinden)
+  bundleSecondaryCategoryId String? // "Paketler" ana kategorisine ek olarak gorunecegi ikinci kategori
+  bundleItems             BundleItem[] @relation("BundleParent")
+  bundleMemberships       BundleItem[] @relation("BundleComponent")
 
   @@index([mikroCode])
   @@index([foreignName])
@@ -896,6 +907,46 @@ model Product {
   @@index([imageUploadedAt])
   @@index([hiddenFromCustomers])
   @@index([isFeatured])
+  @@index([isBundle])
+  @@index([bundleSecondaryCategoryId])
+}
+
+// Urun galerisi: bir urunun birden fazla gorseli. isPrimary olan Product.imageUrl'in aynasidir.
+// Mikro'ya SADECE ana (isPrimary) gorsel gider; digerleri yalniz web'de durur.
+model ProductImage {
+  id             String    @id @default(uuid())
+  productId      String
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url            String
+  sortOrder      Int       @default(0)
+  isPrimary      Boolean   @default(false)
+  // Gorsel meta (yukleyen/tarih/boyut) - her gorsel icin ayri
+  sizeBytes      Int?
+  checksum       String?
+  uploadedAt     DateTime?
+  uploadedById   String?
+  uploadedByName String?
+  createdAt      DateTime  @default(now())
+
+  @@index([productId, sortOrder])
+  @@index([productId, isPrimary])
+}
+
+// Paket bilesenleri: bir paket (Product isBundle) icindeki Mikro urunleri + adet.
+model BundleItem {
+  id                 String   @id @default(uuid())
+  bundleProductId    String
+  bundleProduct      Product  @relation("BundleParent", fields: [bundleProductId], references: [id], onDelete: Cascade)
+  componentProductId String
+  componentProduct   Product  @relation("BundleComponent", fields: [componentProductId], references: [id])
+  quantity           Float    @default(1)
+  // Bilesen o an fazla-stok indirimindeyse, admin bu bileseni indirimli fiyattan ekleyebilir.
+  useDiscountedPrice Boolean  @default(false)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  @@index([bundleProductId])
+  @@index([componentProductId])
 }
 
 model ProductComplementAuto {
@@ -1521,6 +1572,11 @@ model OrderItem {
 
   // Mikro'ya yazılan sipariş ID (item bazında)
   mikroOrderId    String?
+
+  // Paket (bundle) satiri: musteri tek satir gorur; Mikro'ya bilesenlere patlatilir.
+  // Siparis aninda kilitlenen bilesen dokumu (1 paket icin): [{mikroCode, quantity, unitPrice, vatRate, priceType}]
+  // Onay/Mikro yazma bu snapshot'tan bilesen satirlarini uretir (idempotent, fiyat sabit).
+  bundleComponents Json?
 
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt

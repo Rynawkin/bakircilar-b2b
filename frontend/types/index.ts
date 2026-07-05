@@ -43,6 +43,7 @@ export interface Product {
   availableStock?: number;
   maxOrderQuantity?: number;
   imageUrl?: string;
+  images?: string[]; // Urun galerisi (coklu gorsel) — sadece detay ucundan gelir; primary once
   imageSizeBytes?: number | null;
   imageUploadedAt?: string | null;
   imageUploadedById?: string | null;

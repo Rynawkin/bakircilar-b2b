@@ -1821,6 +1821,17 @@ export class CustomerController {
       const agreementPrices = agreementPriceApplies ? applyAgreementPrices(agreementBasePrices, agreement) : null;
       const agreementExcessPrices = agreementPriceApplies ? applyAgreementPrices(customerPrices, agreement) : null;
 
+      // Urun galerisi (coklu gorsel) — sadece detay ucu doner (liste payload'i sismesin).
+      // Primary once, sonra sortOrder. ProductImage yoksa imageUrl'e geri dus.
+      const galleryRows = await prisma.productImage.findMany({
+        where: { productId: product.id },
+        orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+        select: { url: true },
+      });
+      const images = galleryRows.length
+        ? galleryRows.map((g) => g.url)
+        : (product.imageUrl ? [product.imageUrl] : []);
+
       res.json({
         id: product.id,
         name: product.name,
@@ -1835,6 +1846,7 @@ export class CustomerController {
         warehouseStocks: availableWarehouseStocks,
         warehouseExcessStocks,
         imageUrl: product.imageUrl,
+        images,
         category: product.category,
         prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
         excessPrices: agreementExcessPrices || customerPrices,

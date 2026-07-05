@@ -10,6 +10,7 @@ import path from 'path';
 import { hashPassword } from '../utils/password';
 import syncService from '../services/sync.service';
 import imageService from '../services/image.service';
+import productImageService from '../services/product-image.service';
 import cariSyncService from '../services/cariSync.service';
 import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
@@ -3502,8 +3503,6 @@ export class AdminController {
    * Upload product image
    */
   async uploadProductImage(req: Request, res: Response, next: NextFunction) {
-    let processedImage: { imageUrl: string; filePath: string; checksum: string; buffer: Buffer; sizeBytes: number } | null = null;
-
     try {
       const { id } = req.params;
 
@@ -3511,97 +3510,109 @@ export class AdminController {
         return res.status(400).json({ error: 'No file uploaded' });
       }
 
-      const product = await prisma.product.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          mikroCode: true,
-        },
-      });
-
+      const product = await prisma.product.findUnique({ where: { id }, select: { id: true } });
       if (!product) {
         return res.status(404).json({ error: 'Product not found' });
       }
 
       const tempPath = (req.file as any).path || path.join(getUploadsDir(), req.file.filename);
-      processedImage = await imageService.processUploadedProductImage(tempPath, product.mikroCode);
+      // Ana gorseli degistir (galeri ile senkron; Mikro'ya en iyi caba ile yazar).
+      const { mikroWarning } = await productImageService.replacePrimary(id, tempPath, req.user?.userId ?? null);
 
-      const guidRows = await mikroService.getProductGuidsByCodes([product.mikroCode]);
-      const productGuid = guidRows.find((row) => row.code === product.mikroCode)?.guid || guidRows[0]?.guid;
-
-      if (!productGuid) {
-        await imageService.removeLocalFile(processedImage.filePath);
-        return res.status(500).json({ error: 'Mikro GUID bulunamadi' });
-      }
-
-      await imageService.uploadImageToMikro(productGuid, processedImage.buffer);
-
-      // Gorseli yukleyenin adini bir kez cek (null-safe; JWT payload'inda isim yok).
-      const uploaderId = req.user?.userId ?? null;
-      let uploaderName: string | null = null;
-      if (uploaderId) {
-        const uploader = await prisma.user.findUnique({
-          where: { id: uploaderId },
-          select: { name: true, email: true },
-        });
-        uploaderName = uploader?.name || uploader?.email || '';
-      }
-
-      const updatedProduct = await prisma.product.update({
+      const updated = await prisma.product.findUnique({
         where: { id },
-        data: {
-          imageUrl: processedImage.imageUrl,
-          imageChecksum: processedImage.checksum,
-          imageSyncStatus: 'SUCCESS',
-          imageSyncErrorType: null,
-          imageSyncErrorMessage: null,
-          imageSyncUpdatedAt: new Date(),
-          imageSizeBytes: processedImage.sizeBytes,
-          imageUploadedAt: new Date(),
-          imageUploadedById: uploaderId,
-          imageUploadedByName: uploaderName,
-        },
+        select: { imageUrl: true, imageChecksum: true, imageSyncUpdatedAt: true },
       });
 
       res.json({
         success: true,
-        imageUrl: updatedProduct.imageUrl,
-        imageChecksum: updatedProduct.imageChecksum,
-        imageSyncUpdatedAt: updatedProduct.imageSyncUpdatedAt,
-        message: 'Foto?raf ba?ar?yla y?klendi'
+        imageUrl: updated?.imageUrl,
+        imageChecksum: updated?.imageChecksum,
+        imageSyncUpdatedAt: updated?.imageSyncUpdatedAt,
+        mikroWarning: mikroWarning || undefined,
+        message: 'Fotograf basariyla yuklendi',
       });
     } catch (error) {
-      if (processedImage?.filePath) {
-        await imageService.removeLocalFile(processedImage.filePath);
-      }
       next(error);
     }
   }
 
   /**
    * DELETE /api/admin/products/:id/image
-   * Delete product image
+   * Ana gorseli sil (galeride siradaki gorsel ana olur).
    */
   async deleteProductImage(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      await productImageService.deletePrimary(id);
+      res.json({ success: true, message: 'Fotograf basariyla silindi' });
+    } catch (error) {
+      next(error);
+    }
+  }
 
-      const product = await prisma.product.update({
-        where: { id },
-        data: {
-          imageUrl: null,
-          imageChecksum: null,
-          imageSyncStatus: null,
-          imageSyncErrorType: null,
-          imageSyncErrorMessage: null,
-          imageSyncUpdatedAt: new Date(),
-        },
-      });
+  // ==================== URUN GALERISI (coklu gorsel) ====================
 
-      res.json({
-        success: true,
-        message: 'Fotoğraf başarıyla silindi'
-      });
+  /** GET /api/admin/products/:id/images */
+  async listProductImages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const images = await productImageService.list(req.params.id);
+      res.json({ images });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** POST /api/admin/products/:id/images — galeriye gorsel ekle (append) */
+  async addProductImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+      const product = await prisma.product.findUnique({ where: { id }, select: { id: true } });
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+
+      const tempPath = (req.file as any).path || path.join(getUploadsDir(), req.file.filename);
+      const image = await productImageService.addImage(id, tempPath, req.user?.userId ?? null);
+      const images = await productImageService.list(id);
+      res.json({ success: true, image, images });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** PATCH /api/admin/products/:id/images/reorder — body: { orderedIds: string[] } */
+  async reorderProductImages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const orderedIds: string[] = Array.isArray(req.body?.orderedIds) ? req.body.orderedIds : [];
+      await productImageService.reorder(id, orderedIds);
+      const images = await productImageService.list(id);
+      res.json({ success: true, images });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** PATCH /api/admin/products/:id/images/:imageId/primary — ana gorsel yap */
+  async setPrimaryProductImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id, imageId } = req.params;
+      await productImageService.setPrimary(id, imageId);
+      const images = await productImageService.list(id);
+      res.json({ success: true, images });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** DELETE /api/admin/products/:id/images/:imageId — galeriden gorsel sil */
+  async deleteProductGalleryImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id, imageId } = req.params;
+      await productImageService.deleteImage(id, imageId);
+      const images = await productImageService.list(id);
+      res.json({ success: true, images });
     } catch (error) {
       next(error);
     }

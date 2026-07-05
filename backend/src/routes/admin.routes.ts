@@ -321,6 +321,13 @@ router.patch(
 );
 router.post('/products/:id/image', requireAnyPermission(['admin:products', 'admin:order-tracking']), upload.single('image'), adminController.uploadProductImage);
 
+// Urun galerisi (coklu gorsel) — ayni yetki setiyle (admin urunler + resim talepleri fixerlari)
+router.get('/products/:id/images', requireAnyPermission(['admin:products', 'admin:order-tracking']), adminController.listProductImages);
+router.post('/products/:id/images', requireAnyPermission(['admin:products', 'admin:order-tracking']), upload.single('image'), adminController.addProductImage);
+router.patch('/products/:id/images/reorder', requireAnyPermission(['admin:products', 'admin:order-tracking']), adminController.reorderProductImages);
+router.patch('/products/:id/images/:imageId/primary', requireAnyPermission(['admin:products', 'admin:order-tracking']), adminController.setPrimaryProductImage);
+router.delete('/products/:id/images/:imageId', requireAnyPermission(['admin:products', 'admin:order-tracking']), adminController.deleteProductGalleryImage);
+
 router.get('/stock-create/metadata', requirePermission('admin:stock-create'), stockCreateController.getMetadata);
 router.get('/stock-create/history', requirePermission('admin:stock-create'), stockCreateController.getHistory);
 router.get('/stock-create/stocks/:stockCode', requirePermission('admin:stock-create'), stockCreateController.getStock);

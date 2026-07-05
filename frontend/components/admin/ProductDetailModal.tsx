@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
+import { ProductImageManager } from '@/components/admin/ProductImageManager';
 
 interface ProductDetailModalProps {
   isOpen: boolean;
@@ -305,28 +306,9 @@ export function ProductDetailModal({
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-600">
-          <label className="font-semibold text-gray-700">Urun resmi:</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleFileChange}
-            disabled={imageUploading}
-            className="block w-full max-w-xs text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
-          />
-          {product.imageUrl && onDeleteImage && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => onDeleteImage(product.id)}
-              disabled={imageDeleting}
-            >
-              {imageDeleting ? 'Siliniyor...' : 'Sil'}
-            </Button>
-          )}
-          {imageUploading && (
-            <span className="text-xs text-gray-500">Yukleniyor...</span>
-          )}
+        {/* Coklu gorsel yoneticisi (galeri) */}
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <ProductImageManager productId={product.id} />
         </div>
 
         {/* Stock Info */}

@@ -53,6 +53,7 @@ export default function ProductDetailPage() {
   const [recommendations, setRecommendations] = useState<Product[]>([]);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [isReportingImageIssue, setIsReportingImageIssue] = useState(false);
   const [imageIssueReported, setImageIssueReported] = useState(false);
   // 2. birim (KOLI/PAKET) ile siparis: girilen miktar 2. birim sayilir, sepete baz birim gider.
@@ -68,6 +69,20 @@ export default function ProductDetailPage() {
     ? (user?.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
     : user?.priceVisibility;
   const vatDisplayPreference = user?.vatDisplayPreference || 'WITHOUT_VAT';
+
+  // Urun galerisi (coklu gorsel): images varsa onu, yoksa tek imageUrl'i kullan.
+  const gallery = useMemo(() => {
+    if (!product) return [] as string[];
+    if (product.images && product.images.length) return product.images;
+    return product.imageUrl ? [product.imageUrl] : [];
+  }, [product]);
+  const activeImage = gallery[activeImageIndex] ?? gallery[0] ?? null;
+
+  // Urun degisince galeri secimini/zoom'u sifirla.
+  useEffect(() => {
+    setActiveImageIndex(0);
+    setIsZoomed(false);
+  }, [product?.id]);
   const allowedPriceTypes = useMemo(
     () => getAllowedPriceTypes(effectiveVisibility),
     [effectiveVisibility]
@@ -432,9 +447,9 @@ export default function ProductDetailPage() {
               }`}
               onClick={() => setIsZoomed(!isZoomed)}
             >
-              {product.imageUrl ? (
+              {activeImage ? (
                 <img
-                  src={product.imageUrl}
+                  src={activeImage}
                   alt={product.name}
                   className={`h-full w-full object-contain p-3 transition-transform duration-300 ${
                     isZoomed ? 'scale-150' : 'scale-100'
@@ -445,7 +460,7 @@ export default function ProductDetailPage() {
                 <ImageIcon className="h-20 w-20 text-[var(--ink-3)]/40" strokeWidth={1.2} />
               )}
 
-              {product.imageUrl && (
+              {activeImage && (
                 <span className="pointer-events-none absolute left-3.5 top-3.5 inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-white px-2.5 py-1 text-[11px] font-medium text-[var(--ink-2)]">
                   <Search className="h-3 w-3" />
                   {isZoomed ? 'Küçültmek için tıklayın' : 'Büyütmek için tıklayın'}
@@ -456,6 +471,30 @@ export default function ProductDetailPage() {
                 <span className="absolute right-3.5 top-3.5 badge-success">İndirimli</span>
               )}
             </div>
+
+            {/* Galeri thumbnail seridi (birden fazla gorsel varsa) */}
+            {gallery.length > 1 && (
+              <div className="flex flex-wrap gap-2">
+                {gallery.map((img, idx) => (
+                  <button
+                    key={`${img}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      setActiveImageIndex(idx);
+                      setIsZoomed(false);
+                    }}
+                    className={`relative h-16 w-16 flex-none overflow-hidden rounded-lg border bg-[var(--surface-1)] transition-colors ${
+                      idx === activeImageIndex
+                        ? 'border-[var(--brand)] ring-2 ring-[var(--brand)]/30'
+                        : 'border-[var(--line)] hover:border-[var(--ink-3)]'
+                    }`}
+                    aria-label={`Görsel ${idx + 1}`}
+                  >
+                    <img src={img} alt={`${product.name} ${idx + 1}`} className="h-full w-full object-contain p-1" />
+                  </button>
+                ))}
+              </div>
+            )}
 
             <button
               type="button"

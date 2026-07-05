@@ -67,12 +67,15 @@ class ImageService {
 
   async processUploadedProductImage(
     inputPath: string,
-    productCode: string
-  ): Promise<{ imageUrl: string; filePath: string; checksum: string; buffer: Buffer; sizeBytes: number }> {
+    productCode: string,
+    opts?: { fileKey?: string }
+  ): Promise<{ imageUrl: string; filePath: string; checksum: string; buffer: Buffer; sizeBytes: number; filename: string }> {
     await this.ensureUploadDir();
 
     // Web icin WebP (site hafiflesin). Cikti uzantisi WebP'yi belirler; kare/beyaz-dolgu korunur.
-    const filename = `${productCode}.webp`;
+    // fileKey verilirse galeri ek gorseli (benzersiz ad: `${code}-<hex>`); yoksa ana gorsel (`${code}`).
+    const baseName = opts?.fileKey || productCode;
+    const filename = `${baseName}.webp`;
     const outputPath = path.join(this.UPLOAD_DIR, filename);
     const sizes = [
       { width: this.RESIZE_WIDTH, height: this.RESIZE_HEIGHT },
@@ -101,7 +104,7 @@ class ImageService {
 
     // Mikro'ya JPEG kopya gonderiyoruz (Mikro eski arayuzu WebP gostermeyebilir). WebP'den uret.
     let mikroBuffer: Buffer;
-    const jpegTemp = path.join(this.UPLOAD_DIR, `${productCode}.mikro.jpg`);
+    const jpegTemp = path.join(this.UPLOAD_DIR, `${baseName}.mikro.jpg`);
     try {
       await this.convertWithImageMagick(outputPath, jpegTemp, this.RESIZE_WIDTH, this.RESIZE_HEIGHT);
       mikroBuffer = await fs.readFile(jpegTemp);
@@ -124,7 +127,29 @@ class ImageService {
       checksum,
       buffer: mikroBuffer,
       sizeBytes: stats.size,
+      filename,
     };
+  }
+
+  /**
+   * Diskteki bir WebP dosyasindan Mikro icin JPEG buffer uretir (galeride ana gorseli
+   * degistirirken/promote ederken kullanilir; elimizde temp yok, dosya var).
+   */
+  async makeMikroJpegBuffer(webpFilePath: string): Promise<Buffer> {
+    const jpegTemp = webpFilePath.replace(/\.webp$/i, '') + '.mikro.jpg';
+    try {
+      await this.convertWithImageMagick(webpFilePath, jpegTemp, this.RESIZE_WIDTH, this.RESIZE_HEIGHT);
+      return await fs.readFile(jpegTemp);
+    } catch {
+      return await fs.readFile(webpFilePath); // fallback: webp buffer
+    } finally {
+      try { await fs.unlink(jpegTemp); } catch {}
+    }
+  }
+
+  /** Bir gorsel URL'inin (/uploads/products/x.webp) diskteki mutlak yolu. */
+  absPathForUrl(imageUrl: string): string {
+    return path.join(this.UPLOAD_DIR, path.basename(imageUrl));
   }
 
   async uploadImageToMikro(productGuid: string, imageBuffer: Buffer): Promise<void> {

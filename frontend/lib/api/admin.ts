@@ -52,6 +52,17 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
+// Urun galerisi (coklu gorsel)
+export interface ProductImageDto {
+  id: string;
+  url: string;
+  sortOrder: number;
+  isPrimary: boolean;
+  sizeBytes: number | null;
+  uploadedAt: string | null;
+  uploadedByName: string | null;
+}
+
 // ==================== Min-Max v2 tipleri ====================
 export interface MinMaxV2Settings {
   lookbackDays: number;
@@ -2490,6 +2501,30 @@ export const adminApi = {
 
   deleteProductImage: async (productId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete(`/admin/products/${productId}/image`);
+    return response.data;
+  },
+
+  // Urun galerisi (coklu gorsel)
+  listProductImages: async (productId: string): Promise<{ images: ProductImageDto[] }> => {
+    const response = await apiClient.get(`/admin/products/${productId}/images`);
+    return response.data;
+  },
+  addProductImage: async (productId: string, formData: FormData): Promise<{ success: boolean; image: ProductImageDto; images: ProductImageDto[] }> => {
+    const response = await apiClient.post(`/admin/products/${productId}/images`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+  reorderProductImages: async (productId: string, orderedIds: string[]): Promise<{ success: boolean; images: ProductImageDto[] }> => {
+    const response = await apiClient.patch(`/admin/products/${productId}/images/reorder`, { orderedIds });
+    return response.data;
+  },
+  setPrimaryProductImage: async (productId: string, imageId: string): Promise<{ success: boolean; images: ProductImageDto[] }> => {
+    const response = await apiClient.patch(`/admin/products/${productId}/images/${imageId}/primary`);
+    return response.data;
+  },
+  deleteProductGalleryImage: async (productId: string, imageId: string): Promise<{ success: boolean; images: ProductImageDto[] }> => {
+    const response = await apiClient.delete(`/admin/products/${productId}/images/${imageId}`);
     return response.data;
   },
 
