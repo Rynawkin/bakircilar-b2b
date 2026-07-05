@@ -19,7 +19,9 @@ export default function HomePage() {
       } else if (user.role === 'ADMIN' || user.role === 'HEAD_ADMIN' || user.role === 'MANAGER' || user.role === 'SALES_REP') {
         router.push('/dashboard');
       } else {
-        router.push('/products');
+        // Musteri: login sonrasi ile TUTARLI -> ana sayfa (Vitrin dashboard), /products degil.
+        // Boylece domain kokune gelen musteri urun listesine degil dashboard'a duser.
+        router.push('/home');
       }
     } else {
       router.push('/login');
