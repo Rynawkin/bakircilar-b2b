@@ -329,6 +329,8 @@ router.get('/stock-create/templates/:templateCode', requirePermission('admin:sto
 router.get('/stock-create/lookups/:type', requirePermission('admin:stock-create'), stockCreateController.searchLookups);
 router.post('/stock-create/preview', requirePermission('admin:stock-create'), stockCreateController.preview);
 router.post('/stock-create/create', requirePermission('admin:stock-create'), upload.single('image'), stockCreateController.create);
+router.get('/stock-create/passive', requirePermission('admin:stock-create'), stockCreateController.listPassiveStocks);
+router.post('/stock-create/activate', requirePermission('admin:stock-create'), upload.single('image'), stockCreateController.activate);
 
 router.get('/product-dimensions/products', requirePermission('admin:product-dimensions'), productDimensionsController.searchProducts);
 router.get('/product-dimensions/missing', requirePermission('admin:product-dimensions'), productDimensionsController.getMissingProducts);

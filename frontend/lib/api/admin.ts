@@ -2506,6 +2506,30 @@ export const adminApi = {
     return response.data;
   },
 
+  // Pasif Stok - Mikroda pasif olan stok kartlarini arayarak listeler (aktiflestirme adayi).
+  listPassiveStocks: async (
+    search: string,
+    limit?: number
+  ): Promise<{ items: Array<{ code: string; name: string; categoryCode?: string; supplierCode?: string; currentCost?: number; guid?: string }> }> => {
+    const response = await apiClient.get('/admin/stock-create/passive', {
+      params: { search, ...(limit != null ? { limit } : {}) },
+    });
+    return response.data;
+  },
+
+  // Pasif Stok Aktiflestir - pasif stok kartini gorsel + zorunlu alanlarla aktiflestirir.
+  // FormData: image (File, zorunlu) + payload JSON string { item (stockCode + calculateMinMax dahil), stockFamilyIds, priceFamilyId }
+  activateStock: async (
+    formData: FormData
+  ): Promise<{ success: boolean; stockCode?: string; warnings?: string[]; error?: string }> => {
+    const response = await apiClient.post('/admin/stock-create/activate', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
   // Quote Item Images
   uploadQuoteItemImage: async (formData: FormData): Promise<{ imageUrl: string; message?: string }> => {
     const response = await apiClient.post('/admin/quotes/items/upload-image', formData, {

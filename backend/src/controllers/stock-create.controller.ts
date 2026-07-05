@@ -119,6 +119,63 @@ class StockCreateController {
     }
   }
 
+  async listPassiveStocks(req: Request, res: Response) {
+    try {
+      const search = typeof req.query.search === 'string' ? req.query.search : '';
+      const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+      const data = await stockCreateService.listPassiveStocks(search, limit);
+      res.json(data);
+    } catch (error: any) {
+      console.error('Stock create passive list failed:', error);
+      res.status(500).json({ error: error.message || 'Pasif stoklar alinamadi' });
+    }
+  }
+
+  async activate(req: Request, res: Response) {
+    try {
+      // Sozlesme: multipart/form-data.
+      //   image   : File (ZORUNLU)
+      //   payload : JSON string = { item: <stok alanlari incl stockCode + calculateMinMax>,
+      //                             stockFamilyIds: string[], priceFamilyId: string|null }
+      if (!req.file) {
+        res.status(400).json({ error: 'Gorsel zorunlu - gorsel yuklemeden aktiflestirilemez' });
+        return;
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(String(req.body?.payload ?? ''));
+      } catch {
+        res.status(400).json({ error: 'payload gecerli bir JSON degil' });
+        return;
+      }
+
+      const item = parsed?.item;
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        res.status(400).json({ error: 'payload.item tek bir stok nesnesi olmalidir' });
+        return;
+      }
+
+      const stockFamilyIds = Array.isArray(parsed?.stockFamilyIds) ? parsed.stockFamilyIds : [];
+      const priceFamilyId =
+        parsed?.priceFamilyId === null || parsed?.priceFamilyId === undefined || parsed?.priceFamilyId === ''
+          ? null
+          : String(parsed.priceFamilyId);
+
+      const data = await stockCreateService.activateStock({
+        item,
+        imageFile: req.file,
+        stockFamilyIds,
+        priceFamilyId,
+        userId: req.user?.userId,
+      });
+      res.json(data);
+    } catch (error: any) {
+      console.error('Stock activate failed:', error);
+      res.status(400).json({ success: false, error: error.message || 'Stok aktiflestirilemedi' });
+    }
+  }
+
   async getHistory(req: Request, res: Response) {
     try {
       const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;

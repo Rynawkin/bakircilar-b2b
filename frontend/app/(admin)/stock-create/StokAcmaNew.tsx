@@ -1,9 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
   Copy,
+  Eye,
   History,
   Image as ImageIcon,
   Pencil,
@@ -58,9 +60,12 @@ export default function StokAcmaNew() {
     updating,
     loading,
     creating,
+    activateMode,
+    activating,
     hasErrors,
     user,
     permissionsLoading,
+    router,
     loadMetadata,
     applyTemplateDefaults,
     loadTemplate,
@@ -83,8 +88,19 @@ export default function StokAcmaNew() {
     loadStockForEdit,
     preview,
     createStocks,
+    activateStock,
     updateExistingStock,
   } = useStokAcma();
+
+  // Aile secicilerde arama + "icindekiler" modali (dogru aileye ekledigini teyit icin)
+  const [stockFamilySearch, setStockFamilySearch] = useState('');
+  const [priceFamilySearch, setPriceFamilySearch] = useState('');
+  const [membersModal, setMembersModal] = useState<null | { title: string; members: { productCode: string; productName: string }[] }>(null);
+  const famMatch = (f: { name: string; code?: string | null }, q: string) => {
+    const s = q.trim().toLocaleLowerCase('tr');
+    if (!s) return true;
+    return f.name.toLocaleLowerCase('tr').includes(s) || String(f.code || '').toLocaleLowerCase('tr').includes(s);
+  };
 
   if (!user || permissionsLoading) {
     return (
@@ -118,8 +134,12 @@ export default function StokAcmaNew() {
       <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
         {/* Baslik */}
         <div className="mb-4 mt-1">
-          <h1 className="m-0 text-[24px] font-semibold tracking-[-0.02em] text-[#14223b]">Yeni Stok Acma</h1>
-          <div className="mt-1.5 text-[13px] text-[#8b97ac]">Mikro stok karti olustur · gorsel zorunlu</div>
+          <h1 className="m-0 text-[24px] font-semibold tracking-[-0.02em] text-[#14223b]">
+            {activateMode ? 'Pasif Stok Aktiflestir' : 'Yeni Stok Acma'}
+          </h1>
+          <div className="mt-1.5 text-[13px] text-[#8b97ac]">
+            {activateMode ? `Pasif stok ${activateMode} aktiflestiriliyor · gorsel zorunlu` : 'Mikro stok karti olustur · gorsel zorunlu'}
+          </div>
         </div>
 
         {/* Siradaki kod / varsayilan sablon seridi */}
@@ -141,7 +161,7 @@ export default function StokAcmaNew() {
         {/* Ust aksiyonlar */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <div className="rounded-lg border border-[#d6e0f1] bg-[#eef2fa] px-[14px] py-2 text-[12.5px] font-semibold text-[#15356b]">
-            {editingStockCode ? 'Stok Duzenle' : 'Tekli Stok Ac'}
+            {editingStockCode ? 'Stok Duzenle' : activateMode ? 'Pasif Stok Aktiflestir' : 'Tekli Stok Ac'}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <button
@@ -163,20 +183,26 @@ export default function StokAcmaNew() {
                 <div className="mb-3.5 flex items-start justify-between gap-4">
                   <div>
                     <h2 className="m-0 text-[16px] font-semibold text-[#14223b]">
-                      {editingStockCode ? `Stok Duzenle — ${editingStockCode}` : 'Tekli Stok Bilgileri'}
+                      {editingStockCode
+                        ? `Stok Duzenle — ${editingStockCode}`
+                        : activateMode
+                        ? `Pasif Stok Aktiflestir — ${activateMode}`
+                        : 'Tekli Stok Bilgileri'}
                     </h2>
                     <p className="mt-1 text-[12px] text-[#8b97ac]">
                       {editingStockCode
                         ? 'Bu mod mevcut Mikro stok kartini gunceller; stok kodu degismez.'
+                        : activateMode
+                        ? 'Pasif stok kartini zorunlu alanlarla doldurup aktiflestirin; stok kodu degismez.'
                         : 'Zorunlu alanlari doldurun, once on kontrol calistirin.'}
                     </p>
                   </div>
                   <div className="rounded-lg border border-[#d6e0f1] bg-[#eef2fa] px-[14px] py-2 text-right">
                     <div className="text-[10px] font-medium uppercase tracking-wide text-[#15356b]">
-                      {editingStockCode ? 'Duzenlenen Kod' : 'Olusacak Kod'}
+                      {editingStockCode ? 'Duzenlenen Kod' : activateMode ? 'Aktiflesecek Kod' : 'Olusacak Kod'}
                     </div>
                     <div className="font-mono text-[18px] font-semibold text-[#0c2247]">
-                      {editingStockCode || previewRows[0]?.previewCode || nextCode || '-'}
+                      {editingStockCode || activateMode || previewRows[0]?.previewCode || nextCode || '-'}
                     </div>
                   </div>
                 </div>
@@ -203,8 +229,30 @@ export default function StokAcmaNew() {
                   </div>
                 )}
 
+                {/* Pasif stok aktiflestirme seridi */}
+                {activateMode && (
+                  <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#c4b5fd] bg-[#f5f3ff] px-[14px] py-3">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#6d28d9]">Pasif stok aktiflestiriliyor</div>
+                      <div className="line-clamp-1 text-[13px] font-semibold text-[#5b21b6]">
+                        {activateMode} - {form.name || 'Stok adi bos'}
+                      </div>
+                      <div className="mt-0.5 text-[11.5px] font-medium text-[#7c3aed]">
+                        Zorunlu alanlari (gorsel, saglayici, kategori, birim, maliyet/marj, min-max) doldurup "Aktiflestir" ile Mikroda aktif hale getirin.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => router.push('/passive-stocks')}
+                      className="rounded-lg border border-[#d8e0ec] bg-white px-[13px] py-[7px] text-[12px] font-semibold text-[#51607a] transition hover:bg-[#f4f6fa]"
+                    >
+                      Pasif stok listesine don
+                    </button>
+                  </div>
+                )}
+
                 {/* Aktif sablon seridi */}
-                {!editingStockCode && templateStock && (
+                {!editingStockCode && !activateMode && templateStock && (
                   <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#a7f3d0] bg-[#ecfdf5] px-[14px] py-3">
                     <div className="min-w-0">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-[#047857]">Aktif sablon</div>
@@ -238,10 +286,10 @@ export default function StokAcmaNew() {
                     />
                   </div>
                   <div>
-                    {editingStockCode ? (
+                    {editingStockCode || activateMode ? (
                       <>
                         <label className={nLabel}>Stok Kodu</label>
-                        <input value={editingStockCode} readOnly className={`${nInput} bg-[#fafbfd] text-[#8b97ac]`} />
+                        <input value={(editingStockCode || activateMode) as string} readOnly className={`${nInput} bg-[#fafbfd] text-[#8b97ac]`} />
                       </>
                     ) : (
                       <>
@@ -585,49 +633,109 @@ export default function StokAcmaNew() {
 
                 {/* Aile atamalari (opsiyonel) */}
                 <div className="mt-3.5 grid gap-3.5 border-t border-[#eef1f6] pt-3.5 lg:grid-cols-2">
-                  {/* Stok Ailesi - coklu secim */}
+                  {/* Stok Ailesi - coklu secim + arama + icindekiler */}
                   <div>
                     <label className={nLabel}>Stok Ailesi (opsiyonel · coklu)</label>
                     {stockFamilyOptions.length === 0 ? (
                       <div className="rounded-lg border border-dashed border-[#d8e0ec] bg-[#fafbfd] px-3 py-2.5 text-[11.5px] text-[#8b97ac]">Tanimli stok ailesi yok.</div>
                     ) : (
-                      <div className="max-h-[168px] space-y-1 overflow-auto rounded-lg border border-[#e3e8f0] bg-white p-1.5">
-                        {stockFamilyOptions.map((family) => {
-                          const selected = form.stockFamilyIds.includes(family.id);
-                          return (
-                            <button
-                              key={family.id}
-                              type="button"
-                              onClick={() => toggleStockFamily(family.id)}
-                              className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-[7px] text-left text-[12px] transition ${
-                                selected ? 'bg-[#eef2fa] font-semibold text-[#15356b]' : 'text-[#51607a] hover:bg-[#f4f6fa]'
-                              }`}
-                            >
-                              <span className="line-clamp-1">{family.name}</span>
-                              {selected && <CheckCircle2 className="h-4 w-4 shrink-0 text-[#15356b]" />}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <>
+                        <div className="mb-1.5 flex h-[32px] items-center gap-1.5 rounded-lg border border-[#e3e8f0] bg-white px-2.5">
+                          <Search className="h-3.5 w-3.5 shrink-0 text-[#9aa6b8]" />
+                          <input
+                            value={stockFamilySearch}
+                            onChange={(e) => setStockFamilySearch(e.target.value)}
+                            placeholder="Stok ailesi ara..."
+                            className="min-w-0 flex-1 border-none bg-transparent text-[12px] text-[#14223b] outline-none"
+                          />
+                        </div>
+                        <div className="max-h-[168px] space-y-1 overflow-auto rounded-lg border border-[#e3e8f0] bg-white p-1.5">
+                          {stockFamilyOptions.filter((f) => famMatch(f, stockFamilySearch)).map((family) => {
+                            const selected = form.stockFamilyIds.includes(family.id);
+                            return (
+                              <div key={family.id} className={`flex items-center gap-1 rounded-md ${selected ? 'bg-[#eef2fa]' : 'hover:bg-[#f4f6fa]'}`}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleStockFamily(family.id)}
+                                  className={`flex flex-1 items-center justify-between gap-2 rounded-md px-2.5 py-[7px] text-left text-[12px] transition ${selected ? 'font-semibold text-[#15356b]' : 'text-[#51607a]'}`}
+                                >
+                                  <span className="line-clamp-1">{family.name}</span>
+                                  {selected && <CheckCircle2 className="h-4 w-4 shrink-0 text-[#15356b]" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Icindeki urunler"
+                                  onClick={() => setMembersModal({ title: family.name, members: family.members })}
+                                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#8b97ac] hover:bg-white hover:text-[#15356b]"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                          {stockFamilyOptions.filter((f) => famMatch(f, stockFamilySearch)).length === 0 && (
+                            <div className="px-2 py-2 text-center text-[11.5px] text-[#9aa6b8]">Aile bulunamadi</div>
+                          )}
+                        </div>
+                      </>
                     )}
                     {form.stockFamilyIds.length > 0 && (
                       <div className="mt-1 text-[11px] font-medium text-[#15356b]">{form.stockFamilyIds.length} aile secili</div>
                     )}
                   </div>
-                  {/* Fiyat Ailesi - tekli secim */}
+                  {/* Fiyat Ailesi - tekli secim + arama + icindekiler */}
                   <div>
                     <label className={nLabel}>Fiyat Ailesi (opsiyonel · tekli)</label>
-                    <select
-                      value={form.priceFamilyId || ''}
-                      onChange={(event) => setPriceFamily(event.target.value || null)}
-                      className={`${nInput} cursor-pointer`}
-                      disabled={priceFamilyOptions.length === 0}
-                    >
-                      <option value="">Secilmedi</option>
-                      {priceFamilyOptions.map((family) => (
-                        <option key={family.id} value={family.id}>{family.name}</option>
-                      ))}
-                    </select>
+                    {priceFamilyOptions.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-[#d8e0ec] bg-[#fafbfd] px-3 py-2.5 text-[11.5px] text-[#8b97ac]">Tanimli fiyat ailesi yok.</div>
+                    ) : (
+                      <>
+                        <div className="mb-1.5 flex h-[32px] items-center gap-1.5 rounded-lg border border-[#e3e8f0] bg-white px-2.5">
+                          <Search className="h-3.5 w-3.5 shrink-0 text-[#9aa6b8]" />
+                          <input
+                            value={priceFamilySearch}
+                            onChange={(e) => setPriceFamilySearch(e.target.value)}
+                            placeholder="Fiyat ailesi ara..."
+                            className="min-w-0 flex-1 border-none bg-transparent text-[12px] text-[#14223b] outline-none"
+                          />
+                        </div>
+                        <div className="max-h-[168px] space-y-1 overflow-auto rounded-lg border border-[#e3e8f0] bg-white p-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setPriceFamily(null)}
+                            className={`flex w-full items-center rounded-md px-2.5 py-[7px] text-left text-[12px] transition ${!form.priceFamilyId ? 'bg-[#eef2fa] font-semibold text-[#15356b]' : 'text-[#51607a] hover:bg-[#f4f6fa]'}`}
+                          >
+                            Secilmedi
+                          </button>
+                          {priceFamilyOptions.filter((f) => famMatch(f, priceFamilySearch)).map((family) => {
+                            const selected = form.priceFamilyId === family.id;
+                            return (
+                              <div key={family.id} className={`flex items-center gap-1 rounded-md ${selected ? 'bg-[#eef2fa]' : 'hover:bg-[#f4f6fa]'}`}>
+                                <button
+                                  type="button"
+                                  onClick={() => setPriceFamily(family.id)}
+                                  className={`flex flex-1 items-center justify-between gap-2 rounded-md px-2.5 py-[7px] text-left text-[12px] transition ${selected ? 'font-semibold text-[#15356b]' : 'text-[#51607a]'}`}
+                                >
+                                  <span className="line-clamp-1">{family.name}</span>
+                                  {selected && <CheckCircle2 className="h-4 w-4 shrink-0 text-[#15356b]" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Icindeki urunler"
+                                  onClick={() => setMembersModal({ title: family.name, members: family.members })}
+                                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#8b97ac] hover:bg-white hover:text-[#15356b]"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                          {priceFamilyOptions.filter((f) => famMatch(f, priceFamilySearch)).length === 0 && (
+                            <div className="px-2 py-2 text-center text-[11.5px] text-[#9aa6b8]">Aile bulunamadi</div>
+                          )}
+                        </div>
+                      </>
+                    )}
                     <p className="mt-1 text-[11px] text-[#8b97ac]">Bir urun yalnizca bir fiyat ailesinde olabilir.</p>
                   </div>
                 </div>
@@ -719,22 +827,41 @@ export default function StokAcmaNew() {
                         <Search className="h-4 w-4" />
                         {loading ? 'Kontrol ediliyor...' : 'On Kontrol'}
                       </button>
-                      <button
-                        type="button"
-                        onClick={createStocks}
-                        disabled={
-                          creating ||
-                          !previewRows.length ||
-                          hasErrors ||
-                          !form.image ||
-                          (form.calculateMinMax !== true && form.calculateMinMax !== false)
-                        }
-                        title={!form.image ? 'Once urun gorseli secin' : undefined}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-[#15356b] bg-[#15356b] px-[18px] py-[9px] text-[12.5px] font-semibold text-white transition hover:bg-[#1c4585] disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Save className="h-4 w-4" />
-                        {creating ? 'Yaziliyor...' : 'Mikroya Yaz'}
-                      </button>
+                      {activateMode ? (
+                        <button
+                          type="button"
+                          onClick={activateStock}
+                          disabled={
+                            activating ||
+                            !previewRows.length ||
+                            hasErrors ||
+                            !form.image ||
+                            (form.calculateMinMax !== true && form.calculateMinMax !== false)
+                          }
+                          title={!form.image ? 'Once urun gorseli secin' : undefined}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#6d28d9] bg-[#6d28d9] px-[18px] py-[9px] text-[12.5px] font-semibold text-white transition hover:bg-[#5b21b6] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Save className="h-4 w-4" />
+                          {activating ? 'Aktiflestiriliyor...' : 'Aktiflestir'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={createStocks}
+                          disabled={
+                            creating ||
+                            !previewRows.length ||
+                            hasErrors ||
+                            !form.image ||
+                            (form.calculateMinMax !== true && form.calculateMinMax !== false)
+                          }
+                          title={!form.image ? 'Once urun gorseli secin' : undefined}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#15356b] bg-[#15356b] px-[18px] py-[9px] text-[12.5px] font-semibold text-white transition hover:bg-[#1c4585] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Save className="h-4 w-4" />
+                          {creating ? 'Yaziliyor...' : 'Mikroya Yaz'}
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -838,6 +965,40 @@ export default function StokAcmaNew() {
           </div>
         </div>
       </div>
+
+      {/* Aile "icindekiler" modali — dogru aileye ekledigini teyit icin */}
+      {membersModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={() => setMembersModal(null)}>
+          <div className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-2 border-b border-[#eef1f6] px-4 py-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-[#8b97ac]">Aile icindekiler</div>
+                <div className="line-clamp-1 text-[14px] font-semibold text-[#14223b]">{membersModal.title}</div>
+              </div>
+              <button type="button" onClick={() => setMembersModal(null)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#51607a] hover:bg-[#f1f4f9]">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-auto p-3">
+              {membersModal.members.length === 0 ? (
+                <div className="px-2 py-6 text-center text-[12.5px] text-[#8b97ac]">Bu ailede urun yok.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {membersModal.members.map((m, i) => (
+                    <li key={`${m.productCode}-${i}`} className="flex items-center gap-2 rounded-lg border border-[#eef1f6] px-3 py-2">
+                      <span className="shrink-0 rounded bg-[#f1f4f9] px-1.5 py-0.5 font-mono text-[11px] text-[#51607a]">{m.productCode}</span>
+                      <span className="line-clamp-1 text-[12.5px] text-[#14223b]">{m.productName}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="border-t border-[#eef1f6] px-4 py-2.5 text-right">
+              <span className="text-[11.5px] text-[#8b97ac]">{membersModal.members.length} urun</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

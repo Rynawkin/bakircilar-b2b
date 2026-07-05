@@ -25,6 +25,8 @@ type UnitInput = {
 export type StockCreateInput = {
   rowNo?: number;
   templateCode?: string | null;
+  // Pasif stok aktiflestirmede aktiflestirilecek mevcut stok kodu (create akisinda kullanilmaz).
+  stockCode?: string | null;
   name?: string | null;
   foreignName?: string | null;
   shortName?: string | null;
@@ -1394,7 +1396,13 @@ class StockCreateService {
     return { success: true, stockCode, productId, warnings };
   }
 
-  async updateStock(stockCode: string, input: StockCreateInput, userId?: string | null) {
+  async updateStock(
+    stockCode: string,
+    input: StockCreateInput,
+    userId?: string | null,
+    opts?: { activate?: boolean }
+  ) {
+    const activate = opts?.activate === true;
     const code = upperText(stockCode);
     if (!code) {
       throw new Error('Stok kodu gerekli');
@@ -1485,6 +1493,13 @@ class StockCreateService {
     stockAssignments.push('sto_degisti = 1');
     stockAssignments.push('sto_lastup_user = 1');
     stockAssignments.push('sto_lastup_date = GETDATE()');
+
+    // Pasif stok -> aktiflestirme: yalnizca activate=true iken pasif bayragini indir.
+    // sto_degisti/sto_lastup_* zaten yukarida her guncellemede set ediliyor; burada
+    // sadece pasif->aktif gecisini ekliyoruz.
+    if (activate) {
+      stockAssignments.push('sto_pasif_fl = 0');
+    }
 
     const userCostChangedExpression = `(ABS(ISNULL(MaliyetP, 0) - ${currentCostSql}) > 0.0001 OR ABS(ISNULL(MaliyetT, 0) - ${retailCostSql}) > 0.0001) AND ${hasCostSql}`;
     const barcodeSql = item.barcode
@@ -1613,6 +1628,182 @@ class StockCreateService {
       warnings,
       stock: await this.getStock(code),
     };
+  }
+
+  /**
+   * Pasif (arsivlenmis) stok kartlarini listeler. Salt-okunur.
+   * Aktif arama filtresi (searchLookups 'template') sto_pasif_fl = 0 kullanir;
+   * burada filtreyi ters ceviriyoruz: yalnizca ISNULL(sto_pasif_fl, 0) = 1 olanlar.
+   */
+  async listPassiveStocks(search = '', limit?: number) {
+    const safe = escapeSql(search);
+    const safeLimit = Math.min(Math.max(Math.trunc(Number(limit)) || 50, 1), 200);
+    const term = normalizeText(search);
+    const filter = term
+      ? `AND (sto_kod LIKE N'%${safe}%' OR sto_isim LIKE N'%${safe}%')`
+      : '';
+
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP ${safeLimit}
+        sto_kod AS code,
+        sto_isim AS name,
+        sto_kategori_kodu AS categoryCode,
+        sto_sat_cari_kod AS supplierCode,
+        sto_standartmaliyet AS currentCost,
+        CONVERT(nvarchar(50), sto_Guid) AS guid
+      FROM STOKLAR WITH (NOLOCK)
+      WHERE ISNULL(sto_pasif_fl, 0) = 1
+        ${filter}
+      ORDER BY sto_isim
+    `);
+
+    const items = rows.map((row: any) => ({
+      code: normalizeText(row.code),
+      name: normalizeText(row.name),
+      categoryCode: normalizeText(row.categoryCode),
+      supplierCode: normalizeText(row.supplierCode),
+      currentCost: toNumber(row.currentCost, 0),
+      guid: normalizeText(row.guid),
+    }));
+
+    return { items };
+  }
+
+  /**
+   * Pasif stok -> aktiflestirme. Feature 1 (createSingleWithImage) ile ayni
+   * gorsel + aile mantigini kullanir; farki INSERT yerine pasif bayragini indirip
+   * eksik alanlari doldurmasidir.
+   *
+   * Akis:
+   *  1) Zorunlu alanlar (create ile ayni: isim/saglayici/kategori-leaf/ana birim/KDV/marj 1-5)
+   *     normalizeItem + validateShape ile dogrulanir. Hata varsa aktiflestirme YAPILMAZ.
+   *  2) updateStock({ activate: true }) tum STOKLAR alanlarini yazar VE sto_pasif_fl = 0 yapar.
+   *     (updateStock transactional; syncCreatedProduct'i de kendisi cagirir.)
+   *  3) Postgres Product satiri active:true ile hazir hale gelir (pasif stokta genelde yoktur;
+   *     updateStock icindeki syncCreatedProduct bunu upsert eder).
+   *  4) Gorsel pipeline (zorunlu dosya; aktiflestirmeden sonra hata non-fatal, uyari).
+   *  5) Stok aileleri + tek fiyat ailesi (non-fatal) - createSingleWithImage ile ayni.
+   */
+  async activateStock(params: {
+    item: StockCreateInput;
+    imageFile: Express.Multer.File;
+    stockFamilyIds?: string[] | null;
+    priceFamilyId?: string | null;
+    userId?: string | null;
+  }): Promise<{ success: boolean; stockCode: string; warnings: string[] }> {
+    const { item, imageFile, userId } = params;
+    const stockFamilyIds = Array.isArray(params.stockFamilyIds) ? params.stockFamilyIds : [];
+    const priceFamilyId = params.priceFamilyId ? String(params.priceFamilyId).trim() : null;
+    const warnings: string[] = [];
+
+    if (!imageFile) {
+      throw new Error('Gorsel zorunlu - gorsel yuklemeden aktiflestirilemez');
+    }
+
+    // a) Aktiflestirilecek stok kodu.
+    const stockCode = upperText(item?.stockCode || item?.templateCode);
+    if (!stockCode) {
+      throw new Error('Aktiflestirilecek stok kodu gerekli');
+    }
+
+    // Zorunlu alan dogrulamasi create ile ayni (updateStock zaten normalizeItem +
+    // validateShape calistirip errors varsa throw eder). Burada da onden kontrol edip
+    // net hata donduruyoruz ki eksik alanli stok yanlislikla aktiflestirilmesin.
+    const normalized = this.normalizeItem({ ...item, templateCode: item?.templateCode || stockCode }, 1);
+    const { errors } = this.validateShape(normalized);
+    if (errors.length > 0) {
+      throw new Error(`Stok aktiflestirilemedi: ${errors.join('; ')}`);
+    }
+
+    // b) Alanlari doldur + pasif bayragini indir (transactional; Product'i da upsert eder).
+    const updateResult = await this.updateStock(stockCode, item, userId, { activate: true });
+    updateResult.warnings?.forEach((warning) => warnings.push(warning));
+
+    // c) Postgres Product satiri: updateStock icindeki syncCreatedProduct upsert etti (active:true).
+    //    Gorsel guncellemesi icin id'ye ihtiyacimiz var.
+    const product = await prisma.product.findUnique({
+      where: { mikroCode: stockCode },
+      select: { id: true, name: true },
+    });
+    const productId = product?.id;
+    const productName = product?.name || normalizeText(item?.name) || stockCode;
+
+    // d) Gorsel pipeline - stok AKTIF + Product upsert edildikten sonra; hata non-fatal.
+    let processedFilePath: string | null = null;
+    try {
+      const tempPath = (imageFile as any).path || path.join(getUploadsDir(), imageFile.filename);
+      const processed = await imageService.processUploadedProductImage(tempPath, stockCode);
+      processedFilePath = processed.filePath;
+
+      const guidRows = await mikroService.getProductGuidsByCodes([stockCode]);
+      const productGuid = guidRows.find((row) => row.code === stockCode)?.guid || guidRows[0]?.guid;
+      if (!productGuid) {
+        throw new Error('Mikro GUID bulunamadi');
+      }
+
+      await imageService.uploadImageToMikro(productGuid, processed.buffer);
+
+      if (productId) {
+        await prisma.product.update({
+          where: { id: productId },
+          data: {
+            imageUrl: processed.imageUrl,
+            imageChecksum: processed.checksum,
+            imageSyncStatus: 'SUCCESS',
+            imageSyncErrorType: null,
+            imageSyncErrorMessage: null,
+            imageSyncUpdatedAt: new Date(),
+          },
+        });
+      }
+    } catch (imageError: any) {
+      if (processedFilePath) {
+        await imageService.removeLocalFile(processedFilePath).catch(() => {});
+      }
+      console.error('Stock activate image pipeline failed:', imageError?.message || imageError);
+      warnings.push('Stok aktiflestirildi ancak gorsel yuklenemedi - Urunler ekranindan ekleyin');
+    }
+
+    // e) Stok aileleri (cok secimli, non-fatal). 409 "zaten ailede" sessizce yutulur.
+    for (const rawId of stockFamilyIds) {
+      const familyId = String(rawId || '').trim();
+      if (!familyId) continue;
+      try {
+        await familyCandidateService.addProductToFamily(familyId, { productCode: stockCode, productName });
+      } catch (familyError: any) {
+        const status = familyError?.statusCode || familyError?.status;
+        if (status === 409) continue; // zaten ailede - sorun degil
+        console.error('Stock activate stock-family assign failed:', familyId, familyError?.message || familyError);
+        warnings.push(`Stok ailesine eklenemedi (${familyId}): ${familyError?.message || 'bilinmeyen hata'}`);
+      }
+    }
+
+    // e2) Tek fiyat ailesi (opsiyonel, non-fatal) - createSingleWithImage ile ayni.
+    if (priceFamilyId) {
+      try {
+        const families = await reportsService.getPriceFamilies();
+        const target = families.find((family) => family.id === priceFamilyId);
+        if (!target) {
+          warnings.push('Fiyat ailesi bulunamadi; fiyat ailesi atanmadi');
+        } else {
+          const existingCodes = target.items.map((entry) => String(entry.productCode || '').trim().toUpperCase());
+          const nextCodes = Array.from(new Set([...existingCodes, stockCode.toUpperCase()])).filter(Boolean);
+          await reportsService.upsertPriceFamily({
+            id: target.id,
+            name: target.name,
+            code: target.code,
+            note: target.note,
+            active: target.active,
+            productCodes: nextCodes,
+          });
+        }
+      } catch (priceFamilyError: any) {
+        console.error('Stock activate price-family assign failed:', priceFamilyId, priceFamilyError?.message || priceFamilyError);
+        warnings.push(`Fiyat ailesine eklenemedi: ${priceFamilyError?.message || 'bilinmeyen hata'}`);
+      }
+    }
+
+    return { success: true, stockCode, warnings };
   }
 
   async getHistory(limit = 50) {
