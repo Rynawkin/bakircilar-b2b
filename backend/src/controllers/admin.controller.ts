@@ -719,9 +719,16 @@ export class AdminController {
         'currentCost',
         'imageSyncErrorType',
         'imageSyncUpdatedAt',
+        'imageUploadedAt',
+        'imageSizeBytes',
       ];
+      // Bu alanlar cogu urunde NULL olabilir; NULL kayitlar her zaman en sona.
+      const nullsLastSortFields = ['imageUploadedAt', 'imageSizeBytes'];
       if (validSortFields.includes(sortByValue)) {
-        orderBy[sortByValue] = sortOrder === 'desc' ? 'desc' : 'asc';
+        const direction = sortOrder === 'desc' ? 'desc' : 'asc';
+        orderBy[sortByValue] = nullsLastSortFields.includes(sortByValue)
+          ? { sort: direction, nulls: 'last' }
+          : direction;
       } else if (!sortByTotalStock) {
         orderBy.name = 'asc'; // default
       }
@@ -761,6 +768,9 @@ export class AdminController {
           imageSyncErrorType: true,
           imageSyncErrorMessage: true,
           imageSyncUpdatedAt: true,
+          imageSizeBytes: true,
+          imageUploadedAt: true,
+          imageUploadedByName: true,
           category: {
             select: {
               id: true,
@@ -3492,7 +3502,7 @@ export class AdminController {
    * Upload product image
    */
   async uploadProductImage(req: Request, res: Response, next: NextFunction) {
-    let processedImage: { imageUrl: string; filePath: string; checksum: string; buffer: Buffer } | null = null;
+    let processedImage: { imageUrl: string; filePath: string; checksum: string; buffer: Buffer; sizeBytes: number } | null = null;
 
     try {
       const { id } = req.params;
@@ -3526,6 +3536,17 @@ export class AdminController {
 
       await imageService.uploadImageToMikro(productGuid, processedImage.buffer);
 
+      // Gorseli yukleyenin adini bir kez cek (null-safe; JWT payload'inda isim yok).
+      const uploaderId = req.user?.userId ?? null;
+      let uploaderName: string | null = null;
+      if (uploaderId) {
+        const uploader = await prisma.user.findUnique({
+          where: { id: uploaderId },
+          select: { name: true, email: true },
+        });
+        uploaderName = uploader?.name || uploader?.email || '';
+      }
+
       const updatedProduct = await prisma.product.update({
         where: { id },
         data: {
@@ -3535,6 +3556,10 @@ export class AdminController {
           imageSyncErrorType: null,
           imageSyncErrorMessage: null,
           imageSyncUpdatedAt: new Date(),
+          imageSizeBytes: processedImage.sizeBytes,
+          imageUploadedAt: new Date(),
+          imageUploadedById: uploaderId,
+          imageUploadedByName: uploaderName,
         },
       });
 

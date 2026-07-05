@@ -64,6 +64,15 @@ export function ProductDetailModal({
     return typeof value === 'number' ? value : Number(value) || 0;
   };
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+
+  // Gorsel meta bilgisi (kim/ne zaman/boyut). Eski gorsellerde bu alanlar bos olabilir.
+  const formatImageSize = (bytes?: number | null): string | null => {
+    if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return null;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+  const imageSizeLabel = formatImageSize(product.imageSizeBytes);
+  const hasImageMeta = Boolean(product.imageUploadedByName || product.imageUploadedAt || imageSizeLabel);
   const [complementLimit, setComplementLimit] = useState(10);
   const [autoComplements, setAutoComplements] = useState<ComplementItem[]>([]);
   const [manualComplements, setManualComplements] = useState<ComplementItem[]>([]);
@@ -245,19 +254,28 @@ export function ProductDetailModal({
         {/* Basic Info */}
         <div className="bg-gradient-to-br from-primary-50 to-primary-100 p-6 rounded-xl border border-primary-200">
           <div className="flex gap-6">
-            {product.imageUrl ? (
-              <div className="w-32 h-32 bg-white rounded-lg overflow-hidden shadow-lg flex-shrink-0">
-                <img
-                  src={product.imageUrl}
-                  alt={product.name}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-            ) : (
-              <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 text-5xl flex-shrink-0">
-                📦
-              </div>
-            )}
+            <div className="flex-shrink-0 w-32">
+              {product.imageUrl ? (
+                <div className="w-32 h-32 bg-white rounded-lg overflow-hidden shadow-lg">
+                  <img
+                    src={product.imageUrl}
+                    alt={product.name}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 text-5xl">
+                  📦
+                </div>
+              )}
+              {hasImageMeta && (
+                <div className="mt-2 text-[11px] leading-tight text-gray-500">
+                  Görsel: {product.imageUploadedByName ?? '—'}
+                  {product.imageUploadedAt ? ` · ${formatDate(product.imageUploadedAt)}` : ''}
+                  {imageSizeLabel ? ` · ${imageSizeLabel}` : ''}
+                </div>
+              )}
+            </div>
             <div className="flex-1">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">{product.name}</h2>
               <div className="grid grid-cols-2 gap-3 text-sm">

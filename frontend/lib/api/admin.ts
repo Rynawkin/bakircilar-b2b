@@ -918,7 +918,7 @@ export const adminApi = {
     categoryId?: string;
     priceListStatus?: 'all' | 'missing' | 'available';
     hiddenFromCustomers?: 'true' | 'false';
-    sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'totalStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt';
+    sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'totalStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt' | 'imageUploadedAt' | 'imageSizeBytes';
     sortOrder?: 'asc' | 'desc';
     page?: number;
     limit?: number;

@@ -43,6 +43,10 @@ export interface Product {
   availableStock?: number;
   maxOrderQuantity?: number;
   imageUrl?: string;
+  imageSizeBytes?: number | null;
+  imageUploadedAt?: string | null;
+  imageUploadedById?: string | null;
+  imageUploadedByName?: string | null;
   warehouseStocks?: Record<string, number>;
   warehouseExcessStocks?: Record<string, number>;
   category: {

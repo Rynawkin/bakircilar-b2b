@@ -844,6 +844,11 @@ model Product {
   imageSyncErrorType      String?
   imageSyncErrorMessage   String?
   imageSyncUpdatedAt      DateTime?
+  // Gorsel meta (admin sıralama + detayda "yükleyen/tarih" icin)
+  imageSizeBytes          Int?                  // servis edilen (webp) dosya boyutu
+  imageUploadedAt         DateTime?             // gorselin yuklendigi/degistirildigi an
+  imageUploadedById       String?               // yukleyen kullanici (User.id)
+  imageUploadedByName     String?               // yukleyen kullanici adi (snapshot)
 
   active                  Boolean   @default(true)
   hiddenFromCustomers     Boolean   @default(false)
@@ -887,6 +892,8 @@ model Product {
   @@index([imageSyncStatus])
   @@index([imageSyncErrorType])
   @@index([imageSyncUpdatedAt])
+  @@index([imageSizeBytes])
+  @@index([imageUploadedAt])
   @@index([hiddenFromCustomers])
   @@index([isFeatured])
 }

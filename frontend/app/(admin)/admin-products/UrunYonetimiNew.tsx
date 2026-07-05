@@ -184,8 +184,23 @@ export default function UrunYonetimiNew() {
             {/* Siralama + yon */}
             <span className="flex items-center">
               <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
+                value={
+                  sortBy === 'imageUploadedAt' || sortBy === 'imageSizeBytes'
+                    ? `${sortBy}-${sortOrder}`
+                    : sortBy
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  // Gorsel siralamalari yonu ("yeni->eski" / "buyuk->kucuk") secenegin
+                  // icinde kodlanir; digerlerinde yon ayri toggle butonuyla belirlenir.
+                  if (val.startsWith('imageUploadedAt-') || val.startsWith('imageSizeBytes-')) {
+                    const [key, dir] = val.split('-');
+                    setSortBy(key as any);
+                    setSortOrder(dir as any);
+                  } else {
+                    setSortBy(val as any);
+                  }
+                }}
                 className="h-[38px] border border-[#e3e8f0] border-r-0 rounded-l-lg px-2.5 text-[12.5px] text-[#14223b] bg-white outline-none cursor-pointer"
                 aria-label="Siralama"
               >
@@ -197,6 +212,10 @@ export default function UrunYonetimiNew() {
                 <option value="currentCost">Guncel Maliyet</option>
                 <option value="imageSyncErrorType">Resim Hata</option>
                 <option value="imageSyncUpdatedAt">Resim Guncelleme</option>
+                <option value="imageUploadedAt-desc">Gorsel yukleme tarihi (yeni-eski)</option>
+                <option value="imageUploadedAt-asc">Gorsel yukleme tarihi (eski-yeni)</option>
+                <option value="imageSizeBytes-desc">Gorsel boyutu (buyuk-kucuk)</option>
+                <option value="imageSizeBytes-asc">Gorsel boyutu (kucuk-buyuk)</option>
               </select>
               <button
                 type="button"

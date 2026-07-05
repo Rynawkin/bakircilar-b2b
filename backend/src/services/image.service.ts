@@ -39,9 +39,11 @@ interface ImageSyncStats {
 
 class ImageService {
   private readonly MAX_IMAGE_SIZE = 50 * 1024 * 1024; // 50 MB (timeout ile kontrol ediyoruz)
-  private readonly RESIZE_WIDTH = 2048;
-  private readonly RESIZE_HEIGHT = 2048;
-  private readonly QUALITY = 100; // Maksimum kalite
+  // Web icin WebP: kartlar 255px, detay ~800px gosterir; 1000px @ q85 gozle orijinalden
+  // ayirt edilemez ama dosya ~30x kucuk. Kare/beyaz-dolgu (extent) davranisi korunur.
+  private readonly RESIZE_WIDTH = 1000;
+  private readonly RESIZE_HEIGHT = 1000;
+  private readonly QUALITY = 85;
   private readonly UPLOAD_DIR = getUploadsDir('products');
   private readonly PROCESSING_TIMEOUT = 10000; // 10 saniye timeout (Sharp için)
 
@@ -66,10 +68,11 @@ class ImageService {
   async processUploadedProductImage(
     inputPath: string,
     productCode: string
-  ): Promise<{ imageUrl: string; filePath: string; checksum: string; buffer: Buffer }> {
+  ): Promise<{ imageUrl: string; filePath: string; checksum: string; buffer: Buffer; sizeBytes: number }> {
     await this.ensureUploadDir();
 
-    const filename = `${productCode}.jpg`;
+    // Web icin WebP (site hafiflesin). Cikti uzantisi WebP'yi belirler; kare/beyaz-dolgu korunur.
+    const filename = `${productCode}.webp`;
     const outputPath = path.join(this.UPLOAD_DIR, filename);
     const sizes = [
       { width: this.RESIZE_WIDTH, height: this.RESIZE_HEIGHT },
@@ -91,22 +94,36 @@ class ImageService {
       }
     }
 
+    if (!converted) {
+      try { await fs.unlink(inputPath); } catch {}
+      throw lastError || new Error('Image processing failed');
+    }
+
+    // Mikro'ya JPEG kopya gonderiyoruz (Mikro eski arayuzu WebP gostermeyebilir). WebP'den uret.
+    let mikroBuffer: Buffer;
+    const jpegTemp = path.join(this.UPLOAD_DIR, `${productCode}.mikro.jpg`);
+    try {
+      await this.convertWithImageMagick(outputPath, jpegTemp, this.RESIZE_WIDTH, this.RESIZE_HEIGHT);
+      mikroBuffer = await fs.readFile(jpegTemp);
+    } catch {
+      mikroBuffer = await fs.readFile(outputPath); // fallback: webp buffer
+    } finally {
+      try { await fs.unlink(jpegTemp); } catch {}
+    }
+
     try {
       await fs.unlink(inputPath);
     } catch {}
 
-    if (!converted) {
-      throw lastError || new Error('Image processing failed');
-    }
-
     const checksum = await this.getChecksumForFile(outputPath);
-    const buffer = await fs.readFile(outputPath);
+    const stats = await fs.stat(outputPath);
 
     return {
       imageUrl: `/uploads/products/${filename}`,
       filePath: outputPath,
       checksum,
-      buffer,
+      buffer: mikroBuffer,
+      sizeBytes: stats.size,
     };
   }
 
@@ -305,7 +322,8 @@ class ImageService {
       // Binary data'yı al
       const buffer = imageData.Data as Buffer;
 
-      const filename = `${productCode}.jpg`;
+      // Web icin WebP (Mikro'dan gelen gorsel de site tarafinda WebP olarak saklanir).
+      const filename = `${productCode}.webp`;
       const filepath = path.join(this.UPLOAD_DIR, filename);
       const tempPath = path.join(this.UPLOAD_DIR, `${productCode}.tmp`);
 

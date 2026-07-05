@@ -34,6 +34,10 @@ export interface Product {
   imageSyncErrorType?: string | null;
   imageSyncErrorMessage?: string | null;
   imageSyncUpdatedAt?: string | null;
+  imageSizeBytes?: number | null;
+  imageUploadedAt?: string | null;
+  imageUploadedById?: string | null;
+  imageUploadedByName?: string | null;
   hiddenFromCustomers: boolean;
   category: {
     id: string;
@@ -85,7 +89,7 @@ export function useUrunYonetimi() {
   const [categoryId, setCategoryId] = useState<string>('');
   const [priceListStatus, setPriceListStatus] = useState<'all' | 'missing' | 'available'>('all');
   const [customerVisibility, setCustomerVisibility] = useState<'all' | 'visible' | 'hidden'>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'totalStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'totalStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt' | 'imageUploadedAt' | 'imageSizeBytes'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Pagination

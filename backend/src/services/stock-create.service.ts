@@ -1330,6 +1330,15 @@ class StockCreateService {
       await imageService.uploadImageToMikro(productGuid, processed.buffer);
 
       if (productId) {
+        // Gorseli yukleyenin adini bir kez cek (null-safe; meta opsiyonel).
+        let uploaderName: string | null = null;
+        if (userId) {
+          const uploader = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { name: true, email: true },
+          });
+          uploaderName = uploader?.name || uploader?.email || '';
+        }
         await prisma.product.update({
           where: { id: productId },
           data: {
@@ -1339,6 +1348,10 @@ class StockCreateService {
             imageSyncErrorType: null,
             imageSyncErrorMessage: null,
             imageSyncUpdatedAt: new Date(),
+            imageSizeBytes: processed.sizeBytes,
+            imageUploadedAt: new Date(),
+            imageUploadedById: userId ?? null,
+            imageUploadedByName: uploaderName,
           },
         });
       }
@@ -1744,6 +1757,15 @@ class StockCreateService {
       await imageService.uploadImageToMikro(productGuid, processed.buffer);
 
       if (productId) {
+        // Gorseli yukleyenin adini bir kez cek (null-safe; meta opsiyonel).
+        let uploaderName: string | null = null;
+        if (userId) {
+          const uploader = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { name: true, email: true },
+          });
+          uploaderName = uploader?.name || uploader?.email || '';
+        }
         await prisma.product.update({
           where: { id: productId },
           data: {
@@ -1753,6 +1775,10 @@ class StockCreateService {
             imageSyncErrorType: null,
             imageSyncErrorMessage: null,
             imageSyncUpdatedAt: new Date(),
+            imageSizeBytes: processed.sizeBytes,
+            imageUploadedAt: new Date(),
+            imageUploadedById: userId ?? null,
+            imageUploadedByName: uploaderName,
           },
         });
       }
