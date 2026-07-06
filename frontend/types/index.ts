@@ -671,6 +671,18 @@ export interface VadeSyncLog {
   errorMessage?: string | null;
 }
 
+export interface VadeAgingBucket { amount: number; count: number }
+export interface VadeDistributionItem { label: string; amount: number; count: number }
+export interface VadeDashboard {
+  kpis: { count: number; overdue: number; upcoming: number; total: number };
+  aging: Record<'d0_30' | 'd31_60' | 'd61_90' | 'd91_180' | 'd181_365' | 'd365plus', VadeAgingBucket> | null;
+  concentration: { overdueCount: number; top10: number; top20: number; top50: number };
+  sectorDistribution: VadeDistributionItem[];
+  groupDistribution: VadeDistributionItem[];
+  upcomingTimeline: Array<{ date: string; amount: number }>;
+  upcomingWindowDays: number;
+}
+
 // ==================== E-INVOICE TYPES ====================
 
 export type EInvoiceMatchStatus = 'MATCHED' | 'PARTIAL' | 'NOT_FOUND';

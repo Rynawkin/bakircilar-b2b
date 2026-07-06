@@ -16,6 +16,7 @@ import {
   Wallet,
   ArrowRight,
   Layers,
+  LayoutDashboard,
 } from 'lucide-react';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { useVadeTakip } from './useVadeTakip';
@@ -100,6 +101,10 @@ export default function VadeTakipNew() {
           <p className="text-[13px] text-[#8b97ac] mt-1.5">Mikro kaynakli vade ve alacak listesi</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={headerBtn} onClick={() => router.push('/vade/dashboard')}>
+            <LayoutDashboard width={15} height={15} stroke="currentColor" strokeWidth={2} />
+            Panel
+          </button>
           <button type="button" className={headerBtn} onClick={() => router.push('/vade/import')}>
             <FileUp width={15} height={15} stroke="currentColor" strokeWidth={2} />
             Excel Import

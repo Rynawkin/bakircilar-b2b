@@ -419,6 +419,169 @@ class VadeController {
     }
   }
 
+  async getDashboard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const sectorCode = (req.query.sectorCode as string) || '';
+      const groupCode = (req.query.groupCode as string) || '';
+
+      const emptyPayload = {
+        kpis: { count: 0, overdue: 0, upcoming: 0, total: 0 },
+        aging: null,
+        concentration: { overdueCount: 0, top10: 0, top20: 0, top50: 0 },
+        sectorDistribution: [] as Array<{ label: string; amount: number; count: number }>,
+        groupDistribution: [] as Array<{ label: string; amount: number; count: number }>,
+        upcomingTimeline: [] as Array<{ date: string; amount: number }>,
+        upcomingWindowDays: 30,
+      };
+
+      if (sectorCode && isExcludedSectorCode(sectorCode)) {
+        res.json(emptyPayload);
+        return;
+      }
+
+      const where: Prisma.VadeBalanceWhereInput = { totalBalance: { gte: 0 } };
+      const userWhere: Prisma.UserWhereInput = {};
+      const excludedSectorFilters = buildExcludedSectorFilters();
+      if (excludedSectorFilters.length > 0) {
+        userWhere.NOT = { OR: excludedSectorFilters };
+      }
+
+      const sectorFilter: Prisma.StringFilter = { notIn: [...EXCLUDED_SECTOR_CODES] };
+      if (sectorCode) sectorFilter.equals = sectorCode;
+
+      if (!canAccessAllSectors(req.user?.role)) {
+        const assignedCodes = getAssignedSectorCodes(req);
+        if (assignedCodes.length === 0) {
+          res.json(emptyPayload);
+          return;
+        }
+        sectorFilter.in = assignedCodes;
+      }
+      userWhere.sectorCode = sectorFilter;
+      if (groupCode) userWhere.groupCode = { equals: groupCode };
+      where.user = userWhere;
+
+      const rows = await prisma.vadeBalance.findMany({
+        where,
+        select: {
+          pastDueBalance: true,
+          notDueBalance: true,
+          totalBalance: true,
+          valor: true,
+          notDueDate: true,
+          user: { select: { sectorCode: true, groupCode: true } },
+        },
+      });
+
+      const agingBuckets = {
+        d0_30: { amount: 0, count: 0 },
+        d31_60: { amount: 0, count: 0 },
+        d61_90: { amount: 0, count: 0 },
+        d91_180: { amount: 0, count: 0 },
+        d181_365: { amount: 0, count: 0 },
+        d365plus: { amount: 0, count: 0 },
+      };
+      const overdueAmounts: number[] = [];
+      const sectorMap = new Map<string, { amount: number; count: number }>();
+      const groupMap = new Map<string, { amount: number; count: number }>();
+
+      // 30 gunluk vade takvimi (vadesi gelmemis, notDueDate'e gore)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const WINDOW = 30;
+      const timeline: number[] = new Array(WINDOW).fill(0);
+
+      let overdue = 0;
+      let upcoming = 0;
+      let total = 0;
+
+      for (const row of rows) {
+        const norm = normalizeBalanceBuckets(row);
+        overdue += norm.pastDueBalance;
+        upcoming += norm.notDueBalance;
+        total += row.totalBalance ?? 0;
+
+        if (norm.pastDueBalance > 0) {
+          overdueAmounts.push(norm.pastDueBalance);
+          const v = row.valor ?? 0;
+          const bucket =
+            v <= 30 ? agingBuckets.d0_30 :
+            v <= 60 ? agingBuckets.d31_60 :
+            v <= 90 ? agingBuckets.d61_90 :
+            v <= 180 ? agingBuckets.d91_180 :
+            v <= 365 ? agingBuckets.d181_365 :
+            agingBuckets.d365plus;
+          bucket.amount += norm.pastDueBalance;
+          bucket.count += 1;
+
+          const sec = (row.user?.sectorCode || 'Tanimsiz').trim() || 'Tanimsiz';
+          const grp = (row.user?.groupCode || 'Tanimsiz').trim() || 'Tanimsiz';
+          const s = sectorMap.get(sec) || { amount: 0, count: 0 };
+          s.amount += norm.pastDueBalance; s.count += 1; sectorMap.set(sec, s);
+          const g = groupMap.get(grp) || { amount: 0, count: 0 };
+          g.amount += norm.pastDueBalance; g.count += 1; groupMap.set(grp, g);
+        }
+
+        if (norm.notDueBalance > 0 && row.notDueDate) {
+          const d = new Date(row.notDueDate);
+          d.setHours(0, 0, 0, 0);
+          const idx = Math.floor((d.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+          if (idx >= 0 && idx < WINDOW) timeline[idx] += norm.notDueBalance;
+        }
+      }
+
+      overdueAmounts.sort((a, b) => b - a);
+      const cumTop = (n: number) => round2(overdueAmounts.slice(0, n).reduce((s, x) => s + x, 0));
+      const roundBucket = (b: { amount: number; count: number }) => ({ amount: round2(b.amount), count: b.count });
+
+      const toDistribution = (m: Map<string, { amount: number; count: number }>, topN: number) => {
+        const arr = [...m.entries()].map(([label, v]) => ({ label, amount: round2(v.amount), count: v.count }));
+        arr.sort((a, b) => b.amount - a.amount);
+        if (arr.length <= topN) return arr;
+        const top = arr.slice(0, topN);
+        const rest = arr.slice(topN);
+        const other = rest.reduce((acc, x) => ({ amount: acc.amount + x.amount, count: acc.count + x.count }), { amount: 0, count: 0 });
+        top.push({ label: 'Diger', amount: round2(other.amount), count: other.count });
+        return top;
+      };
+
+      const upcomingTimeline = timeline.map((amount, i) => {
+        const d = new Date(today);
+        d.setDate(today.getDate() + i);
+        return { date: d.toISOString().slice(0, 10), amount: round2(amount) };
+      });
+
+      res.json({
+        kpis: {
+          count: rows.length,
+          overdue: round2(overdue),
+          upcoming: round2(upcoming),
+          total: round2(total),
+        },
+        aging: {
+          d0_30: roundBucket(agingBuckets.d0_30),
+          d31_60: roundBucket(agingBuckets.d31_60),
+          d61_90: roundBucket(agingBuckets.d61_90),
+          d91_180: roundBucket(agingBuckets.d91_180),
+          d181_365: roundBucket(agingBuckets.d181_365),
+          d365plus: roundBucket(agingBuckets.d365plus),
+        },
+        concentration: {
+          overdueCount: overdueAmounts.length,
+          top10: cumTop(10),
+          top20: cumTop(20),
+          top50: cumTop(50),
+        },
+        sectorDistribution: toDistribution(sectorMap, 8),
+        groupDistribution: toDistribution(groupMap, 8),
+        upcomingTimeline,
+        upcomingWindowDays: WINDOW,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getFilters(req: Request, res: Response, next: NextFunction) {
     try {
       const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];

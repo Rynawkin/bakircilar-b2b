@@ -30,6 +30,7 @@ import {
   VadeClassification,
   VadeAssignment,
   VadeSyncLog,
+  VadeDashboard,
   EInvoiceDocument,
 } from '@/types';
 
@@ -2304,6 +2305,11 @@ export const adminApi = {
 
   getVadeFilters: async (): Promise<{ sectorCodes: string[]; groupCodes: string[] }> => {
     const response = await apiClient.get('/admin/vade/filters');
+    return response.data;
+  },
+
+  getVadeDashboard: async (params?: { sectorCode?: string; groupCode?: string }): Promise<VadeDashboard> => {
+    const response = await apiClient.get('/admin/vade/dashboard', { params });
     return response.data;
   },
 
