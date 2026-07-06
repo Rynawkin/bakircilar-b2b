@@ -2454,8 +2454,15 @@ class QuoteService {
       const startDate = firstLine.baslangicTarihi || firstLine.evrakTarihi;
       const validityDays = safeNumber(firstLine.gecerlilikSure, 0);
       if (startDate && validityDays > 0) {
-        nextValidityDate = new Date(startDate);
-        nextValidityDate.setDate(nextValidityDate.getDate() + validityDays);
+        // Mikro'dan gelen baslangic tarihi bozuk olabilir -> Invalid Date uretmesin;
+        // yalnizca GECERLI bir tarih hesaplanirsa ata (aksi halde eski validityDate korunur).
+        const candidate = new Date(startDate);
+        if (!Number.isNaN(candidate.getTime())) {
+          candidate.setDate(candidate.getDate() + validityDays);
+          if (!Number.isNaN(candidate.getTime())) {
+            nextValidityDate = candidate;
+          }
+        }
       }
     }
     const totalAmount = normalizedLines.reduce(
