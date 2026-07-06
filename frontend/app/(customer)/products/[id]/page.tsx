@@ -334,6 +334,10 @@ export default function ProductDetailPage() {
   const hasCheaperExcessWhite =
     typeof excessWhite === 'number' && excessWhite > 0 && excessWhite < product.prices.white;
   const shouldShowDiscounts = !hasAgreement;
+  // Paket (bundle) iskontosu ayri bir indirim turudur (pricingMode LIST kalir; stok/sepet
+  // EXCESS mantigina girmez). Sadece GOSTERIM icin ustu-cizili + % rozeti bunu da kapsasin.
+  const bundleHasDiscount = Boolean(product.isBundle && product.listPrices);
+  const showStrike = isDiscounted || bundleHasDiscount;
   const selectedPriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
   const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const selectedListPrice = selectedPriceType === 'INVOICED' ? listInvoiced : listWhite;
@@ -655,14 +659,14 @@ export default function ProductDetailPage() {
                     Faturalı{' '}
                     <span className="font-medium text-[var(--ink-3)]">{getVatLabel('INVOICED', vatDisplayPreference)}</span>
                   </div>
-                  {shouldShowDiscounts && isDiscounted && listInvoiced && listInvoiced > 0 && (
+                  {shouldShowDiscounts && showStrike && listInvoiced && listInvoiced > 0 && (
                     <div className="text-[12px] text-[var(--ink-3)] line-through">{formatCurrency(displayListInvoiced)}</div>
                   )}
                   <div className="flex items-baseline gap-2">
                     <span className="text-[22px] font-semibold tracking-tight text-[var(--ink-1)]">
                       {formatCurrency(displayInvoicedPrice)}
                     </span>
-                    {shouldShowDiscounts && isDiscounted && invoicedDiscount && (
+                    {shouldShowDiscounts && showStrike && invoicedDiscount && (
                       <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
                         %{invoicedDiscount}
                       </span>
@@ -695,14 +699,14 @@ export default function ProductDetailPage() {
                     Beyaz{' '}
                     <span className="font-medium text-[var(--ink-3)]">{getVatLabel('WHITE', vatDisplayPreference)}</span>
                   </div>
-                  {shouldShowDiscounts && isDiscounted && displayListWhite > 0 && (
+                  {shouldShowDiscounts && showStrike && displayListWhite > 0 && (
                     <div className="text-[12px] text-[var(--ink-3)] line-through">{formatCurrency(displayListWhite)}</div>
                   )}
                   <div className="flex items-baseline gap-2">
                     <span className="text-[22px] font-semibold tracking-tight text-[var(--ink-1)]">
                       {formatCurrency(displayWhitePrice)}
                     </span>
-                    {shouldShowDiscounts && isDiscounted && whiteDiscount && (
+                    {shouldShowDiscounts && showStrike && whiteDiscount && (
                       <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
                         %{whiteDiscount}
                       </span>
@@ -722,7 +726,7 @@ export default function ProductDetailPage() {
             </div>
 
             {/* Seçili fiyatta indirim vurgusu - eski -> yeni + avantaj */}
-            {shouldShowDiscounts && isDiscounted && selectedListPrice !== undefined && selectedDiscount && (
+            {shouldShowDiscounts && showStrike && selectedListPrice !== undefined && selectedDiscount && (
               <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3.5 py-2.5">
                 <span className="flex items-center gap-2 text-sm font-medium text-emerald-700">
                   <span className="text-[var(--ink-3)] line-through">{formatCurrency(displaySelectedListPrice)}</span>

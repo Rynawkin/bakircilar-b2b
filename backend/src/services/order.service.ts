@@ -772,7 +772,7 @@ class OrderService {
       }
     }
 
-    const repriced = cart.items.map((item) => {
+    const repriced = cart.items.flatMap((item): RepricedCartItem[] => {
       const product = item.product;
       if (!product) {
         throw new Error('Product not found in cart');
@@ -783,7 +783,7 @@ class OrderService {
         if (skippedHidden) {
           skippedHidden.push(product.name || product.mikroCode || 'Bilinmeyen urun');
         }
-        return null;
+        return [];
       }
 
       const quantity = Number(item.quantity);
@@ -796,31 +796,33 @@ class OrderService {
         throw new Error(`Price type not allowed for ${product.mikroCode || product.name}`);
       }
 
-      // Paket satiri: onceden hesaplanan bilesen snapshot'i ile TEK satir olustur.
-      // (Mikro'ya yazimda bilesenlere patlatilir.)
+      // Paket satiri: siparise BILESENLERINE AYRILARAK yazilir. Boylece B2B admin sipariste
+      // her urunu ayri satir + urun-basi karlilik gorur; Mikro'ya da dogal olarak gercek
+      // bilesen kodlariyla gider (sentetik paket kodu asla yazilmaz). Iskonto her bilesenin
+      // birim fiyatina gomulu; lineNote'a "SET: <paket adi>" etiketi (gruplama gorunur).
       if (product.isBundle) {
         const br = bundleResults.get(item.id);
         if (!br) {
           // Paket fiyatlanamadi (bilesen pasif/gizli/eksik) -> satiri sessizce atla.
           if (skippedHidden) skippedHidden.push(product.name || product.mikroCode || 'Paket');
-          return null;
+          return [];
         }
-        return {
-          productId: item.productId,
-          productName: product.name,
-          mikroCode: product.mikroCode,
-          quantity,
+        const baseNote = item.lineNote ? String(item.lineNote).trim() : '';
+        const setLabel = `SET: ${product.name}${baseNote ? ' | ' + baseNote : ''}`;
+        return br.components.map((c) => ({
+          productId: c.componentProductId,
+          productName: c.name,
+          mikroCode: c.mikroCode,
+          quantity: c.quantity * quantity,
           priceType,
-          unitPrice: br.unitPrice,
-          // Mikro'ya patlatilan bilesen satir toplamlariyla birebir essin diye ek yuvarlama YOK.
-          totalPrice: quantity * br.unitPrice,
-          lineNote: item.lineNote ? String(item.lineNote).trim() : null,
-          unit: product.unit || 'SET',
+          unitPrice: c.unitPrice,
+          totalPrice: c.quantity * quantity * c.unitPrice,
+          lineNote: setLabel,
+          unit: c.unit || 'ADET',
           unit2: null,
           unit2Factor: null,
           selectedUnit: null,
-          bundleComponents: br.components,
-        } as RepricedCartItem;
+        })) as RepricedCartItem[];
       }
 
       const prices = product.prices as unknown as ProductPrices;
@@ -878,7 +880,7 @@ class OrderService {
         unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
       }
 
-      return {
+      return [{
         productId: item.productId,
         productName: product.name,
         mikroCode: product.mikroCode,
@@ -893,11 +895,11 @@ class OrderService {
         unit2Factor:
           Number.isFinite(Number(product.unit2Factor)) ? Number(product.unit2Factor) : null,
         selectedUnit: item.selectedUnit ? String(item.selectedUnit).trim() : null,
-      };
+      }];
     });
 
-    // 1.6: Atlanan (gizli/pasif) satirlari ayikla.
-    return repriced.filter((row) => row !== null) as RepricedCartItem[];
+    // flatMap: paketler bilesenlerine acildi, atlananlar [] dondu -> ekstra filtre gerekmez.
+    return repriced;
   }
 
   /**

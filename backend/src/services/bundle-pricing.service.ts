@@ -63,7 +63,10 @@ const COMPONENT_SELECT = {
 } as const;
 
 export interface BundleComponentSnapshot {
+  componentProductId: string; // bilesenin gercek Product id'si (OrderItem.productId -> karlilik)
   mikroCode: string;
+  name: string;
+  unit: string | null;
   quantity: number;   // paket BASINA adet
   unitPrice: number;  // iskonto GOMULU birim fiyat (verilen priceType duzleminde)
   vatRate: number;    // faturali icin; beyazda Mikro'ya 0 yazilir
@@ -397,7 +400,10 @@ export async function buildOrderBundleComponents(
     .map((c) => {
       const base = priceType === 'INVOICED' ? c.unitInvoiced : c.unitWhite;
       return {
+        componentProductId: c.componentProductId,
         mikroCode: c.mikroCode,
+        name: c.name,
+        unit: c.unit,
         quantity: c.quantity,
         unitPrice: round4(base * (1 - d)), // iskonto gomulu birim fiyat
         vatRate: c.vatRate,

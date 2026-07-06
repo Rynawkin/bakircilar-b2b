@@ -129,7 +129,14 @@ export function ProductCard({
   let discInvoiced: number | undefined;
   let discWhite: number | undefined;
 
-  if (isDiscountedVariant) {
+  if (product.isBundle && product.listPrices) {
+    // Paket iskontosu: base = iskonto oncesi (listPrices), disc = iskontolu (prices).
+    // pricingMode LIST kalir; sadece gosterim icin ustu-cizili + % rozeti.
+    baseInvoiced = product.listPrices.invoiced;
+    baseWhite = product.listPrices.white;
+    discInvoiced = resolveValidExcessPrice(baseInvoiced, product.prices.invoiced);
+    discWhite = resolveValidExcessPrice(baseWhite, product.prices.white);
+  } else if (isDiscountedVariant) {
     // Indirimli: listPrices = eski, prices/excessPrices = indirimli
     baseInvoiced = product.listPrices?.invoiced ?? product.prices.invoiced;
     baseWhite = product.listPrices?.white ?? product.prices.white;
@@ -189,7 +196,11 @@ export function ProductCard({
   })();
 
   const handleAdd = async () => {
-    const priceMode: 'LIST' | 'EXCESS' = isDiscountedVariant ? 'EXCESS' : hasDiscount ? 'EXCESS' : 'LIST';
+    // Paketler DAIMA LIST modunda sepete eklenir (paket iskontosu fiyata gomulu; backend
+    // EXCESS'i reddeder). Diger urunlerde mevcut indirim mantigi aynen gecerli.
+    const priceMode: 'LIST' | 'EXCESS' = product.isBundle
+      ? 'LIST'
+      : isDiscountedVariant ? 'EXCESS' : hasDiscount ? 'EXCESS' : 'LIST';
     setAdding(true);
     try {
       const maxQty =

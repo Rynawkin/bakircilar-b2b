@@ -3018,6 +3018,28 @@ export class CustomerController {
             ? (String(lineNote).trim() || null)
             : undefined;
 
+        // Paket (bundle): rebalance UYGULANMAZ — resolveCartUnitPrices paket icin 0 doner
+        // ve fiyati sifirlardi. Tek satir; miktar/not guncelle + fiyati bundle-pricing ile
+        // yeniden hesapla (bilesen toplami + %iskonto).
+        if ((cartItem.product as any).isBundle) {
+          const priced = await bundlePricingService.priceBundleForCart(
+            context.user.id,
+            cartItem.productId,
+            safePriceType
+          );
+          const unitPrice = priced && priced.unitPrice > 0 ? priced.unitPrice : cartItem.unitPrice;
+          await prisma.cartItem.update({
+            where: { id: cartItem.id },
+            data: {
+              quantity: nextQuantity,
+              unitPrice,
+              ...(normalizedNote !== undefined ? { lineNote: normalizedNote } : {}),
+              ...(hasSelectedUnit ? { selectedUnit: normalizedSelectedUnit } : {}),
+            },
+          });
+          return res.json({ message: 'Cart item updated' });
+        }
+
         const rebalanceResult = await cartPricingService.rebalanceCartProductPriceType({
           context,
           cartId: cartItem.cartId,
