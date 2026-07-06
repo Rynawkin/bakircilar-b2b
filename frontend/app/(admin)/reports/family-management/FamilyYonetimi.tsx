@@ -363,7 +363,10 @@ export default function FamilyYonetimi() {
             Aile Yönetimi
           </h1>
           <div style={{ fontSize: 13, color: '#51607a', marginTop: 5, fontWeight: 600 }}>
-            Karar sirasi: guvenli aileye ekle, sonra yeni aile ac, en son supheli uyeleri temizle.
+            Islem sirasi: 1) guvenli eslesmeleri ekle, 2) eslesmeyenlerden yeni aile ac, 3) supheli uyeleri temizle.
+          </div>
+          <div style={{ fontSize: 12.5, color: AMBER, marginTop: 4, fontWeight: 600 }}>
+            Skor 0.60 altindaysa gramaj, olcu, detay veya spekt farki olabilir; eklemeden once elle kontrol et.
           </div>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 5 }}>
             Aile önerileri, yeni aile adayları ve şüpheli üyeleri tek ekrandan yönetin.
@@ -388,6 +391,12 @@ export default function FamilyYonetimi() {
           ['OUTLIERS', 'Şüpheli Üyeler'],
         ] as Array<[FamilyTab, string]>).map(([key, label]) => {
           const active = tab === key;
+          const displayLabel =
+            key === 'SUGGESTIONS'
+              ? '1. Guvenli Aileye Ekle'
+              : key === 'CLUSTERS'
+                ? '2. Yeni Aile Ac'
+                : '3. Supheli Uyeleri Temizle';
           return (
             <button
               key={key}
@@ -406,7 +415,7 @@ export default function FamilyYonetimi() {
                 marginBottom: -1,
               }}
             >
-              {label}
+              {displayLabel}
             </button>
           );
         })}
