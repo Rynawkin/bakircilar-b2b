@@ -65,6 +65,8 @@ export default function VadeMusteriDetayNew() {
     riskScore,
     setRiskScore,
     savingClassification,
+    suggested,
+    applySuggestion,
     loadDetail,
     handleSaveNote,
     handleSaveClassification,
@@ -391,6 +393,23 @@ export default function VadeMusteriDetayNew() {
               {/* Siniflandirma */}
               <div className={`${CARD} p-4`}>
                 <div className="mb-3 text-[13px] font-semibold text-[#14223b]">Siniflandirma</div>
+                {suggested && (
+                  <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-[#d6e0f1] bg-[#f7f9fc] p-2.5">
+                    <div className="text-[11px] text-[#51607a]">
+                      Sistem onerisi:{' '}
+                      <b className="text-[#14223b]">Risk {suggested.riskScore}</b> ·{' '}
+                      {classificationOptions.find((o) => o.value === suggested.classification)?.label ||
+                        suggested.classification}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={applySuggestion}
+                      className="flex-none rounded-lg bg-[#15356b] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#1c4585]"
+                    >
+                      Uygula
+                    </button>
+                  </div>
+                )}
                 <label className="mb-2.5 flex flex-col gap-1">
                   <span className={LABEL}>Seviye</span>
                   <select

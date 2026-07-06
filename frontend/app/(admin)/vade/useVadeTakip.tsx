@@ -31,6 +31,7 @@ export function useVadeTakip() {
   const [maxBalance, setMaxBalance] = useState('');
   const [hasNotes, setHasNotes] = useState(false);
   const [notesKeyword, setNotesKeyword] = useState('');
+  const [classification, setClassification] = useState('');
   const [sortBy, setSortBy] = useState('pastDueBalance');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [loading, setLoading] = useState(true);
@@ -65,6 +66,7 @@ export function useVadeTakip() {
         maxBalance: maxBalance !== '' ? Number(maxBalance) : undefined,
         hasNotes: hasNotes || undefined,
         notesKeyword: notesKeyword.trim() || undefined,
+        classification: classification || undefined,
         sortBy,
         sortDirection,
       });
@@ -96,6 +98,7 @@ export function useVadeTakip() {
     maxBalance,
     hasNotes,
     notesKeyword,
+    classification,
     sortBy,
     sortDirection,
   ]);
@@ -173,6 +176,7 @@ export function useVadeTakip() {
         maxBalance: maxBalance !== '' ? Number(maxBalance) : undefined,
         hasNotes: hasNotes || undefined,
         notesKeyword: notesKeyword.trim() || undefined,
+        classification: classification || undefined,
         sortBy,
         sortDirection,
         export: true,
@@ -243,6 +247,8 @@ export function useVadeTakip() {
     setMaxBalance,
     notesKeyword,
     setNotesKeyword,
+    classification,
+    setClassification,
     // siralama
     sortBy,
     setSortBy,

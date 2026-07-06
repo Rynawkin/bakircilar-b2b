@@ -593,6 +593,11 @@ export interface VadeBalance {
     paymentPlanName?: string | null;
     balance?: number;
     isLocked?: boolean;
+    vadeClassification?: {
+      classification: string;
+      customClassification?: string | null;
+      riskScore?: number | null;
+    } | null;
   };
 }
 

@@ -88,6 +88,32 @@ const ensureSectorAccess = async (req: Request, customerId: string) => {
   return assignedCodes.includes(customer.sectorCode || '');
 };
 
+// Otomatik risk skoru (vade-main CustomerClassification.calculateRiskScore modeli):
+// vadesi gecen oran (max 45) + gecikme gunu (max 35) + not sayisi (max 10) + kacirilan soz (max 10)
+const computeSuggestedRisk = (
+  balance: { pastDueBalance?: number | null; totalBalance?: number | null; valor?: number | null } | null | undefined,
+  notes: Array<{ promiseDate?: Date | string | null }>,
+): { riskScore: number; classification: string } => {
+  if (!balance) return { riskScore: 0, classification: 'green' };
+  const pastDue = Number(balance.pastDueBalance || 0);
+  const total = Number(balance.totalBalance || 0);
+  let score = 0;
+  if (total > 0 && pastDue > 0) {
+    score += Math.min((pastDue / total) * 90, 45);
+  }
+  const daysOverdue = Number(balance.valor || 0);
+  if (daysOverdue > 0) score += Math.min(daysOverdue / 90, 1) * 35;
+  const noteCount = notes.length;
+  if (noteCount > 5) score += Math.min((noteCount - 5) / 10, 1) * 10;
+  const now = Date.now();
+  const missed = notes.filter((n) => n.promiseDate && new Date(n.promiseDate).getTime() < now).length;
+  if (missed > 0) score += Math.min(missed / 3, 1) * 10;
+  const riskScore = Math.round(Math.min(score, 100));
+  const classification =
+    riskScore < 30 ? 'green' : riskScore < 60 ? 'yellow' : riskScore < 80 ? 'red' : 'black';
+  return { riskScore, classification };
+};
+
 class VadeController {
   async getBalances(req: Request, res: Response, next: NextFunction) {
     try {
@@ -101,6 +127,7 @@ class VadeController {
       const groupCode = (req.query.groupCode as string) || '';
       const hasNotes = parseBoolean(req.query.hasNotes);
       const notesKeyword = ((req.query.notesKeyword as string) || '').trim();
+      const classification = ((req.query.classification as string) || '').trim();
       const minBalance = parseOptionalNumber(req.query.minBalance);
       const maxBalance = parseOptionalNumber(req.query.maxBalance);
       const sortBy = (req.query.sortBy as string) || 'pastDueBalance';
@@ -170,6 +197,14 @@ class VadeController {
             ? { noteContent: { contains: notesKeyword, mode: 'insensitive' } }
             : {},
         };
+      }
+
+      if (classification) {
+        if (classification === 'none') {
+          userWhere.vadeClassification = { is: null };
+        } else {
+          userWhere.vadeClassification = { is: { classification } };
+        }
       }
 
       const sectorFilter: Prisma.StringFilter = {};
@@ -285,6 +320,9 @@ class VadeController {
                 paymentPlanName: true,
                 balance: true,
                 isLocked: true,
+                vadeClassification: {
+                  select: { classification: true, customClassification: true, riskScore: true },
+                },
               },
             },
           },
@@ -688,10 +726,13 @@ class VadeController {
           }
         : customer;
 
+      const suggested = computeSuggestedRisk(customer.vadeBalance, notes);
+
       res.json({
         customer: resolvedCustomer,
         notes,
         assignments,
+        suggested,
       });
     } catch (error) {
       next(error);

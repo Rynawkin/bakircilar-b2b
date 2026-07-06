@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+import VadeQuickNoteModal from './VadeQuickNoteModal';
 import {
   Search,
   Filter,
@@ -22,6 +24,26 @@ import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { useVadeTakip } from './useVadeTakip';
 
 const CARD = 'bg-white border border-[#e7ebf2] rounded-xl';
+
+const CLS_META: Record<string, { label: string; bg: string; border: string; text: string }> = {
+  green: { label: 'Dusuk', bg: '#ecfdf5', border: '#a7f3d0', text: '#047857' },
+  yellow: { label: 'Orta', bg: '#fffbeb', border: '#fde68a', text: '#b45309' },
+  red: { label: 'Yuksek', bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' },
+  black: { label: 'Cok Yuksek', bg: '#f3f4f6', border: '#d1d5db', text: '#1f2937' },
+  special: { label: 'Ozel', bg: '#eef2fa', border: '#d6e0f1', text: '#1c4585' },
+  custom: { label: 'Ozel', bg: '#f5f0ff', border: '#e0d4f7', text: '#7c3aed' },
+};
+
+const CLS_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Tum siniflar' },
+  { value: 'green', label: 'Yesil - Dusuk' },
+  { value: 'yellow', label: 'Sari - Orta' },
+  { value: 'red', label: 'Kirmizi - Yuksek' },
+  { value: 'black', label: 'Siyah - Cok Yuksek' },
+  { value: 'special', label: 'Ozel Durum' },
+  { value: 'custom', label: 'Ozel Siniflandirma' },
+  { value: 'none', label: 'Siniflandirilmamis' },
+];
 
 /**
  * Yeni gorunum Vade Takip ekrani. Mevcut TUM mantik useVadeTakip'ten gelir; sadece gorsel yeni.
@@ -54,6 +76,8 @@ export default function VadeTakipNew() {
     setMaxBalance,
     notesKeyword,
     setNotesKeyword,
+    classification,
+    setClassification,
     sortBy,
     sortDirection,
     setSortBy,
@@ -65,7 +89,10 @@ export default function VadeTakipNew() {
     exporting,
     handleSync,
     handleExport,
+    fetchBalances,
   } = useVadeTakip();
+
+  const [quickNoteFor, setQuickNoteFor] = useState<{ id: string; label: string } | null>(null);
 
   // Yeni stil tablo basligi: siralama gostergesi lucide ikon ile (mevcut getSortIndicator metni yerine gorsel)
   const sortIcon = (key: string) => {
@@ -98,7 +125,7 @@ export default function VadeTakipNew() {
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-4">
         <div>
           <h1 className="text-[24px] font-semibold tracking-[-0.02em] text-[#14223b] m-0">Vade Takip</h1>
-          <p className="text-[13px] text-[#8b97ac] mt-1.5">Mikro kaynakli vade ve alacak listesi</p>
+          <p className="text-[13px] text-[#8b97ac] mt-1.5">Vade ve alacak listesi</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className={headerBtn} onClick={() => router.push('/vade/dashboard')}>
@@ -292,6 +319,7 @@ export default function VadeTakipNew() {
                 setMaxBalance('');
                 setHasNotes(false);
                 setNotesKeyword('');
+                setClassification('');
                 setSortBy('pastDueBalance');
                 setSortDirection('desc');
                 setPagination((prev) => ({ ...prev, page: 1 }));
@@ -338,6 +366,23 @@ export default function VadeTakipNew() {
                 {filterOptions.groupCodes.map((code) => (
                   <option key={code} value={code}>
                     {code}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] text-[#8b97ac] font-medium">Siniflandirma</label>
+              <select
+                className={`${fieldCls} cursor-pointer`}
+                value={classification}
+                onChange={(event) => {
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                  setClassification(event.target.value);
+                }}
+              >
+                {CLS_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
                   </option>
                 ))}
               </select>
@@ -492,12 +537,13 @@ export default function VadeTakipNew() {
                 >
                   Guncel{sortIcon('updatedAt')}
                 </th>
+                <th className="px-4 py-3 text-center">Islem</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-[#8b97ac]">
+                  <td colSpan={12} className="px-4 py-8 text-center text-[#8b97ac]">
                     <div className="inline-flex items-center gap-2">
                       <RefreshCw width={15} height={15} stroke="currentColor" strokeWidth={2} className="animate-spin" />
                       Yukleniyor...
@@ -507,7 +553,7 @@ export default function VadeTakipNew() {
               )}
               {!loading && balances.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-[#8b97ac]">
+                  <td colSpan={12} className="px-4 py-8 text-center text-[#8b97ac]">
                     Sonuc bulunamadi.
                   </td>
                 </tr>
@@ -524,6 +570,25 @@ export default function VadeTakipNew() {
                         {balance.user.displayName || balance.user.mikroName || balance.user.name || '-'}
                       </div>
                       <div className="text-[10.5px] text-[#8b97ac] font-mono">{balance.user.mikroCariCode}</div>
+                      {balance.user.vadeClassification &&
+                        CLS_META[balance.user.vadeClassification.classification] && (
+                          <span
+                            className="mt-1 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold"
+                            style={{
+                              background: CLS_META[balance.user.vadeClassification.classification].bg,
+                              borderColor: CLS_META[balance.user.vadeClassification.classification].border,
+                              color: CLS_META[balance.user.vadeClassification.classification].text,
+                            }}
+                          >
+                            {balance.user.vadeClassification.classification === 'custom' &&
+                            balance.user.vadeClassification.customClassification
+                              ? balance.user.vadeClassification.customClassification
+                              : CLS_META[balance.user.vadeClassification.classification].label}
+                            {typeof balance.user.vadeClassification.riskScore === 'number'
+                              ? ` · ${balance.user.vadeClassification.riskScore}`
+                              : ''}
+                          </span>
+                        )}
                     </td>
                     <td className="px-4 py-3 text-[#51607a]">
                       <div>{balance.user.sectorCode || '-'}</div>
@@ -582,6 +647,25 @@ export default function VadeTakipNew() {
                     <td className="px-4 py-3 text-[10.5px] text-[#8b97ac]">
                       {balance.updatedAt ? formatDateShort(balance.updatedAt) : '-'}
                     </td>
+                    <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setQuickNoteFor({
+                            id: balance.user.id,
+                            label:
+                              balance.user.displayName ||
+                              balance.user.mikroName ||
+                              balance.user.name ||
+                              '',
+                          })
+                        }
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#d8e0ec] bg-white px-2 py-1 text-[11px] font-medium text-[#51607a] hover:bg-[#f4f6fa]"
+                      >
+                        <StickyNote width={13} height={13} stroke="currentColor" strokeWidth={2} />
+                        Not
+                      </button>
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -611,6 +695,15 @@ export default function VadeTakipNew() {
           </button>
         </div>
       </div>
+
+      {quickNoteFor && (
+        <VadeQuickNoteModal
+          customerId={quickNoteFor.id}
+          customerLabel={quickNoteFor.label}
+          onClose={() => setQuickNoteFor(null)}
+          onSaved={() => fetchBalances()}
+        />
+      )}
     </div>
   );
 }

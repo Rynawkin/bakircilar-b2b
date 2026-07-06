@@ -90,6 +90,7 @@ export function useVadeMusteriDetay() {
   const [customClassification, setCustomClassification] = useState('');
   const [riskScore, setRiskScore] = useState('');
   const [savingClassification, setSavingClassification] = useState(false);
+  const [suggested, setSuggested] = useState<{ riskScore: number; classification: string } | null>(null);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
@@ -98,6 +99,7 @@ export function useVadeMusteriDetay() {
       setCustomer(response.customer);
       setNotes(response.notes || []);
       setAssignments(response.assignments || []);
+      setSuggested(response.suggested || null);
 
       if (response.customer?.vadeClassification) {
         setClassification(response.customer.vadeClassification.classification || 'green');
@@ -249,6 +251,12 @@ export function useVadeMusteriDetay() {
     }
   };
 
+  const applySuggestion = () => {
+    if (!suggested) return;
+    setClassification(suggested.classification);
+    setRiskScore(String(suggested.riskScore));
+  };
+
   const balance = customer?.vadeBalance;
 
   const customerLabel = useMemo(() => {
@@ -290,6 +298,8 @@ export function useVadeMusteriDetay() {
     riskScore,
     setRiskScore,
     savingClassification,
+    suggested,
+    applySuggestion,
     // handlers
     loadDetail,
     handleSaveNote,

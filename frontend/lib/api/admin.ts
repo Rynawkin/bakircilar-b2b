@@ -2285,6 +2285,7 @@ export const adminApi = {
     maxBalance?: number;
     hasNotes?: boolean;
     notesKeyword?: string;
+    classification?: string;
     sortBy?: string;
     sortDirection?: 'asc' | 'desc';
     export?: boolean;
@@ -2317,6 +2318,7 @@ export const adminApi = {
     customer: any;
     notes: VadeNote[];
     assignments: VadeAssignment[];
+    suggested?: { riskScore: number; classification: string };
   }> => {
     const response = await apiClient.get(`/admin/vade/customers/${customerId}`);
     return response.data;
