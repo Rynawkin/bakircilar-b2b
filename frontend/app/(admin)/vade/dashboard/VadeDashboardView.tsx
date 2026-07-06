@@ -140,11 +140,6 @@ export default function VadeDashboardView() {
     return Math.max(...AGING_META.map((m) => data.aging![m.key].amount), 1);
   }, [data]);
 
-  const timelineMax = useMemo(() => {
-    if (!data) return 0;
-    return Math.max(...data.upcomingTimeline.map((t) => t.amount), 1);
-  }, [data]);
-
   const fieldCls = 'h-9 border border-[#e3e8f0] rounded-lg px-2.5 text-[12px] text-[#14223b] outline-none focus:border-[#15356b] bg-white';
   const kpis = data?.kpis;
   const conc = data?.concentration;
@@ -296,33 +291,55 @@ export default function VadeDashboardView() {
             </div>
           </div>
 
-          {/* 30 gunluk vade takvimi */}
+          {/* Oncelikli aramalar — en buyuk vadesi gecen 10 cari */}
           <div className={`${CARD} p-4`}>
             <div className="flex items-center gap-1.5 text-[13px] font-semibold text-[#14223b] mb-1">
-              <CalendarClock width={15} height={15} stroke="currentColor" strokeWidth={2} /> {data?.upcomingWindowDays ?? 30} Gunluk Vade Takvimi (vadesi gelmemis)
+              <AlertTriangle width={15} height={15} stroke="currentColor" strokeWidth={2} /> Oncelikli Aramalar — En Buyuk Vadesi Gecen 10 Cari
             </div>
-            <p className="text-[11.5px] text-[#8b97ac] mb-3">Bugunden itibaren gunlere gore tahsil edilecek tutar</p>
-            {data && data.upcomingTimeline.some((t) => t.amount > 0) ? (
-              <div className="flex items-end gap-[3px] h-[160px]">
-                {data.upcomingTimeline.map((t, i) => {
-                  const h = timelineMax > 0 ? Math.max((t.amount / timelineMax) * 140, t.amount > 0 ? 3 : 0) : 0;
-                  const d = new Date(t.date);
-                  const dayLabel = `${d.getDate()}`;
-                  return (
-                    <div key={t.date} className="flex-1 flex flex-col items-center justify-end h-full group">
-                      <div
-                        className="w-full max-w-[16px] rounded-t bg-[#2f6fb0] group-hover:bg-[#15356b] transition-colors"
-                        style={{ height: `${h}px` }}
+            <p className="text-[11.5px] text-[#8b97ac] mb-3">En yuksek vadesi gecen bakiyeli cariler; satira tiklayarak detaya git</p>
+            {data && data.topOverdue.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="text-left text-[#8b97ac] border-b border-[#eef1f6]">
+                      <th className="py-2 pr-2 font-medium w-8">#</th>
+                      <th className="py-2 pr-2 font-medium">Cari</th>
+                      <th className="py-2 pr-2 font-medium">Sektor</th>
+                      <th className="py-2 pr-2 font-medium text-right">Vadesi Gecen</th>
+                      <th className="py-2 pl-2 font-medium text-right">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.topOverdue.map((c, i) => (
+                      <tr
+                        key={c.id || c.code || i}
+                        onClick={() => c.id && router.push(`/vade/customers/${c.id}`)}
+                        className="border-b border-[#f2f4f8] hover:bg-[#f7f9fc] cursor-pointer"
                       >
-                        <title>{`${t.date}: ${formatCurrency(t.amount)}`}</title>
-                      </div>
-                      <div className="text-[8.5px] text-[#8b97ac] mt-1 h-3">{i % 3 === 0 ? dayLabel : ''}</div>
-                    </div>
-                  );
-                })}
+                        <td className="py-2 pr-2 text-[#8b97ac] tabular-nums">{i + 1}</td>
+                        <td className="py-2 pr-2">
+                          <div className="text-[#14223b] font-medium truncate max-w-[280px]">{c.name || '-'}</div>
+                          <div className="text-[10.5px] text-[#8b97ac]">{c.code}</div>
+                        </td>
+                        <td className="py-2 pr-2 text-[#51607a]">{c.sector}</td>
+                        <td className="py-2 pr-2 text-right font-semibold text-[#b91c1c] tabular-nums">{formatCurrency(c.pastDue)}</td>
+                        <td className="py-2 pl-2 text-right tabular-nums">
+                          <span className="inline-block px-1.5 py-0.5 rounded bg-[#fef2f2] text-[#b91c1c] text-[11px]">{c.valor} gun</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button
+                  type="button"
+                  onClick={() => router.push('/vade')}
+                  className="mt-3 inline-flex items-center gap-1 text-[12px] text-[#15356b] font-medium hover:underline"
+                >
+                  Tum vadesi gecen listesi <ArrowLeft width={13} height={13} stroke="currentColor" strokeWidth={2} className="rotate-180" />
+                </button>
               </div>
             ) : (
-              <div className="text-[12px] text-[#8b97ac] py-8 text-center">Onumuzdeki {data?.upcomingWindowDays ?? 30} gunde vadesi gelen tutar yok</div>
+              <div className="text-[12px] text-[#8b97ac] py-8 text-center">Vadesi gecen cari yok</div>
             )}
           </div>
         </>

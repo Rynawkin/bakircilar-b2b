@@ -430,8 +430,7 @@ class VadeController {
         concentration: { overdueCount: 0, top10: 0, top20: 0, top50: 0 },
         sectorDistribution: [] as Array<{ label: string; amount: number; count: number }>,
         groupDistribution: [] as Array<{ label: string; amount: number; count: number }>,
-        upcomingTimeline: [] as Array<{ date: string; amount: number }>,
-        upcomingWindowDays: 30,
+        topOverdue: [] as Array<{ id: string; code: string; name: string; sector: string; pastDue: number; valor: number }>,
       };
 
       if (sectorCode && isExcludedSectorCode(sectorCode)) {
@@ -469,7 +468,17 @@ class VadeController {
           totalBalance: true,
           valor: true,
           notDueDate: true,
-          user: { select: { sectorCode: true, groupCode: true } },
+          user: {
+            select: {
+              id: true,
+              mikroCariCode: true,
+              name: true,
+              displayName: true,
+              mikroName: true,
+              sectorCode: true,
+              groupCode: true,
+            },
+          },
         },
       });
 
@@ -484,12 +493,7 @@ class VadeController {
       const overdueAmounts: number[] = [];
       const sectorMap = new Map<string, { amount: number; count: number }>();
       const groupMap = new Map<string, { amount: number; count: number }>();
-
-      // 30 gunluk vade takvimi (vadesi gelmemis, notDueDate'e gore)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const WINDOW = 30;
-      const timeline: number[] = new Array(WINDOW).fill(0);
+      const overdueRows: Array<{ id: string; code: string; name: string; sector: string; pastDue: number; valor: number }> = [];
 
       let overdue = 0;
       let upcoming = 0;
@@ -520,13 +524,15 @@ class VadeController {
           s.amount += norm.pastDueBalance; s.count += 1; sectorMap.set(sec, s);
           const g = groupMap.get(grp) || { amount: 0, count: 0 };
           g.amount += norm.pastDueBalance; g.count += 1; groupMap.set(grp, g);
-        }
 
-        if (norm.notDueBalance > 0 && row.notDueDate) {
-          const d = new Date(row.notDueDate);
-          d.setHours(0, 0, 0, 0);
-          const idx = Math.floor((d.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
-          if (idx >= 0 && idx < WINDOW) timeline[idx] += norm.notDueBalance;
+          overdueRows.push({
+            id: row.user?.id || '',
+            code: row.user?.mikroCariCode || '',
+            name: row.user?.displayName || row.user?.mikroName || row.user?.name || '',
+            sector: sec,
+            pastDue: norm.pastDueBalance,
+            valor: row.valor ?? 0,
+          });
         }
       }
 
@@ -545,11 +551,8 @@ class VadeController {
         return top;
       };
 
-      const upcomingTimeline = timeline.map((amount, i) => {
-        const d = new Date(today);
-        d.setDate(today.getDate() + i);
-        return { date: d.toISOString().slice(0, 10), amount: round2(amount) };
-      });
+      overdueRows.sort((a, b) => b.pastDue - a.pastDue);
+      const topOverdue = overdueRows.slice(0, 10).map((r) => ({ ...r, pastDue: round2(r.pastDue) }));
 
       res.json({
         kpis: {
@@ -574,8 +577,7 @@ class VadeController {
         },
         sectorDistribution: toDistribution(sectorMap, 8),
         groupDistribution: toDistribution(groupMap, 8),
-        upcomingTimeline,
-        upcomingWindowDays: WINDOW,
+        topOverdue,
       });
     } catch (error) {
       next(error);

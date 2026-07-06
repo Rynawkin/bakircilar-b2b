@@ -679,8 +679,7 @@ export interface VadeDashboard {
   concentration: { overdueCount: number; top10: number; top20: number; top50: number };
   sectorDistribution: VadeDistributionItem[];
   groupDistribution: VadeDistributionItem[];
-  upcomingTimeline: Array<{ date: string; amount: number }>;
-  upcomingWindowDays: number;
+  topOverdue: Array<{ id: string; code: string; name: string; sector: string; pastDue: number; valor: number }>;
 }
 
 // ==================== E-INVOICE TYPES ====================
