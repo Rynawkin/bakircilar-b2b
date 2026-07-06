@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { VadeAssignment, VadeNote } from '@/types';
+import { NOTE_TEMPLATES, businessDayBefore } from '@/lib/vadeNotes';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
 export type { VadeAssignment, VadeNote } from '@/types';
@@ -78,10 +79,12 @@ export function useVadeMusteriDetay() {
   const [loading, setLoading] = useState(true);
   const [noteContent, setNoteContent] = useState('');
   const [noteTags, setNoteTags] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [promiseDate, setPromiseDate] = useState('');
   const [reminderDate, setReminderDate] = useState('');
   const [reminderNote, setReminderNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   const [classification, setClassification] = useState('green');
   const [customClassification, setCustomClassification] = useState('');
@@ -119,6 +122,39 @@ export function useVadeMusteriDetay() {
     loadDetail();
   }, [customerId, loadDetail]);
 
+  const resetNoteForm = () => {
+    setNoteContent('');
+    setNoteTags('');
+    setSelectedTags([]);
+    setPromiseDate('');
+    setReminderDate('');
+    setReminderNote('');
+    setEditingNoteId(null);
+  };
+
+  const toggleTag = (id: string) =>
+    setSelectedTags((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
+
+  const applyTemplate = (templateId: string) => {
+    const tpl = NOTE_TEMPLATES.find((t) => t.id === templateId);
+    if (!tpl) return;
+    setNoteContent(tpl.content);
+    if (tpl.tag) setSelectedTags((prev) => (prev.includes(tpl.tag) ? prev : [...prev, tpl.tag]));
+  };
+
+  const startEditNote = (note: VadeNote) => {
+    setEditingNoteId(note.id);
+    setNoteContent(note.noteContent || '');
+    setSelectedTags(Array.isArray(note.tags) ? note.tags : []);
+    setNoteTags('');
+    setPromiseDate(note.promiseDate ? String(note.promiseDate).slice(0, 10) : '');
+    setReminderDate(note.reminderDate ? String(note.reminderDate).slice(0, 10) : '');
+    setReminderNote(note.reminderNote || '');
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => resetNoteForm();
+
   const handleSaveNote = async () => {
     if (!noteContent.trim()) {
       toast.error('Not bos olamaz');
@@ -126,28 +162,51 @@ export function useVadeMusteriDetay() {
     }
     setSavingNote(true);
     try {
-      const tags = noteTags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean);
-      const response = await adminApi.createVadeNote({
-        customerId,
-        noteContent: noteContent.trim(),
-        promiseDate: promiseDate || null,
-        tags,
-        reminderDate: reminderDate || null,
-        reminderNote: reminderNote || null,
-      });
-      setNotes((prev) => [response.note, ...prev]);
-      setNoteContent('');
-      setNoteTags('');
-      setPromiseDate('');
-      setReminderDate('');
-      setReminderNote('');
-      toast.success('Not eklendi');
+      // Etiketler: yeni cip secimi varsa onu, yoksa eski virgullu metni kullan (geriye uyum)
+      const tags = selectedTags.length
+        ? selectedTags
+        : noteTags.split(',').map((tag) => tag.trim()).filter(Boolean);
+
+      // Soz tarihinden otomatik hatirlatici (hatirlatma bos ise bir is gunu oncesi)
+      let effReminderDate = reminderDate;
+      let effReminderNote = reminderNote;
+      if (promiseDate && !reminderDate) {
+        const auto = businessDayBefore(promiseDate);
+        if (auto) {
+          effReminderDate = auto;
+          if (!effReminderNote.trim()) {
+            const label = customer?.displayName || customer?.mikroName || customer?.name || 'Musteri';
+            effReminderNote = `${label} icin odeme gunu yaklasti`;
+          }
+        }
+      }
+
+      if (editingNoteId) {
+        const response = await adminApi.updateVadeNote(editingNoteId, {
+          noteContent: noteContent.trim(),
+          promiseDate: promiseDate || null,
+          tags,
+          reminderDate: effReminderDate || null,
+          reminderNote: effReminderNote || null,
+        });
+        setNotes((prev) => prev.map((n) => (n.id === editingNoteId ? response.note : n)));
+        toast.success('Not guncellendi');
+      } else {
+        const response = await adminApi.createVadeNote({
+          customerId,
+          noteContent: noteContent.trim(),
+          promiseDate: promiseDate || null,
+          tags,
+          reminderDate: effReminderDate || null,
+          reminderNote: effReminderNote || null,
+        });
+        setNotes((prev) => [response.note, ...prev]);
+        toast.success('Not eklendi');
+      }
+      resetNoteForm();
     } catch (error) {
-      console.error('Note create error:', error);
-      toast.error('Not eklenemedi');
+      console.error('Note save error:', error);
+      toast.error('Not kaydedilemedi');
     } finally {
       setSavingNote(false);
     }
@@ -210,6 +269,13 @@ export function useVadeMusteriDetay() {
     setNoteContent,
     noteTags,
     setNoteTags,
+    selectedTags,
+    setSelectedTags,
+    toggleTag,
+    applyTemplate,
+    editingNoteId,
+    startEditNote,
+    cancelEdit,
     promiseDate,
     setPromiseDate,
     reminderDate,

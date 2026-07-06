@@ -1,7 +1,8 @@
 'use client';
 
-import { ChevronLeft, RefreshCw, Check } from 'lucide-react';
+import { ChevronLeft, RefreshCw, Check, Pencil, X } from 'lucide-react';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
+import { NOTE_TEMPLATES, NOTE_TAGS, noteTagLabel } from '@/lib/vadeNotes';
 import {
   useVadeMusteriDetay,
   classificationOptions,
@@ -44,8 +45,12 @@ export default function VadeMusteriDetayNew() {
     loading,
     noteContent,
     setNoteContent,
-    noteTags,
-    setNoteTags,
+    selectedTags,
+    toggleTag,
+    applyTemplate,
+    editingNoteId,
+    startEditNote,
+    cancelEdit,
     promiseDate,
     setPromiseDate,
     reminderDate,
@@ -181,23 +186,74 @@ export default function VadeMusteriDetayNew() {
             <div className="flex flex-col gap-3.5">
               {/* Not Ekle */}
               <div className={`${CARD} p-4`}>
-                <div className="mb-3 text-[13px] font-semibold text-[#14223b]">Not Ekle</div>
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-[13px] font-semibold text-[#14223b]">
+                    {editingNoteId ? 'Notu Duzenle' : 'Not Ekle'}
+                  </div>
+                  {editingNoteId && (
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      className="flex items-center gap-1 rounded-lg border border-[#d8e0ec] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#51607a] hover:bg-[#f4f6fa]"
+                    >
+                      <X size={12} /> Vazgec
+                    </button>
+                  )}
+                </div>
+
+                {/* Hazir sablon */}
+                <label className="mb-2.5 flex flex-col gap-1">
+                  <span className={LABEL}>Hazir Sablon</span>
+                  <select
+                    className={`${FIELD} cursor-pointer`}
+                    value=""
+                    onChange={(event) => {
+                      if (event.target.value) applyTemplate(event.target.value);
+                    }}
+                  >
+                    <option value="">Sablon sec (opsiyonel)</option>
+                    {NOTE_TEMPLATES.map((tpl) => (
+                      <option key={tpl.id} value={tpl.id}>
+                        {tpl.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <textarea
                   className="mb-2.5 min-h-[64px] w-full resize-none rounded-lg border border-[#e3e8f0] px-2.5 py-2 text-[12.5px] text-[#14223b] outline-none focus:border-[#15356b]"
                   value={noteContent}
                   onChange={(event) => setNoteContent(event.target.value)}
                   placeholder="Gorusme notu..."
                 />
-                <div className="mb-2.5 grid grid-cols-1 gap-2.5 md:grid-cols-3">
-                  <label className="flex flex-col gap-1">
-                    <span className={LABEL}>Etiketler</span>
-                    <input
-                      className={FIELD}
-                      value={noteTags}
-                      onChange={(event) => setNoteTags(event.target.value)}
-                      placeholder="odeme, soz..."
-                    />
-                  </label>
+
+                {/* Etiket cipleri */}
+                <div className="mb-2.5">
+                  <span className={LABEL}>Etiketler</span>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {NOTE_TAGS.map((tag) => {
+                      const active = selectedTags.includes(tag.id);
+                      return (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => toggleTag(tag.id)}
+                          className="rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
+                          style={
+                            active
+                              ? { background: tag.bg, borderColor: tag.border, color: tag.text }
+                              : { background: '#fff', borderColor: '#e3e8f0', color: '#8b97ac' }
+                          }
+                        >
+                          {tag.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Soz + hatirlatma tarihleri */}
+                <div className="mb-1.5 grid grid-cols-1 gap-2.5 md:grid-cols-2">
                   <label className="flex flex-col gap-1">
                     <span className={LABEL}>Soz Tarihi</span>
                     <input
@@ -217,6 +273,12 @@ export default function VadeMusteriDetayNew() {
                     />
                   </label>
                 </div>
+                {promiseDate && !reminderDate && (
+                  <div className="mb-2.5 text-[10.5px] text-[#8b97ac]">
+                    Hatirlatma bos — soz tarihinden bir is gunu oncesine otomatik kurulacak.
+                  </div>
+                )}
+
                 <label className="mb-3 flex flex-col gap-1">
                   <span className={LABEL}>Hatirlatma Notu</span>
                   <input
@@ -227,7 +289,7 @@ export default function VadeMusteriDetayNew() {
                   />
                 </label>
                 <button type="button" className={PRIMARY_BTN} onClick={handleSaveNote} disabled={savingNote}>
-                  {savingNote ? 'Kaydediliyor...' : 'Not Kaydet'}
+                  {savingNote ? 'Kaydediliyor...' : editingNoteId ? 'Guncelle' : 'Not Kaydet'}
                 </button>
               </div>
 
@@ -284,7 +346,7 @@ export default function VadeMusteriDetayNew() {
                         )}
                       </div>
                       <p className="whitespace-pre-wrap text-[12px] text-[#51607a]">{note.noteContent}</p>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px]">
                         {note.tags?.map((tag) => (
                           <span
                             key={tag}
@@ -292,7 +354,7 @@ export default function VadeMusteriDetayNew() {
                               tagBadgeStyle[tagToBadge(tag)] || tagBadgeStyle.default
                             }`}
                           >
-                            {tag}
+                            {noteTagLabel(tag)}
                           </span>
                         ))}
                         {note.promiseDate && (
@@ -310,6 +372,13 @@ export default function VadeMusteriDetayNew() {
                             Bakiye: {formatCurrency(note.balanceAtTime)}
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => startEditNote(note)}
+                          className="ml-auto flex items-center gap-1 rounded-[5px] border border-[#d8e0ec] bg-white px-2 py-0.5 font-semibold text-[#51607a] hover:bg-[#f4f6fa]"
+                        >
+                          <Pencil size={10} /> Duzenle
+                        </button>
                       </div>
                     </div>
                   ))}
