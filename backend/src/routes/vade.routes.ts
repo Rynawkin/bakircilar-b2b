@@ -68,6 +68,8 @@ const vadeImportSchema = z.object({
 
 router.get('/balances', vadeController.getBalances);
 router.get('/dashboard', vadeController.getDashboard);
+router.get('/analytics', vadeController.getAnalytics);
+router.get('/management', vadeController.getManagement);
 router.get('/filters', vadeController.getFilters);
 router.get('/customers/:id', vadeController.getCustomerDetail);
 router.get('/notes', vadeController.getNotes);

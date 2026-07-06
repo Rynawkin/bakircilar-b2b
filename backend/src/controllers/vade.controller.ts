@@ -1072,6 +1072,181 @@ class VadeController {
       next(error);
     }
   }
+
+  // F4: Analiz — musteri iletisim davranisi + satici not performansi
+  async getAnalytics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const days = Math.min(Math.max(parseNumber(req.query.days, 90), 1), 730);
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+
+      const restrict = !canAccessAllSectors(req.user?.role);
+      const assigned = getAssignedSectorCodes(req);
+      if (restrict && assigned.length === 0) {
+        res.json({ customerBehavior: [], staffPerformance: [], days });
+        return;
+      }
+
+      const sectorFilter: Prisma.StringFilter = { notIn: [...EXCLUDED_SECTOR_CODES] };
+      if (restrict) sectorFilter.in = assigned;
+      const customerWhere: Prisma.UserWhereInput = {
+        sectorCode: sectorFilter,
+        NOT: { OR: buildExcludedSectorFilters() },
+      };
+
+      const notes = await prisma.vadeNote.findMany({
+        where: { createdAt: { gte: since }, customer: customerWhere },
+        select: {
+          customerId: true,
+          authorId: true,
+          tags: true,
+          promiseDate: true,
+          createdAt: true,
+          customer: { select: { displayName: true, mikroName: true, name: true, mikroCariCode: true, sectorCode: true } },
+          author: { select: { name: true, role: true } },
+        },
+      });
+
+      type CB = { name: string; code: string; sector: string; noteCount: number; promiseCount: number; lastNoteAt: Date | null; tagCounts: Record<string, number> };
+      type SP = { name: string; role: string; totalNotes: number; promiseNotes: number; taggedNotes: number; customers: Set<string> };
+      const custMap = new Map<string, CB>();
+      const staffMap = new Map<string, SP>();
+
+      for (const n of notes) {
+        const cb = custMap.get(n.customerId) || {
+          name: n.customer?.displayName || n.customer?.mikroName || n.customer?.name || '',
+          code: n.customer?.mikroCariCode || '',
+          sector: n.customer?.sectorCode || '',
+          noteCount: 0, promiseCount: 0, lastNoteAt: null, tagCounts: {},
+        };
+        cb.noteCount += 1;
+        if (n.promiseDate) cb.promiseCount += 1;
+        if (!cb.lastNoteAt || n.createdAt > cb.lastNoteAt) cb.lastNoteAt = n.createdAt;
+        for (const t of n.tags || []) cb.tagCounts[t] = (cb.tagCounts[t] || 0) + 1;
+        custMap.set(n.customerId, cb);
+
+        if (n.authorId) {
+          const sp = staffMap.get(n.authorId) || { name: n.author?.name || 'Bilinmiyor', role: n.author?.role || '', totalNotes: 0, promiseNotes: 0, taggedNotes: 0, customers: new Set<string>() };
+          sp.totalNotes += 1;
+          if (n.promiseDate) sp.promiseNotes += 1;
+          if ((n.tags || []).length > 0) sp.taggedNotes += 1;
+          sp.customers.add(n.customerId);
+          staffMap.set(n.authorId, sp);
+        }
+      }
+
+      const customerBehavior = [...custMap.values()]
+        .map((c) => {
+          let mostUsedTag: string | null = null; let max = 0;
+          for (const [t, cnt] of Object.entries(c.tagCounts)) if (cnt > max) { max = cnt; mostUsedTag = t; }
+          return {
+            name: c.name, code: c.code, sector: c.sector,
+            noteCount: c.noteCount, promiseCount: c.promiseCount,
+            lastNoteAt: c.lastNoteAt, mostUsedTag, mostUsedTagCount: max,
+          };
+        })
+        .sort((a, b) => b.noteCount - a.noteCount)
+        .slice(0, 100);
+
+      const staffPerformance = [...staffMap.values()]
+        .map((s) => ({
+          name: s.name, role: s.role,
+          totalNotes: s.totalNotes, promiseNotes: s.promiseNotes, taggedNotes: s.taggedNotes,
+          uniqueCustomers: s.customers.size,
+          avgNotesPerCustomer: s.customers.size > 0 ? Math.round((s.totalNotes / s.customers.size) * 10) / 10 : 0,
+        }))
+        .sort((a, b) => b.totalNotes - a.totalNotes);
+
+      res.json({ customerBehavior, staffPerformance, days });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // F5: Yonetim/Personel performans — sadece ADMIN/HEAD_ADMIN/MANAGER
+  async getManagement(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!canAccessAllSectors(req.user?.role)) {
+        res.status(403).json({ error: 'Access denied' });
+        return;
+      }
+      const days = Math.min(Math.max(parseNumber(req.query.days, 30), 1), 730);
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      const now = new Date();
+
+      const staffRoles = ['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP', 'DIVERSEY'] as const;
+      const staff = await prisma.user.findMany({
+        where: { role: { in: staffRoles as any } },
+        select: { id: true, name: true, role: true, lastLoginAt: true },
+      });
+      const staffIds = staff.map((s) => s.id);
+
+      const [notes, assignments] = await Promise.all([
+        prisma.vadeNote.findMany({
+          where: { createdAt: { gte: since }, authorId: { in: staffIds } },
+          select: { authorId: true, createdAt: true },
+        }),
+        prisma.vadeAssignment.groupBy({ by: ['staffId'], _count: { _all: true } }),
+      ]);
+
+      const noteCountByStaff = new Map<string, number>();
+      const lastNoteByStaff = new Map<string, Date>();
+      const dailyMap = new Map<string, number>();
+      for (const n of notes) {
+        if (!n.authorId) continue;
+        noteCountByStaff.set(n.authorId, (noteCountByStaff.get(n.authorId) || 0) + 1);
+        const prev = lastNoteByStaff.get(n.authorId);
+        if (!prev || n.createdAt > prev) lastNoteByStaff.set(n.authorId, n.createdAt);
+        const key = n.createdAt.toISOString().slice(0, 10);
+        dailyMap.set(key, (dailyMap.get(key) || 0) + 1);
+      }
+      const assignByStaff = new Map<string, number>();
+      for (const a of assignments) assignByStaff.set(a.staffId, a._count._all);
+
+      const perf = staff.map((s) => {
+        const noteCount = noteCountByStaff.get(s.id) || 0;
+        const assignedCustomers = assignByStaff.get(s.id) || 0;
+        const lastNoteAt = lastNoteByStaff.get(s.id) || null;
+        const lastActivity = [s.lastLoginAt, lastNoteAt].filter(Boolean).sort((a, b) => new Date(b as Date).getTime() - new Date(a as Date).getTime())[0] || null;
+        const noteScore = Math.min(noteCount * 2, 20);
+        const assignScore = Math.min(assignedCustomers, 10);
+        const loginScore = s.lastLoginAt && new Date(s.lastLoginAt) >= since ? 10 : 0;
+        const activityScore = noteScore + assignScore + loginScore;
+        const daysSince = lastActivity ? Math.floor((now.getTime() - new Date(lastActivity).getTime()) / 86400000) : null;
+        return {
+          id: s.id, name: s.name, role: s.role,
+          noteCount, assignedCustomers,
+          efficiency: assignedCustomers > 0 ? Math.round((noteCount / assignedCustomers) * 100) / 100 : 0,
+          activityScore, lastActivity, daysSinceActivity: daysSince,
+        };
+      });
+
+      const activeUsers = perf.filter((p) => p.noteCount > 0).length;
+      const totalNotes = notes.length;
+      const totalAssignments = [...assignByStaff.values()].reduce((s, x) => s + x, 0);
+
+      const issues: Array<{ type: 'warning' | 'info' | 'error'; title: string; names: string[] }> = [];
+      const passive = perf.filter((p) => p.noteCount === 0 && p.role !== 'HEAD_ADMIN' && p.role !== 'ADMIN').map((p) => p.name);
+      if (passive.length) issues.push({ type: 'warning', title: 'Hic not girmemis personel', names: passive });
+      const inactive = perf.filter((p) => p.daysSinceActivity !== null && p.daysSinceActivity > 7 && p.role !== 'HEAD_ADMIN' && p.role !== 'ADMIN').map((p) => `${p.name} (${p.daysSinceActivity}g)`);
+      if (inactive.length) issues.push({ type: 'info', title: '7+ gundur aktif degil', names: inactive });
+      const noAssign = perf.filter((p) => p.assignedCustomers === 0 && p.role === 'SALES_REP').map((p) => p.name);
+      if (noAssign.length) issues.push({ type: 'error', title: 'Musteri atanmamis satisci', names: noAssign });
+
+      const dailyTrend = [...dailyMap.entries()].map(([date, count]) => ({ date, notes: count })).sort((a, b) => a.date.localeCompare(b.date));
+
+      res.json({
+        summary: { totalUsers: staff.length, totalNotes, totalAssignments, activeUsers },
+        topPerformers: perf.sort((a, b) => b.activityScore - a.activityScore),
+        issues,
+        dailyTrend,
+        days,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new VadeController();

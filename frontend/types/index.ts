@@ -687,6 +687,32 @@ export interface VadeDashboard {
   topOverdue: Array<{ id: string; code: string; name: string; sector: string; pastDue: number; valor: number }>;
 }
 
+export interface VadeAnalytics {
+  customerBehavior: Array<{
+    name: string; code: string; sector: string;
+    noteCount: number; promiseCount: number;
+    lastNoteAt: string | null; mostUsedTag: string | null; mostUsedTagCount: number;
+  }>;
+  staffPerformance: Array<{
+    name: string; role: string;
+    totalNotes: number; promiseNotes: number; taggedNotes: number;
+    uniqueCustomers: number; avgNotesPerCustomer: number;
+  }>;
+  days: number;
+}
+
+export interface VadeManagement {
+  summary: { totalUsers: number; totalNotes: number; totalAssignments: number; activeUsers: number };
+  topPerformers: Array<{
+    id: string; name: string; role: string;
+    noteCount: number; assignedCustomers: number; efficiency: number;
+    activityScore: number; lastActivity: string | null; daysSinceActivity: number | null;
+  }>;
+  issues: Array<{ type: 'warning' | 'info' | 'error'; title: string; names: string[] }>;
+  dailyTrend: Array<{ date: string; notes: number }>;
+  days: number;
+}
+
 // ==================== E-INVOICE TYPES ====================
 
 export type EInvoiceMatchStatus = 'MATCHED' | 'PARTIAL' | 'NOT_FOUND';

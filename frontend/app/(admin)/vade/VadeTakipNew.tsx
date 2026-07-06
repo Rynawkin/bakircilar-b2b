@@ -2,8 +2,12 @@
 
 import { useState } from 'react';
 import VadeQuickNoteModal from './VadeQuickNoteModal';
+import VadeReminderBanner from './VadeReminderBanner';
+import { useAuthStore } from '@/lib/store/authStore';
 import {
   Search,
+  BarChart3,
+  Activity,
   Filter,
   FileUp,
   FileSpreadsheet,
@@ -93,6 +97,8 @@ export default function VadeTakipNew() {
   } = useVadeTakip();
 
   const [quickNoteFor, setQuickNoteFor] = useState<{ id: string; label: string } | null>(null);
+  const role = useAuthStore((s) => s.user?.role);
+  const canManage = role === 'HEAD_ADMIN' || role === 'ADMIN' || role === 'MANAGER';
 
   // Yeni stil tablo basligi: siralama gostergesi lucide ikon ile (mevcut getSortIndicator metni yerine gorsel)
   const sortIcon = (key: string) => {
@@ -132,6 +138,16 @@ export default function VadeTakipNew() {
             <LayoutDashboard width={15} height={15} stroke="currentColor" strokeWidth={2} />
             Panel
           </button>
+          <button type="button" className={headerBtn} onClick={() => router.push('/vade/analytics')}>
+            <BarChart3 width={15} height={15} stroke="currentColor" strokeWidth={2} />
+            Analiz
+          </button>
+          {canManage && (
+            <button type="button" className={headerBtn} onClick={() => router.push('/vade/management')}>
+              <Activity width={15} height={15} stroke="currentColor" strokeWidth={2} />
+              Yonetim
+            </button>
+          )}
           <button type="button" className={headerBtn} onClick={() => router.push('/vade/import')}>
             <FileUp width={15} height={15} stroke="currentColor" strokeWidth={2} />
             Excel Import
@@ -169,6 +185,9 @@ export default function VadeTakipNew() {
           </button>
         </div>
       </div>
+
+      {/* Giris hatirlatma banneri */}
+      <VadeReminderBanner />
 
       {/* 4 ozet karti */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5 mb-4">

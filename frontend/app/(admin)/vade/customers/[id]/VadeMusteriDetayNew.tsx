@@ -3,6 +3,7 @@
 import { ChevronLeft, RefreshCw, Check, Pencil, X } from 'lucide-react';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { NOTE_TEMPLATES, NOTE_TAGS, noteTagLabel } from '@/lib/vadeNotes';
+import VadeTimeline from './VadeTimeline';
 import {
   useVadeMusteriDetay,
   classificationOptions,
@@ -483,6 +484,12 @@ export default function VadeMusteriDetayNew() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Zaman Cizelgesi */}
+              <div className={`${CARD} p-4`}>
+                <div className="mb-3 text-[13px] font-semibold text-[#14223b]">Zaman Cizelgesi</div>
+                <VadeTimeline notes={notes} balance={balance} />
               </div>
             </div>
           </div>
