@@ -269,6 +269,12 @@ const toIsoDate = (value: Date) => {
 
 const escapeSqlString = (value: string) => String(value || '').replace(/'/g, "''");
 
+// Dashboard istatistik onbelegi: getDashboardStats her acilista ~4 canli Mikro sorgusu
+// yapiyor (onbelleksiz) -> es zamanli acilislarda Mikro baglanti havuzu (max ~25) tikanip
+// sistem donuyordu. Kisa TTL onbellek: ayni kapsam icin 60sn boyunca Mikro'ya gidilmez.
+const dashboardStatsCache = new Map<string, { data: any; ts: number }>();
+const DASHBOARD_CACHE_TTL_MS = 60_000;
+
 const applyPendingOrdersToStocks = (
   warehouseStocks: Record<string, number>,
   pendingByWarehouse: Record<string, number>
@@ -3117,6 +3123,7 @@ export class AdminController {
    * GET /api/admin/dashboard/stats
    */
   async getDashboardStats(req: Request, res: Response, next: NextFunction) {
+    let cacheKey: string | null = null;
     try {
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
@@ -3130,6 +3137,22 @@ export class AdminController {
       const period = periodRange.resolvedPeriod;
 
       const isSalesRep = userRole === 'SALES_REP';
+
+      // Onbellek kontrolu (Mikro sorgularindan ONCE): ayni kapsam+donem icin 60sn taze cevap varsa dogrudan don.
+      cacheKey = JSON.stringify({
+        rep: isSalesRep,
+        sectors: isSalesRep ? [...assignedSectorCodes].sort() : 'ALL',
+        own: isSalesRep ? (ownSectorCode || '') : '',
+        period,
+        s: periodRange.start.toISOString(),
+        e: periodRange.end.toISOString(),
+      });
+      const cachedStats = dashboardStatsCache.get(cacheKey);
+      if (cachedStats && Date.now() - cachedStats.ts < DASHBOARD_CACHE_TTL_MS) {
+        res.json(cachedStats.data);
+        return;
+      }
+
       const salesRepScopeCodes = isSalesRep
         ? []
         : await mikroService.executeQuery(`
@@ -3275,7 +3298,7 @@ export class AdminController {
         fetchMikroQuoteSummary().catch(() => ({ count: 0, amount: 0 })),
       ]);
 
-      res.json({
+      const payload = {
         orders: orderStats,
         customerCount,
         excessProductCount: productCount,
@@ -3290,21 +3313,26 @@ export class AdminController {
           codes: sectorCodes,
         },
         summary: {
-          sales: {
-            count: salesSummary.count,
-            amount: salesSummary.amount,
-          },
-          orders: {
-            count: mikroOrderSummary.count,
-            amount: mikroOrderSummary.amount,
-          },
-          quotes: {
-            count: mikroQuoteSummary.count,
-            amount: mikroQuoteSummary.amount,
-          },
+          sales: { count: salesSummary.count, amount: salesSummary.amount },
+          orders: { count: mikroOrderSummary.count, amount: mikroOrderSummary.amount },
+          quotes: { count: mikroQuoteSummary.count, amount: mikroQuoteSummary.amount },
         },
-      });
+      };
+
+      if (cacheKey) {
+        if (dashboardStatsCache.size > 200) dashboardStatsCache.clear();
+        dashboardStatsCache.set(cacheKey, { data: payload, ts: Date.now() });
+      }
+      res.json(payload);
     } catch (error) {
+      // Mikro yavas/tikaliysa: son bilinen (bayat) cevabi don ki dashboard donmasin.
+      if (cacheKey) {
+        const stale = dashboardStatsCache.get(cacheKey);
+        if (stale) {
+          res.json(stale.data);
+          return;
+        }
+      }
       next(error);
     }
   }
