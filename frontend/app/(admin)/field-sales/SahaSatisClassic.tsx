@@ -900,7 +900,7 @@ function ProductPanel(props: any) {
                 <div className="flex gap-3">
                   <ProductImage product={product} card />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-black text-slate-950 lg:overflow-visible lg:whitespace-normal lg:text-clip lg:text-base lg:leading-snug">{product.name}</p>
+                    <p className="line-clamp-2 text-sm font-black leading-snug text-slate-950 lg:text-base">{product.name}</p>
                     <p className="text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
                     <CategoryLastPurchasePill info={categoryInfo} />
                     {rawProduct.reason && (
@@ -957,7 +957,7 @@ function ProductPanel(props: any) {
                 <Button variant="secondary" className="rounded-2xl" onClick={() => (isSummaryRow ? openProductDetail(product) : shareProduct(product))}>
                   {isSummaryRow ? 'Detay' : 'WhatsApp'}
                 </Button>
-                <Button className="rounded-2xl" onClick={() => addToDraft(product)}>
+                <Button className="min-h-11 rounded-2xl" onClick={() => addToDraft(product)}>
                   <Plus className="mr-1 h-4 w-4" /> Ekle
                 </Button>
               </div>

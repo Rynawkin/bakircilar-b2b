@@ -725,6 +725,7 @@ export interface EInvoiceDocument {
   eInvoiceUuid?: string | null;
   customerCode?: string | null;
   customerName?: string | null;
+  customerTaxNo?: string | null;
   issueDate?: string | null;
   sentAt?: string | null;
   subtotalAmount?: number | null;
@@ -753,11 +754,18 @@ export interface EInvoiceDocument {
 
 export interface Notification {
   id: string;
+  category?: string;
   title: string;
   body?: string | null;
   linkUrl?: string | null;
   isRead: boolean;
   createdAt: string;
+}
+
+export interface NotificationPreference {
+  key: string;
+  label: string;
+  enabled: boolean;
 }
 
 // ==================== SETTINGS TYPES ====================

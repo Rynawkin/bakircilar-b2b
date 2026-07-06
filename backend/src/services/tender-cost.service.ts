@@ -211,6 +211,7 @@ class TenderCostService {
     await this.addSystemNote(id, 'Ihale maliyet talebi tamamlandi.', actor.userId || null);
     if (request.createdById) {
       await notificationService.createForUsers([request.createdById], {
+        category: 'PRICE',
         title: 'Ihale maliyet talebi tamamlandi',
         body: `${request.requestNo} - ${request.title}`,
         linkUrl: `/supplier-costs?tab=tenders&tenderId=${request.id}`,
@@ -353,7 +354,7 @@ class TenderCostService {
     return { userName: row?.displayName || row?.mikroName || row?.name || row?.email || null };
   }
 
-  private async notifyPurchasing(payload: { title: string; body?: string | null; linkUrl?: string | null }, excludeUserId?: string | null) {
+  private async notifyPurchasing(payload: { category?: string | null; title: string; body?: string | null; linkUrl?: string | null }, excludeUserId?: string | null) {
     const users = await prisma.user.findMany({
       where: {
         active: true,
@@ -362,7 +363,7 @@ class TenderCostService {
       },
       select: { id: true },
     });
-    await notificationService.createForUsers(users.map((user) => user.id), payload);
+    await notificationService.createForUsers(users.map((user) => user.id), { category: 'PRICE', ...payload });
   }
 
   private async addSystemNote(requestId: string, body: string, authorId?: string | null) {

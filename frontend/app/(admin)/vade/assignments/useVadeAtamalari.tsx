@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Customer, VadeAssignment } from '@/types';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
 export type { Customer, VadeAssignment } from '@/types';
@@ -77,14 +78,14 @@ export function useVadeAtamalari() {
   }, [customers]);
 
   const visibleCustomers = useMemo(() => {
-    const lower = search.trim().toLowerCase();
+    const tokens = buildSearchTokens(search);
     return customers.filter((customer) => {
       if (selectedSector !== 'all' && customer.sectorCode !== selectedSector) {
         return false;
       }
-      if (!lower) return true;
-      const haystack = `${customer.name} ${customer.mikroCariCode ?? ''}`.toLowerCase();
-      return haystack.includes(lower);
+      if (tokens.length === 0) return true;
+      const haystack = normalizeSearchText(`${customer.name} ${customer.mikroCariCode ?? ''} ${customer.sectorCode ?? ''}`);
+      return matchesSearchTokens(haystack, tokens);
     });
   }, [customers, selectedSector, search]);
 

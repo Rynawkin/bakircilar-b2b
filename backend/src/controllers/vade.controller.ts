@@ -3,6 +3,7 @@ import { Prisma, VadeBalanceSource } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import vadeService from '../services/vade.service';
 import vadeSyncService from '../services/vadeSync.service';
+import config from '../config';
 
 const parseNumber = (value: any, fallback: number) => {
   const parsed = Number(value);
@@ -1046,6 +1047,13 @@ class VadeController {
 
   async triggerSync(req: Request, res: Response, next: NextFunction) {
     try {
+      if (config.vadeSyncAutoDisabled) {
+        res.status(409).json({
+          success: false,
+          error: 'Mikro vade sync su anda kapali. Excel import aktif ve otoriter kaynak olarak kullaniliyor.',
+        });
+        return;
+      }
       const syncLog = await vadeService.createSyncLog(VadeBalanceSource.MIKRO);
       vadeSyncService.syncFromMikro('MANUAL', syncLog.id)
         .catch((error) => console.error('Vade sync background error:', error));

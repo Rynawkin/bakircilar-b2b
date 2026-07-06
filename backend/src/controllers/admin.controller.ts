@@ -39,6 +39,8 @@ import minMaxExclusionService from '../services/minmax-exclusion.service';
 import demandPatternService from '../services/demand-pattern.service';
 import scheduledJobsService from '../services/scheduled-jobs.service';
 import priceListSuggestionService from '../services/price-list-suggestion.service';
+import auditLogService from '../services/audit-log.service';
+import actionRadarService from '../services/action-radar.service';
 import { cacheService } from '../services/cache.service';
 import MIKRO_TABLES from '../config/mikro-tables';
 import { splitSearchTokens, normalizeSearchText } from '../utils/search';
@@ -1455,6 +1457,23 @@ export class AdminController {
         },
       });
 
+      await auditLogService.fromRequest(req, {
+        action: 'CUSTOMER_CREATE',
+        entityType: 'User',
+        entityId: user.id,
+        entityCode: user.mikroCariCode || user.email || null,
+        summary: `Musteri olusturuldu: ${user.mikroCariCode || user.email || user.name}`,
+        after: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          customerType: user.customerType,
+          mikroCariCode: user.mikroCariCode,
+          sectorCode: user.sectorCode,
+          active: true,
+        },
+      });
+
       res.status(201).json({
         message: 'Customer created successfully',
         customer: user,
@@ -2601,6 +2620,14 @@ export class AdminController {
         whiteSira,
       });
 
+      await auditLogService.fromRequest(req, {
+        action: 'ORDER_UPDATE',
+        entityType: 'Order',
+        entityId: id,
+        summary: `Siparis guncellendi: ${id}`,
+        metadata: { changedFields: Object.keys(req.body || {}) },
+      });
+
       res.json({ order: updated });
     } catch (error) {
       next(error);
@@ -2699,6 +2726,19 @@ export class AdminController {
         requestedById: req.user?.userId,
       });
 
+      await auditLogService.fromRequest(req, {
+        action: 'ORDER_CREATE_MANUAL',
+        entityType: 'Order',
+        entityId: result.orderId,
+        entityCode: result.orderNumber || null,
+        summary: `Admin panelden siparis girildi: ${result.orderNumber || result.orderId}`,
+        metadata: {
+          customerId,
+          itemCount: Array.isArray(items) ? items.length : 0,
+          mikroOrderIds: result.mikroOrderIds,
+        },
+      });
+
       res.json({
         message: 'Order created in Mikro',
         mikroOrderIds: result.mikroOrderIds,
@@ -2748,6 +2788,14 @@ export class AdminController {
       const result = await orderService.approveOrderAndWriteToMikro(id, adminNote, {
         invoiced: invoicedSeries,
         white: whiteSeries,
+      });
+
+      await auditLogService.fromRequest(req, {
+        action: 'ORDER_APPROVE',
+        entityType: 'Order',
+        entityId: id,
+        summary: `Siparis onaylandi ve Mikro'ya yazildi: ${id}`,
+        metadata: { adminNote: adminNote || null, mikroOrderIds: result.mikroOrderIds },
       });
 
       res.json({
@@ -2800,6 +2848,14 @@ export class AdminController {
 
       await orderService.rejectOrder(id, adminNote);
 
+      await auditLogService.fromRequest(req, {
+        action: 'ORDER_REJECT',
+        entityType: 'Order',
+        entityId: id,
+        summary: `Siparis reddedildi: ${id}`,
+        metadata: { adminNote },
+      });
+
       res.json({
         message: 'Order rejected successfully',
       });
@@ -2851,6 +2907,14 @@ export class AdminController {
       const result = await orderService.approveOrderItemsAndWriteToMikro(id, itemIds, adminNote, {
         invoiced: invoicedSeries,
         white: whiteSeries,
+      });
+
+      await auditLogService.fromRequest(req, {
+        action: 'ORDER_ITEMS_APPROVE',
+        entityType: 'Order',
+        entityId: id,
+        summary: `${result.approvedCount} siparis kalemi onaylandi: ${id}`,
+        metadata: { itemIds, adminNote: adminNote || null, mikroOrderIds: result.mikroOrderIds },
       });
 
       res.json({
@@ -2908,6 +2972,14 @@ export class AdminController {
       }
 
       const result = await orderService.rejectOrderItems(id, itemIds, rejectionReason);
+
+      await auditLogService.fromRequest(req, {
+        action: 'ORDER_ITEMS_REJECT',
+        entityType: 'Order',
+        entityId: id,
+        summary: `${result.rejectedCount} siparis kalemi reddedildi: ${id}`,
+        metadata: { itemIds, rejectionReason },
+      });
 
       res.json({
         message: `${result.rejectedCount} items rejected successfully`,
@@ -4995,6 +5067,20 @@ export class AdminController {
         success: true,
         data,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/action-radar
+   * Teklif sagligi, terk sepet, tamamlayici motor, katalog/gorsel kalite,
+   * paket performansi ve anomali ozetlerini tek aksiyon raporunda toplar.
+   */
+  async getActionRadar(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await actionRadarService.getSnapshot();
+      res.json({ success: true, data });
     } catch (error) {
       next(error);
     }

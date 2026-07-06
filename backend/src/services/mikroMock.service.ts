@@ -553,6 +553,7 @@ export class MikroMockService {
     evrakSira: number | null;
     cariCode: string | null;
     cariName: string | null;
+    customerTaxNo: string | null;
     issueDate: Date | null;
     sentAt: Date | null;
     currencyCode: number | null;

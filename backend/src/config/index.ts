@@ -52,7 +52,10 @@ export const config = {
   // kesmemesi icin fiyat senkronu varsayilani 20:00'a alindi.
   priceSyncCronSchedule: process.env.PRICE_SYNC_CRON_SCHEDULE || '0 20 * * *',
   quoteSyncCronSchedule: process.env.QUOTE_SYNC_CRON_SCHEDULE || '0 18 * * *', // Her gün 18:00
-  vadeSyncCronSchedule: process.env.VADE_SYNC_CRON_SCHEDULE || '0 * * * *',
+  // Excel dogrulama tamamlanana kadar Mikro vade raporu otomatik cekilmez.
+  // Bilerek tekrar acmak icin VADE_SYNC_AUTO_DISABLED=false ve gercek cron schedule verilmeli.
+  vadeSyncCronSchedule: process.env.VADE_SYNC_CRON_SCHEDULE || '0 0 31 2 *',
+  vadeSyncAutoDisabled: process.env.VADE_SYNC_AUTO_DISABLED !== 'false',
   vadeReminderCronSchedule: process.env.VADE_REMINDER_CRON_SCHEDULE || '0 * * * *',
   marginReportCronSchedule: process.env.MARGIN_REPORT_CRON_SCHEDULE || '0 3 * * *',
   customerRecoveryHistoricalCronSchedule: process.env.CUSTOMER_RECOVERY_HISTORICAL_CRON_SCHEDULE || '0 6 * * *',

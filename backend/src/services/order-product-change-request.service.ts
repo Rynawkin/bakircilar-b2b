@@ -363,12 +363,14 @@ class OrderProductChangeRequestService {
     const assignedRecipients = Array.from(new Set(created.map((row) => row.assignedToId).filter(Boolean))) as string[];
     const adminRecipients = unassigned.length > 0 || assignedRecipients.length === 0 ? await this.adminRecipients() : [];
     await notificationService.createForUsers(assignedRecipients.length > 0 ? assignedRecipients : adminRecipients, {
+      category: 'ORDER',
       title: 'Onaylanacak urun siparis degisimi',
       body: `${sourceProductCode} yerine ${targetProductCode} icin ${created.length} siparis satiri onay bekliyor.`,
       linkUrl: '/dashboard',
     });
     if (unassigned.length > 0 && assignedRecipients.length > 0) {
       await notificationService.createForUsers(adminRecipients, {
+        category: 'ORDER',
         title: 'Satis kullanicisi bulunamayan urun degisimleri',
         body: `${sourceProductCode} -> ${targetProductCode} icin ${unassigned.length} satir yonetici kontrolu bekliyor.`,
         linkUrl: '/dashboard',
@@ -514,6 +516,7 @@ class OrderProductChangeRequestService {
     });
 
     await notificationService.createForUsers([request.requestedById], {
+      category: 'ORDER',
       title: 'Urun siparis degisimi onaylandi',
       body: `${request.orderNumber} satirinda ${request.sourceProductCode} yerine ${request.targetProductCode} uygulandi.`,
       linkUrl: '/reports/ucarer-depo',
@@ -539,6 +542,7 @@ class OrderProductChangeRequestService {
       },
     });
     await notificationService.createForUsers([request.requestedById], {
+      category: 'ORDER',
       title: 'Urun siparis degisimi reddedildi',
       body: `${request.orderNumber} satiri icin ${request.sourceProductCode} -> ${request.targetProductCode} reddedildi.`,
       linkUrl: '/reports/ucarer-depo',

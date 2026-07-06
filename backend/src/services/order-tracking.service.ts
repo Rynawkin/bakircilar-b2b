@@ -70,6 +70,11 @@ interface PendingOrder {
   warehouseStatusUpdatedAt?: Date | null;
 }
 
+type StaffScope = {
+  role?: string | null;
+  assignedSectorCodes?: string[] | null;
+};
+
 const toNumber = (value: unknown): number => {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
@@ -119,6 +124,24 @@ const resolveStockStatus = (
 };
 
 class OrderTrackingService {
+  private buildSalesRepOrderWhere(scope?: StaffScope): { where?: any; denyAll: boolean } {
+    if (scope?.role !== 'SALES_REP') {
+      return { denyAll: false };
+    }
+    const sectorCodes = (scope.assignedSectorCodes || [])
+      .map((code) => String(code || '').trim())
+      .filter(Boolean);
+    if (sectorCodes.length === 0) {
+      return { denyAll: true };
+    }
+    return {
+      denyAll: false,
+      where: {
+        sectorCode: { in: sectorCodes },
+      },
+    };
+  }
+
   private async reconcileDeliveredQuantitiesFromMikro(): Promise<void> {
     await mikroService.executeQuery(`
       WITH DeliveryAgg AS (
@@ -693,8 +716,12 @@ class OrderTrackingService {
   /**
    * TÃ¼m bekleyen sipariÅŸleri getir (admin iÃ§in)
    */
-  async getAllPendingOrders(): Promise<PendingOrder[]> {
+  async getAllPendingOrders(scope?: StaffScope): Promise<PendingOrder[]> {
+    const scoped = this.buildSalesRepOrderWhere(scope);
+    if (scoped.denyAll) return [];
+
     const orders = await prisma.pendingMikroOrder.findMany({
+      where: scoped.where,
       orderBy: [{ orderDate: 'desc' }, { mikroOrderNumber: 'asc' }],
     });
 
@@ -770,11 +797,16 @@ class OrderTrackingService {
    * MÃ¼ÅŸteri bazÄ±nda sipariÅŸ Ã¶zetini getir
    * SektÃ¶r kodu "satÄ±cÄ±" olanlarÄ± filtreler (bunlar tedarikÃ§i/satÄ±cÄ± sipariÅŸleridir)
    */
-  async getCustomerSummary() {
+  async getCustomerSummary(scope?: StaffScope) {
+    const scoped = this.buildSalesRepOrderWhere(scope);
+    if (scoped.denyAll) return [];
+
     const orders = await prisma.pendingMikroOrder.findMany({
       where: {
+        ...(scoped.where || {}),
         // SektÃ¶r kodu "SATICI" olanlarÄ± hariÃ§ tut (SATICI, SATICI BARTIR vb.)
-        OR: [
+        AND: [{
+          OR: [
           { sectorCode: null },
           {
             NOT: {
@@ -783,7 +815,8 @@ class OrderTrackingService {
               },
             },
           },
-        ],
+          ],
+        }],
       },
       select: {
         id: true,
@@ -868,7 +901,11 @@ class OrderTrackingService {
   /**
    * Tedarikçilere verilen açık satın alma siparişlerini getir (sip_tip=1)
    */
-  async getSupplierSummary() {
+  async getSupplierSummary(scope?: StaffScope) {
+    if (scope?.role === 'SALES_REP') {
+      return [];
+    }
+
     const rawOrders = await this.fetchSupplierOrdersFromMikro();
     const orders = this.groupOrdersByCustomer(rawOrders);
     const supplierCodes = Array.from(

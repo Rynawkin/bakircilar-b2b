@@ -115,8 +115,8 @@ function NewSection({
   );
 }
 
-function NewMini({ label, value, tone }: { label: string; value: string | number; tone?: 'ink' | 'red' | 'blue' | 'amber' }) {
-  const colorMap: Record<string, string> = { ink: '#14223b', red: '#b91c1c', blue: '#1c4585', amber: '#b45309' };
+function NewMini({ label, value, tone }: { label: string; value: string | number; tone?: 'ink' | 'red' | 'blue' | 'amber' | 'green' }) {
+  const colorMap: Record<string, string> = { ink: '#14223b', red: '#b91c1c', blue: '#1c4585', amber: '#b45309', green: '#047857' };
   return (
     <div className={CARD} style={{ padding: '13px 14px' }}>
       <div style={{ fontSize: '11px', color: '#8b97ac' }}>{label}</div>
@@ -668,6 +668,37 @@ export default function Cari360New() {
                           </div>
                         </NewSection>
 
+                        <NewSection title="Fiyat Guven Karti" icon={Tag}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: '10px' }}>
+                            <NewMini label="Guven" value={`${data?.priceTrust?.score ?? 0}/100`} tone={(data?.priceTrust?.score ?? 0) >= 80 ? 'green' : (data?.priceTrust?.score ?? 0) >= 55 ? 'amber' : 'red'} />
+                            <NewMini label="Fiyat Gorunum" value={data?.priceTrust?.priceVisibility || '-'} />
+                            <NewMini label="Anlasma" value={data?.priceTrust?.activeAgreementCount ?? 0} />
+                          </div>
+                          <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8, fontSize: 12 }}>
+                            <div style={{ border: '1px solid #eef1f6', borderRadius: 9, padding: 10, background: '#fafbfd' }}>
+                              <div style={{ color: '#8b97ac', fontWeight: 600, fontSize: 10.5 }}>Manuel Liste</div>
+                              <div style={{ color: '#14223b', fontWeight: 600 }}>
+                                F:{data?.priceTrust?.manualInvoicedListNo || '-'} / B:{data?.priceTrust?.manualRetailListNo || '-'}
+                              </div>
+                            </div>
+                            <div style={{ border: '1px solid #eef1f6', borderRadius: 9, padding: 10, background: '#fafbfd' }}>
+                              <div style={{ color: '#8b97ac', fontWeight: 600, fontSize: 10.5 }}>Onerilen Liste</div>
+                              <div style={{ color: '#14223b', fontWeight: 600 }}>
+                                F:{data?.priceTrust?.suggestedInvoicedListNo || '-'} / B:{data?.priceTrust?.suggestedRetailListNo || '-'}
+                              </div>
+                            </div>
+                          </div>
+                          {(data?.priceTrust?.warnings || []).length > 0 && (
+                            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {data.priceTrust.warnings.map((warning: string) => (
+                                <div key={warning} style={{ border: '1px solid #fde68a', background: '#fffbeb', color: '#92500a', borderRadius: 8, padding: '7px 9px', fontSize: 11.5, fontWeight: 600 }}>
+                                  {warning}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </NewSection>
+
                         <NewSection title="Faturalar" icon={ReceiptText}>
                           <NewTable
                             rows={data?.invoices?.recent || []}
@@ -757,6 +788,27 @@ export default function Cari360New() {
                               </div>
                             ))}
                             {activityRows.length === 0 && <NewEmpty text="Aktivite yok." />}
+                          </div>
+                        </NewSection>
+
+                        <NewSection title="Temas Ozeti" icon={Users}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '10px' }}>
+                            <NewMini label="Temas Sayisi" value={data?.engagement?.contactCount ?? 0} />
+                            <NewMini label="Son Temas" value={safeDate(data?.engagement?.lastContactAt)} />
+                            <NewMini label="Sonuc" value={data?.engagement?.lastOutcome || '-'} />
+                            <NewMini label="Sonraki Takip" value={safeDate(data?.engagement?.nextFollowUpDate)} tone={data?.engagement?.nextFollowUpDate ? 'amber' : 'ink'} />
+                          </div>
+                          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {(data?.engagement?.recentContacts || []).slice(0, 4).map((contact: any) => (
+                              <div key={contact.id} style={{ border: '1px solid #eef1f6', background: '#fafbfd', borderRadius: 9, padding: 10, fontSize: 12 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                                  <span style={{ fontWeight: 600, color: '#14223b' }}>{contact.channel || 'Temas'}</span>
+                                  <span style={{ color: '#8b97ac' }}>{safeDate(contact.contactedAt)}</span>
+                                </div>
+                                <div style={{ marginTop: 4, color: '#51607a' }}>{contact.note || contact.outcome || '-'}</div>
+                              </div>
+                            ))}
+                            {(data?.engagement?.recentContacts || []).length === 0 && <NewEmpty text="Temas kaydi yok." />}
                           </div>
                         </NewSection>
 

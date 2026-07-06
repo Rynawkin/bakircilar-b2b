@@ -1,7 +1,7 @@
 import { CustomerType, OrderStatus, Prisma, QuoteStatus, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AppError, ErrorCode } from '../types/errors';
-import { splitSearchTokens } from '../utils/search';
+import { matchesSearchTokens, normalizeSearchText, splitSearchTokens } from '../utils/search';
 import stockF10Service from './stock-f10.service';
 import priceListService from './price-list.service';
 import mikroService from './mikroFactory.service';
@@ -360,12 +360,39 @@ class FieldSalesService {
       ],
     };
 
-    const customers = await prisma.user.findMany({
+    let customers = await prisma.user.findMany({
       where,
       select: CUSTOMER_SELECT,
       orderBy: [{ active: 'desc' }, { mikroCariCode: 'asc' }],
       take: limit,
     });
+
+    if (tokens.length > 0 && customers.length < limit) {
+      const normalizedTokens = tokens.map((token) => normalizeSearchText(token)).filter(Boolean);
+      const fallbackRows = await prisma.user.findMany({
+        where: scopedWhere,
+        select: CUSTOMER_SELECT,
+        orderBy: [{ active: 'desc' }, { mikroCariCode: 'asc' }],
+        take: 1000,
+      });
+      const seen = new Set(customers.map((customer) => customer.id));
+      const fallbackMatches = fallbackRows
+        .filter((customer) => !seen.has(customer.id))
+        .filter((customer) => {
+          const haystack = normalizeSearchText([
+            customer.mikroCariCode,
+            customer.displayName,
+            customer.mikroName,
+            customer.name,
+            customer.city,
+            customer.district,
+            customer.sectorCode,
+            customer.phone,
+          ].filter(Boolean).join(' '));
+          return matchesSearchTokens(haystack, normalizedTokens);
+        });
+      customers = [...customers, ...fallbackMatches].slice(0, limit);
+    }
 
     return {
       customers: customers.map((customer) => ({

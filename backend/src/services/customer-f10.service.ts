@@ -27,7 +27,7 @@ class CustomerF10Service {
       if (tokens.length > 0) {
         const tokenClauses = tokens.map((token) => {
           const escaped = token.replace(/'/g, "''");
-          return `(cari_unvan1 LIKE '%${escaped}%' OR cari_kod LIKE '%${escaped}%' OR cari_unvan2 LIKE '%${escaped}%')`;
+          return `(cari_unvan1 COLLATE Turkish_CI_AI LIKE N'%${escaped}%' OR cari_kod COLLATE Turkish_CI_AI LIKE N'%${escaped}%' OR cari_unvan2 COLLATE Turkish_CI_AI LIKE N'%${escaped}%')`;
         });
         whereClause += ` AND ${tokenClauses.join(' AND ')}`;
       }

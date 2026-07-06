@@ -78,10 +78,25 @@ const notificationReadSchema = z.object({
 });
 
 const pushTokenSchema = z.object({
-  token: z.string().min(1),
+  token: z.string().min(1).optional(),
+  endpoint: z.string().min(1).optional(),
+  subscription: z.object({
+    endpoint: z.string().min(1),
+    keys: z.object({
+      p256dh: z.string().min(1),
+      auth: z.string().min(1),
+    }),
+  }).optional(),
   platform: z.string().optional(),
   appName: z.string().optional(),
   deviceName: z.string().optional(),
+});
+
+const notificationPreferenceSchema = z.object({
+  preferences: z.array(z.object({
+    category: z.string().min(1),
+    enabled: z.boolean(),
+  })),
 });
 
 const testPushSchema = z.object({
@@ -307,10 +322,13 @@ router.post('/tasks/:id/attachments', requireCustomer, taskUpload.single('file')
 
 // Notifications (customer)
 router.get('/notifications', requireCustomer, notificationController.getNotifications);
+router.get('/notifications/preferences', requireCustomer, notificationController.getPreferences);
+router.put('/notifications/preferences', requireCustomer, validateBody(notificationPreferenceSchema), notificationController.updatePreferences);
 router.post('/notifications/read', requireCustomer, validateBody(notificationReadSchema), notificationController.markRead);
 router.post('/notifications/read-all', requireCustomer, notificationController.markAllRead);
+router.get('/notifications/push/vapid-public-key', requireCustomer, notificationController.getVapidPublicKey);
 router.post('/notifications/push/register', requireCustomer, validateBody(pushTokenSchema), notificationController.registerPushToken);
-router.post('/notifications/push/unregister', requireCustomer, validateBody(z.object({ token: z.string().min(1) })), notificationController.unregisterPushToken);
+router.post('/notifications/push/unregister', requireCustomer, validateBody(z.object({ token: z.string().min(1).optional(), endpoint: z.string().min(1).optional() })), notificationController.unregisterPushToken);
 router.post('/notifications/push/test', requireCustomer, validateBody(testPushSchema), notificationController.sendTestPush);
 
 // E-Invoices (customer)

@@ -25,6 +25,7 @@ import {
   TaskAttachment,
   TaskLink,
   Notification,
+  NotificationPreference,
   VadeBalance,
   VadeNote,
   VadeClassification,
@@ -99,6 +100,7 @@ export interface BundleInputPayload {
 
 // Cari aktivite / temas raporu
 export type EngagementStatus = 'KAYITSIZ' | 'HIC_GIRMEMIS' | 'AKTIF' | 'YAVASLIYOR' | 'KAYIP_RISKI';
+export type EngagementActionPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 export interface EngagementRow {
   customerCode: string;
   customerName: string;
@@ -125,13 +127,19 @@ export interface EngagementRow {
   hasNotes: boolean;
   nextFollowUpDate: string | null;
   assignedSalesRepName: string | null;
+  healthScore: number;
+  actionPriority: EngagementActionPriority;
+  actionReason: string;
+  suggestedAction: string;
 }
 export interface EngagementKpis {
   total: number; registered: number; registeredPct: number; unregistered: number;
   neverLoggedIn: number; active30: number; atRisk: number; followUpDue: number; neverContacted: number;
+  actionDue?: number; avgHealthScore?: number;
 }
 export interface EngagementRepBreakdown {
   rep: string; total: number; registered: number; unregistered: number; neverLoggedIn: number; atRisk: number;
+  actionDue?: number; avgHealthScore?: number;
 }
 export interface EngagementReport {
   rows: EngagementRow[]; total: number; page: number; limit: number;
@@ -2271,6 +2279,26 @@ export const adminApi = {
 
   markNotificationsReadAll: async (): Promise<{ updated: number }> => {
     const response = await apiClient.post('/admin/notifications/read-all');
+    return response.data;
+  },
+
+  getNotificationPreferences: async (): Promise<{ categories: NotificationPreference[] }> => {
+    const response = await apiClient.get('/admin/notifications/preferences');
+    return response.data;
+  },
+
+  updateNotificationPreferences: async (preferences: Array<{ category: string; enabled: boolean }>): Promise<{ categories: NotificationPreference[] }> => {
+    const response = await apiClient.put('/admin/notifications/preferences', { preferences });
+    return response.data;
+  },
+
+  getWebPushPublicKey: async (): Promise<{ publicKey: string | null }> => {
+    const response = await apiClient.get('/admin/notifications/push/vapid-public-key');
+    return response.data;
+  },
+
+  registerWebPushSubscription: async (subscription: PushSubscriptionJSON): Promise<{ success: boolean; type?: string }> => {
+    const response = await apiClient.post('/admin/notifications/push/register', { subscription });
     return response.data;
   },
 
@@ -4810,6 +4838,11 @@ export const adminApi = {
     if (params.limit) queryParams.append('limit', params.limit.toString());
 
     const response = await apiClient.get(`/admin/reports/customer-carts?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  getActionRadar: async (): Promise<{ success: boolean; data: any }> => {
+    const response = await apiClient.get('/admin/reports/action-radar');
     return response.data;
   },
 

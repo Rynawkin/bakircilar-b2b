@@ -7,6 +7,7 @@ import quoteService from '../services/quote.service';
 import { prisma } from '../utils/prisma';
 import mikroService from '../services/mikroFactory.service';
 import { AppError, ErrorCode } from '../types/errors';
+import auditLogService from '../services/audit-log.service';
 
 const ensureQuoteSectorAccess = async (req: Request, quoteId: string) => {
   if (req.user?.role !== 'SALES_REP') return;
@@ -110,6 +111,14 @@ export class QuoteController {
   async createQuote(req: Request, res: Response, next: NextFunction) {
     try {
       const quote = await quoteService.createQuote(req.body, req.user!.userId);
+      await auditLogService.fromRequest(req, {
+        action: 'QUOTE_CREATE',
+        entityType: 'Quote',
+        entityId: quote.id,
+        entityCode: quote.quoteNumber || null,
+        summary: `Teklif olusturuldu: ${quote.quoteNumber || quote.id}`,
+        after: { id: quote.id, quoteNumber: quote.quoteNumber, customerId: quote.customerId, status: quote.status },
+      });
       res.status(201).json({ quote });
     } catch (error) {
       next(error);
@@ -124,6 +133,14 @@ export class QuoteController {
       const { id } = req.params;
       await ensureQuoteSectorAccess(req, id);
       const quote = await quoteService.updateQuote(id, req.body, req.user!.userId);
+      await auditLogService.fromRequest(req, {
+        action: 'QUOTE_UPDATE',
+        entityType: 'Quote',
+        entityId: quote.id,
+        entityCode: quote.quoteNumber || null,
+        summary: `Teklif guncellendi: ${quote.quoteNumber || quote.id}`,
+        metadata: { changedFields: Object.keys(req.body || {}) },
+      });
       res.json({ quote });
     } catch (error) {
       next(error);
@@ -352,6 +369,14 @@ export class QuoteController {
       const { adminNote } = req.body || {};
       await ensureQuoteSectorAccess(req, id);
       const quote = await quoteService.approveQuote(id, req.user!.userId, adminNote);
+      await auditLogService.fromRequest(req, {
+        action: 'QUOTE_APPROVE',
+        entityType: 'Quote',
+        entityId: quote.id,
+        entityCode: quote.quoteNumber || null,
+        summary: `Teklif onaylandi: ${quote.quoteNumber || quote.id}`,
+        metadata: { adminNote: adminNote || null },
+      });
       res.json({ quote });
     } catch (error) {
       next(error);
@@ -370,6 +395,14 @@ export class QuoteController {
       }
       await ensureQuoteSectorAccess(req, id);
       const quote = await quoteService.rejectQuote(id, req.user!.userId, adminNote);
+      await auditLogService.fromRequest(req, {
+        action: 'QUOTE_REJECT',
+        entityType: 'Quote',
+        entityId: quote.id,
+        entityCode: quote.quoteNumber || null,
+        summary: `Teklif reddedildi: ${quote.quoteNumber || quote.id}`,
+        metadata: { adminNote },
+      });
       res.json({ quote });
     } catch (error) {
       next(error);
@@ -460,6 +493,17 @@ export class QuoteController {
         adminUserId: req.user!.userId,
         documentNo,
         documentDescription,
+      });
+
+      await auditLogService.fromRequest(req, {
+        action: 'QUOTE_CONVERT_TO_ORDER',
+        entityType: 'Quote',
+        entityId: id,
+        summary: `Teklif siparise cevrildi: ${id}`,
+        metadata: {
+          selectedItemCount: selectedItemIds.length,
+          orderId: (result as any)?.order?.id || (result as any)?.orderId || null,
+        },
       });
 
       res.json(result);

@@ -17,6 +17,7 @@ import {
   TaskComment,
   TaskAttachment,
   Notification,
+  NotificationPreference,
   EInvoiceDocument,
 } from '@/types';
 
@@ -470,6 +471,26 @@ export const customerApi = {
 
   markNotificationsReadAll: async (): Promise<{ updated: number }> => {
     const response = await apiClient.post('/notifications/read-all');
+    return response.data;
+  },
+
+  getNotificationPreferences: async (): Promise<{ categories: NotificationPreference[] }> => {
+    const response = await apiClient.get('/notifications/preferences');
+    return response.data;
+  },
+
+  updateNotificationPreferences: async (preferences: Array<{ category: string; enabled: boolean }>): Promise<{ categories: NotificationPreference[] }> => {
+    const response = await apiClient.put('/notifications/preferences', { preferences });
+    return response.data;
+  },
+
+  getWebPushPublicKey: async (): Promise<{ publicKey: string | null }> => {
+    const response = await apiClient.get('/notifications/push/vapid-public-key');
+    return response.data;
+  },
+
+  registerWebPushSubscription: async (subscription: PushSubscriptionJSON): Promise<{ success: boolean; type?: string }> => {
+    const response = await apiClient.post('/notifications/push/register', { subscription });
     return response.data;
   },
 

@@ -27,6 +27,7 @@ class VadeNotificationService {
       const customerLabel =
         note.customer.displayName || note.customer.mikroName || note.customer.name || 'Musteri';
       await notificationService.createForUsers([note.authorId], {
+        category: 'VADE',
         title: buildReminderTitle(customerLabel),
         body: note.reminderNote || note.noteContent,
         linkUrl: `/vade/customers/${note.customerId}`,

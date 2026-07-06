@@ -189,6 +189,12 @@ export default function FamilyYonetimi() {
 
   const handleAddToFamily = async (row: SuggestionRow) => {
     if (!row.candidate) return;
+    if (row.candidate.score < 0.6) {
+      const confirmed = window.confirm(
+        `Bu eslesmenin skoru dusuk (${nf.format(row.candidate.score)}). Gramaj/olcu/spekt farki olabilir. Yine de "${row.productCode}" urununu "${row.candidate.familyName}" ailesine eklemek istiyor musunuz?`
+      );
+      if (!confirmed) return;
+    }
     setSugBusy(row.productCode);
     try {
       await adminApi.addProductToFamily(row.candidate.familyId, {
@@ -356,6 +362,9 @@ export default function FamilyYonetimi() {
             <Layers size={22} strokeWidth={2} style={{ color: PRIMARY }} />
             Aile Yönetimi
           </h1>
+          <div style={{ fontSize: 13, color: '#51607a', marginTop: 5, fontWeight: 600 }}>
+            Karar sirasi: guvenli aileye ekle, sonra yeni aile ac, en son supheli uyeleri temizle.
+          </div>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 5 }}>
             Aile önerileri, yeni aile adayları ve şüpheli üyeleri tek ekrandan yönetin.
           </div>

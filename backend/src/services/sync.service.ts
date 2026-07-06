@@ -40,7 +40,7 @@ class SyncService {
       });
       await notificationService.createForUsers(
         admins.map((a) => a.id),
-        { title, body, linkUrl: '/dashboard' }
+        { category: 'SYSTEM', title, body, linkUrl: '/dashboard' }
       );
     } catch (e) {
       console.error('notifyAdmins basarisiz:', e);
@@ -606,6 +606,7 @@ class SyncService {
       for (const [productId, entry] of byProduct) {
         try {
           await notificationService.createForUsers(entry.userIds, {
+            category: 'STOCK',
             title: 'Beklediginiz urun stokta',
             body: `${entry.name} urunu stoga girdi — hemen siparis verebilirsiniz.`,
             linkUrl: `/products/${productId}`,

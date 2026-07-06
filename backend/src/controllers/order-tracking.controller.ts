@@ -8,6 +8,11 @@ import { Request, Response } from 'express';
 import orderTrackingService from '../services/order-tracking.service';
 import emailService from '../services/email.service';
 
+const buildStaffScope = (req: Request) => ({
+  role: req.user?.role || null,
+  assignedSectorCodes: req.user?.assignedSectorCodes || [],
+});
+
 class OrderTrackingController {
   /**
    * GET /api/admin/order-tracking/settings
@@ -102,7 +107,7 @@ class OrderTrackingController {
    */
   async getAllPendingOrders(req: Request, res: Response) {
     try {
-      const orders = await orderTrackingService.getAllPendingOrders();
+      const orders = await orderTrackingService.getAllPendingOrders(buildStaffScope(req));
       res.json(orders);
     } catch (error: any) {
       console.error('Bekleyen siparişler getirme hatası:', error);
@@ -116,7 +121,7 @@ class OrderTrackingController {
    */
   async getCustomerSummary(req: Request, res: Response) {
     try {
-      const summary = await orderTrackingService.getCustomerSummary();
+      const summary = await orderTrackingService.getCustomerSummary(buildStaffScope(req));
       res.json(summary);
     } catch (error: any) {
       console.error('Özet getirme hatası:', error);
@@ -130,7 +135,7 @@ class OrderTrackingController {
    */
   async getSupplierSummary(req: Request, res: Response) {
     try {
-      const summary = await orderTrackingService.getSupplierSummary();
+      const summary = await orderTrackingService.getSupplierSummary(buildStaffScope(req));
       res.json(summary);
     } catch (error: any) {
       console.error('Satıcı özeti getirme hatası:', error);

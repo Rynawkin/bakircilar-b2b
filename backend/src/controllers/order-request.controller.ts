@@ -380,6 +380,7 @@ export class OrderRequestController {
 
       const requesterName = user.name ? String(user.name).trim() : 'Alt kullanici';
       await notificationService.createForUsers([user.parentCustomerId], {
+        category: 'ORDER',
         title: 'Yeni siparis talebi',
         body: `${requesterName} yeni bir talep gonderdi.`,
         linkUrl: '/order-requests',
@@ -749,6 +750,7 @@ export class OrderRequestController {
           ? `${approvedCount} kalem onaylandi, ${pendingCount} kalem bekliyor.`
           : `Talebiniz siparise cevrildi. Siparis No: ${order.orderNumber}.`;
         await notificationService.createForUsers([requesterId], {
+          category: 'ORDER',
           title,
           body,
           linkUrl: '/order-requests',
@@ -842,6 +844,7 @@ export class OrderRequestController {
           ? `${rejectedCount} kalem reddedildi.`
           : 'Talebiniz reddedildi.';
         await notificationService.createForUsers([request.requestedById], {
+          category: 'ORDER',
           title,
           body,
           linkUrl: '/order-requests',

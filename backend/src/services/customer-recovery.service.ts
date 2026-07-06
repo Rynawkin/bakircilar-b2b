@@ -1835,12 +1835,13 @@ class CustomerRecoveryService {
   }
 
   private async notifyUsers(userIds: Array<string | null | undefined>, payload: {
+    category?: string | null;
     title: string;
     body?: string | null;
     linkUrl?: string | null;
   }) {
     try {
-      await notificationService.createForUsers(userIds, payload);
+      await notificationService.createForUsers(userIds, { category: 'TASK', ...payload });
     } catch (error) {
       console.error('Customer recovery notification failed', { error });
     }

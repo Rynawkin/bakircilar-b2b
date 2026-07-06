@@ -178,6 +178,7 @@ class TaskService {
     const recipients = this.getParticipantIds(task).filter((id) => id !== actorId);
     if (recipients.length === 0) return;
     await notificationService.createForUsers(recipients, {
+      category: 'TASK',
       title: payload.title,
       body: payload.body || null,
       linkUrl: TASK_NOTIFICATION_LINK,
@@ -420,6 +421,7 @@ class TaskService {
 
     if (assignedToId && assignedToId !== userId) {
       await notificationService.createForUsers([assignedToId], {
+        category: 'TASK',
         title: 'Yeni talep atandi',
         body: title,
         linkUrl: TASK_NOTIFICATION_LINK,
@@ -487,6 +489,7 @@ class TaskService {
     if (assignedToId) {
       const customerLabel = customer?.displayName || customer?.mikroName || customer?.name || '';
       await notificationService.createForUsers([assignedToId], {
+        category: 'TASK',
         title: 'Yeni musteri talebi',
         body: customerLabel ? `${customerLabel} - ${title}` : title,
         linkUrl: TASK_NOTIFICATION_LINK,
@@ -564,6 +567,7 @@ class TaskService {
 
     if (assigneeChanged && task.assignedToId && task.assignedToId !== userId) {
       await notificationService.createForUsers([task.assignedToId], {
+        category: 'TASK',
         title: 'Talep size atandi',
         body: task.title,
         linkUrl: TASK_NOTIFICATION_LINK,

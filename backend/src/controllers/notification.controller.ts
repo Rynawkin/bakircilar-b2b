@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import notificationService from '../services/notification.service';
 import mobilePushService from '../services/mobile-push.service';
+import webPushService from '../services/web-push.service';
 
 export class NotificationController {
   async getNotifications(req: Request, res: Response, next: NextFunction) {
@@ -36,8 +37,50 @@ export class NotificationController {
     }
   }
 
+  async getPreferences(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await notificationService.getPreferences(req.user!.userId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatePreferences(req: Request, res: Response, next: NextFunction) {
+    try {
+      const preferences = Array.isArray(req.body?.preferences) ? req.body.preferences : [];
+      const result = await notificationService.updatePreferences(req.user!.userId, preferences);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getVapidPublicKey(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json({ publicKey: webPushService.getPublicKey() || null });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async registerPushToken(req: Request, res: Response, next: NextFunction) {
     try {
+      const subscription = req.body?.subscription;
+      if (subscription?.endpoint) {
+        await webPushService.registerSubscription({
+          userId: req.user!.userId,
+          endpoint: String(subscription.endpoint),
+          keys: {
+            p256dh: subscription.keys?.p256dh,
+            auth: subscription.keys?.auth,
+          },
+          userAgent: req.headers['user-agent'] ? String(req.headers['user-agent']) : null,
+        });
+
+        return res.json({ success: true, type: 'web' });
+      }
+
       const token = String(req.body?.token || '').trim();
       const platform = req.body?.platform ? String(req.body.platform) : null;
       const appName = req.body?.appName ? String(req.body.appName) : null;
@@ -55,7 +98,7 @@ export class NotificationController {
         deviceName,
       });
 
-      res.json({ success: true });
+      res.json({ success: true, type: 'mobile' });
     } catch (error) {
       next(error);
     }
@@ -63,6 +106,15 @@ export class NotificationController {
 
   async unregisterPushToken(req: Request, res: Response, next: NextFunction) {
     try {
+      const endpoint = String(req.body?.endpoint || req.body?.subscription?.endpoint || '').trim();
+      if (endpoint) {
+        await webPushService.unregisterSubscription({
+          userId: req.user!.userId,
+          endpoint,
+        });
+        return res.json({ success: true, type: 'web' });
+      }
+
       const token = String(req.body?.token || '').trim();
       if (!token) {
         return res.status(400).json({ error: 'Push token is required' });
@@ -73,7 +125,7 @@ export class NotificationController {
         token,
       });
 
-      res.json({ success: true });
+      res.json({ success: true, type: 'mobile' });
     } catch (error) {
       next(error);
     }

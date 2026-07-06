@@ -10,8 +10,9 @@ import customerApi, { CustomerFinancials } from '@/lib/api/customer';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { buildCategoryTree, getCategoryPath } from '@/lib/utils/categoryTree';
 import { normalizeSearchText } from '@/lib/utils/search';
+import { registerBrowserPush } from '@/lib/webPush';
 import { MobileCategoryPanel } from '@/components/customer/MobileCategoryPanel';
-import { Notification, Category } from '@/types';
+import { Notification, Category, NotificationPreference } from '@/types';
 import {
   Search,
   LayoutGrid,
@@ -53,9 +54,11 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [megaOpen, setMegaOpen] = useState(false);
   const [megaRootId, setMegaRootId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [notificationLoading, setNotificationLoading] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   const [agreementsAvailable, setAgreementsAvailable] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -79,6 +82,48 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
       console.error('Notifications not loaded:', error);
     } finally {
       setNotificationLoading(false);
+    }
+  };
+
+  const fetchNotificationPreferences = async () => {
+    if (!user) return;
+    try {
+      const { categories } = await customerApi.getNotificationPreferences();
+      setNotificationPreferences(categories || []);
+    } catch (error) {
+      console.error('Notification preferences not loaded:', error);
+    }
+  };
+
+  const handleToggleNotificationPreference = async (category: string, enabled: boolean) => {
+    const previous = notificationPreferences;
+    const next = previous.map((item) => (item.key === category ? { ...item, enabled } : item));
+    setNotificationPreferences(next);
+    try {
+      const { categories } = await customerApi.updateNotificationPreferences(
+        next.map((item) => ({ category: item.key, enabled: item.enabled }))
+      );
+      setNotificationPreferences(categories || next);
+    } catch (error) {
+      console.error('Notification preferences not updated:', error);
+      setNotificationPreferences(previous);
+    }
+  };
+
+  const handleEnableBrowserPush = async () => {
+    setPushBusy(true);
+    try {
+      await registerBrowserPush({
+        getPublicKey: async () => {
+          const { publicKey } = await customerApi.getWebPushPublicKey();
+          return publicKey;
+        },
+        registerSubscription: (subscription) => customerApi.registerWebPushSubscription(subscription),
+      });
+    } catch (error) {
+      console.error('Browser push not enabled:', error);
+    } finally {
+      setPushBusy(false);
     }
   };
 
@@ -369,7 +414,10 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           {/* Bildirim */}
           <Menu as="div" className="relative flex-none">
             <Menu.Button
-              onClick={fetchNotifications}
+              onClick={() => {
+                fetchNotifications();
+                fetchNotificationPreferences();
+              }}
               className="relative flex h-[42px] w-[42px] items-center justify-center rounded-[10px] border border-[var(--line)] text-[var(--ink-2)] transition-colors hover:bg-[#f6f8fc]"
               aria-label="Bildirimler"
             >
@@ -393,6 +441,31 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                   <button className="text-xs font-medium text-primary-600 hover:text-primary-700" onClick={handleMarkAllRead} type="button">
                     Tümünü okundu yap
                   </button>
+                </div>
+                <div className="border-b border-[var(--line)] bg-[var(--surface-0)] px-4 py-3">
+                  <button
+                    className="mb-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-left text-xs font-semibold text-[var(--ink-1)] transition-colors hover:bg-primary-50 disabled:opacity-60"
+                    disabled={pushBusy}
+                    onClick={handleEnableBrowserPush}
+                    type="button"
+                  >
+                    {pushBusy ? 'Tarayici bildirimi aciliyor...' : 'Tarayici bildirimlerini ac'}
+                  </button>
+                  {notificationPreferences.length > 0 && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {notificationPreferences.map((item) => (
+                        <label key={item.key} className="flex items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-[11px] text-[var(--ink-2)]">
+                          <input
+                            type="checkbox"
+                            checked={item.enabled}
+                            onChange={(event) => handleToggleNotificationPreference(item.key, event.target.checked)}
+                            className="h-3.5 w-3.5 accent-primary-600"
+                          />
+                          <span className="truncate">{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="max-h-80 space-y-1.5 overflow-auto p-2">
                   {notificationLoading && <div className="px-2 py-3 text-xs text-[var(--ink-3)]">Yükleniyor…</div>}

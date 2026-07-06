@@ -328,6 +328,18 @@ export const reports: ReportCard[] = [
     permission: 'reports:customer-carts',
   },
   {
+    id: 'action-radar',
+    title: 'Aksiyon Radari',
+    description: 'Teklif sagligi, terk sepet, tamamlayici urun, paket, katalog, saha ziyareti ve anomali sinyallerini tek ekranda toplayin',
+    icon: <AlertTriangle className="h-5 w-5" />,
+    href: '/reports/action-radar',
+    category: 'customer',
+    badge: 'Yeni',
+    tags: ['Aksiyon', 'Anomali', 'Satis'],
+    highImpact: true,
+    permission: ['admin:quotes', 'reports:customer-carts', 'reports:complement-missing', 'admin:products', 'admin:field-sales', 'reports:ucarer-depo'],
+  },
+  {
     id: 'overdue-payments',
     title: 'Vade & Alacak Takip Raporu',
     description: 'Vadesi gecmis alacaklari takip edip aksiyon listesi olusturun',

@@ -285,6 +285,7 @@ class PriceVerificationService {
 
     await this.addSystemNote(request.id, 'Mevcut fiyat guncel olarak teyit edildi. Mikro maliyeti ve maliyet tarihi degistirilmedi.', actor.userId || null);
     await notificationService.createForUsers([request.createdById], {
+      category: 'PRICE',
       title: 'Fiyat guncelligi teyit edildi',
       body: `${request.requestNo} - ${request.productCode} fiyat guncel. Mikroda degisiklik yapilmadi.`,
       linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
@@ -311,6 +312,7 @@ class PriceVerificationService {
 
     await this.addSystemNote(request.id, 'Talep satis onayina gonderildi.', actor.userId || null);
     await notificationService.createForUsers([request.createdById], {
+      category: 'PRICE',
       title: 'Fiyat teyidi satis onayinda',
       body: `${request.requestNo} - ${request.productCode || request.productName}`,
       linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
@@ -424,6 +426,7 @@ class PriceVerificationService {
 
     await this.addSystemNote(request.id, 'Talep tamamlandi; secili fiyat Mikro maliyet/fiyat listelerine uygulandi.', actor.userId || null);
     await notificationService.createForUsers([request.createdById], {
+      category: 'PRICE',
       title: 'Fiyat teyidi tamamlandi',
       body: `${request.requestNo} - ${productCode || request.productName}`,
       linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
@@ -608,7 +611,7 @@ class PriceVerificationService {
     return { userName: row?.displayName || row?.mikroName || row?.name || row?.email || null };
   }
 
-  private async notifyPurchasing(payload: { title: string; body?: string | null; linkUrl?: string | null }, excludeUserId?: string | null) {
+  private async notifyPurchasing(payload: { category?: string | null; title: string; body?: string | null; linkUrl?: string | null }, excludeUserId?: string | null) {
     const users = await prisma.user.findMany({
       where: {
         active: true,
@@ -617,7 +620,7 @@ class PriceVerificationService {
       },
       select: { id: true },
     });
-    await notificationService.createForUsers(users.map((user) => user.id), payload);
+    await notificationService.createForUsers(users.map((user) => user.id), { category: 'PRICE', ...payload });
   }
 
   private async generateRequestNo() {

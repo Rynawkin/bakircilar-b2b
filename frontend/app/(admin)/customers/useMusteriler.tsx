@@ -168,9 +168,12 @@ export function useMusteriler() {
   };
 
   const handleCariSelect = (cari: MikroCari) => {
+    const code = String(cari.code || '').trim();
     setSelectedCari(cari);
     setFormData({
       ...formData,
+      email: formData.email || code,
+      password: formData.password || `${code}123`,
       mikroCariCode: cari.code,
       name: formData.name || cari.name,
     });

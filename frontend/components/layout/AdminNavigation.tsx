@@ -8,7 +8,8 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { LogoLink } from '@/components/ui/Logo';
 import adminApi from '@/lib/api/admin';
 import { formatDateShort } from '@/lib/utils/format';
-import { Notification } from '@/types';
+import { registerBrowserPush } from '@/lib/webPush';
+import { Notification, NotificationPreference } from '@/types';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useUiThemeStore } from '@/lib/store/uiThemeStore';
 import {
@@ -45,7 +46,8 @@ import {
   Gift,
   LayoutGrid,
   Activity,
-  Boxes
+  Boxes,
+  AlertTriangle
 } from 'lucide-react';
 
 export interface NavItem {
@@ -128,6 +130,7 @@ export const navItems: NavItem[] = [
   { name: 'Borc-Mal Takasi', href: '/reports/barter-radar', icon: HandCoins, description: 'Vadesi gecmis cari x ihtiyac', permission: 'reports:ucarer-depo' },
   { name: 'Yapiskan Iskonto', href: '/reports/sticky-discounts', icon: Percent, description: 'Eriyen son-satis fiyatlari', permission: 'reports:margin-compliance' },
   { name: 'Cari Aktivite', href: '/reports/customer-engagement', icon: Activity, description: 'Cari giris, siparis ve temas takibi', permission: 'reports:customer-engagement' },
+  { name: 'Aksiyon Radari', href: '/reports/action-radar', icon: AlertTriangle, description: 'Teklif, sepet, katalog ve anomali sinyalleri', permission: ['admin:quotes', 'reports:customer-carts', 'reports:complement-missing', 'admin:products', 'admin:field-sales', 'reports:ucarer-depo'] },
 ];
 
 navItems.splice(6, 0, {
@@ -157,8 +160,10 @@ export function AdminNavigation() {
   const { theme: uiTheme, setTheme: setUiTheme, hydrate: hydrateUiTheme } = useUiThemeStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationLoading, setNotificationLoading] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
 
   const fetchNotifications = async () => {
     if (!user) return;
@@ -171,6 +176,48 @@ export function AdminNavigation() {
       console.error('Notifications not loaded:', error);
     } finally {
       setNotificationLoading(false);
+    }
+  };
+
+  const fetchNotificationPreferences = async () => {
+    if (!user) return;
+    try {
+      const { categories } = await adminApi.getNotificationPreferences();
+      setNotificationPreferences(categories || []);
+    } catch (error) {
+      console.error('Notification preferences not loaded:', error);
+    }
+  };
+
+  const handleToggleNotificationPreference = async (category: string, enabled: boolean) => {
+    const previous = notificationPreferences;
+    const next = previous.map((item) => (item.key === category ? { ...item, enabled } : item));
+    setNotificationPreferences(next);
+    try {
+      const { categories } = await adminApi.updateNotificationPreferences(
+        next.map((item) => ({ category: item.key, enabled: item.enabled }))
+      );
+      setNotificationPreferences(categories || next);
+    } catch (error) {
+      console.error('Notification preferences not updated:', error);
+      setNotificationPreferences(previous);
+    }
+  };
+
+  const handleEnableBrowserPush = async () => {
+    setPushBusy(true);
+    try {
+      await registerBrowserPush({
+        getPublicKey: async () => {
+          const { publicKey } = await adminApi.getWebPushPublicKey();
+          return publicKey;
+        },
+        registerSubscription: (subscription) => adminApi.registerWebPushSubscription(subscription),
+      });
+    } catch (error) {
+      console.error('Browser push not enabled:', error);
+    } finally {
+      setPushBusy(false);
     }
   };
 
@@ -393,7 +440,10 @@ export function AdminNavigation() {
             <Menu as="div" className="relative ml-1">
               <Menu.Button
                 className="relative flex items-center justify-center w-9 h-9 rounded-lg text-white hover:bg-primary-800/50 transition-all"
-                onClick={fetchNotifications}
+                onClick={() => {
+                  fetchNotifications();
+                  fetchNotificationPreferences();
+                }}
                 aria-label="Bildirimler"
               >
                 <Bell className="w-4 h-4" />
@@ -423,6 +473,31 @@ export function AdminNavigation() {
                     >
                       Tumunu okundu yap
                     </button>
+                  </div>
+                  <div className="border-b border-gray-200 bg-gray-50 px-3 py-3">
+                    <button
+                      type="button"
+                      onClick={handleEnableBrowserPush}
+                      disabled={pushBusy}
+                      className="mb-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs font-semibold text-gray-800 hover:bg-primary-50 disabled:opacity-60"
+                    >
+                      {pushBusy ? 'Tarayici bildirimi aciliyor...' : 'Tarayici bildirimlerini ac'}
+                    </button>
+                    {notificationPreferences.length > 0 && (
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {notificationPreferences.map((item) => (
+                          <label key={item.key} className="flex items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-[11px] text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={item.enabled}
+                              onChange={(event) => handleToggleNotificationPreference(item.key, event.target.checked)}
+                              className="h-3.5 w-3.5 accent-primary-600"
+                            />
+                            <span className="truncate">{item.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="max-h-80 overflow-auto p-2 space-y-2">
                     {notificationLoading && (

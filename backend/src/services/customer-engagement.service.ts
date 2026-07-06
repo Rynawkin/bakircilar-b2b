@@ -12,6 +12,7 @@
 
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
 
 type Ctx = { userId?: string; role?: string; assignedSectorCodes?: string[] };
 
@@ -20,6 +21,7 @@ const DAY_MS = 86400000;
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
 export type EngagementStatus = 'KAYITSIZ' | 'HIC_GIRMEMIS' | 'AKTIF' | 'YAVASLIYOR' | 'KAYIP_RISKI';
+export type EngagementActionPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 type CariRow = Awaited<ReturnType<typeof mikroService.getCariDetails>>[number];
 
@@ -82,6 +84,87 @@ export interface EngagementRow {
   hasNotes: boolean;
   nextFollowUpDate: Date | null;
   assignedSalesRepName: string | null;
+  healthScore: number;
+  actionPriority: EngagementActionPriority;
+  actionReason: string;
+  suggestedAction: string;
+}
+
+function buildActionPlan(input: {
+  status: EngagementStatus;
+  registered: boolean;
+  lastLoginAt: Date | null;
+  daysSinceLastLogin: number | null;
+  orderCount: number;
+  balance: number;
+  lastContactAt: Date | null;
+  nextFollowUpDate: Date | null;
+}, now: Date): {
+  healthScore: number;
+  actionPriority: EngagementActionPriority;
+  actionReason: string;
+  suggestedAction: string;
+} {
+  const eod = endOfToday(now);
+  const followUpDue = Boolean(input.nextFollowUpDate && input.nextFollowUpDate <= eod);
+  let penalty = 0;
+  const reasons: string[] = [];
+
+  if (!input.registered) {
+    penalty += 40;
+    reasons.push('B2B hesabi yok');
+  } else if (!input.lastLoginAt) {
+    penalty += 34;
+    reasons.push('Hic giris yapmamis');
+  }
+
+  if (input.status === 'KAYIP_RISKI') {
+    penalty += 28;
+    reasons.push('Giris ritmi kayip riskinde');
+  } else if (input.status === 'YAVASLIYOR') {
+    penalty += 14;
+    reasons.push('Giris ritmi yavasliyor');
+  }
+
+  if (input.daysSinceLastLogin != null) {
+    penalty += Math.min(Math.max(input.daysSinceLastLogin - 14, 0), 45) * 0.45;
+  }
+  if (!input.lastContactAt && input.status !== 'AKTIF') {
+    penalty += 16;
+    reasons.push('Henuz temas yok');
+  }
+  if (followUpDue) {
+    penalty += 24;
+    reasons.push('Takip tarihi geldi');
+  }
+  if (input.orderCount === 0 && input.registered) {
+    penalty += 8;
+    reasons.push('Kendi siparisi yok');
+  }
+  if (input.balance > 0 && input.status === 'KAYIP_RISKI') {
+    penalty += Math.min(input.balance / 10000, 1) * 10;
+  }
+
+  const healthScore = Math.max(0, Math.min(100, Math.round(100 - penalty)));
+  let actionPriority: EngagementActionPriority = 'LOW';
+  if (followUpDue || healthScore < 35) actionPriority = 'CRITICAL';
+  else if (healthScore < 55 || input.status === 'KAYITSIZ' || input.status === 'HIC_GIRMEMIS') actionPriority = 'HIGH';
+  else if (healthScore < 75 || input.status === 'YAVASLIYOR') actionPriority = 'MEDIUM';
+
+  let suggestedAction = 'Standart takip';
+  if (followUpDue) suggestedAction = 'Bugun tekrar ara ve sonuc gir';
+  else if (!input.registered) suggestedAction = 'B2B hesap acilisini tamamlat';
+  else if (!input.lastLoginAt) suggestedAction = 'Ilk giris icin telefon/WhatsApp hatirlatmasi yap';
+  else if (input.status === 'KAYIP_RISKI') suggestedAction = 'Kayip riski icin satisci geri donusu planla';
+  else if (input.status === 'YAVASLIYOR') suggestedAction = 'Yavaslayan cari icin kisa kontrol aramasi yap';
+  else if (input.orderCount === 0) suggestedAction = 'Ilk kendi siparisini vermesi icin sepet/urun destegi ver';
+
+  return {
+    healthScore,
+    actionPriority,
+    actionReason: reasons.length ? reasons.slice(0, 3).join(' | ') : 'Aktivite saglikli',
+    suggestedAction,
+  };
 }
 
 function sortRows(rows: EngagementRow[], sort?: string): EngagementRow[] {
@@ -117,24 +200,31 @@ function computeKpis(rows: EngagementRow[], now: Date) {
   const neverContacted = rows.filter(
     (r) => (r.status === 'KAYITSIZ' || r.status === 'HIC_GIRMEMIS' || r.status === 'KAYIP_RISKI') && !r.lastContactAt
   ).length;
+  const actionDue = rows.filter((r) => r.actionPriority === 'CRITICAL' || r.actionPriority === 'HIGH').length;
+  const avgHealthScore = total ? Math.round(rows.reduce((sum, r) => sum + r.healthScore, 0) / total) : 0;
   return {
     total, registered, registeredPct: total ? Math.round((registered / total) * 100) : 0,
-    unregistered, neverLoggedIn, active30, atRisk, followUpDue, neverContacted,
+    unregistered, neverLoggedIn, active30, atRisk, followUpDue, neverContacted, actionDue, avgHealthScore,
   };
 }
 
 function computeRepBreakdown(rows: EngagementRow[]) {
-  const map = new Map<string, { rep: string; total: number; registered: number; unregistered: number; neverLoggedIn: number; atRisk: number }>();
+  const map = new Map<string, { rep: string; total: number; registered: number; unregistered: number; neverLoggedIn: number; atRisk: number; actionDue: number; avgHealthScore: number; healthTotal: number }>();
   for (const r of rows) {
     const key = r.assignedSalesRepName || '(atanmamış)';
-    const cur = map.get(key) || { rep: key, total: 0, registered: 0, unregistered: 0, neverLoggedIn: 0, atRisk: 0 };
+    const cur = map.get(key) || { rep: key, total: 0, registered: 0, unregistered: 0, neverLoggedIn: 0, atRisk: 0, actionDue: 0, avgHealthScore: 0, healthTotal: 0 };
     cur.total += 1;
     if (r.registered) cur.registered += 1; else cur.unregistered += 1;
     if (r.registered && !r.lastLoginAt) cur.neverLoggedIn += 1;
     if (r.status === 'KAYIP_RISKI') cur.atRisk += 1;
+    if (r.actionPriority === 'CRITICAL' || r.actionPriority === 'HIGH') cur.actionDue += 1;
+    cur.healthTotal += r.healthScore;
+    cur.avgHealthScore = Math.round(cur.healthTotal / cur.total);
     map.set(key, cur);
   }
-  return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  return Array.from(map.values())
+    .map(({ healthTotal, ...row }) => row)
+    .sort((a, b) => a.avgHealthScore - b.avgHealthScore || b.actionDue - a.actionDue || b.total - a.total);
 }
 
 class CustomerEngagementService {
@@ -290,6 +380,17 @@ class CustomerEngagementService {
       const ord = orderByCode.get(code) || { count: 0, total: 0, first: null, last: null };
       const con = contactByCode.get(code) || { last: null, lastBy: null, count: 0, hasNotes: false, nextFollowUp: null };
       const name = mainUser?.displayName || mainUser?.mikroName || c.name || c.code;
+      const status = computeStatus(registered, lastLoginAt, daysSince, freq);
+      const actionPlan = buildActionPlan({
+        status,
+        registered,
+        lastLoginAt,
+        daysSinceLastLogin: daysSince,
+        orderCount: ord.count,
+        balance: Number(c.balance || 0),
+        lastContactAt: con.last,
+        nextFollowUpDate: con.nextFollowUp,
+      }, now);
       return {
         customerCode: c.code,
         customerName: name,
@@ -306,10 +407,11 @@ class CustomerEngagementService {
         orderTotal: round2(ord.total),
         orderAvg: ord.count > 0 ? round2(ord.total / ord.count) : 0,
         firstOrderAt: ord.first, lastOrderAt: ord.last,
-        status: computeStatus(registered, lastLoginAt, daysSince, freq),
+        status,
         lastContactAt: con.last, lastContactByName: con.lastBy, contactCount: con.count, hasNotes: con.hasNotes,
         nextFollowUpDate: con.nextFollowUp,
         assignedSalesRepName: c.sectorCode ? repBySector.get(normalizeCode(c.sectorCode)) || null : null,
+        ...actionPlan,
       };
     });
 
@@ -324,9 +426,9 @@ class CustomerEngagementService {
       filtered = filtered.filter((r) => r.nextFollowUpDate && r.nextFollowUpDate <= eod);
     }
     if (opts.search && opts.search.trim()) {
-      const q = opts.search.trim().toLocaleLowerCase('tr-TR');
+      const tokens = buildSearchTokens(opts.search);
       filtered = filtered.filter(
-        (r) => r.customerCode.toLocaleLowerCase('tr-TR').includes(q) || r.customerName.toLocaleLowerCase('tr-TR').includes(q)
+        (r) => matchesSearchTokens(normalizeSearchText(`${r.customerCode} ${r.customerName} ${r.sectorCode || ''}`), tokens)
       );
     }
     filtered = sortRows(filtered, opts.sort);

@@ -471,6 +471,7 @@ class EInvoiceService {
       eInvoiceUuid: metadata?.uuid || null,
       customerCode: metadata?.cariCode || null,
       customerName,
+      customerTaxNo: metadata?.customerTaxNo || null,
       customerId,
       issueDate: metadata?.issueDate || totals?.issueDate || null,
       sentAt: metadata?.sentAt || null,

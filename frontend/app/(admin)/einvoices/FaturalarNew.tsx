@@ -638,9 +638,21 @@ export default function FaturalarNew() {
                       cursor: doc.fileName ? 'pointer' : 'not-allowed',
                     }}
                   />
-                  <span style={{ fontFamily: "'Roboto Mono', monospace", fontWeight: 600 }}>
-                    {doc.invoiceNo}
-                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontFamily: "'Roboto Mono', monospace", fontWeight: 600 }}>
+                      {doc.invoiceNo}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 3,
+                        fontSize: 10.5,
+                        color: INK_MUTE,
+                        fontFamily: "'Roboto Mono', monospace",
+                      }}
+                    >
+                      VKN: {doc.customerTaxNo || '-'}
+                    </div>
+                  </div>
                   <div style={{ minWidth: 0 }}>
                     <div
                       style={{

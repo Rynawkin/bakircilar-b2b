@@ -198,6 +198,10 @@ class ScheduledJobsService {
         defaultSchedule: config.vadeSyncCronSchedule,
         editable: true,
         handler: async () => {
+          if (config.vadeSyncAutoDisabled) {
+            console.log('Vade sync skipped: VADE_SYNC_AUTO_DISABLED is enabled. Excel import remains authoritative.');
+            return;
+          }
           const result = await vadeSyncService.syncFromMikro('AUTO');
           if (!result.success) {
             console.error('Vade sync failed:', result.error);

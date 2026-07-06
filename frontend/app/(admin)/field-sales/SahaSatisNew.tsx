@@ -1054,7 +1054,7 @@ function ProductPanel(props: any) {
                 <div className="flex gap-3">
                   <ProductImage product={product} card />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-[#14223b] lg:overflow-visible lg:whitespace-normal lg:text-clip lg:leading-snug">
+                    <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-[#14223b]">
                       {product.name}
                     </p>
                     <p className="text-[11px] font-medium text-[#51607a] font-mono">
@@ -1123,7 +1123,7 @@ function ProductPanel(props: any) {
                 <button
                   type="button"
                   onClick={() => addToDraft(product)}
-                  className="inline-flex items-center justify-center gap-1 rounded-lg bg-[#15356b] px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-[#1c4585]"
+                  className="inline-flex min-h-[42px] items-center justify-center gap-1 rounded-lg bg-[#15356b] px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-[#1c4585]"
                 >
                   <Plus className="h-3.5 w-3.5" /> Ekle
                 </button>

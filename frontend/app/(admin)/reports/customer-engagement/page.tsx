@@ -103,6 +103,20 @@ const STATUS_META: Record<EngagementStatus, { label: string; bg: string; color: 
   KAYIP_RISKI: { label: 'Kayıp riski', bg: '#fef2f2', color: '#7f1d1d', border: '#fca5a5' },
 };
 
+const PRIORITY_META: Record<string, { label: string; bg: string; color: string; border: string }> = {
+  CRITICAL: { label: 'Acil', bg: '#fef2f2', color: RED, border: '#fecaca' },
+  HIGH: { label: 'Yuksek', bg: '#fff7ed', color: AMBER, border: '#fed7aa' },
+  MEDIUM: { label: 'Orta', bg: '#fffbeb', color: AMBER, border: '#fde68a' },
+  LOW: { label: 'Dusuk', bg: '#ecfdf5', color: EMERALD, border: '#a7f3d0' },
+};
+
+const healthColor = (score?: number | null) => {
+  const value = Number(score || 0);
+  if (value >= 75) return EMERALD;
+  if (value >= 55) return AMBER;
+  return RED;
+};
+
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '', label: 'Tümü' },
   { value: 'KAYITSIZ', label: 'Kayıtsız' },
@@ -406,6 +420,10 @@ export default function Page() {
         'Şehir',
         'Telefon',
         'Durum',
+        'Saglik Skoru',
+        'Aksiyon Onceligi',
+        'Onerilen Aksiyon',
+        'Aksiyon Nedeni',
         'B2B Kayıtlı',
         'Son Giriş',
         'Giriş Sayısı',
@@ -426,6 +444,10 @@ export default function Page() {
         r.city || '',
         r.phone || '',
         STATUS_META[r.status]?.label || r.status,
+        r.healthScore ?? 0,
+        PRIORITY_META[r.actionPriority]?.label || r.actionPriority || '',
+        r.suggestedAction || '',
+        r.actionReason || '',
         r.registered ? 'Evet' : 'Hayır',
         r.lastLoginAt ? safeDate(r.lastLoginAt) : 'Hiç',
         r.loginCount,
@@ -451,7 +473,7 @@ export default function Page() {
     }
   };
 
-  const colSpan = isAdmin ? 11 : 10;
+  const colSpan = isAdmin ? 13 : 12;
 
   return (
     <div style={{ padding: '20px 22px', maxWidth: 1500, margin: '0 auto', fontFamily: 'inherit', color: INK }}>
@@ -502,6 +524,8 @@ export default function Page() {
           <KpiCard label="Kayıp riski" value={kpis.atRisk} tone="red" icon={<AlertTriangle width={13} height={13} stroke={FAINT} strokeWidth={2} />} />
           <KpiCard label="Bugün aranacak" value={kpis.followUpDue} tone="amber" icon={<PhoneCall width={13} height={13} stroke={FAINT} strokeWidth={2} />} />
           <KpiCard label="Hiç temas edilmemiş" value={kpis.neverContacted} tone="amber" icon={<MessageSquarePlus width={13} height={13} stroke={FAINT} strokeWidth={2} />} />
+          <KpiCard label="Aksiyon bekleyen" value={kpis.actionDue ?? 0} tone="red" icon={<AlertTriangle width={13} height={13} stroke={FAINT} strokeWidth={2} />} />
+          <KpiCard label="Portfoy sagligi" value={`${kpis.avgHealthScore ?? 0}/100`} tone={(kpis.avgHealthScore ?? 0) >= 75 ? 'emerald' : (kpis.avgHealthScore ?? 0) >= 55 ? 'amber' : 'red'} icon={<Activity width={13} height={13} stroke={FAINT} strokeWidth={2} />} />
         </div>
       )}
 
@@ -608,6 +632,8 @@ export default function Page() {
                     <th style={{ padding: '8px 14px', fontWeight: 600, textAlign: 'right' }}>Kayıtsız</th>
                     <th style={{ padding: '8px 14px', fontWeight: 600, textAlign: 'right' }}>Hiç girmemiş</th>
                     <th style={{ padding: '8px 14px', fontWeight: 600, textAlign: 'right' }}>Kayıp riski</th>
+                    <th style={{ padding: '8px 14px', fontWeight: 600, textAlign: 'right' }}>Aksiyon</th>
+                    <th style={{ padding: '8px 14px', fontWeight: 600, textAlign: 'right' }}>Saglik</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -619,6 +645,8 @@ export default function Page() {
                       <td style={{ padding: '8px 14px', textAlign: 'right', color: MUTED }}>{rb.unregistered}</td>
                       <td style={{ padding: '8px 14px', textAlign: 'right', color: RED }}>{rb.neverLoggedIn}</td>
                       <td style={{ padding: '8px 14px', textAlign: 'right', color: RED }}>{rb.atRisk}</td>
+                      <td style={{ padding: '8px 14px', textAlign: 'right', color: AMBER }}>{rb.actionDue ?? 0}</td>
+                      <td style={{ padding: '8px 14px', textAlign: 'right', color: healthColor(rb.avgHealthScore), fontWeight: 700 }}>{rb.avgHealthScore ?? 0}/100</td>
                     </tr>
                   ))}
                 </tbody>
@@ -631,11 +659,13 @@ export default function Page() {
       {/* Tablo */}
       <div style={{ ...cardStyle, marginTop: 14, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 1050 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 1280 }}>
             <thead>
               <tr style={{ background: TABLE_HEAD_BG, color: FAINT, textAlign: 'left' }}>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Cari</th>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Durum</th>
+                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Saglik</th>
+                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Oneri</th>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Kayıt</th>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Son giriş</th>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Sıklık</th>
@@ -698,6 +728,39 @@ export default function Page() {
                             </Link>
                           </span>
                         )}
+                      </div>
+                    </td>
+
+                    {/* Saglik */}
+                    <td style={{ padding: '10px 14px', minWidth: 90 }}>
+                      <div style={{ color: healthColor(r.healthScore), fontWeight: 800 }}>{r.healthScore ?? 0}/100</div>
+                      <div style={{ marginTop: 4, width: 72, height: 5, borderRadius: 999, background: '#eef1f6', overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.max(0, Math.min(100, r.healthScore ?? 0))}%`, height: '100%', background: healthColor(r.healthScore) }} />
+                      </div>
+                    </td>
+
+                    {/* Oneri */}
+                    <td style={{ padding: '10px 14px', maxWidth: 210 }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          background: PRIORITY_META[r.actionPriority]?.bg || '#eef1f6',
+                          color: PRIORITY_META[r.actionPriority]?.color || MUTED,
+                          border: `1px solid ${PRIORITY_META[r.actionPriority]?.border || LINE}`,
+                        }}
+                      >
+                        {PRIORITY_META[r.actionPriority]?.label || r.actionPriority || '-'}
+                      </span>
+                      <div style={{ marginTop: 4, color: INK, fontSize: 11.5, fontWeight: 600, lineHeight: 1.25 }}>
+                        {r.suggestedAction || '-'}
+                      </div>
+                      <div style={{ marginTop: 2, color: FAINT, fontSize: 10.5, lineHeight: 1.25 }}>
+                        {r.actionReason || ''}
                       </div>
                     </td>
 

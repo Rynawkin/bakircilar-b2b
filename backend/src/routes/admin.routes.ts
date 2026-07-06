@@ -16,6 +16,7 @@ import priceVerificationController from '../controllers/price-verification.contr
 import tenderCostController from '../controllers/tender-cost.controller';
 import productComplementController from '../controllers/product-complement.controller';
 import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
+import auditLogController from '../controllers/audit-log.controller';
 import productDimensionsController from '../controllers/product-dimensions.controller';
 import stockCreateController from '../controllers/stock-create.controller';
 import hotSaleController from '../controllers/hot-sale.controller';
@@ -161,10 +162,25 @@ const notificationReadSchema = z.object({
 });
 
 const pushTokenSchema = z.object({
-  token: z.string().min(1),
+  token: z.string().min(1).optional(),
+  endpoint: z.string().min(1).optional(),
+  subscription: z.object({
+    endpoint: z.string().min(1),
+    keys: z.object({
+      p256dh: z.string().min(1),
+      auth: z.string().min(1),
+    }),
+  }).optional(),
   platform: z.string().optional(),
   appName: z.string().optional(),
   deviceName: z.string().optional(),
+});
+
+const notificationPreferenceSchema = z.object({
+  preferences: z.array(z.object({
+    category: z.string().min(1),
+    enabled: z.boolean(),
+  })),
 });
 
 const testPushSchema = z.object({
@@ -213,6 +229,7 @@ router.put('/settings', requirePermission('admin:settings'), invalidateCacheMidd
 router.get('/scheduled-jobs', requirePermission('admin:settings'), adminController.getScheduledJobs);
 router.put('/scheduled-jobs/:key/schedule', requirePermission('admin:settings'), adminController.setScheduledJobSchedule);
 router.post('/scheduled-jobs/:key/run', requirePermission('admin:settings'), adminController.runScheduledJob);
+router.get('/audit-logs', requirePermission('admin:settings'), auditLogController.list);
 
 // Sync - ADMIN only
 router.post('/sync', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.triggerSync);
@@ -553,10 +570,13 @@ router.delete('/tasks/:id/links/:linkId', requirePermission('admin:requests'), t
 
 // Notifications
 router.get('/notifications', notificationController.getNotifications);
+router.get('/notifications/preferences', notificationController.getPreferences);
+router.put('/notifications/preferences', validateBody(notificationPreferenceSchema), notificationController.updatePreferences);
 router.post('/notifications/read', validateBody(notificationReadSchema), notificationController.markRead);
 router.post('/notifications/read-all', notificationController.markAllRead);
+router.get('/notifications/push/vapid-public-key', notificationController.getVapidPublicKey);
 router.post('/notifications/push/register', validateBody(pushTokenSchema), notificationController.registerPushToken);
-router.post('/notifications/push/unregister', validateBody(z.object({ token: z.string().min(1) })), notificationController.unregisterPushToken);
+router.post('/notifications/push/unregister', validateBody(z.object({ token: z.string().min(1).optional(), endpoint: z.string().min(1).optional() })), notificationController.unregisterPushToken);
 router.post('/notifications/push/test', requirePermission('admin:notifications'), validateBody(testPushSchema), notificationController.sendTestPush);
 
 // Exchange rates
@@ -659,6 +679,11 @@ router.get('/reports/customer-engagement/:code/contacts', requirePermission('rep
 router.get('/reports/customer-activity', requirePermission('reports:customer-activity'), adminController.getCustomerActivityReport);
 router.get('/reports/staff-activity', requirePermission('reports:staff-activity'), adminController.getStaffActivityReport);
 router.get('/reports/customer-carts', requirePermission('reports:customer-carts'), adminController.getCustomerCartsReport);
+router.get(
+  '/reports/action-radar',
+  requireAnyPermission(['admin:quotes', 'reports:customer-carts', 'reports:complement-missing', 'admin:products', 'admin:field-sales', 'reports:ucarer-depo']),
+  adminController.getActionRadar
+);
 router.get('/reports/ucarer-depo', requirePermission('reports:ucarer-depo'), adminController.getUcarerDepotReport);
 router.get('/reports/ucarer-depo/operation-logs', requirePermission('reports:ucarer-depo'), adminController.getUcarerOperationLogs);
 router.get('/reports/ucarer-incoming-order-details', requirePermission('reports:ucarer-depo'), adminController.getUcarerIncomingOrderDetails);

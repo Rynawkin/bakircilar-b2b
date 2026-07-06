@@ -1,7 +1,7 @@
 import { OrderStatus, Prisma, QuoteStatus, TaskStatus, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AppError, ErrorCode } from '../types/errors';
-import { splitSearchTokens } from '../utils/search';
+import { matchesSearchTokens, normalizeSearchText, splitSearchTokens } from '../utils/search';
 
 type StaffScope = {
   role?: string;
@@ -19,6 +19,11 @@ const CUSTOMER_SELECT = {
   priceVisibility: true,
   vatDisplayPreference: true,
   useLastPrices: true,
+  lastPriceGuardType: true,
+  lastPriceGuardInvoicedListNo: true,
+  lastPriceGuardWhiteListNo: true,
+  lastPriceCostBasis: true,
+  lastPriceMinCostPercent: true,
   // Fiyat listesi onerisi (gece motoru) + manuel override alanlari
   suggestedInvoicedListNo: true,
   suggestedRetailListNo: true,
@@ -100,12 +105,37 @@ class Customer360Service {
       ],
     };
 
-    const customers = await prisma.user.findMany({
+    let customers = await prisma.user.findMany({
       where,
       select: CUSTOMER_SELECT,
       orderBy: [{ active: 'desc' }, { mikroCariCode: 'asc' }],
       take: limit,
     });
+
+    if (tokens.length > 0 && customers.length < limit) {
+      const normalizedTokens = tokens.map((token) => normalizeSearchText(token)).filter(Boolean);
+      const fallbackRows = await prisma.user.findMany({
+        where: scopedWhere,
+        select: CUSTOMER_SELECT,
+        orderBy: [{ active: 'desc' }, { mikroCariCode: 'asc' }],
+        take: 1000,
+      });
+      const seen = new Set(customers.map((customer) => customer.id));
+      const fallbackMatches = fallbackRows
+        .filter((customer) => !seen.has(customer.id))
+        .filter((customer) => {
+          const haystack = normalizeSearchText([
+            customer.mikroCariCode,
+            customer.displayName,
+            customer.mikroName,
+            customer.name,
+            customer.city,
+            customer.sectorCode,
+          ].filter(Boolean).join(' '));
+          return matchesSearchTokens(haystack, normalizedTokens);
+        });
+      customers = [...customers, ...fallbackMatches].slice(0, limit);
+    }
 
     return {
       customers: customers.map((customer) => ({
@@ -179,6 +209,7 @@ class Customer360Service {
       invoiceCount,
       recentInvoices,
       customerRequests,
+      engagementLogs,
     ] = await Promise.all([
       prisma.order.groupBy({
         by: ['status'],
@@ -448,6 +479,13 @@ class Customer360Service {
           _count: { select: { items: true } },
         },
       }),
+      customerCode
+        ? prisma.customerContactLog.findMany({
+            where: { customerCode },
+            orderBy: { contactedAt: 'desc' },
+            take: 8,
+          })
+        : Promise.resolve([]),
     ]);
 
     const orderStatusCounts = countByStatus(orderGroups);
@@ -455,6 +493,8 @@ class Customer360Service {
     const cartItems = cart?.items || [];
     const cartTotal = cartItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
     const activitySummary = this.buildActivitySummary(activityEvents);
+    const priceTrust = this.buildPriceTrust(customer, activeAgreements);
+    const lastEngagement = engagementLogs[0] || null;
 
     return {
       customer: {
@@ -503,10 +543,19 @@ class Customer360Service {
       tasks: recentTasks,
       recoveryActions,
       activity: activitySummary,
+      engagement: {
+        lastContactAt: lastEngagement?.contactedAt || null,
+        lastContactByName: lastEngagement?.contactedByName || null,
+        lastOutcome: lastEngagement?.outcome || null,
+        nextFollowUpDate: lastEngagement?.followUpDate || null,
+        contactCount: engagementLogs.length,
+        recentContacts: engagementLogs,
+      },
       agreements: {
         activeCount: activeAgreements,
         recent: recentAgreements,
       },
+      priceTrust,
       contacts,
       subUsers,
       invoices: {
@@ -552,6 +601,50 @@ class Customer360Service {
       countsByType: Object.fromEntries(byType.entries()),
       topPages: Array.from(pages.values()).sort((a, b) => b.count - a.count).slice(0, 8),
       topProducts: Array.from(products.values()).sort((a, b) => b.count - a.count).slice(0, 8),
+    };
+  }
+
+  private buildPriceTrust(customer: any, activeAgreementCount: number) {
+    const hasManualLists = Boolean(customer.manualInvoicedListNo || customer.manualRetailListNo);
+    const hasSuggestedLists = Boolean(customer.suggestedInvoicedListNo || customer.suggestedRetailListNo);
+    const hasLastPriceGuard = Boolean(customer.useLastPrices);
+    const hasFreshSuggestion =
+      customer.suggestedListComputedAt &&
+      new Date(customer.suggestedListComputedAt).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+    let score = 35;
+    if (hasManualLists) score += 20;
+    if (hasSuggestedLists) score += hasFreshSuggestion ? 20 : 12;
+    if (hasLastPriceGuard) score += 15;
+    if (activeAgreementCount > 0) score += 10;
+    if (!customer.priceVisibility) score -= 10;
+    score = Math.max(0, Math.min(100, score));
+
+    const warnings: string[] = [];
+    if (!hasManualLists && !hasSuggestedLists) warnings.push('Liste onerisi veya manuel fiyat listesi yok');
+    if (!hasLastPriceGuard) warnings.push('Son fiyat korumasi kapali');
+    if (hasSuggestedLists && !hasFreshSuggestion) warnings.push('Fiyat listesi onerisi 30 gunden eski');
+
+    return {
+      score,
+      level: score >= 80 ? 'HIGH' : score >= 55 ? 'MEDIUM' : 'LOW',
+      priceVisibility: customer.priceVisibility,
+      vatDisplayPreference: customer.vatDisplayPreference,
+      useLastPrices: customer.useLastPrices,
+      lastPriceGuardType: customer.lastPriceGuardType,
+      lastPriceCostBasis: customer.lastPriceCostBasis,
+      lastPriceMinCostPercent: customer.lastPriceMinCostPercent,
+      lastPriceGuardInvoicedListNo: customer.lastPriceGuardInvoicedListNo,
+      lastPriceGuardWhiteListNo: customer.lastPriceGuardWhiteListNo,
+      manualInvoicedListNo: customer.manualInvoicedListNo,
+      manualRetailListNo: customer.manualRetailListNo,
+      manualListNote: customer.manualListNote,
+      suggestedInvoicedListNo: customer.suggestedInvoicedListNo,
+      suggestedRetailListNo: customer.suggestedRetailListNo,
+      suggestedListBasis: customer.suggestedListBasis,
+      suggestedListComputedAt: customer.suggestedListComputedAt,
+      activeAgreementCount,
+      warnings,
     };
   }
 }
