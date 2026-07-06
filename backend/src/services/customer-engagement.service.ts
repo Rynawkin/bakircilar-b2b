@@ -206,12 +206,25 @@ class CustomerEngagementService {
       loginByCode.set(code, lg);
     }
 
+    // SADECE musterinin KENDI girdigi siparisler sayilir. Satisci/admin panelden GIRILEN
+    // siparisler HARIC: manuel siparis (requestedById=personel) + teklif->siparis (sourceQuoteId
+    // dolu). DAHIL: self-checkout (requestedById null) + alt-kullanici talebi (requestedById=
+    // musteri). Personel id'lerini (role != CUSTOMER) cikarip requestedById'yi bunlarla filtrele.
+    const staffUsers = await prisma.user.findMany({ where: { role: { not: 'CUSTOMER' as any } }, select: { id: true } });
+    const staffIds = staffUsers.map((u) => u.id);
+
     // Siparisler (household roll-up): userId'ye gore grupla, cari koduna indir.
     const userIds = users.map((u) => u.id);
     const orderGroups = userIds.length
       ? await prisma.order.groupBy({
           by: ['userId'],
-          where: { userId: { in: userIds }, status: { in: ['APPROVED', 'PENDING'] as any } },
+          where: {
+            userId: { in: userIds },
+            status: { in: ['APPROVED', 'PENDING'] as any },
+            sourceQuoteId: null, // teklif->siparis (personel) haric
+            // requestedById personel ise (manuel giris) haric; null (self) veya musteri ise dahil
+            ...(staffIds.length ? { OR: [{ requestedById: null }, { requestedById: { notIn: staffIds } }] } : {}),
+          },
           _count: { _all: true }, _sum: { totalAmount: true }, _min: { createdAt: true }, _max: { createdAt: true },
         })
       : [];
