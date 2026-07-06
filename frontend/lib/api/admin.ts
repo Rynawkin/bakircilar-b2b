@@ -94,6 +94,54 @@ export interface BundleInputPayload {
   items: Array<{ productId: string; quantity: number; useDiscountedPrice: boolean }>;
 }
 
+// Cari aktivite / temas raporu
+export type EngagementStatus = 'KAYITSIZ' | 'HIC_GIRMEMIS' | 'AKTIF' | 'YAVASLIYOR' | 'KAYIP_RISKI';
+export interface EngagementRow {
+  customerCode: string;
+  customerName: string;
+  sectorCode: string | null;
+  city: string | null;
+  phone: string | null;
+  balance: number;
+  registered: boolean;
+  userId: string | null;
+  lastLoginAt: string | null;
+  firstLoginAt: string | null;
+  loginCount: number;
+  loginFrequencyDays: number | null;
+  daysSinceLastLogin: number | null;
+  orderCount: number;
+  orderTotal: number;
+  orderAvg: number;
+  firstOrderAt: string | null;
+  lastOrderAt: string | null;
+  status: EngagementStatus;
+  lastContactAt: string | null;
+  lastContactByName: string | null;
+  contactCount: number;
+  hasNotes: boolean;
+  nextFollowUpDate: string | null;
+  assignedSalesRepName: string | null;
+}
+export interface EngagementKpis {
+  total: number; registered: number; registeredPct: number; unregistered: number;
+  neverLoggedIn: number; active30: number; atRisk: number; followUpDue: number; neverContacted: number;
+}
+export interface EngagementRepBreakdown {
+  rep: string; total: number; registered: number; unregistered: number; neverLoggedIn: number; atRisk: number;
+}
+export interface EngagementReport {
+  rows: EngagementRow[]; total: number; page: number; limit: number;
+  kpis: EngagementKpis; repBreakdown: EngagementRepBreakdown[];
+}
+export interface ContactLogEntry {
+  id: string; customerCode: string; customerName: string | null; contactedAt: string;
+  contactedByName: string | null; channel: string | null; note: string | null; outcome: string | null; followUpDate: string | null;
+}
+export interface ContactInput {
+  customerName?: string; note?: string; channel?: string; outcome?: string; followUpDate?: string | null;
+}
+
 // ==================== Min-Max v2 tipleri ====================
 export interface MinMaxV2Settings {
   lookbackDays: number;
@@ -2580,6 +2628,22 @@ export const adminApi = {
   },
   deleteBundle: async (id: string): Promise<{ success: boolean }> => {
     const response = await apiClient.delete(`/admin/bundles/${id}`);
+    return response.data;
+  },
+
+  // Cari aktivite / temas raporu
+  getCustomerEngagement: async (params: {
+    search?: string; status?: string; sort?: string; page?: number; limit?: number; followUpDue?: boolean;
+  } = {}): Promise<EngagementReport> => {
+    const response = await apiClient.get('/admin/reports/customer-engagement', { params });
+    return response.data;
+  },
+  addCustomerEngagementContact: async (code: string, payload: ContactInput): Promise<{ success: boolean; contact: ContactLogEntry }> => {
+    const response = await apiClient.post(`/admin/reports/customer-engagement/${encodeURIComponent(code)}/contact`, payload);
+    return response.data;
+  },
+  getCustomerEngagementContacts: async (code: string): Promise<{ contacts: ContactLogEntry[] }> => {
+    const response = await apiClient.get(`/admin/reports/customer-engagement/${encodeURIComponent(code)}/contacts`);
     return response.data;
   },
 

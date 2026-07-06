@@ -353,6 +353,12 @@ model User {
   assignedSectorCodes String[]      @default([])
 
   active        Boolean       @default(true)
+
+  // Giris takibi (cari aktivite raporu: son giris + giris sikligi). Girişte yazilir.
+  lastLoginAt   DateTime?
+  firstLoginAt  DateTime?
+  loginCount    Int           @default(0)
+
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -754,6 +760,26 @@ model EInvoiceDocument {
 }
 
 // ==================== CATEGORIES ====================
+
+// Cari temas/hatirlatma gecmisi (cari aktivite raporu). Append-only; customerCode ile
+// (Mikro cari kodu) anahtarlanir -> B2B kaydi OLMAYAN cariler icin de calisir.
+// Hizli "Hatirlatildi" tik'i = note bos bir satir; not = note dolu. "Son hatirlatma" = MAX(contactedAt).
+model CustomerContactLog {
+  id                String    @id @default(uuid())
+  customerCode      String    // Mikro cari kodu
+  customerName      String?
+  contactedAt       DateTime  @default(now())
+  contactedByUserId String?
+  contactedByName   String?
+  channel           String?   // telefon / whatsapp / ziyaret / sms / genel
+  note              String?   // bos = sadece hatirlatma tik'i
+  outcome           String?   // girdi / soz-verdi / ilgilenmiyor / ...
+  followUpDate      DateTime? // sonraki takip tarihi (bugun-aranacaklar)
+  createdAt         DateTime  @default(now())
+
+  @@index([customerCode, contactedAt])
+  @@index([followUpDate])
+}
 
 model Category {
   id              String                @id @default(uuid())

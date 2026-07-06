@@ -11,6 +11,7 @@ import { hashPassword } from '../utils/password';
 import syncService from '../services/sync.service';
 import imageService from '../services/image.service';
 import productImageService from '../services/product-image.service';
+import customerEngagementService from '../services/customer-engagement.service';
 import cariSyncService from '../services/cariSync.service';
 import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
@@ -3614,6 +3615,55 @@ export class AdminController {
       const images = await productImageService.list(id);
       res.json({ success: true, images });
     } catch (error) {
+      next(error);
+    }
+  }
+
+  // ==================== CARI AKTIVITE / TEMAS RAPORU ====================
+
+  /** GET /api/admin/reports/customer-engagement */
+  async getCustomerEngagement(req: Request, res: Response, next: NextFunction) {
+    try {
+      const ctx = buildReportRequestContext(req);
+      const q = req.query;
+      const result = await customerEngagementService.getReport(ctx, {
+        search: typeof q.search === 'string' ? q.search : undefined,
+        status: typeof q.status === 'string' ? q.status : undefined,
+        sort: typeof q.sort === 'string' ? q.sort : undefined,
+        page: q.page ? Number(q.page) : undefined,
+        limit: q.limit ? Number(q.limit) : undefined,
+        onlyFollowUpDue: q.followUpDue === 'true' || q.followUpDue === '1',
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** POST /api/admin/reports/customer-engagement/:code/contact — temas/hatirlatma ekle */
+  async addCustomerEngagementContact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const ctx = buildReportRequestContext(req);
+      const row = await customerEngagementService.addContact(ctx, req.params.code, req.body || {});
+      res.json({ success: true, contact: row });
+    } catch (error: any) {
+      if (error?.message?.includes('sorumlulu') || error?.message?.includes('yetki')) {
+        return res.status(403).json({ error: error.message });
+      }
+      next(error);
+    }
+  }
+
+  /** GET /api/admin/reports/customer-engagement/:code/contacts — temas gecmisi */
+  async getCustomerEngagementContacts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const ctx = buildReportRequestContext(req);
+      const contacts = await customerEngagementService.getContacts(ctx, req.params.code);
+      res.json({ contacts });
+    } catch (error: any) {
+      if (error?.message?.includes('sorumlulu') || error?.message?.includes('yetki')) {
+        return res.status(403).json({ error: error.message });
+      }
       next(error);
     }
   }

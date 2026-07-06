@@ -651,6 +651,11 @@ router.patch('/reports/customer-recovery/actions/:id', requirePermission('report
 router.get('/reports/customer-recovery/:customerCode/detail', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryDetail);
 router.get('/reports/customer-recovery/:customerCode/actions', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryActions);
 router.post('/reports/customer-recovery/:customerCode/actions', requirePermission('reports:customer-recovery'), adminController.createCustomerRecoveryAction);
+// Cari aktivite / temas raporu (satisci kendi sektoru; admin/yonetici tumu)
+router.get('/reports/customer-engagement', requirePermission('reports:customer-engagement'), adminController.getCustomerEngagement);
+router.post('/reports/customer-engagement/:code/contact', requirePermission('reports:customer-engagement'), adminController.addCustomerEngagementContact);
+router.get('/reports/customer-engagement/:code/contacts', requirePermission('reports:customer-engagement'), adminController.getCustomerEngagementContacts);
+
 router.get('/reports/customer-activity', requirePermission('reports:customer-activity'), adminController.getCustomerActivityReport);
 router.get('/reports/staff-activity', requirePermission('reports:staff-activity'), adminController.getStaffActivityReport);
 router.get('/reports/customer-carts', requirePermission('reports:customer-carts'), adminController.getCustomerCartsReport);

@@ -68,6 +68,21 @@ export class AuthController {
         return;
       }
 
+      // Giris kaydi (cari aktivite raporu: son giris + giris sikligi). Hata login'i BLOKLAMAZ.
+      try {
+        const now = new Date();
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            lastLoginAt: now,
+            loginCount: { increment: 1 },
+            ...(user.firstLoginAt ? {} : { firstLoginAt: now }),
+          },
+        });
+      } catch (e) {
+        console.error('login timestamp update failed', e);
+      }
+
       // JWT token üret (11.2: sifre parmak izi ile)
       const token = generateToken({
         userId: user.id,
