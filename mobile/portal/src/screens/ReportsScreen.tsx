@@ -467,7 +467,7 @@ export function ReportsScreen() {
       return;
     }
     if (item.action.type === 'customerDetail' && item.action.customerId) {
-      navigation.navigate('CustomerDetail', { customerId: item.action.customerId });
+      navigation.navigate('Customer360', { customerIdOrCode: item.action.customerId });
     }
   };
 

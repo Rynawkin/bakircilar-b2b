@@ -301,10 +301,16 @@ export function CustomerEngagementScreen() {
             <Text style={styles.cardMeta}>Siparis: {item.orderCount || 0} · {formatMoney(item.orderTotal)} · Bakiye: {formatMoney(item.balance)}</Text>
             <Text style={styles.cardMeta}>Son temas: {formatDate(item.lastContactAt)} · Sonraki takip: {formatDate(item.nextFollowUpDate)}</Text>
 
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => openContactModal(item)}>
-                <Text style={styles.secondaryButtonText}>Temas / Not</Text>
-              </TouchableOpacity>
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => navigation.navigate('Customer360', { customerIdOrCode: item.userId || item.customerCode })}
+                >
+                  <Text style={styles.secondaryButtonText}>360</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryButton} onPress={() => openContactModal(item)}>
+                  <Text style={styles.secondaryButtonText}>Temas / Not</Text>
+                </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.secondaryButton, tickingCode === item.customerCode && styles.buttonDisabled]}
                 disabled={tickingCode === item.customerCode}

@@ -1039,6 +1039,14 @@ export const adminApi = {
     const response = await apiClient.get('/admin/reports/action-radar');
     return response.data as { success: boolean; data: any };
   },
+  searchCustomer360: async (params?: { search?: string; limit?: number }) => {
+    const response = await apiClient.get('/admin/customer-360/search', { params });
+    return response.data as { customers: any[] };
+  },
+  getCustomer360: async (customerIdOrCode: string) => {
+    const response = await apiClient.get(`/admin/customer-360/${encodeURIComponent(customerIdOrCode)}`);
+    return response.data as { success: boolean; data: any };
+  },
   getCustomerEngagement: async (params?: {
     search?: string;
     status?: string;

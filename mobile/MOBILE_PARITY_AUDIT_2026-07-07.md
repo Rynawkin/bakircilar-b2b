@@ -25,13 +25,20 @@ Bu dosya canli kod incelemesine gore yazildi; eski `mobile/FEATURE_PARITY.md` ar
    - Navigasyon: `mobile/portal/src/navigation/AppNavigator.tsx`, `mobile/portal/src/screens/MoreScreen.tsx`
    - Ozellikler: KPI kartlari, cari arama, durum filtresi, bugun aranacak filtresi, saglik skoru, oneri/aksiyon nedeni, siparis/giris/temas ozeti, hizli "hatirlatildi", temas/not modalı ve gecmis temas listesi.
 
+4. Portal uygulamasina `Cari 360` eklendi.
+   - API: `mobile/portal/src/api/admin.ts` -> `searchCustomer360`, `getCustomer360`
+   - UI: `mobile/portal/src/screens/Customer360Screen.tsx`
+   - Navigasyon: `mobile/portal/src/navigation/AppNavigator.tsx`, `mobile/portal/src/screens/MoreScreen.tsx`
+   - Baglantilar: Cari Aktivite kartlarindan ve Aksiyon Radari cari aksiyonlarindan Cari 360'a gecis eklendi.
+   - Ozellikler: cari arama/secim, cari kimligi, bakiye/siparis/teklif/sepet/aksiyon/fatura KPI'lari, fiyat guven karti, aktif sepet kalemleri, son siparisler, son teklifler, vade/temas ozeti, temas gecmisi, vade notlari, aktivite ve son faturalar.
+
 ## Hala eksik olan yuksek oncelikli portal/admin modulleri
 
 Webde var, mobil portalda ekran/API paritesi henuz yok veya cok sinirli:
 
 - `admin-products`: urun detay yonetimi, gorsel galeri, tamamlayici ayarlari, katalog kalitesi.
 - `bundles`: paket olusturma/duzenleme, paket performans aksiyonlari.
-- `customer-360`: cari 360 ve vade/aktivite birlesimi mobilde yok.
+- `customer-360`: temel mobil ekran eklendi; webdeki sekmeli desktop deneyimin birebir derinligi, tablo/export aksiyonlari ve tablet gorsel QA henuz tamamlanmadi.
 - `field-sales`: mobilde web saha satis moduluyle tam parite yok; urun arama/sepete hizli ekleme/saha notu ergonomisi ayrica elden gecmeli.
 - `hot-sales`: sicak satis/arac stok/gun sonu akislarinin mobil paritesi yok.
 - `warehouse`, `warehouse/image-issues`, `warehouse/retail`: depo kiosk, gorsel hata, perakende satis mobilde yok.
