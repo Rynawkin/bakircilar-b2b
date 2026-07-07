@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Badge } from '@/components/ui/Badge';
+import { getApiErrorMessage } from '@/lib/utils/apiError';
 import type { Quote } from '@/types';
 
 export const resolveWarehouseValue = (value: string) => {
@@ -265,7 +266,7 @@ export function useSiparisCevir() {
       toast.success(`Siparis olusturuldu: ${orderLabel}`);
       router.push('/quotes');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Siparis olusturulamadi.');
+      toast.error(getApiErrorMessage(error, 'Siparis olusturulamadi.'));
     } finally {
       setSubmitting(false);
     }

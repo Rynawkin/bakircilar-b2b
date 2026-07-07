@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { PendingOrderForAdmin } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
+import { getApiErrorMessage } from '@/lib/utils/apiError';
 import * as XLSX from 'xlsx';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
@@ -133,7 +134,7 @@ export function useSiparisler() {
         });
       }
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Siparisler yuklenemedi');
+      toast.error(getApiErrorMessage(error, 'Siparisler yuklenemedi'));
     } finally {
       hasLoadedOnceRef.current = true;
       setIsLoading(false);
@@ -613,7 +614,7 @@ export function useSiparisler() {
       toast.success('Sipariş onaylandı ve Mikro\'ya gönderildi! ✅');
       fetchOrders();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Onaylama başarısız');
+      toast.error(getApiErrorMessage(error, 'Onaylama basarisiz'));
     }
   };
 
@@ -667,7 +668,7 @@ export function useSiparisler() {
       toast.success('Sipariş reddedildi');
       fetchOrders();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Reddetme başarısız');
+      toast.error(getApiErrorMessage(error, 'Reddetme basarisiz'));
     }
   };
 

@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
+import { getApiErrorMessage } from '@/lib/utils/apiError';
 import * as XLSX from 'xlsx';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
@@ -414,7 +415,7 @@ export function useTeklifler() {
       toast.success('Teklif onaylandı ve Mikro\'ya gönderildi');
       fetchQuotes();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Onaylama başarısız');
+      toast.error(getApiErrorMessage(error, 'Onaylama basarisiz'));
     }
   };
 
@@ -469,7 +470,7 @@ export function useTeklifler() {
       toast.success('Teklif reddedildi');
       fetchQuotes();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Reddetme başarısız');
+      toast.error(getApiErrorMessage(error, 'Reddetme basarisiz'));
     }
   };
 
@@ -1580,7 +1581,7 @@ export function useTeklifler() {
       }
       fetchQuotes();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Mikro guncelleme basarisiz');
+      toast.error(getApiErrorMessage(error, 'Mikro guncelleme basarisiz'));
     } finally {
       setSyncingQuoteId(null);
     }
@@ -1593,7 +1594,7 @@ export function useTeklifler() {
       setQuotes((prev) => prev.map((quote) => (quote.id === quoteId ? updatedQuote : quote)));
       toast.success("PDF musteriye gonderildi olarak isaretlendi.");
     } catch (error: any) {
-      toast.error(error.response?.data?.error || "PDF gonderim bilgisi kaydedilemedi");
+      toast.error(getApiErrorMessage(error, 'PDF gonderim bilgisi kaydedilemedi'));
     } finally {
       setMarkingCustomerPdfSentId(null);
     }

@@ -28,7 +28,7 @@ export const config = {
     password: process.env.MIKRO_PASSWORD || '',
     port: parseInt(process.env.MIKRO_PORT || '1433', 10),
     requestTimeout: parseInt(process.env.MIKRO_REQUEST_TIMEOUT_MS || '120000', 10),
-    connectionTimeout: parseInt(process.env.MIKRO_CONNECTION_TIMEOUT_MS || '30000', 10),
+    connectionTimeout: parseInt(process.env.MIKRO_CONNECTION_TIMEOUT_MS || '10000', 10),
     // Baglanti havuzu: varsayilan max 10'du; es zamanli dashboard/rapor yukunde tikaniyordu.
     pool: {
       max: parseInt(process.env.MIKRO_POOL_MAX || '25', 10),

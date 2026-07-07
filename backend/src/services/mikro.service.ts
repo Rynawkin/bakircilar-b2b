@@ -31,6 +31,23 @@ class MikroService {
   public connectPromise: Promise<sql.ConnectionPool> | null = null;
   public sipBelgeColumns: { no: 'sip_belge_no' | 'sip_belgeno' | null; tarih: boolean } | null = null;
   public sipExtraColumns: { teklifUid: boolean } | null = null;
+  public unavailableUntil = 0;
+  public unavailableReason = '';
+
+  public markTemporarilyUnavailable(error: any, cooldownMs = 30_000) {
+    const message = error instanceof Error ? error.message : String(error || 'unknown error');
+    this.unavailableUntil = Date.now() + cooldownMs;
+    this.unavailableReason = message.slice(0, 240);
+  }
+
+  public isTemporarilyUnavailable(): boolean {
+    return Date.now() < this.unavailableUntil;
+  }
+
+  public getTemporaryUnavailableMessage(): string {
+    const remainingSeconds = Math.max(1, Math.ceil((this.unavailableUntil - Date.now()) / 1000));
+    return `Mikro ERP gecici olarak erisilemiyor (${remainingSeconds} sn sonra tekrar denenecek). ${this.unavailableReason || ''}`.trim();
+  }
 
   /**
    * Mikro KDV kod → yüzde dönüşümü
@@ -78,6 +95,10 @@ class MikroService {
       return;
     }
 
+    if (this.isTemporarilyUnavailable()) {
+      throw new Error(this.getTemporaryUnavailableMessage());
+    }
+
     if (this.connectPromise) {
       await this.connectPromise;
       return;
@@ -98,6 +119,7 @@ class MikroService {
       const nextPool = new sql.ConnectionPool(config.mikro);
       nextPool.on('error', (error) => {
         console.error('WARN: Mikro pool error:', error);
+        this.markTemporarilyUnavailable(error, 15_000);
         if (this.pool === nextPool) {
           this.pool = null;
         }
@@ -110,6 +132,7 @@ class MikroService {
         return nextPool;
       } catch (error) {
         console.error('❌ Mikro ERP bağlantı hatası:', error);
+        this.markTemporarilyUnavailable(error, 30_000);
         if (this.pool === nextPool) {
           this.pool = null;
         }
@@ -3443,9 +3466,4 @@ class MikroService {
 }
 
 export default new MikroService();
-
-
-
-
-
 

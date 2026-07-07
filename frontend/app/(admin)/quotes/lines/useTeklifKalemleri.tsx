@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Badge } from '@/components/ui/Badge';
 import { useDebounce } from '@/lib/hooks/useDebounce';
+import { getApiErrorMessage } from '@/lib/utils/apiError';
 import type { QuoteLineItem } from '@/types';
 
 // Re-export tip (Classic/New JSX'lerin ihtiyaci icin)
@@ -174,7 +175,7 @@ export function useTeklifKalemleri() {
       setSelectedIds((prev) => prev.filter((id) => id !== item.id));
       await loadItems();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Kalem kapatilamadi.');
+      toast.error(getApiErrorMessage(error, 'Kalem kapatilamadi.'));
     } finally {
       setActionId(null);
     }
@@ -224,7 +225,7 @@ export function useTeklifKalemleri() {
       });
       await loadItems();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Kalemler kapatilamadi.');
+      toast.error(getApiErrorMessage(error, 'Kalemler kapatilamadi.'));
     } finally {
       setBulkClosing(false);
     }
@@ -237,7 +238,7 @@ export function useTeklifKalemleri() {
       toast.success('Kalem acildi.');
       await loadItems();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Kalem acilamadi.');
+      toast.error(getApiErrorMessage(error, 'Kalem acilamadi.'));
     } finally {
       setActionId(null);
     }
