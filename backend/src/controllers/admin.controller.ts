@@ -5157,6 +5157,38 @@ export class AdminController {
   }
 
   /**
+   * DELETE /api/admin/reports/customer-carts/:cartId/items
+   * Yetkili personel icin musteri sepetindeki tum kalemleri temizler
+   */
+  async clearCustomerCart(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportsService.clearCustomerCart({
+        cartId: req.params.cartId,
+        scope: buildReportRequestContext(req),
+      });
+
+      await auditLogService.fromRequest(req, {
+        action: 'CUSTOMER_CART_CLEAR',
+        entityType: 'Cart',
+        entityId: data.cartId,
+        entityCode: data.customerCode,
+        summary: `${data.customerCode || data.cartId} sepeti temizlendi (${data.deletedCount} kalem)`,
+        metadata: {
+          deletedCount: data.deletedCount,
+          customerName: data.customerName,
+        },
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/reports/action-radar
    * Teklif sagligi, terk sepet, tamamlayici motor, katalog/gorsel kalite,
    * paket performansi ve anomali ozetlerini tek aksiyon raporunda toplar.

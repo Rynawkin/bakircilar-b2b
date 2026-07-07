@@ -3,6 +3,7 @@
 import { useState, Fragment, useEffect, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 import { Menu, Transition } from '@headlessui/react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
@@ -10,7 +11,7 @@ import customerApi, { CustomerFinancials } from '@/lib/api/customer';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { buildCategoryTree, getCategoryPath } from '@/lib/utils/categoryTree';
 import { normalizeSearchText } from '@/lib/utils/search';
-import { registerBrowserPush } from '@/lib/webPush';
+import { browserPushReasonLabel, registerBrowserPush } from '@/lib/webPush';
 import { MobileCategoryPanel } from '@/components/customer/MobileCategoryPanel';
 import { Notification, Category, NotificationPreference } from '@/types';
 import {
@@ -113,15 +114,21 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const handleEnableBrowserPush = async () => {
     setPushBusy(true);
     try {
-      await registerBrowserPush({
+      const result = await registerBrowserPush({
         getPublicKey: async () => {
           const { publicKey } = await customerApi.getWebPushPublicKey();
           return publicKey;
         },
         registerSubscription: (subscription) => customerApi.registerWebPushSubscription(subscription),
       });
+      if (result.enabled) {
+        toast.success('Tarayici bildirimleri acildi.');
+      } else {
+        toast.error(browserPushReasonLabel(result.reason));
+      }
     } catch (error) {
       console.error('Browser push not enabled:', error);
+      toast.error('Tarayici bildirimi acilamadi.');
     } finally {
       setPushBusy(false);
     }

@@ -4841,6 +4841,11 @@ export const adminApi = {
     return response.data;
   },
 
+  clearCustomerCart: async (cartId: string): Promise<{ success: boolean; data: { cartId: string; deletedCount: number } }> => {
+    const response = await apiClient.delete(`/admin/reports/customer-carts/${encodeURIComponent(cartId)}/items`);
+    return response.data;
+  },
+
   getActionRadar: async (): Promise<{ success: boolean; data: any }> => {
     const response = await apiClient.get('/admin/reports/action-radar');
     return response.data;

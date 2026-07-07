@@ -70,6 +70,7 @@ export function useMusteriSepetleri() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [refreshKey, setRefreshKey] = useState(0);
+  const [clearingCartId, setClearingCartId] = useState<string | null>(null);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -123,6 +124,26 @@ export function useMusteriSepetleri() {
     });
   };
 
+  const clearCart = async (cart: CustomerCartRow) => {
+    if (cart.itemCount <= 0) return;
+    const label = cart.customerCode || cart.customerName || cart.userName || 'bu musteri';
+    const confirmed = window.confirm(`${label} sepetindeki ${cart.itemCount} kalem silinsin mi?`);
+    if (!confirmed) return;
+
+    setClearingCartId(cart.cartId);
+    try {
+      const result = await adminApi.clearCustomerCart(cart.cartId);
+      const deletedCount = result.data?.deletedCount ?? cart.itemCount;
+      toast.success(`${deletedCount} sepet kalemi temizlendi`);
+      await fetchReport();
+    } catch (err: any) {
+      const message = err?.response?.data?.error || err?.message || 'Sepet temizlenemedi';
+      toast.error(message);
+    } finally {
+      setClearingCartId(null);
+    }
+  };
+
   const canPrev = page > 1;
   const canNext = page < totalPages;
 
@@ -142,12 +163,14 @@ export function useMusteriSepetleri() {
     expanded,
     refreshKey,
     setRefreshKey,
+    clearingCartId,
     // derived
     canPrev,
     canNext,
     // handlers
     fetchReport,
     toggleExpanded,
+    clearCart,
     // helpers
     formatDateTime,
     formatCurrencySafe,

@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   ShoppingCart,
+  Trash2,
 } from 'lucide-react';
 import { useMusteriSepetleri } from './useMusteriSepetleri';
 
@@ -35,7 +36,7 @@ const AMBER = '#b45309';
 const RED = '#b91c1c';
 
 // Tablo grid sablonu: Cari | Kullanici | Kalem | Miktar | Tutar | Son Guncelleme | genislet
-const GRID = '1.4fr 1.4fr 90px 90px 1.1fr 1.4fr 110px';
+const GRID = '1.35fr 1.35fr 80px 85px 1fr 1.25fr 170px';
 // Genisleyen kalem alt-tablosu: Urun Kodu | Urun | Miktar | Birim Fiyat | Toplam | Fiyat Tipi | Guncelleme
 const ITEM_GRID = '1.1fr 2fr 80px 1.1fr 1.1fr 1fr 1.3fr';
 
@@ -125,9 +126,11 @@ export default function MusteriSepetleriNew() {
     error,
     expanded,
     setRefreshKey,
+    clearingCartId,
     canPrev,
     canNext,
     toggleExpanded,
+    clearCart,
     formatDateTime,
     formatCurrencySafe,
     priceTypeLabel,
@@ -379,7 +382,7 @@ export default function MusteriSepetleriNew() {
               <span style={cellRight}>Miktar</span>
               <span style={cellRight}>Tutar</span>
               <span>Son Güncelleme</span>
-              <span />
+              <span style={{ textAlign: 'right' }}>Aksiyon</span>
             </div>
 
             {/* Rows / states */}
@@ -497,30 +500,49 @@ export default function MusteriSepetleriNew() {
                       {/* Son Guncelleme */}
                       <span style={{ color: MUTED }}>{formatDateTime(detailDate)}</span>
 
-                      {/* Genislet aksiyonu */}
+                      {/* Genislet / temizle aksiyonlari */}
                       <span style={{ textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(cart.cartId)}
-                          style={{
-                            ...headBtn,
-                            height: 30,
-                            padding: '0 10px',
-                            fontSize: 11.5,
-                          }}
-                        >
-                          {isExpanded ? (
-                            <>
-                              Gizle
-                              <ChevronUp size={14} strokeWidth={2} />
-                            </>
-                          ) : (
-                            <>
-                              Kalemler
-                              <ChevronDown size={14} strokeWidth={2} />
-                            </>
-                          )}
-                        </button>
+                        <span style={{ display: 'inline-flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(cart.cartId)}
+                            style={{
+                              ...headBtn,
+                              height: 30,
+                              padding: '0 9px',
+                              fontSize: 11.5,
+                            }}
+                          >
+                            {isExpanded ? (
+                              <>
+                                Gizle
+                                <ChevronUp size={14} strokeWidth={2} />
+                              </>
+                            ) : (
+                              <>
+                                Kalemler
+                                <ChevronDown size={14} strokeWidth={2} />
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => clearCart(cart)}
+                            disabled={cart.itemCount <= 0 || clearingCartId === cart.cartId}
+                            style={{
+                              ...headBtn,
+                              height: 30,
+                              padding: '0 9px',
+                              fontSize: 11.5,
+                              color: cart.itemCount > 0 ? RED : FAINT,
+                              opacity: cart.itemCount <= 0 || clearingCartId === cart.cartId ? 0.55 : 1,
+                              cursor: cart.itemCount <= 0 || clearingCartId === cart.cartId ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            <Trash2 size={13} strokeWidth={2} />
+                            {clearingCartId === cart.cartId ? 'Siliniyor' : 'Temizle'}
+                          </button>
+                        </span>
                       </span>
                     </div>
 

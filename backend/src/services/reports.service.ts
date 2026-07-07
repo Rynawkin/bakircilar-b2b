@@ -6600,6 +6600,79 @@ export class ReportsService {
     };
   }
 
+  async clearCustomerCart(options: {
+    cartId: string;
+    scope?: ReportRequestScope;
+  }): Promise<{
+    cartId: string;
+    deletedCount: number;
+    customerCode: string | null;
+    customerName: string | null;
+  }> {
+    const cartId = String(options.cartId || '').trim();
+    if (!cartId) {
+      throw new AppError('Sepet kimligi gerekli.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const cart = await prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+            mikroCariCode: true,
+            sectorCode: true,
+            parentCustomer: {
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                mikroCariCode: true,
+                sectorCode: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!cart) {
+      throw new AppError('Sepet bulunamadi.', 404, ErrorCode.NOT_FOUND);
+    }
+
+    const customerInfo = cart.user.parentCustomer || cart.user;
+    if (options.scope?.role === UserRole.SALES_REP) {
+      const sectorCodes = getSalesRepSectorCodes(options.scope).map(normalizeReportCode);
+      const cartSectorCodes = [
+        normalizeReportCode(cart.user.sectorCode),
+        normalizeReportCode(cart.user.parentCustomer?.sectorCode),
+      ].filter(Boolean);
+      const allowed = sectorCodes.length > 0 && cartSectorCodes.some((code) => sectorCodes.includes(code));
+      if (!allowed) {
+        throw new AppError('Bu musteri sepetini temizleme yetkiniz yok.', 403, ErrorCode.FORBIDDEN);
+      }
+    }
+
+    const result = await prisma.cartItem.deleteMany({ where: { cartId } });
+    await prisma.cart.update({
+      where: { id: cartId },
+      data: {
+        updatedAt: new Date(),
+        giftCampaignId: null,
+        giftProductIds: [],
+      } as any,
+    });
+
+    return {
+      cartId,
+      deletedCount: result.count,
+      customerCode: customerInfo?.mikroCariCode || null,
+      customerName: customerInfo?.displayName || customerInfo?.name || null,
+    };
+  }
+
   async getUcarerDepotReport(options: {
     depot: 'MERKEZ' | 'TOPCA';
     limit?: number;

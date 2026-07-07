@@ -3,12 +3,13 @@
 import { useState, Fragment, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 import { Menu, Transition } from '@headlessui/react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { LogoLink } from '@/components/ui/Logo';
 import adminApi from '@/lib/api/admin';
 import { formatDateShort } from '@/lib/utils/format';
-import { registerBrowserPush } from '@/lib/webPush';
+import { browserPushReasonLabel, registerBrowserPush } from '@/lib/webPush';
 import { Notification, NotificationPreference } from '@/types';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useUiThemeStore } from '@/lib/store/uiThemeStore';
@@ -207,15 +208,21 @@ export function AdminNavigation() {
   const handleEnableBrowserPush = async () => {
     setPushBusy(true);
     try {
-      await registerBrowserPush({
+      const result = await registerBrowserPush({
         getPublicKey: async () => {
           const { publicKey } = await adminApi.getWebPushPublicKey();
           return publicKey;
         },
         registerSubscription: (subscription) => adminApi.registerWebPushSubscription(subscription),
       });
+      if (result.enabled) {
+        toast.success('Tarayici bildirimleri acildi.');
+      } else {
+        toast.error(browserPushReasonLabel(result.reason));
+      }
     } catch (error) {
       console.error('Browser push not enabled:', error);
+      toast.error('Tarayici bildirimi acilamadi.');
     } finally {
       setPushBusy(false);
     }

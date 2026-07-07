@@ -2,7 +2,7 @@
 
 import { Fragment } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ChevronDown, ChevronUp, RefreshCw, Search, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, RefreshCw, Search, ShoppingCart, Trash2 } from 'lucide-react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -30,9 +30,11 @@ export default function MusteriSepetleriClassic() {
     error,
     expanded,
     setRefreshKey,
+    clearingCartId,
     canPrev,
     canNext,
     toggleExpanded,
+    clearCart,
     formatDateTime,
     formatCurrencySafe,
     priceTypeLabel,
@@ -163,24 +165,36 @@ export default function MusteriSepetleriClassic() {
                         <TableCell>{formatCurrencySafe(cart.totalAmount)}</TableCell>
                         <TableCell>{formatDateTime(detailDate)}</TableCell>
                         <TableCell>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-1"
-                            onClick={() => toggleExpanded(cart.cartId)}
-                          >
-                            {isExpanded ? (
-                              <>
-                                Gizle
-                                <ChevronUp className="h-4 w-4" />
-                              </>
-                            ) : (
-                              <>
-                                Kalemler
-                                <ChevronDown className="h-4 w-4" />
-                              </>
-                            )}
-                          </Button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1"
+                              onClick={() => toggleExpanded(cart.cartId)}
+                            >
+                              {isExpanded ? (
+                                <>
+                                  Gizle
+                                  <ChevronUp className="h-4 w-4" />
+                                </>
+                              ) : (
+                                <>
+                                  Kalemler
+                                  <ChevronDown className="h-4 w-4" />
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 text-red-700"
+                              onClick={() => clearCart(cart)}
+                              disabled={cart.itemCount <= 0 || clearingCartId === cart.cartId}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              {clearingCartId === cart.cartId ? 'Siliniyor' : 'Temizle'}
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                       {isExpanded && (

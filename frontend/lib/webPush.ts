@@ -9,10 +9,24 @@ const urlBase64ToUint8Array = (base64String: string) => {
   return outputArray;
 };
 
+export type BrowserPushResult = {
+  enabled: boolean;
+  reason?: string;
+};
+
+export const browserPushReasonLabel = (reason?: string) => {
+  if (reason === 'unsupported') return 'Bu tarayici web bildirimlerini desteklemiyor.';
+  if (reason === 'missing-key') return 'Bildirim anahtari bulunamadi. Sistem ayarlari kontrol edilmeli.';
+  if (reason === 'denied') return 'Tarayici bildirim izni engellenmis. Site izinlerinden tekrar acilmali.';
+  if (reason === 'default') return 'Bildirim izni verilmedi.';
+  if (reason === 'server') return 'Bildirimler sadece tarayicida acilabilir.';
+  return 'Tarayici bildirimi acilamadi.';
+};
+
 export async function registerBrowserPush(options: {
   getPublicKey: () => Promise<string | null | undefined>;
   registerSubscription: (subscription: PushSubscriptionJSON) => Promise<unknown>;
-}) {
+}): Promise<BrowserPushResult> {
   if (typeof window === 'undefined') return { enabled: false, reason: 'server' };
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     return { enabled: false, reason: 'unsupported' };
@@ -24,11 +38,15 @@ export async function registerBrowserPush(options: {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return { enabled: false, reason: permission };
 
-  const registration = await navigator.serviceWorker.register('/web-push-sw.js');
-  const existing = await registration.pushManager.getSubscription();
+  const existingRegistration = await navigator.serviceWorker.getRegistration('/');
+  const registration = existingRegistration || (await navigator.serviceWorker.register('/web-push-sw.js', { scope: '/' }));
+  const readyRegistration = await navigator.serviceWorker.ready;
+  const pushRegistration = readyRegistration || registration;
+
+  const existing = await pushRegistration.pushManager.getSubscription();
   const subscription =
     existing ||
-    (await registration.pushManager.subscribe({
+    (await pushRegistration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey),
     }));

@@ -679,6 +679,7 @@ router.get('/reports/customer-engagement/:code/contacts', requirePermission('rep
 router.get('/reports/customer-activity', requirePermission('reports:customer-activity'), adminController.getCustomerActivityReport);
 router.get('/reports/staff-activity', requirePermission('reports:staff-activity'), adminController.getStaffActivityReport);
 router.get('/reports/customer-carts', requirePermission('reports:customer-carts'), adminController.getCustomerCartsReport);
+router.delete('/reports/customer-carts/:cartId/items', requirePermission('reports:customer-carts'), adminController.clearCustomerCart);
 router.get(
   '/reports/action-radar',
   requireAnyPermission(['admin:quotes', 'reports:customer-carts', 'reports:complement-missing', 'admin:products', 'admin:field-sales', 'reports:ucarer-depo']),

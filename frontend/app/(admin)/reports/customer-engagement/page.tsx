@@ -226,6 +226,54 @@ function StatusBadge({ status }: { status: EngagementStatus }) {
   );
 }
 
+function ScrollText({
+  children,
+  maxHeight = 38,
+  title,
+  weight = 500,
+  color = INK,
+}: {
+  children: React.ReactNode;
+  maxHeight?: number;
+  title?: string;
+  weight?: number;
+  color?: string;
+}) {
+  return (
+    <div
+      title={title}
+      style={{
+        maxHeight,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        lineHeight: 1.28,
+        overflowWrap: 'anywhere',
+        wordBreak: 'break-word',
+        paddingRight: 3,
+        color,
+        fontWeight: weight,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+const tableHeadCell: React.CSSProperties = {
+  padding: '9px 12px',
+  fontWeight: 600,
+  position: 'sticky',
+  top: 0,
+  zIndex: 2,
+  background: TABLE_HEAD_BG,
+  borderBottom: `1px solid ${LINE}`,
+};
+
+const tableCell: React.CSSProperties = {
+  padding: '8px 12px',
+  verticalAlign: 'top',
+};
+
 export default function Page() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === 'HEAD_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
@@ -658,23 +706,38 @@ export default function Page() {
 
       {/* Tablo */}
       <div style={{ ...cardStyle, marginTop: 14, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 1280 }}>
+        <div style={{ overflow: 'auto', maxHeight: '64vh' }}>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, minWidth: isAdmin ? 1620 : 1490, tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: 245 }} />
+              <col style={{ width: 135 }} />
+              <col style={{ width: 88 }} />
+              <col style={{ width: 230 }} />
+              <col style={{ width: 105 }} />
+              <col style={{ width: 115 }} />
+              <col style={{ width: 115 }} />
+              <col style={{ width: 165 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 120 }} />
+              {isAdmin && <col style={{ width: 135 }} />}
+              <col style={{ width: 185 }} />
+              <col style={{ width: 175 }} />
+            </colgroup>
             <thead>
               <tr style={{ background: TABLE_HEAD_BG, color: FAINT, textAlign: 'left' }}>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Cari</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Durum</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Saglik</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Oneri</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Kayıt</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Son giriş</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Sıklık</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Sipariş</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Son sipariş</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600, textAlign: 'right' }}>Bakiye</th>
-                {isAdmin && <th style={{ padding: '10px 14px', fontWeight: 600 }}>Temsilci</th>}
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Son hatırlatma</th>
-                <th style={{ padding: '10px 14px', fontWeight: 600, textAlign: 'right' }}>Aksiyon</th>
+                <th style={tableHeadCell}>Cari</th>
+                <th style={tableHeadCell}>Durum</th>
+                <th style={tableHeadCell}>Saglik</th>
+                <th style={tableHeadCell}>Oneri</th>
+                <th style={tableHeadCell}>Kayıt</th>
+                <th style={tableHeadCell}>Son giriş</th>
+                <th style={tableHeadCell}>Sıklık</th>
+                <th style={tableHeadCell}>Sipariş</th>
+                <th style={tableHeadCell}>Son sipariş</th>
+                <th style={{ ...tableHeadCell, textAlign: 'right' }}>Bakiye</th>
+                {isAdmin && <th style={tableHeadCell}>Temsilci</th>}
+                <th style={tableHeadCell}>Son hatırlatma</th>
+                <th style={{ ...tableHeadCell, textAlign: 'right' }}>Aksiyon</th>
               </tr>
             </thead>
             <tbody>
@@ -707,13 +770,17 @@ export default function Page() {
                 rows.map((r) => (
                   <tr key={r.customerCode} style={{ borderTop: `1px solid ${ROW_LINE}` }}>
                     {/* Cari */}
-                    <td style={{ padding: '10px 14px', maxWidth: 260 }}>
-                      <div style={{ fontWeight: 700, color: INK }}>{r.customerName}</div>
-                      <div style={{ fontSize: 11.5, color: FAINT, marginTop: 1 }}>
-                        {r.customerCode}
-                        {r.city ? ` · ${r.city}` : ''}
-                        {r.phone ? ` · ${r.phone}` : ''}
-                      </div>
+                    <td style={tableCell}>
+                      <ScrollText maxHeight={34} title={r.customerName} weight={700}>
+                        {r.customerName}
+                      </ScrollText>
+                      <ScrollText maxHeight={30} title={`${r.customerCode}${r.city ? ` - ${r.city}` : ''}${r.phone ? ` - ${r.phone}` : ''}`} color={FAINT} weight={500}>
+                        <span style={{ fontSize: 11.5 }}>
+                          {r.customerCode}
+                          {r.city ? ` · ${r.city}` : ''}
+                          {r.phone ? ` · ${r.phone}` : ''}
+                        </span>
+                      </ScrollText>
                     </td>
 
                     {/* Durum */}
@@ -740,7 +807,7 @@ export default function Page() {
                     </td>
 
                     {/* Oneri */}
-                    <td style={{ padding: '10px 14px', maxWidth: 210 }}>
+                    <td style={tableCell}>
                       <span
                         style={{
                           display: 'inline-flex',
@@ -756,12 +823,18 @@ export default function Page() {
                       >
                         {PRIORITY_META[r.actionPriority]?.label || r.actionPriority || '-'}
                       </span>
-                      <div style={{ marginTop: 4, color: INK, fontSize: 11.5, fontWeight: 600, lineHeight: 1.25 }}>
-                        {r.suggestedAction || '-'}
+                      <div style={{ marginTop: 4 }}>
+                        <ScrollText maxHeight={32} title={r.suggestedAction || '-'} weight={600}>
+                          <span style={{ fontSize: 11.5 }}>{r.suggestedAction || '-'}</span>
+                        </ScrollText>
                       </div>
-                      <div style={{ marginTop: 2, color: FAINT, fontSize: 10.5, lineHeight: 1.25 }}>
-                        {r.actionReason || ''}
-                      </div>
+                      {r.actionReason ? (
+                        <div style={{ marginTop: 2 }}>
+                          <ScrollText maxHeight={36} title={r.actionReason} color={FAINT} weight={500}>
+                            <span style={{ fontSize: 10.5 }}>{r.actionReason}</span>
+                          </ScrollText>
+                        </div>
+                      ) : null}
                     </td>
 
                     {/* Kayit */}
@@ -835,11 +908,15 @@ export default function Page() {
 
                     {/* Temsilci (admin) */}
                     {isAdmin && (
-                      <td style={{ padding: '10px 14px', color: MUTED }}>{r.assignedSalesRepName || '-'}</td>
+                      <td style={tableCell}>
+                        <ScrollText maxHeight={38} title={r.assignedSalesRepName || '-'} color={MUTED} weight={500}>
+                          {r.assignedSalesRepName || '-'}
+                        </ScrollText>
+                      </td>
                     )}
 
                     {/* Son hatirlatma */}
-                    <td style={{ padding: '10px 14px' }}>
+                    <td style={tableCell}>
                       {r.lastContactAt ? (
                         <span
                           style={{
