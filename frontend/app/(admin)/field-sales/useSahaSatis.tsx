@@ -31,6 +31,7 @@ import {
 import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
+import { getApiErrorMessage } from '@/lib/utils/apiError';
 import { cn } from '@/lib/utils/cn';
 import {
   convertPriceFromBaseUnit,
@@ -578,7 +579,7 @@ export function useSahaSatis() {
       const result = await adminApi.searchFieldSalesCustomers({ search: term, limit: 25 });
       setCustomers(result.customers || []);
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Cari aramasi yapilamadi.');
+      toast.error(getApiErrorMessage(error, 'Cari aramasi yapilamadi.'));
     } finally {
       setCustomerLoading(false);
     }
@@ -591,7 +592,7 @@ export function useSahaSatis() {
       const result = await adminApi.getFieldSalesCustomer(customerIdOrCode);
       setSnapshot(result.data);
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Cari bilgileri alinamadi.');
+      toast.error(getApiErrorMessage(error, 'Cari bilgileri alinamadi.'));
     } finally {
       setSnapshotLoading(false);
     }
@@ -618,7 +619,7 @@ export function useSahaSatis() {
       productSearchCacheRef.current.set(cacheKey, nextProducts);
       setProducts(nextProducts);
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Urun aramasi yapilamadi.');
+      toast.error(getApiErrorMessage(error, 'Urun aramasi yapilamadi.'));
     } finally {
       setProductsLoading(false);
     }
@@ -842,7 +843,7 @@ export function useSahaSatis() {
       if (!error.response) {
         toast.error('Baglanti hatasi: Teklif gonderilemedi. Internet baglantinizi kontrol edip tekrar deneyin.');
       } else {
-        toast.error(error.response?.data?.error || 'Teklif olusturulamadi.');
+        toast.error(getApiErrorMessage(error, 'Teklif olusturulamadi.'));
       }
     } finally {
       setSubmitting(false);
@@ -910,9 +911,7 @@ export function useSahaSatis() {
       if (!error.response) {
         toast.error('Baglanti hatasi: Siparis gonderilemedi. Internet baglantinizi kontrol edip tekrar deneyin.');
       } else {
-        const raw = error.response?.data?.error || error.response?.data?.message;
-        const message = typeof raw === 'string' ? raw : raw?.message || raw?.code || 'Siparis olusturulamadi.';
-        toast.error(message);
+        toast.error(getApiErrorMessage(error, 'Siparis olusturulamadi.'));
       }
     } finally {
       setSubmitting(false);
@@ -966,7 +965,7 @@ export function useSahaSatis() {
       toast.success('Ziyaret notu kaydedildi.');
       await loadCustomerSnapshot(customerIdForApi);
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Not kaydedilemedi.');
+      toast.error(getApiErrorMessage(error, 'Not kaydedilemedi.'));
     } finally {
       setNoteSaving(false);
     }
@@ -1017,7 +1016,7 @@ export function useSahaSatis() {
       } else if (!error.response) {
         toast.error('Baglanti hatasi: Ziyaret carisi olusturulamadi. Internet baglantinizi kontrol edin.');
       } else {
-        toast.error(error.response?.data?.error || 'Ziyaret carisi olusturulamadi.');
+        toast.error(getApiErrorMessage(error, 'Ziyaret carisi olusturulamadi.'));
       }
     } finally {
       setNewVisitSaving(false);

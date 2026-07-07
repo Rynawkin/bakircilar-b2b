@@ -15,6 +15,7 @@ import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { StockFamilySuggestion } from '@/components/admin/StockFamilySuggestion';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
+import { getApiErrorMessage } from '@/lib/utils/apiError';
 import {
   convertPriceFromBaseUnit,
   convertPriceToBaseUnit,
@@ -25,15 +26,6 @@ import {
 } from '@/lib/utils/unit';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import type { CustomerContact, Quote, QuoteItem } from '@/types';
-
-const getErrorMessage = (error: any, fallback: string) => {
-  const raw = error?.response?.data?.error || error?.response?.data?.message || error?.message;
-  if (!raw) return fallback;
-  if (typeof raw === 'string') return raw;
-  if (typeof raw?.message === 'string') return raw.message;
-  if (typeof raw?.code === 'string') return raw.code;
-  return fallback;
-};
 
 export interface LastSale {
   saleDate: string;
@@ -744,7 +736,7 @@ export function useTeklifOlustur() {
       });
       setAiResult(res.analysis);
     } catch (err: any) {
-      setAiError(err?.response?.data?.error || 'Analiz yapilamadi. (AI yapilandirilmamis veya baglanti hatasi olabilir.)');
+      setAiError(getApiErrorMessage(err, 'Analiz yapilamadi. (AI yapilandirilmamis veya baglanti hatasi olabilir.)'));
     } finally {
       setAiAnalyzing(false);
     }
@@ -1022,22 +1014,30 @@ export function useTeklifOlustur() {
     return () => window.removeEventListener('resize', handleResize);
   }, [selectedColumns, columnWidths, quoteItems.length, isQuoteTableFullscreen]);
 
-  useEffect(() => {
-    const codes = Array.from(new Set(
+  const quoteProductCodes = useMemo(() => {
+    return Array.from(new Set(
       quoteItems
         .filter((item) => !item.isManualLine)
         .map((item) => item.productCode)
         .filter(Boolean)
     ));
+  }, [quoteItems]);
+
+  const quoteProductCodesKey = useMemo(() => quoteProductCodes.join('|'), [quoteProductCodes]);
+
+  useEffect(() => {
+    const codes = quoteProductCodes;
 
     if (codes.length === 0) {
       setStockDataMap({});
       return;
     }
 
+    let active = true;
     const timer = setTimeout(async () => {
       try {
         const { data } = await adminApi.getStocksByCodes(codes);
+        if (!active) return;
         const nextMap: Record<string, any> = {};
         data.forEach((row: any) => {
           if (row?.msg_S_0078) {
@@ -1050,17 +1050,11 @@ export function useTeklifOlustur() {
       }
     }, 300);
 
-    return () => clearTimeout(timer);
-  }, [quoteItems]);
-
-  const quoteProductCodes = useMemo(() => {
-    return Array.from(new Set(
-      quoteItems
-        .filter((item) => !item.isManualLine)
-        .map((item) => item.productCode)
-        .filter(Boolean)
-    ));
-  }, [quoteItems]);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [quoteProductCodesKey]);
 
   const quoteProductCodeSet = useMemo(() => new Set(quoteProductCodes), [quoteProductCodes]);
 
@@ -2263,7 +2257,7 @@ export function useTeklifOlustur() {
       setPriceRequestTarget(null);
     } catch (error: any) {
       const details = error.response?.data?.details;
-      toast.error(Array.isArray(details) && details.length ? details.join(', ') : (error.response?.data?.error || 'Fiyat teyit talebi olusturulamadi'));
+      toast.error(Array.isArray(details) && details.length ? details.join(', ') : getApiErrorMessage(error, 'Fiyat teyit talebi olusturulamadi'));
     } finally {
       setPriceRequestSaving(false);
     }
@@ -2321,7 +2315,7 @@ export function useTeklifOlustur() {
       updateItem(item.id, { manualImageUrl: result.imageUrl });
       toast.success('Gorsel yuklendi');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Gorsel yuklenemedi');
+      toast.error(getApiErrorMessage(error, 'Gorsel yuklenemedi'));
     } finally {
       setManualImageUploading((prev) => {
         const next = { ...prev };
@@ -3300,7 +3294,7 @@ export function useTeklifOlustur() {
       const fallback = isOrderMode
         ? (isOrderEditMode ? 'Siparis guncellenemedi.' : 'Siparis olusturulamadi.')
         : 'Teklif olusturulamadi.';
-      toast.error(getErrorMessage(error, fallback));
+      toast.error(getApiErrorMessage(error, fallback));
     } finally {
       setSubmitting(false);
     }
