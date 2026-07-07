@@ -9,6 +9,17 @@ type NotificationPayload = {
   linkUrl?: string | null;
 };
 
+type NotificationListQuery = {
+  unreadOnly?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+type NotificationListResult = {
+  notifications: any[];
+  unreadCount: number;
+};
+
 export const NOTIFICATION_CATEGORIES = [
   { key: 'SYSTEM', label: 'Sistem' },
   { key: 'ORDER', label: 'Siparis' },
@@ -28,15 +39,42 @@ const normalizeCategory = (value?: string | null) => {
   return NOTIFICATION_CATEGORIES.some((item) => item.key === raw) ? raw : 'SYSTEM';
 };
 
+const NOTIFICATION_LIST_CACHE_TTL_MS = 15_000;
+const notificationListCache = new Map<string, { data: NotificationListResult; ts: number }>();
+
 class NotificationService {
-  async list(userId: string, query: {
-    unreadOnly?: boolean;
-    limit?: number;
-    offset?: number;
-  }) {
+  private listCacheKey(userId: string, query: NotificationListQuery) {
+    return JSON.stringify({
+      userId,
+      unreadOnly: query.unreadOnly === true,
+      limit: Number.isFinite(Number(query.limit)) ? Number(query.limit) : null,
+      offset: Number.isFinite(Number(query.offset)) ? Number(query.offset) : null,
+    });
+  }
+
+  private clearListCache(userId?: string) {
+    if (!userId) {
+      notificationListCache.clear();
+      return;
+    }
+    for (const key of notificationListCache.keys()) {
+      if (key.includes(`"userId":"${userId}"`)) {
+        notificationListCache.delete(key);
+      }
+    }
+  }
+
+  async list(userId: string, query: NotificationListQuery) {
     const where: any = { userId };
     if (query.unreadOnly) {
       where.isRead = false;
+    }
+
+    const cacheKey = this.listCacheKey(userId, query);
+    const cached = notificationListCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.ts < NOTIFICATION_LIST_CACHE_TTL_MS) {
+      return cached.data;
     }
 
     const [notifications, unreadCount] = await prisma.$transaction([
@@ -51,7 +89,14 @@ class NotificationService {
       }),
     ]);
 
-    return { notifications, unreadCount };
+    const data = { notifications, unreadCount };
+    notificationListCache.set(cacheKey, { data, ts: now });
+    if (notificationListCache.size > 500) {
+      const oldest = notificationListCache.keys().next().value;
+      if (oldest) notificationListCache.delete(oldest);
+    }
+
+    return data;
   }
 
   async getPreferences(userId: string) {
@@ -87,6 +132,7 @@ class NotificationService {
       )
     );
 
+    this.clearListCache(userId);
     return this.getPreferences(userId);
   }
 
@@ -96,6 +142,7 @@ class NotificationService {
       where: { userId, id: { in: ids } },
       data: { isRead: true },
     });
+    this.clearListCache(userId);
     return result.count;
   }
 
@@ -104,6 +151,7 @@ class NotificationService {
       where: { userId, isRead: false },
       data: { isRead: true },
     });
+    this.clearListCache(userId);
     return result.count;
   }
 
@@ -133,6 +181,7 @@ class NotificationService {
         linkUrl: payload.linkUrl || null,
       })),
     });
+    enabledIds.forEach((userId) => this.clearListCache(userId));
 
     try {
       await webPushService.sendToUsers(enabledIds, payload);
