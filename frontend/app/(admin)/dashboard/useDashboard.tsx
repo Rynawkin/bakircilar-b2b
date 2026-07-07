@@ -21,6 +21,50 @@ export const toDateInputValue = (value: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> =>
+  new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+  });
+
+const buildFallbackDashboardStats = (
+  period: DashboardFilterPeriod,
+  startDate: string,
+  endDate: string
+): DashboardStats => {
+  const now = new Date();
+  const safeStart = startDate ? new Date(startDate) : now;
+  const safeEnd = endDate ? new Date(endDate) : now;
+  return {
+    period,
+    periodRange: {
+      startAt: Number.isNaN(safeStart.getTime()) ? now.toISOString() : safeStart.toISOString(),
+      endAt: Number.isNaN(safeEnd.getTime()) ? now.toISOString() : safeEnd.toISOString(),
+    },
+    sectorScope: { mode: 'all', codes: [] },
+    summary: {
+      sales: { count: 0, amount: 0 },
+      orders: { count: 0, amount: 0 },
+      quotes: { count: 0, amount: 0 },
+    },
+    orders: {
+      pendingCount: 0,
+      approvedToday: 0,
+      totalAmount: 0,
+    },
+    customerCount: 0,
+    excessProductCount: 0,
+  };
+};
+
 /**
  * Dashboard ekraninin TUM mantigi (state/ref/effect/handler/turetilmis deger).
  * Klasik ve yeni gorunum bu hook'u kullanir; gorsel disindaki hicbir mantik degismez.
@@ -72,6 +116,7 @@ export function useDashboard() {
   // Refs to store interval and timeout IDs for cleanup
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const statsRequestSeqRef = useRef(0);
 
   // Cleanup function to clear polling
   const cleanupPolling = () => {
@@ -114,25 +159,38 @@ export function useDashboard() {
     }
 
     fetchStats();
-  }, [user, router, selectedPeriod, customStartDate, customEndDate]);
+  }, [user?.id, user?.role, router, selectedPeriod, customStartDate, customEndDate]);
 
   const fetchStats = async () => {
-    setIsLoading(true);
+    const requestSeq = statsRequestSeqRef.current + 1;
+    statsRequestSeqRef.current = requestSeq;
+    setIsLoading((prev) => (stats ? false : prev || true));
     try {
-      const data = await adminApi.getDashboardStats(
-        selectedPeriod === 'custom'
-          ? {
-              period: 'custom',
-              startDate: customStartDate,
-              endDate: customEndDate,
-            }
-          : { period: selectedPeriod }
+      const data = await withTimeout(
+        adminApi.getDashboardStats(
+          selectedPeriod === 'custom'
+            ? {
+                period: 'custom',
+                startDate: customStartDate,
+                endDate: customEndDate,
+              }
+            : { period: selectedPeriod }
+        ),
+        8000,
+        'dashboard stats'
       );
-      setStats(data);
+      if (statsRequestSeqRef.current === requestSeq) {
+        setStats(data);
+      }
     } catch (error) {
+      if (statsRequestSeqRef.current === requestSeq) {
+        setStats((previous) => previous || buildFallbackDashboardStats(selectedPeriod, customStartDate, customEndDate));
+      }
       console.error('Stats yüklenemedi:', error);
     } finally {
-      setIsLoading(false);
+      if (statsRequestSeqRef.current === requestSeq) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -442,7 +500,11 @@ export function useDashboard() {
   const fetchOrderProductChangeRequests = async () => {
     setOrderProductChangeLoading(true);
     try {
-      const result = await adminApi.getOrderProductChangeRequests({ status: 'PENDING', limit: 12 });
+      const result = await withTimeout(
+        adminApi.getOrderProductChangeRequests({ status: 'PENDING', limit: 12 }),
+        8000,
+        'order product change requests'
+      );
       setOrderProductChangeRequests(result.data?.requests || []);
       setOrderProductChangePendingCount(Number(result.data?.pendingCount || 0));
     } catch {
