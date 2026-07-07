@@ -1,6 +1,8 @@
 import {
   Category,
   Cart,
+  CollectionCard,
+  CollectionDetail,
   Notification,
   Order,
   OrderRequest,
@@ -51,6 +53,14 @@ export const customerApi = {
   },
   getWarehouses: async () => {
     const response = await apiClient.get<{ warehouses: string[] }>('/warehouses');
+    return response.data;
+  },
+  getActiveCollections: async () => {
+    const response = await apiClient.get<{ collections: CollectionCard[] }>('/collections/active');
+    return response.data;
+  },
+  getCollection: async (id: string) => {
+    const response = await apiClient.get<CollectionDetail>(`/collections/${encodeURIComponent(id)}`);
     return response.data;
   },
   getProductById: async (id: string, params?: { mode?: 'discounted' | 'excess' }) => {

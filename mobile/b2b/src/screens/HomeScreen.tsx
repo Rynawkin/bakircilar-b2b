@@ -13,6 +13,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { customerApi } from '../api/customer';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { CollectionCard } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 
 export function HomeScreen() {
@@ -20,20 +21,23 @@ export function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState({ orders: 0, requests: 0, cartItems: 0 });
+  const [collections, setCollections] = useState<CollectionCard[]>([]);
 
   const loadSummary = async () => {
     setLoading(true);
     try {
-      const [orders, requests, cart] = await Promise.all([
+      const [orders, requests, cart, collectionResult] = await Promise.all([
         customerApi.getOrders(),
         customerApi.getOrderRequests(),
         customerApi.getCart(),
+        customerApi.getActiveCollections().catch(() => ({ collections: [] as CollectionCard[] })),
       ]);
       setSummary({
         orders: orders.orders?.length || 0,
         requests: requests.requests?.length || 0,
         cartItems: cart.items?.length || 0,
       });
+      setCollections((collectionResult.collections || []).slice(0, 3));
     } finally {
       setLoading(false);
     }
@@ -72,6 +76,12 @@ export function HomeScreen() {
         )}
 
         <View style={styles.actionRow}>
+          {collections.length > 0 && (
+            <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate('Collections')}>
+              <Text style={styles.actionTitle}>Koleksiyonlar</Text>
+              <Text style={styles.actionBody}>{collections.map((item) => item.title).join(', ')}</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate('Agreements')}>
             <Text style={styles.actionTitle}>Anlasmali Fiyatlar</Text>
             <Text style={styles.actionBody}>Sabit fiyatlari gor.</Text>

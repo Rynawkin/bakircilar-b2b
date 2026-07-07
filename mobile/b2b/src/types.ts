@@ -78,6 +78,21 @@ export interface Category {
   name: string;
 }
 
+export interface CollectionCard {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+  color?: string | null;
+  href?: string;
+  sourceType?: 'RULE' | 'MANUAL';
+}
+
+export interface CollectionDetail {
+  collection: CollectionCard;
+  products: Product[];
+}
+
 export interface Order {
   id: string;
   orderNumber: string;

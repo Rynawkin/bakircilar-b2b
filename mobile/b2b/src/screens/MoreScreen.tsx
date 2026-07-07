@@ -11,6 +11,7 @@ const links: Array<{ label: string; route: keyof RootStackParamList; description
   { label: 'Talepler', route: 'Requests', description: 'Alt kullanici taleplerini onayla.' },
   { label: 'Taleplerim', route: 'Tasks', description: 'Talep listesi ve yorumlar.' },
   { label: 'Anlasmali Fiyatlar', route: 'Agreements', description: 'Sabit fiyat listelerini gor.' },
+  { label: 'Koleksiyonlar', route: 'Collections', description: 'Ozel urun gruplarini incele.' },
   { label: 'Bekleyen Siparisler', route: 'PendingOrders', description: 'Acik teslimatlar ve bakiye.' },
   { label: 'Faturalarim', route: 'Invoices', description: 'E-faturalarini PDF olarak ac.' },
   { label: 'Teklifler', route: 'Quotes', description: 'Teklifleri incele ve yanitla.' },

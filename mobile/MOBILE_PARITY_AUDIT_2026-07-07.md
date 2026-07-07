@@ -49,6 +49,13 @@ Bu dosya canli kod incelemesine gore yazildi; eski `mobile/FEATURE_PARITY.md` ar
    - UI: `mobile/b2b/src/screens/ProductDetailScreen.tsx`
    - Ozellikler: backend detayindan gelen coklu gorsel galerisi, thumbnail secimi, paket/set urunlerde bilesen listesi ve paket indirim bilgisi.
 
+8. Musteri mobil uygulamasina `Koleksiyonlar` eklendi.
+   - API: `mobile/b2b/src/api/customer.ts` -> `getActiveCollections`, `getCollection`
+   - Tip: `mobile/b2b/src/types.ts` -> `CollectionCard`, `CollectionDetail`
+   - UI: `mobile/b2b/src/screens/CollectionsScreen.tsx`, `mobile/b2b/src/screens/CollectionDetailScreen.tsx`
+   - Navigasyon: `mobile/b2b/src/navigation/AppNavigator.tsx`, `mobile/b2b/src/screens/MoreScreen.tsx`, `mobile/b2b/src/screens/HomeScreen.tsx`
+   - Ozellikler: aktif koleksiyon listesi, koleksiyon detay urunleri, urun detayina gecis ve hizli sepete ekleme.
+
 ## Hala eksik olan yuksek oncelikli portal/admin modulleri
 
 Webde var, mobil portalda ekran/API paritesi henuz yok veya cok sinirli:
@@ -90,7 +97,7 @@ Mobil portalda `VadeScreen` ve `VadeCustomerScreen` var, ancak webdeki yeni vade
 
 Bu turda fatura eklendi; kalan musteri web parite aciklari:
 
-- `collections/[id]`: koleksiyon detay deneyimi mobilde yok.
+- `collections/[id]`: aktif koleksiyon listesi ve detay deneyimi mobilde eklendi; webdeki grid yogunlugu ve gorsel QA ayrica yapilmali.
 - `new-categories`: hic alinmayan/yeni kategori kesfi mobilde yok.
 - Ana sayfa vitrin zenginligi web kadar genis degil: banner, koleksiyon, GWP, kategori kesfi ve kampanya bloklari tek tek karsilastirilmali.
 - Urun detayinda coklu galeri ve paket icerigi mobilde eklendi; fiyat guven karti, hediye/GWP ve webdeki tum fiyat vurgulari birebir dogrulanmali.

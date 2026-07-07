@@ -3,6 +3,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AppState } from 'react-native';
 import { useEffect, useRef } from 'react';
 
+import { CollectionDetailScreen } from '../screens/CollectionDetailScreen';
+import { CollectionsScreen } from '../screens/CollectionsScreen';
 import { CustomerTabParamList, CustomerTabs } from './CustomerTabs';
 import { AgreementsScreen } from '../screens/AgreementsScreen';
 import { CustomerTaskDetailScreen } from '../screens/CustomerTaskDetailScreen';
@@ -28,6 +30,8 @@ export type RootStackParamList = {
   Orders: undefined;
   OrderDetail: { orderId: string };
   ProductDetail: { productId: string };
+  Collections: undefined;
+  CollectionDetail: { collectionId: string };
   Requests: undefined;
   RequestDetail: { requestId: string };
   Agreements: undefined;
@@ -103,6 +107,8 @@ export function AppNavigator() {
         <Stack.Screen name="Orders" component={OrdersScreen} />
         <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+        <Stack.Screen name="Collections" component={CollectionsScreen} />
+        <Stack.Screen name="CollectionDetail" component={CollectionDetailScreen} />
         <Stack.Screen name="Requests" component={RequestsScreen} />
         <Stack.Screen name="RequestDetail" component={RequestDetailScreen} />
         <Stack.Screen name="Agreements" component={AgreementsScreen} />
