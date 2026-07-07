@@ -121,19 +121,15 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
         },
         registerSubscription: (subscription) => customerApi.registerWebPushSubscription(subscription),
         afterRegister: async () => {
-          try {
-            await customerApi.sendTestWebPush({
-              title: 'Tarayici bildirimleri acildi',
-              body: 'Bundan sonra ilgili bildirimler bu tarayiciya da gelecek.',
-              linkUrl: '/home',
-            });
-          } catch (error) {
-            console.error('Browser push test notification failed:', error);
-          }
+          await customerApi.sendTestWebPush({
+            title: 'Tarayici bildirimleri acildi',
+            body: 'Bundan sonra ilgili bildirimler bu tarayiciya da gelecek.',
+            linkUrl: '/home',
+          });
         },
       });
       if (result.enabled) {
-        toast.success('Tarayici bildirimleri acildi.');
+        toast.success('Tarayici bildirimleri acildi. Test bildirimi gonderildi.');
       } else {
         toast.error(browserPushReasonLabel(result.reason));
       }

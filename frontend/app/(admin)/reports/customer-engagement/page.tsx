@@ -274,6 +274,8 @@ const tableCell: React.CSSProperties = {
   padding: '7px 10px',
   verticalAlign: 'top',
   height: 76,
+  maxHeight: 76,
+  overflow: 'hidden',
   boxSizing: 'border-box',
 };
 
@@ -282,6 +284,8 @@ const compactTextCell: React.CSSProperties = {
   verticalAlign: 'top',
   lineHeight: 1.28,
   height: 76,
+  maxHeight: 76,
+  overflow: 'hidden',
   boxSizing: 'border-box',
 };
 
@@ -537,15 +541,21 @@ export default function Page() {
   return (
     <div style={{ padding: '20px 22px', maxWidth: 1500, margin: '0 auto', fontFamily: 'inherit', color: INK }}>
       <style jsx global>{`
+        .customer-engagement-table {
+          table-layout: fixed;
+        }
         .customer-engagement-table tbody tr {
           height: 76px;
+          max-height: 76px;
         }
         .customer-engagement-table tbody td {
           height: 76px;
           max-height: 76px;
           overflow: hidden;
+          vertical-align: top;
         }
-        .customer-engagement-table tbody td > div {
+        .customer-engagement-table tbody td > div,
+        .customer-engagement-table tbody td > span {
           max-height: 62px;
           overflow-y: auto;
           overflow-x: hidden;

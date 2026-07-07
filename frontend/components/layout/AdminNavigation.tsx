@@ -216,19 +216,15 @@ export function AdminNavigation() {
         },
         registerSubscription: (subscription) => adminApi.registerWebPushSubscription(subscription),
         afterRegister: async () => {
-          try {
-            await adminApi.sendTestWebPush({
-              title: 'Tarayici bildirimleri acildi',
-              body: 'Bundan sonra ilgili bildirimler bu tarayiciya da gelecek.',
-              linkUrl: '/dashboard',
-            });
-          } catch (error) {
-            console.error('Browser push test notification failed:', error);
-          }
+          await adminApi.sendTestWebPush({
+            title: 'Tarayici bildirimleri acildi',
+            body: 'Bundan sonra ilgili bildirimler bu tarayiciya da gelecek.',
+            linkUrl: '/dashboard',
+          });
         },
       });
       if (result.enabled) {
-        toast.success('Tarayici bildirimleri acildi.');
+        toast.success('Tarayici bildirimleri acildi. Test bildirimi gonderildi.');
       } else {
         toast.error(browserPushReasonLabel(result.reason));
       }

@@ -577,7 +577,7 @@ router.post('/notifications/read-all', notificationController.markAllRead);
 router.get('/notifications/push/vapid-public-key', notificationController.getVapidPublicKey);
 router.post('/notifications/push/register', validateBody(pushTokenSchema), notificationController.registerPushToken);
 router.post('/notifications/push/unregister', validateBody(z.object({ token: z.string().min(1).optional(), endpoint: z.string().min(1).optional() })), notificationController.unregisterPushToken);
-router.post('/notifications/push/test', requirePermission('admin:notifications'), validateBody(testPushSchema), notificationController.sendTestPush);
+router.post('/notifications/push/test', validateBody(testPushSchema), notificationController.sendTestPush);
 
 // Exchange rates
 router.get('/exchange/usd', requirePermission('admin:quotes'), adminController.getUsdSellingRate);
