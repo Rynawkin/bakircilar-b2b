@@ -119,6 +119,7 @@ export const navItems: NavItem[] = [
       'reports:supplier-price-lists',
       'reports:complement-missing',
       'reports:customer-recovery',
+      'reports:customer-carts',
       'reports:ucarer-depo',
       'reports:ucarer-minmax',
       'reports:price-family-costs',
@@ -214,6 +215,17 @@ export function AdminNavigation() {
           return publicKey;
         },
         registerSubscription: (subscription) => adminApi.registerWebPushSubscription(subscription),
+        afterRegister: async () => {
+          try {
+            await adminApi.sendTestWebPush({
+              title: 'Tarayici bildirimleri acildi',
+              body: 'Bundan sonra ilgili bildirimler bu tarayiciya da gelecek.',
+              linkUrl: '/dashboard',
+            });
+          } catch (error) {
+            console.error('Browser push test notification failed:', error);
+          }
+        },
       });
       if (result.enabled) {
         toast.success('Tarayici bildirimleri acildi.');

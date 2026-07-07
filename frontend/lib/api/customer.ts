@@ -494,6 +494,11 @@ export const customerApi = {
     return response.data;
   },
 
+  sendTestWebPush: async (payload?: { title?: string; body?: string; linkUrl?: string }): Promise<{ success: boolean }> => {
+    const response = await apiClient.post('/notifications/push/test', payload || {});
+    return response.data;
+  },
+
   // E-Invoices (customer)
   getInvoices: async (params?: {
     search?: string;

@@ -40,6 +40,7 @@ export const browserPushReasonLabel = (reason?: string) => {
 export async function registerBrowserPush(options: {
   getPublicKey: () => Promise<string | null | undefined>;
   registerSubscription: (subscription: PushSubscriptionJSON) => Promise<unknown>;
+  afterRegister?: () => Promise<unknown>;
 }): Promise<BrowserPushResult> {
   if (typeof window === 'undefined') return { enabled: false, reason: 'server' };
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
@@ -52,10 +53,19 @@ export async function registerBrowserPush(options: {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return { enabled: false, reason: permission };
 
-  const existingRegistration = await navigator.serviceWorker.getRegistration('/');
-  const registration = existingRegistration || (await navigator.serviceWorker.register('/web-push-sw.js', { scope: '/' }));
-  const readyRegistration = await navigator.serviceWorker.ready;
-  const pushRegistration = readyRegistration || registration;
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  const registration =
+    registrations.find((item) =>
+      [item.active, item.waiting, item.installing].some((worker) => worker?.scriptURL?.endsWith('/web-push-sw.js'))
+    ) || (await navigator.serviceWorker.register('/web-push-sw.js', { scope: '/' }));
+
+  try {
+    await registration.update();
+  } catch {
+    // Eski tarayicilarda update hatasi abonelik kurulumunu engellemesin.
+  }
+
+  const pushRegistration = registration;
 
   const expectedKey = publicKey.replace(/=+$/g, '');
   let existing = await pushRegistration.pushManager.getSubscription();
@@ -73,5 +83,8 @@ export async function registerBrowserPush(options: {
     }));
 
   await options.registerSubscription(subscription.toJSON());
+  if (options.afterRegister) {
+    await options.afterRegister();
+  }
   return { enabled: true };
 }

@@ -273,15 +273,16 @@ const tableHeadCell: React.CSSProperties = {
 const tableCell: React.CSSProperties = {
   padding: '7px 10px',
   verticalAlign: 'top',
+  height: 76,
+  boxSizing: 'border-box',
 };
 
 const compactTextCell: React.CSSProperties = {
   padding: '7px 10px',
   verticalAlign: 'top',
   lineHeight: 1.28,
-  maxHeight: 72,
-  overflowY: 'auto',
-  scrollbarWidth: 'thin',
+  height: 76,
+  boxSizing: 'border-box',
 };
 
 export default function Page() {
@@ -535,6 +536,26 @@ export default function Page() {
 
   return (
     <div style={{ padding: '20px 22px', maxWidth: 1500, margin: '0 auto', fontFamily: 'inherit', color: INK }}>
+      <style jsx global>{`
+        .customer-engagement-table tbody tr {
+          height: 76px;
+        }
+        .customer-engagement-table tbody td {
+          height: 76px;
+          max-height: 76px;
+          overflow: hidden;
+        }
+        .customer-engagement-table tbody td > div {
+          max-height: 62px;
+          overflow-y: auto;
+          overflow-x: hidden;
+          scrollbar-width: thin;
+        }
+        .customer-engagement-table tbody td:last-child > div {
+          max-height: 42px;
+          overflow-y: visible;
+        }
+      `}</style>
       {/* Baslik */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
@@ -716,8 +737,8 @@ export default function Page() {
 
       {/* Tablo */}
       <div style={{ ...cardStyle, marginTop: 14, overflow: 'hidden' }}>
-        <div style={{ overflow: 'auto', maxHeight: '58vh', minHeight: 360 }}>
-          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, minWidth: isAdmin ? 1730 : 1590, tableLayout: 'fixed' }}>
+        <div style={{ overflow: 'auto', maxHeight: 'min(62vh, 720px)', minHeight: 360 }}>
+          <table className="customer-engagement-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, minWidth: isAdmin ? 1730 : 1590, tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: 245 }} />
               <col style={{ width: 135 }} />
@@ -778,7 +799,7 @@ export default function Page() {
                 </tr>
               ) : (
                 rows.map((r) => (
-                  <tr key={r.customerCode} style={{ borderTop: `1px solid ${ROW_LINE}`, height: 82 }}>
+                  <tr key={r.customerCode} style={{ borderTop: `1px solid ${ROW_LINE}`, height: 76 }}>
                     {/* Cari */}
                     <td style={tableCell}>
                       <ScrollText maxHeight={34} title={r.customerName} weight={700}>
