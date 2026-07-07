@@ -32,6 +32,12 @@ Bu dosya canli kod incelemesine gore yazildi; eski `mobile/FEATURE_PARITY.md` ar
    - Baglantilar: Cari Aktivite kartlarindan ve Aksiyon Radari cari aksiyonlarindan Cari 360'a gecis eklendi.
    - Ozellikler: cari arama/secim, cari kimligi, bakiye/siparis/teklif/sepet/aksiyon/fatura KPI'lari, fiyat guven karti, aktif sepet kalemleri, son siparisler, son teklifler, vade/temas ozeti, temas gecmisi, vade notlari, aktivite ve son faturalar.
 
+5. Portal `Musteri Sepetleri` raporu aksiyonlu hale getirildi.
+   - API: `mobile/portal/src/api/admin.ts` -> `clearCustomerCart`
+   - UI: `mobile/portal/src/screens/ReportsScreen.tsx`
+   - Ozellikler: sepet kartinda kalem detaylarini ac/kapat, urun kodu/ad/miktar/birim fiyat/toplam fiyat goruntuleme, yetkili personel icin onayli sepet temizleme.
+   - Not: backend endpoint satis temsilcisi sektor kapsam kontrolu ve audit log kaydi yapiyor.
+
 ## Hala eksik olan yuksek oncelikli portal/admin modulleri
 
 Webde var, mobil portalda ekran/API paritesi henuz yok veya cok sinirli:

@@ -1035,6 +1035,10 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/reports/customer-carts?${queryParams.toString()}`);
     return response.data as { success: boolean; data: any };
   },
+  clearCustomerCart: async (cartId: string) => {
+    const response = await apiClient.delete(`/admin/reports/customer-carts/${encodeURIComponent(cartId)}/items`);
+    return response.data as { success: boolean; data: { cartId: string; deletedCount: number } };
+  },
   getActionRadar: async () => {
     const response = await apiClient.get('/admin/reports/action-radar');
     return response.data as { success: boolean; data: any };

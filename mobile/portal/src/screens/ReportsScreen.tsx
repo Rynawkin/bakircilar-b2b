@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   SafeAreaView,
   StyleSheet,
@@ -198,6 +199,8 @@ export function ReportsScreen() {
   const [cartError, setCartError] = useState<string | null>(null);
   const [cartSearch, setCartSearch] = useState('');
   const [cartIncludeEmpty, setCartIncludeEmpty] = useState(false);
+  const [expandedCartId, setExpandedCartId] = useState<string | null>(null);
+  const [clearingCartId, setClearingCartId] = useState<string | null>(null);
 
   const [actionRadarData, setActionRadarData] = useState<any | null>(null);
   const [actionRadarRows, setActionRadarRows] = useState<ActionRadarItem[]>([]);
@@ -448,6 +451,39 @@ export function ReportsScreen() {
     } finally {
       setActionRadarLoading(false);
     }
+  };
+
+  const clearCustomerCart = (cart: any) => {
+    if (!cart?.cartId || Number(cart.itemCount || 0) <= 0) return;
+    Alert.alert(
+      'Sepeti temizle',
+      `${cart.customerName || cart.customerCode || 'Cari'} sepetindeki ${cart.itemCount || 0} kalem silinsin mi?`,
+      [
+        { text: 'Vazgec', style: 'cancel' },
+        {
+          text: 'Temizle',
+          style: 'destructive',
+          onPress: async () => {
+            setClearingCartId(cart.cartId);
+            try {
+              await adminApi.clearCustomerCart(cart.cartId);
+              setCartRows((rows) =>
+                rows.map((row) =>
+                  row.cartId === cart.cartId
+                    ? { ...row, itemCount: 0, totalQuantity: 0, totalAmount: 0, items: [] }
+                    : row
+                )
+              );
+              setExpandedCartId(null);
+            } catch (err: any) {
+              Alert.alert('Sepet temizlenemedi', err?.response?.data?.error || 'Islem tamamlanamadi.');
+            } finally {
+              setClearingCartId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const openActionRadarItem = (item: ActionRadarItem) => {
@@ -1165,6 +1201,8 @@ export function ReportsScreen() {
           }
 
           if (reportType === 'customerCarts') {
+            const expanded = expandedCartId === item.cartId;
+            const canClear = Number(item.itemCount || 0) > 0 && clearingCartId !== item.cartId;
             return (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>{item.customerCode || '-'}</Text>
@@ -1173,6 +1211,42 @@ export function ReportsScreen() {
                 <Text style={styles.cardMeta}>Kalem: {item.itemCount ?? 0}</Text>
                 <Text style={styles.cardMeta}>Miktar: {item.totalQuantity ?? 0}</Text>
                 <Text style={styles.cardMeta}>Tutar: {Number(item.totalAmount || 0).toFixed(2)} TL</Text>
+                <View style={styles.cardActionRow}>
+                  <TouchableOpacity
+                    style={styles.smallButton}
+                    onPress={() => setExpandedCartId(expanded ? null : item.cartId)}
+                  >
+                    <Text style={styles.smallButtonText}>{expanded ? 'Gizle' : 'Detay'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.smallButton, styles.dangerButton, !canClear && styles.disabledButton]}
+                    disabled={!canClear}
+                    onPress={() => clearCustomerCart(item)}
+                  >
+                    <Text style={styles.smallButtonText}>
+                      {clearingCartId === item.cartId ? 'Siliniyor' : 'Temizle'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {expanded && (
+                  <View style={styles.cartItems}>
+                    {(item.items || []).length === 0 ? (
+                      <Text style={styles.cardMeta}>Sepette kalem yok.</Text>
+                    ) : (
+                      item.items.map((cartItem: any) => (
+                        <View key={cartItem.id} style={styles.cartItemCard}>
+                          <Text style={styles.cartItemTitle}>{cartItem.productName || cartItem.productCode || '-'}</Text>
+                          <Text style={styles.cardMeta}>
+                            {cartItem.productCode || '-'} - {Number(cartItem.quantity || 0).toLocaleString('tr-TR')} adet
+                          </Text>
+                          <Text style={styles.cardMeta}>
+                            Birim: {Number(cartItem.unitPrice || 0).toFixed(2)} TL - Toplam: {Number(cartItem.totalPrice || 0).toFixed(2)} TL
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                )}
               </View>
             );
           }
@@ -1421,6 +1495,29 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.sm,
     color: colors.textMuted,
   },
+  cardActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  cartItems: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  cartItemCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#F8FAFC',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    gap: 3,
+  },
+  cartItemTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
   metaWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1443,6 +1540,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.sm,
+  },
+  dangerButton: {
+    backgroundColor: colors.danger,
+  },
+  disabledButton: {
+    opacity: 0.55,
   },
   smallButtonText: {
     fontFamily: fonts.semibold,
