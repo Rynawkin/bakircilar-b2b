@@ -9,6 +9,20 @@ const urlBase64ToUint8Array = (base64String: string) => {
   return outputArray;
 };
 
+const arrayBufferToBase64Url = (buffer: ArrayBuffer | null | undefined) => {
+  if (!buffer) return '';
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return window
+    .btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+};
+
 export type BrowserPushResult = {
   enabled: boolean;
   reason?: string;
@@ -43,7 +57,14 @@ export async function registerBrowserPush(options: {
   const readyRegistration = await navigator.serviceWorker.ready;
   const pushRegistration = readyRegistration || registration;
 
-  const existing = await pushRegistration.pushManager.getSubscription();
+  const expectedKey = publicKey.replace(/=+$/g, '');
+  let existing = await pushRegistration.pushManager.getSubscription();
+  const existingKey = arrayBufferToBase64Url(existing?.options?.applicationServerKey as ArrayBuffer | null | undefined);
+  if (existing && existingKey && existingKey !== expectedKey) {
+    await existing.unsubscribe();
+    existing = null;
+  }
+
   const subscription =
     existing ||
     (await pushRegistration.pushManager.subscribe({

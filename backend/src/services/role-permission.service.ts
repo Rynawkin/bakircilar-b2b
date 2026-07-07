@@ -285,6 +285,7 @@ class RolePermissionService {
         'dashboard:stok-ara',
         'dashboard:cari-ara',
         'reports:pending-orders',
+        'reports:customer-carts',
         'reports:customer-recovery',
         'reports:customer-engagement',
         'reports:staff-activity',

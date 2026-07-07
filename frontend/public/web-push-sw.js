@@ -1,11 +1,18 @@
 self.addEventListener('push', (event) => {
-  const title = 'Bakırcılar B2B';
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+
+  const title = payload.title || 'Bakircilar B2B';
   const options = {
-    body: 'Yeni bildiriminiz var.',
+    body: payload.body || 'Yeni bildiriminiz var.',
     icon: '/favicon.png',
     badge: '/favicon.png',
-    data: { url: '/' },
-    tag: 'bakircilar-b2b-notification',
+    data: { url: payload.linkUrl || payload.url || '/' },
+    tag: payload.tag || 'bakircilar-b2b-notification',
     renotify: true,
   };
 

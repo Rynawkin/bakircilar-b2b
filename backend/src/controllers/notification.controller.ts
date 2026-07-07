@@ -58,7 +58,8 @@ export class NotificationController {
 
   async getVapidPublicKey(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json({ publicKey: webPushService.getPublicKey() || null });
+      const publicKey = await webPushService.getPublicKey();
+      res.json({ publicKey: publicKey || null });
     } catch (error) {
       next(error);
     }

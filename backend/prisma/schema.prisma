@@ -623,6 +623,12 @@ model Settings {
   // Bos/None = config/env varsayilani kullanilir. Ayarlar > Tetiklenecek Islemler'den yonetilir.
   cronOverrides             Json?
 
+  // Tarayici web push VAPID anahtarlari. Env tanimli degilse backend ilk kullanimda
+  // uretip burada saklar; abonelikler restart/deploy sonrasi gecersiz kalmaz.
+  webPushVapidPublicKey     String?
+  webPushVapidPrivateKey    String?
+  webPushVapidSubject       String?
+
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
 }

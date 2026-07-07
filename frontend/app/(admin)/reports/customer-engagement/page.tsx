@@ -252,6 +252,7 @@ function ScrollText({
         paddingRight: 3,
         color,
         fontWeight: weight,
+        scrollbarWidth: 'thin',
       }}
     >
       {children}
@@ -270,8 +271,17 @@ const tableHeadCell: React.CSSProperties = {
 };
 
 const tableCell: React.CSSProperties = {
-  padding: '8px 12px',
+  padding: '7px 10px',
   verticalAlign: 'top',
+};
+
+const compactTextCell: React.CSSProperties = {
+  padding: '7px 10px',
+  verticalAlign: 'top',
+  lineHeight: 1.28,
+  maxHeight: 72,
+  overflowY: 'auto',
+  scrollbarWidth: 'thin',
 };
 
 export default function Page() {
@@ -706,13 +716,13 @@ export default function Page() {
 
       {/* Tablo */}
       <div style={{ ...cardStyle, marginTop: 14, overflow: 'hidden' }}>
-        <div style={{ overflow: 'auto', maxHeight: '64vh' }}>
-          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, minWidth: isAdmin ? 1620 : 1490, tableLayout: 'fixed' }}>
+        <div style={{ overflow: 'auto', maxHeight: '58vh', minHeight: 360 }}>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, minWidth: isAdmin ? 1730 : 1590, tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: 245 }} />
               <col style={{ width: 135 }} />
               <col style={{ width: 88 }} />
-              <col style={{ width: 230 }} />
+              <col style={{ width: 250 }} />
               <col style={{ width: 105 }} />
               <col style={{ width: 115 }} />
               <col style={{ width: 115 }} />
@@ -720,8 +730,8 @@ export default function Page() {
               <col style={{ width: 110 }} />
               <col style={{ width: 120 }} />
               {isAdmin && <col style={{ width: 135 }} />}
-              <col style={{ width: 185 }} />
-              <col style={{ width: 175 }} />
+              <col style={{ width: 205 }} />
+              <col style={{ width: 230 }} />
             </colgroup>
             <thead>
               <tr style={{ background: TABLE_HEAD_BG, color: FAINT, textAlign: 'left' }}>
@@ -768,7 +778,7 @@ export default function Page() {
                 </tr>
               ) : (
                 rows.map((r) => (
-                  <tr key={r.customerCode} style={{ borderTop: `1px solid ${ROW_LINE}` }}>
+                  <tr key={r.customerCode} style={{ borderTop: `1px solid ${ROW_LINE}`, height: 82 }}>
                     {/* Cari */}
                     <td style={tableCell}>
                       <ScrollText maxHeight={34} title={r.customerName} weight={700}>
@@ -784,7 +794,7 @@ export default function Page() {
                     </td>
 
                     {/* Durum */}
-                    <td style={{ padding: '10px 14px' }}>
+                    <td style={compactTextCell}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
                         <StatusBadge status={r.status} />
                         {!r.registered && (
@@ -799,7 +809,7 @@ export default function Page() {
                     </td>
 
                     {/* Saglik */}
-                    <td style={{ padding: '10px 14px', minWidth: 90 }}>
+                    <td style={compactTextCell}>
                       <div style={{ color: healthColor(r.healthScore), fontWeight: 800 }}>{r.healthScore ?? 0}/100</div>
                       <div style={{ marginTop: 4, width: 72, height: 5, borderRadius: 999, background: '#eef1f6', overflow: 'hidden' }}>
                         <div style={{ width: `${Math.max(0, Math.min(100, r.healthScore ?? 0))}%`, height: '100%', background: healthColor(r.healthScore) }} />
@@ -824,13 +834,13 @@ export default function Page() {
                         {PRIORITY_META[r.actionPriority]?.label || r.actionPriority || '-'}
                       </span>
                       <div style={{ marginTop: 4 }}>
-                        <ScrollText maxHeight={32} title={r.suggestedAction || '-'} weight={600}>
+                        <ScrollText maxHeight={28} title={r.suggestedAction || '-'} weight={600}>
                           <span style={{ fontSize: 11.5 }}>{r.suggestedAction || '-'}</span>
                         </ScrollText>
                       </div>
                       {r.actionReason ? (
                         <div style={{ marginTop: 2 }}>
-                          <ScrollText maxHeight={36} title={r.actionReason} color={FAINT} weight={500}>
+                          <ScrollText maxHeight={28} title={r.actionReason} color={FAINT} weight={500}>
                             <span style={{ fontSize: 10.5 }}>{r.actionReason}</span>
                           </ScrollText>
                         </div>
@@ -838,7 +848,7 @@ export default function Page() {
                     </td>
 
                     {/* Kayit */}
-                    <td style={{ padding: '10px 14px' }}>
+                    <td style={compactTextCell}>
                       {r.registered ? (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: EMERALD, fontWeight: 600, fontSize: 11.5 }}>
                           <CheckCircle2 width={13} height={13} strokeWidth={2.2} />
@@ -866,7 +876,7 @@ export default function Page() {
                     </td>
 
                     {/* Son giris */}
-                    <td style={{ padding: '10px 14px' }}>
+                    <td style={compactTextCell}>
                       {r.lastLoginAt ? (
                         <div>
                           <div style={{ color: INK }}>{safeDate(r.lastLoginAt)}</div>
@@ -880,12 +890,12 @@ export default function Page() {
                     </td>
 
                     {/* Siklik */}
-                    <td style={{ padding: '10px 14px', color: MUTED }}>
+                    <td style={{ ...compactTextCell, color: MUTED }}>
                       {r.loginFrequencyDays ? `~${r.loginFrequencyDays} günde bir` : '-'}
                     </td>
 
                     {/* Siparis */}
-                    <td style={{ padding: '10px 14px' }}>
+                    <td style={compactTextCell}>
                       {r.orderCount > 0 ? (
                         <div>
                           <div style={{ color: INK, fontWeight: 600 }}>
@@ -899,10 +909,10 @@ export default function Page() {
                     </td>
 
                     {/* Son siparis */}
-                    <td style={{ padding: '10px 14px', color: MUTED }}>{r.lastOrderAt ? safeDate(r.lastOrderAt) : '-'}</td>
+                    <td style={{ ...compactTextCell, color: MUTED }}>{r.lastOrderAt ? safeDate(r.lastOrderAt) : '-'}</td>
 
                     {/* Bakiye */}
-                    <td style={{ padding: '10px 14px', textAlign: 'right', color: r.balance > 0 ? RED : INK, fontWeight: 600 }}>
+                    <td style={{ ...compactTextCell, textAlign: 'right', color: r.balance > 0 ? RED : INK, fontWeight: 600 }}>
                       {formatCurrency(r.balance)}
                     </td>
 
@@ -918,23 +928,26 @@ export default function Page() {
                     {/* Son hatirlatma */}
                     <td style={tableCell}>
                       {r.lastContactAt ? (
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            background: '#ecfdf5',
-                            color: EMERALD,
-                            border: '1px solid #a7f3d0',
-                            padding: '2px 8px',
-                            borderRadius: 6,
-                            fontSize: 11,
-                            fontWeight: 600,
-                          }}
+                        <ScrollText
+                          maxHeight={42}
+                          title={`${safeDate(r.lastContactAt)}${r.lastContactByName ? ` (${r.lastContactByName})` : ''}`}
+                          color={EMERALD}
+                          weight={600}
                         >
-                          {safeDate(r.lastContactAt)}
-                          {r.lastContactByName ? ` (${r.lastContactByName})` : ''}
-                        </span>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              background: '#ecfdf5',
+                              border: '1px solid #a7f3d0',
+                              padding: '2px 8px',
+                              borderRadius: 6,
+                              fontSize: 11,
+                            }}
+                          >
+                            {safeDate(r.lastContactAt)}
+                            {r.lastContactByName ? ` (${r.lastContactByName})` : ''}
+                          </span>
+                        </ScrollText>
                       ) : (
                         <span style={{ color: FAINT, fontSize: 11.5 }}>Henüz yok</span>
                       )}
@@ -946,8 +959,8 @@ export default function Page() {
                     </td>
 
                     {/* Aksiyon */}
-                    <td style={{ padding: '10px 14px' }}>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <td style={{ ...tableCell, verticalAlign: 'middle' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
                         <button
                           type="button"
                           onClick={() => handleQuickReminder(r)}
