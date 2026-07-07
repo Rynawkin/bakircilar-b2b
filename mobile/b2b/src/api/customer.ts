@@ -9,6 +9,31 @@ import {
   RecommendationGroup,
 } from '../types';
 import { apiClient } from './client';
+import * as FileSystem from 'expo-file-system/legacy';
+import { getAuthToken } from '../storage/auth';
+
+export type CustomerInvoiceDocument = {
+  id: string;
+  invoiceNo: string;
+  issueDate?: string | null;
+  sentAt?: string | null;
+  subtotalAmount?: number | null;
+  totalAmount?: number | null;
+  currency?: string | null;
+  fileName?: string | null;
+  originalName?: string | null;
+  mimeType?: string | null;
+  size?: number | null;
+  matchStatus?: 'MATCHED' | 'PARTIAL' | 'NOT_FOUND' | string;
+  matchError?: string | null;
+  createdAt?: string;
+};
+
+const safeFileName = (value: string) =>
+  String(value || 'fatura')
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, '-')
+    .slice(0, 80);
 
 export const customerApi = {
   getProducts: async (params?: {
@@ -165,5 +190,35 @@ export const customerApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
+  },
+  getInvoices: async (params?: {
+    search?: string;
+    invoicePrefix?: string;
+    fromDate?: string;
+    toDate?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<{
+      documents: CustomerInvoiceDocument[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/invoices', { params });
+    return response.data;
+  },
+  downloadInvoiceToFile: async (document: Pick<CustomerInvoiceDocument, 'id' | 'invoiceNo'>) => {
+    if (!FileSystem.documentDirectory) {
+      throw new Error('Dosya sistemi kullanilamiyor.');
+    }
+    const token = await getAuthToken();
+    const baseUrl = String(apiClient.defaults.baseURL || '').replace(/\/$/, '');
+    const targetUri = `${FileSystem.documentDirectory}${safeFileName(document.invoiceNo)}.pdf`;
+    const result = await FileSystem.downloadAsync(
+      `${baseUrl}/invoices/${encodeURIComponent(document.id)}/download`,
+      targetUri,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      }
+    );
+    return result.uri;
   },
 };

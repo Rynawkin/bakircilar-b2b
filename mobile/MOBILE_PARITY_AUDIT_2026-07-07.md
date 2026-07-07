@@ -1,0 +1,87 @@
+# Mobile Parity Audit - 2026-07-07
+
+Kapsam: `mobile/b2b` musteri uygulamasi ve `mobile/portal` admin/personel uygulamasi. Hedef, webdeki admin ve musteri deneyimini mobilde Android/iOS telefon + tablet icin eksiksiz tasimak.
+
+Bu dosya canli kod incelemesine gore yazildi; eski `mobile/FEATURE_PARITY.md` artik guncel kabul edilmemeli.
+
+## Bu turda kapatilan net parite aciklari
+
+1. Portal raporlarina `Aksiyon Radari` eklendi.
+   - API: `mobile/portal/src/api/admin.ts` -> `getActionRadar()`
+   - UI: `mobile/portal/src/screens/ReportsScreen.tsx`
+   - Mobilde gosterilen sinyaller: teklif sagligi, terk sepet, eksik gorsel/katalog, saha ziyaret adaylari, paket onerileri, anomali KPI'lari.
+   - Aksiyonlar: teklif detaya git, sepet raporuna filtreyle gec, urun aramaya git, cari detaya git.
+
+2. Musteri uygulamasina `Faturalarim` eklendi.
+   - API: `mobile/b2b/src/api/customer.ts`
+   - UI: `mobile/b2b/src/screens/InvoicesScreen.tsx`
+   - Navigasyon: `mobile/b2b/src/navigation/AppNavigator.tsx`, `mobile/b2b/src/screens/MoreScreen.tsx`
+   - Ozellikler: fatura no/tarih filtresi, sayfalama, tutar/tarih/dosya bilgisi, yetkili PDF indirme ve paylasma.
+   - Ek dependency: `mobile/b2b/package.json` -> `expo-file-system`.
+
+3. Portal uygulamasina `Cari Aktivite` eklendi.
+   - API: `mobile/portal/src/api/admin.ts` -> `getCustomerEngagement`, `addCustomerEngagementContact`, `getCustomerEngagementContacts`
+   - UI: `mobile/portal/src/screens/CustomerEngagementScreen.tsx`
+   - Navigasyon: `mobile/portal/src/navigation/AppNavigator.tsx`, `mobile/portal/src/screens/MoreScreen.tsx`
+   - Ozellikler: KPI kartlari, cari arama, durum filtresi, bugun aranacak filtresi, saglik skoru, oneri/aksiyon nedeni, siparis/giris/temas ozeti, hizli "hatirlatildi", temas/not modalı ve gecmis temas listesi.
+
+## Hala eksik olan yuksek oncelikli portal/admin modulleri
+
+Webde var, mobil portalda ekran/API paritesi henuz yok veya cok sinirli:
+
+- `admin-products`: urun detay yonetimi, gorsel galeri, tamamlayici ayarlari, katalog kalitesi.
+- `bundles`: paket olusturma/duzenleme, paket performans aksiyonlari.
+- `customer-360`: cari 360 ve vade/aktivite birlesimi mobilde yok.
+- `field-sales`: mobilde web saha satis moduluyle tam parite yok; urun arama/sepete hizli ekleme/saha notu ergonomisi ayrica elden gecmeli.
+- `hot-sales`: sicak satis/arac stok/gun sonu akislarinin mobil paritesi yok.
+- `warehouse`, `warehouse/image-issues`, `warehouse/retail`: depo kiosk, gorsel hata, perakende satis mobilde yok.
+- `product-dimensions`: olcu/desi/kg/raf kodu mobilde yok.
+- `stock-create`, `passive-stocks`: stok karti acma/pasif stok aktiflestirme mobilde yok.
+- `supplier-costs`: tedarikci maliyet/fiyat teyit/ihale akislari mobilde yok.
+- `operations`: operasyon paneli mobilde yok.
+- `banners`, `category-images`, `collections`, `gift-campaigns`: vitrin yonetimi mobil portalda yok.
+
+## Hala eksik olan rapor paritesi
+
+Portal `ReportsScreen` bazi raporlari tek ekranda tasiyor ama web rapor merkezi daha genis. Mobilde eksik veya eksik derinlikte olanlar:
+
+- `customer-engagement`: temel rapor ve temas aksiyonlari mobil portala eklendi; webdeki Excel export, temsilci kirilimi ve genis tablo kolonlarinin tamamı henuz mobilde birebir yok.
+- `customer-recovery` ve `customer-recovery/actions`: geri kazanma ve aksiyon merkezi mobilde yok.
+- `field-sales-visits`: saha ziyaret raporu mobilde yok.
+- `price-family-costs`, `price-families`, `product-families`, `family-management`: aile/maliyet raporlari mobilde yok veya sadece tamamlayici kisim var.
+- `ucarer-depo`, `ucarer-minmax-exclusions`: Ucarer depo/minmax operasyonlari mobilde yok.
+- `demand-pattern`, `barter-radar`, `sticky-discounts`, `category-churn`, `category-opportunity`: yeni karar destek raporlari mobilde yok.
+- `toplu-audit`, `staff-activity`: audit/personel performans derinligi mobilde yok.
+
+## Hala eksik olan vade paritesi
+
+Mobil portalda `VadeScreen` ve `VadeCustomerScreen` var, ancak webdeki yeni vade genislemesi daha buyuk:
+
+- `/vade/dashboard` paneli mobilde ayri grafik/KPI paneli olarak yok.
+- `/vade/analytics` ve `/vade/management` mobilde yok.
+- `/vade/calendar`, `/vade/notes`, `/vade/assignments`, `/vade/import` mobilde yok veya ana vade ekranina gomulu degil.
+- Vade Excel import mobilde gerekli olmayabilir, ama webdeki operasyonel islev olarak parite matrisinde karar verilmesi gerekir.
+
+## Hala eksik olan musteri uygulamasi modulleri
+
+Bu turda fatura eklendi; kalan musteri web parite aciklari:
+
+- `collections/[id]`: koleksiyon detay deneyimi mobilde yok.
+- `new-categories`: hic alinmayan/yeni kategori kesfi mobilde yok.
+- Ana sayfa vitrin zenginligi web kadar genis degil: banner, koleksiyon, GWP, kategori kesfi ve kampanya bloklari tek tek karsilastirilmali.
+- Urun detayinda webdeki coklu galeri, paket icerigi, oneriler ve fiyat guven karti mobilde tek tek dogrulanmali.
+- Sepette webdeki GWP/hediye secimi, tamamlayici oneriler ve fiyat guven kontrolleri mobilde birebir test edilmeli.
+- Bildirim tercihleri mobilde native push temeli var; webdeki kategori bazli tercih UI'i musteri mobilinde sinirli.
+
+## Teknik kalite / dogrulama eksikleri
+
+- Android/iOS/tablet gorsel QA henuz yapilmadi. En az uc viewport gerekir: kucuk telefon, buyuk telefon, tablet.
+- Mobilde webdeki yeni role/scope kurallari icin otomatik test yok.
+- Portal ve b2b uygulamalarinda ortak tasarim primitive'leri sinirli; yeni ekranlar ayni Sora ve renk sistemini kullansa da tekrar eden kart/filter/action pattern'leri ortaklastirilmeli.
+- Offline/timeout/error states tum yeni ekranlarda standart hale getirilmeli.
+- Aksiyon Radari mobilde ilk surum: direkt islem butonlari var, ancak web tarafindaki gibi action-state workflow henuz yok.
+
+## Son dogrulama
+
+- `mobile/portal`: `npm.cmd exec tsc -- --noEmit` basarili.
+- `mobile/b2b`: `npm.cmd exec tsc -- --noEmit` basarili.

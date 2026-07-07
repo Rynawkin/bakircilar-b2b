@@ -47,6 +47,93 @@ type SupplierPriceListOverrides = {
   pdfColumnRoles?: Record<string, string> | null;
 };
 
+export type EngagementStatus = 'KAYITSIZ' | 'HIC_GIRMEMIS' | 'AKTIF' | 'YAVASLIYOR' | 'KAYIP_RISKI';
+export type EngagementActionPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface EngagementRow {
+  customerCode: string;
+  customerName: string;
+  sectorCode: string | null;
+  city: string | null;
+  phone: string | null;
+  balance: number;
+  registered: boolean;
+  userId: string | null;
+  lastLoginAt: string | null;
+  firstLoginAt: string | null;
+  loginCount: number;
+  loginFrequencyDays: number | null;
+  daysSinceLastLogin: number | null;
+  orderCount: number;
+  orderTotal: number;
+  orderAvg: number;
+  firstOrderAt: string | null;
+  lastOrderAt: string | null;
+  status: EngagementStatus;
+  lastContactAt: string | null;
+  lastContactByName: string | null;
+  contactCount: number;
+  hasNotes: boolean;
+  nextFollowUpDate: string | null;
+  assignedSalesRepName: string | null;
+  healthScore: number;
+  actionPriority: EngagementActionPriority;
+  actionReason: string;
+  suggestedAction: string;
+}
+
+export interface EngagementKpis {
+  total: number;
+  registered: number;
+  registeredPct: number;
+  unregistered: number;
+  neverLoggedIn: number;
+  active30: number;
+  atRisk: number;
+  followUpDue: number;
+  neverContacted: number;
+  actionDue?: number;
+  avgHealthScore?: number;
+}
+
+export interface EngagementReport {
+  rows: EngagementRow[];
+  total: number;
+  page: number;
+  limit: number;
+  kpis: EngagementKpis;
+  repBreakdown: Array<{
+    rep: string;
+    total: number;
+    registered: number;
+    unregistered: number;
+    neverLoggedIn: number;
+    atRisk: number;
+    actionDue?: number;
+    avgHealthScore?: number;
+  }>;
+}
+
+export interface ContactLogEntry {
+  id: string;
+  customerCode: string;
+  customerName: string | null;
+  contactedAt: string;
+  contactedByName: string | null;
+  channel: string | null;
+  note: string | null;
+  outcome: string | null;
+  followUpDate: string | null;
+}
+
+export interface ContactInput {
+  customerName?: string;
+  note?: string;
+  channel?: string;
+  outcome?: string;
+  followUpDate?: string | null;
+}
+
 const appendSupplierPriceListOverrides = (formData: FormData, overrides?: SupplierPriceListOverrides) => {
   if (!overrides) return;
   const appendValue = (key: string, value?: string | number | null) => {
@@ -947,6 +1034,29 @@ export const adminApi = {
     if (params.limit) queryParams.append('limit', params.limit.toString());
     const response = await apiClient.get(`/admin/reports/customer-carts?${queryParams.toString()}`);
     return response.data as { success: boolean; data: any };
+  },
+  getActionRadar: async () => {
+    const response = await apiClient.get('/admin/reports/action-radar');
+    return response.data as { success: boolean; data: any };
+  },
+  getCustomerEngagement: async (params?: {
+    search?: string;
+    status?: string;
+    sort?: string;
+    page?: number;
+    limit?: number;
+    followUpDue?: boolean;
+  }) => {
+    const response = await apiClient.get('/admin/reports/customer-engagement', { params });
+    return response.data as EngagementReport;
+  },
+  addCustomerEngagementContact: async (code: string, payload?: ContactInput) => {
+    const response = await apiClient.post(`/admin/reports/customer-engagement/${encodeURIComponent(code)}/contact`, payload || {});
+    return response.data as { success: boolean; contact: ContactLogEntry };
+  },
+  getCustomerEngagementContacts: async (code: string) => {
+    const response = await apiClient.get(`/admin/reports/customer-engagement/${encodeURIComponent(code)}/contacts`);
+    return response.data as { contacts: ContactLogEntry[] };
   },
   getSupplierPriceListSuppliers: async () => {
     const response = await apiClient.get('/admin/supplier-price-lists/suppliers');

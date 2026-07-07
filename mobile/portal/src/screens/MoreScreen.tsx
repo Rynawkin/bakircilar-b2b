@@ -9,6 +9,7 @@ import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 const links: Array<{ label: string; route: keyof PortalStackParamList; description: string }> = [
   { label: 'Portfoy', route: 'Portfolio', description: 'Atanan cari portfoyu ve aktiflik.' },
   { label: 'Musteriler', route: 'Customers', description: 'Cari listesi ve fiyat ayarlari.' },
+  { label: 'Cari Aktivite', route: 'CustomerEngagement', description: 'Giris, siparis ve temas aksiyonlari.' },
   { label: 'Anlasmalar', route: 'CustomerAgreements', description: 'Anlasmali fiyat listesi.' },
   { label: 'Teklif Kalemleri', route: 'QuoteLines', description: 'Teklif satirlarini kapat/ac yonetimi.' },
   { label: 'Arama', route: 'Search', description: 'Stok ve cari arama.' },

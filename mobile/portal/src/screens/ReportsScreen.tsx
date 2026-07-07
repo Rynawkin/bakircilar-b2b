@@ -9,8 +9,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { adminApi } from '../api/admin';
+import { PortalStackParamList } from '../navigation/AppNavigator';
 import { CostUpdateAlert, CostUpdateSummary, MarginComplianceRow, PriceHistoryChange } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 
@@ -25,9 +28,101 @@ type ReportType =
   | 'productCustomers'
   | 'complementMissing'
   | 'customerActivity'
-  | 'customerCarts';
+  | 'customerCarts'
+  | 'actionRadar';
+
+type ActionRadarItem = {
+  id: string;
+  group: string;
+  title: string;
+  subtitle?: string;
+  meta: string[];
+  tone?: 'default' | 'red' | 'amber' | 'green';
+  actionLabel?: string;
+  action:
+    | { type: 'quoteDetail'; quoteId: string }
+    | { type: 'cartReport'; search?: string }
+    | { type: 'productSearch'; productCode?: string }
+    | { type: 'customerDetail'; customerId?: string }
+    | { type: 'none' };
+};
+
+const formatMoney = (value: any) => `${Number(value || 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} TL`;
+
+const flattenActionRadar = (snapshot: any): ActionRadarItem[] => {
+  if (!snapshot) return [];
+  const rows: ActionRadarItem[] = [];
+
+  for (const quote of snapshot.quoteHealth?.rows || []) {
+    rows.push({
+      id: `quote-${quote.id}`,
+      group: 'Teklif Saglik',
+      title: quote.quoteNumber || 'Teklif',
+      subtitle: quote.customerName || quote.customerCode || undefined,
+      meta: [quote.issue || 'Kontrol gerekli', `Tutar: ${formatMoney(quote.grandTotal)}`, `Kalem: ${quote.itemCount ?? '-'}`],
+      tone: quote.issue?.toLowerCase?.().includes('gecmis') ? 'red' : 'amber',
+      actionLabel: 'Teklifi ac',
+      action: quote.id ? { type: 'quoteDetail', quoteId: quote.id } : { type: 'none' },
+    });
+  }
+
+  for (const cart of snapshot.abandonedCarts?.rows || []) {
+    rows.push({
+      id: `cart-${cart.cartId}`,
+      group: 'Terk Sepet',
+      title: cart.customerName || cart.customerCode || 'Cari',
+      subtitle: cart.customerCode || undefined,
+      meta: [`Bekleme: ${cart.daysIdle ?? 0} gun`, `Kalem: ${cart.itemCount ?? 0}`, `Tutar: ${formatMoney(cart.totalAmount)}`],
+      tone: Number(cart.daysIdle || 0) >= 7 ? 'red' : 'amber',
+      actionLabel: 'Sepet raporu',
+      action: { type: 'cartReport', search: cart.customerCode || cart.customerName },
+    });
+  }
+
+  for (const product of snapshot.imageQuality?.missingImageProducts || []) {
+    rows.push({
+      id: `image-${product.id}`,
+      group: 'Gorsel Kalite',
+      title: product.name || product.mikroCode || 'Urun',
+      subtitle: product.mikroCode || undefined,
+      meta: [`Populerlik: ${Number(product.popularSalesValue || 0).toLocaleString('tr-TR')}`, 'Eksik gorsel'],
+      tone: 'amber',
+      actionLabel: 'Urunu ara',
+      action: { type: 'productSearch', productCode: product.mikroCode },
+    });
+  }
+
+  for (const visit of snapshot.fieldVisitPlanner?.rows || []) {
+    rows.push({
+      id: `visit-${visit.customerId}`,
+      group: 'Saha Ziyaret',
+      title: visit.customerName || visit.customerCode || 'Cari',
+      subtitle: visit.customerCode || undefined,
+      meta: [`Skor: ${visit.priorityScore ?? 0}`, `Vade: ${formatMoney(visit.pastDueBalance)}`, `Sepet: ${formatMoney(visit.cartAmount)}`],
+      tone: Number(visit.priorityScore || 0) >= 60 ? 'red' : 'amber',
+      actionLabel: 'Cari detay',
+      action: visit.customerId ? { type: 'customerDetail', customerId: visit.customerId } : { type: 'none' },
+    });
+  }
+
+  for (const bundle of snapshot.bundleSuggestions?.rows || []) {
+    rows.push({
+      id: `bundle-${bundle.title}`,
+      group: 'Paket Onerici',
+      title: bundle.title || 'Paket onerisi',
+      subtitle: bundle.reason || undefined,
+      meta: [`Skor: ${bundle.score ?? 0}`],
+      tone: 'green',
+      actionLabel: 'Urun ara',
+      action: { type: 'productSearch', productCode: bundle.products?.[0]?.code },
+    });
+  }
+
+  return rows;
+};
 
 export function ReportsScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
   const [reportType, setReportType] = useState<ReportType>('cost');
 
   const [costData, setCostData] = useState<CostUpdateAlert[]>([]);
@@ -103,6 +198,11 @@ export function ReportsScreen() {
   const [cartError, setCartError] = useState<string | null>(null);
   const [cartSearch, setCartSearch] = useState('');
   const [cartIncludeEmpty, setCartIncludeEmpty] = useState(false);
+
+  const [actionRadarData, setActionRadarData] = useState<any | null>(null);
+  const [actionRadarRows, setActionRadarRows] = useState<ActionRadarItem[]>([]);
+  const [actionRadarLoading, setActionRadarLoading] = useState(false);
+  const [actionRadarError, setActionRadarError] = useState<string | null>(null);
 
   const fetchCost = async () => {
     setCostLoading(true);
@@ -307,12 +407,13 @@ export function ReportsScreen() {
     }
   };
 
-  const fetchCustomerCarts = async () => {
+  const fetchCustomerCarts = async (override?: { search?: string }) => {
     setCartLoading(true);
     setCartError(null);
     try {
+      const effectiveSearch = override?.search ?? cartSearch;
       const response = await adminApi.getCustomerCartsReport({
-        search: cartSearch.trim() || undefined,
+        search: effectiveSearch.trim() || undefined,
         includeEmpty: cartIncludeEmpty,
         page: 1,
         limit: 50,
@@ -328,6 +429,45 @@ export function ReportsScreen() {
       setCartError(err?.response?.data?.error || 'Rapor yuklenemedi.');
     } finally {
       setCartLoading(false);
+    }
+  };
+
+  const fetchActionRadar = async () => {
+    setActionRadarLoading(true);
+    setActionRadarError(null);
+    try {
+      const response = await adminApi.getActionRadar();
+      if (response.success) {
+        const snapshot = response.data || null;
+        setActionRadarData(snapshot);
+        setActionRadarRows(flattenActionRadar(snapshot));
+      }
+    } catch (err: any) {
+      setActionRadarError(err?.response?.data?.error || 'Aksiyon radari yuklenemedi.');
+      setActionRadarRows([]);
+    } finally {
+      setActionRadarLoading(false);
+    }
+  };
+
+  const openActionRadarItem = (item: ActionRadarItem) => {
+    if (item.action.type === 'quoteDetail' && item.action.quoteId) {
+      navigation.navigate('QuoteDetail', { quoteId: item.action.quoteId });
+      return;
+    }
+    if (item.action.type === 'cartReport') {
+      const search = item.action.search || '';
+      setCartSearch(search);
+      setReportType('customerCarts');
+      fetchCustomerCarts({ search });
+      return;
+    }
+    if (item.action.type === 'productSearch' && item.action.productCode) {
+      navigation.navigate('Search', { mode: 'stocks', term: item.action.productCode, autoRun: true });
+      return;
+    }
+    if (item.action.type === 'customerDetail' && item.action.customerId) {
+      navigation.navigate('CustomerDetail', { customerId: item.action.customerId });
     }
   };
 
@@ -359,6 +499,9 @@ export function ReportsScreen() {
     if (reportType === 'customerCarts' && cartRows.length === 0 && !cartLoading) {
       fetchCustomerCarts();
     }
+    if (reportType === 'actionRadar' && actionRadarRows.length === 0 && !actionRadarLoading) {
+      fetchActionRadar();
+    }
   }, [reportType]);
 
   const data =
@@ -379,8 +522,10 @@ export function ReportsScreen() {
                 : reportType === 'complementMissing'
                   ? complementRows
                   : reportType === 'customerActivity'
-                    ? activityRows
-                    : cartRows;
+                  ? activityRows
+                    : reportType === 'customerCarts'
+                      ? cartRows
+                      : actionRadarRows;
 
   const headerContent = useMemo(() => {
     if (reportType === 'cost') {
@@ -740,7 +885,7 @@ export function ReportsScreen() {
               <Text style={cartIncludeEmpty ? styles.segmentTextActive : styles.segmentText}>Boslari Goster</Text>
             </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.primaryButton} onPress={fetchCustomerCarts}>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => fetchCustomerCarts()}>
             <Text style={styles.primaryButtonText}>Raporu Yenile</Text>
           </TouchableOpacity>
           {cartSummary && (
@@ -749,6 +894,50 @@ export function ReportsScreen() {
             </View>
           )}
           {cartError && <Text style={styles.error}>{cartError}</Text>}
+        </View>
+      );
+    }
+
+    if (reportType === 'actionRadar') {
+      const anomalyTotal = Object.values(actionRadarData?.anomalyRadar?.summary || {}).reduce(
+        (sum: number, value: any) => sum + Number(value || 0),
+        0
+      );
+      return (
+        <View style={styles.headerSection}>
+          <Text style={styles.sectionTitle}>Aksiyon Radari</Text>
+          <Text style={styles.sectionSubtitle}>
+            Teklif, terk sepet, katalog, paket, saha ziyareti ve anomali sinyalleri.
+          </Text>
+          <TouchableOpacity style={styles.primaryButton} onPress={fetchActionRadar}>
+            <Text style={styles.primaryButtonText}>Radari Yenile</Text>
+          </TouchableOpacity>
+          {actionRadarData && (
+            <View style={styles.metricGrid}>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Teklif Riski</Text>
+                <Text style={styles.metricValue}>{actionRadarData.quoteHealth?.summary?.expiringOrExpired || 0}</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Terk Sepet</Text>
+                <Text style={styles.metricValue}>{actionRadarData.abandonedCarts?.summary?.total || 0}</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Katalog Skoru</Text>
+                <Text style={styles.metricValue}>{actionRadarData.catalogScore?.summary?.score || 0}/100</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Anomali</Text>
+                <Text style={[styles.metricValue, anomalyTotal > 0 && styles.metricValueDanger]}>{anomalyTotal}</Text>
+              </View>
+            </View>
+          )}
+          {actionRadarData?.scope?.mode === 'assigned-sectors' && (
+            <Text style={styles.scopeText}>
+              Satisci kapsami: {(actionRadarData.scope.sectorCodes || []).join(', ') || 'atanmis sektor yok'}
+            </Text>
+          )}
+          {actionRadarError && <Text style={styles.error}>{actionRadarError}</Text>}
         </View>
       );
     }
@@ -822,6 +1011,8 @@ export function ReportsScreen() {
     cartIncludeEmpty,
     cartSummary,
     cartError,
+    actionRadarData,
+    actionRadarError,
   ]);
 
   return (
@@ -849,6 +1040,7 @@ export function ReportsScreen() {
                   { key: 'complementMissing', label: 'Tamamlayici' },
                   { key: 'customerActivity', label: 'Aktivite' },
                   { key: 'customerCarts', label: 'Sepetler' },
+                  { key: 'actionRadar', label: 'Radar' },
                 ] as const
               ).map((item) => (
                 <TouchableOpacity
@@ -985,6 +1177,31 @@ export function ReportsScreen() {
             );
           }
 
+          if (reportType === 'actionRadar') {
+            const row = item as ActionRadarItem;
+            return (
+              <View style={[styles.card, row.tone === 'red' && styles.cardDanger, row.tone === 'amber' && styles.cardWarning]}>
+                <View style={styles.cardHeaderRow}>
+                  <View style={styles.cardTitleBlock}>
+                    <Text style={styles.groupLabel}>{row.group}</Text>
+                    <Text style={styles.cardTitle}>{row.title}</Text>
+                    {!!row.subtitle && <Text style={styles.cardMeta}>{row.subtitle}</Text>}
+                  </View>
+                  {row.action.type !== 'none' && (
+                    <TouchableOpacity style={styles.smallButton} onPress={() => openActionRadarItem(row)}>
+                      <Text style={styles.smallButtonText}>{row.actionLabel || 'Ac'}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={styles.metaWrap}>
+                  {row.meta.map((meta) => (
+                    <Text key={meta} style={styles.metaPill}>{meta}</Text>
+                  ))}
+                </View>
+              </View>
+            );
+          }
+
           return (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{item.customerName}</Text>
@@ -1003,7 +1220,8 @@ export function ReportsScreen() {
           productCustomersLoading ||
           complementLoading ||
           activityLoading ||
-          cartLoading ? (
+          cartLoading ||
+          actionRadarLoading ? (
             <View style={styles.loading}>
               <ActivityIndicator color={colors.primary} />
             </View>
@@ -1120,6 +1338,39 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.sm,
     color: colors.text,
   },
+  metricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  metricCard: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  metricLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  metricValue: {
+    marginTop: spacing.xs,
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xl,
+    color: colors.text,
+  },
+  metricValueDanger: {
+    color: colors.danger,
+  },
+  scopeText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
   error: {
     fontFamily: fonts.medium,
     color: colors.danger,
@@ -1132,6 +1383,34 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.xs,
   },
+  cardDanger: {
+    borderColor: '#FCA5A5',
+  },
+  cardWarning: {
+    borderColor: '#FCD34D',
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  cardTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.xs,
+  },
+  groupLabel: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceAlt,
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.primary,
+    overflow: 'hidden',
+  },
   cardTitle: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.md,
@@ -1141,6 +1420,34 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
     color: colors.textMuted,
+  },
+  metaWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  metaPill: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  smallButton: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  smallButtonText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#FFFFFF',
   },
   loading: {
     paddingVertical: spacing.xl,

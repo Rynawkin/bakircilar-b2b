@@ -6,6 +6,7 @@ import { CampaignsScreen } from '../screens/CampaignsScreen';
 import { CategoriesScreen } from '../screens/CategoriesScreen';
 import { CustomerAgreementsScreen } from '../screens/CustomerAgreementsScreen';
 import { CustomerDetailScreen } from '../screens/CustomerDetailScreen';
+import { CustomerEngagementScreen } from '../screens/CustomerEngagementScreen';
 import { CustomersScreen } from '../screens/CustomersScreen';
 import { EkstreScreen } from '../screens/EkstreScreen';
 import { EInvoicesScreen } from '../screens/EInvoicesScreen';
@@ -38,6 +39,7 @@ export type PortalStackParamList = {
   Tabs: NavigatorScreenParams<PortalTabParamList> | undefined;
   Customers: undefined;
   CustomerAgreements: undefined;
+  CustomerEngagement: undefined;
   CustomerDetail: { customerId: string };
   Vade: undefined;
   VadeCustomer: { customerId: string };
@@ -86,6 +88,7 @@ export function AppNavigator() {
         <Stack.Screen name="Tabs" component={PortalTabs} />
         <Stack.Screen name="Customers" component={CustomersScreen} />
         <Stack.Screen name="CustomerAgreements" component={CustomerAgreementsScreen} />
+        <Stack.Screen name="CustomerEngagement" component={CustomerEngagementScreen} />
         <Stack.Screen name="CustomerDetail" component={CustomerDetailScreen} />
         <Stack.Screen name="Vade" component={VadeScreen} />
         <Stack.Screen name="VadeCustomer" component={VadeCustomerScreen} />
