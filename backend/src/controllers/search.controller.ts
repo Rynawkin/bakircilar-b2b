@@ -172,8 +172,16 @@ export const getStocksByCodes = async (req: Request, res: Response) => {
       return res.json({ success: true, data: [] });
     }
 
-    const result = await stockF10Service.getStocksByCodes(normalizedCodes);
-    res.json({ success: true, data: result, total: result.length });
+    // Bu endpoint teklif/siparis ekraninda secili kalemler degistikce calisir.
+    // Mikro F10 sorgusu burada kritik akisi 30-120 sn bloklayabiliyor; secili kodlar
+    // icin B2B urun cache'i yeterli ve satis kaydini Mikro havuzundan bagimsiz tutar.
+    const fallback = await buildFallbackRows(normalizedCodes);
+    res.json({
+      success: true,
+      data: fallback,
+      total: fallback.length,
+      source: 'POSTGRES_CACHE',
+    });
   } catch (error: any) {
     const normalizedCodes = normalizeCodes((req.body as { codes?: string[] })?.codes);
     if (normalizedCodes.length > 0) {

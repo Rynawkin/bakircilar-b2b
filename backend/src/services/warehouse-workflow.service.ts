@@ -219,6 +219,9 @@ const toItemStatus = (
 };
 
 class WarehouseWorkflowService {
+  private overviewCache = new Map<string, { data: any; ts: number }>();
+  private readonly overviewCacheTtlMs = 20_000;
+
   private sanitizeTcNo(value: unknown): string {
     return String(value || '').replace(/\D/g, '').slice(0, 11);
   }
@@ -868,7 +871,11 @@ class WarehouseWorkflowService {
     return null;
   }
 
-  private async getProductAndShelfMaps(productCodes: string[], warehouseCode?: string | null) {
+  private async getProductAndShelfMaps(
+    productCodes: string[],
+    warehouseCode?: string | null,
+    options?: { includeMikroShelf?: boolean }
+  ) {
     const uniqueCodes = Array.from(new Set(productCodes.map((code) => normalizeCode(code)).filter(Boolean)));
 
     if (uniqueCodes.length === 0) {
@@ -922,25 +929,27 @@ class WarehouseWorkflowService {
       shelfMap.set(normalizeCode(shelfLocation.productCode), normalizeCode(shelfLocation.shelfCode) || null);
     }
 
-    try {
-      const quotedCodes = uniqueCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
-      const mikroShelfRows = await mikroService.executeQuery(`
-        SELECT
-          sto_kod as productCode,
-          NULLIF(LTRIM(RTRIM(ISNULL(sto_reyon_kodu, ''))), '') as shelfCode
-        FROM STOKLAR
-        WHERE sto_kod IN (${quotedCodes})
-      `);
+    if (options?.includeMikroShelf !== false) {
+      try {
+        const quotedCodes = uniqueCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
+        const mikroShelfRows = await mikroService.executeQuery(`
+          SELECT
+            sto_kod as productCode,
+            NULLIF(LTRIM(RTRIM(ISNULL(sto_reyon_kodu, ''))), '') as shelfCode
+          FROM STOKLAR
+          WHERE sto_kod IN (${quotedCodes})
+        `);
 
-      for (const row of mikroShelfRows as any[]) {
-        const code = normalizeCode(row.productCode || row.sto_kod);
-        const shelfCode = normalizeCode(row.shelfCode || row.sto_reyon_kodu);
-        if (code && shelfCode && !shelfMap.get(code)) {
-          shelfMap.set(code, shelfCode);
+        for (const row of mikroShelfRows as any[]) {
+          const code = normalizeCode(row.productCode || row.sto_kod);
+          const shelfCode = normalizeCode(row.shelfCode || row.sto_reyon_kodu);
+          if (code && shelfCode && !shelfMap.get(code)) {
+            shelfMap.set(code, shelfCode);
+          }
         }
+      } catch (error) {
+        console.warn('[warehouse-workflow] Mikro raf kodlari okunamadi', error);
       }
-    } catch (error) {
-      console.warn('[warehouse-workflow] Mikro raf kodlari okunamadi', error);
     }
 
     return { stockMap, warehouseBreakdownMap, imageMap, shelfMap, unitInfoMap };
@@ -1342,6 +1351,15 @@ class WarehouseWorkflowService {
     const selectedSeries = new Set(
       seriesFilterValues.map((value) => normalizeCode(value)).filter((value): value is string => Boolean(value))
     );
+    const cacheKey = JSON.stringify({
+      series: Array.from(selectedSeries).sort(),
+      search,
+      status: statusFilter || 'ALL',
+    });
+    const cached = this.overviewCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < this.overviewCacheTtlMs) {
+      return cached.data;
+    }
 
     const pendingOrders = await prisma.pendingMikroOrder.findMany({
       where: {
@@ -1396,7 +1414,8 @@ class WarehouseWorkflowService {
       warehouseKeys.map(async (warehouseKey) => {
         const { stockMap } = await this.getProductAndShelfMaps(
           allProductCodes,
-          warehouseKey === '__ALL__' ? null : warehouseKey
+          warehouseKey === '__ALL__' ? null : warehouseKey,
+          { includeMikroShelf: false }
         );
         stockMapByWarehouse.set(warehouseKey, stockMap);
       })
@@ -1478,10 +1497,16 @@ class WarehouseWorkflowService {
       if (row.workflowStatus === 'DISPATCHED') bucket.dispatched += 1;
     }
 
-    return {
+    const payload = {
       series: Array.from(seriesMap.values()).sort((a, b) => a.series.localeCompare(b.series, 'tr')),
       orders: orderRows,
     };
+    this.overviewCache.set(cacheKey, { data: payload, ts: Date.now() });
+    if (this.overviewCache.size > 50) {
+      const firstKey = this.overviewCache.keys().next().value;
+      if (firstKey) this.overviewCache.delete(firstKey);
+    }
+    return payload;
   }
 
   async getOrderDetail(mikroOrderNumber: string, ensureWorkflow = false) {
