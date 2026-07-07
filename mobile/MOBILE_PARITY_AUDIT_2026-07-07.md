@@ -44,6 +44,11 @@ Bu dosya canli kod incelemesine gore yazildi; eski `mobile/FEATURE_PARITY.md` ar
    - Navigasyon: `mobile/portal/src/navigation/AppNavigator.tsx`, `mobile/portal/src/screens/MoreScreen.tsx`
    - Ozellikler: cari arama/secim, cari bakiye/acik siparis/acik teklif/sepet ozeti, mobilde tam genislikli urun kartlari, uzun urun adlarini sarmalayan layout, stok/depo/fiyat/son satis bilgisi, safe-mode maliyet gizleme, firsat kartlari ve ziyaret notu/talep/rakip bilgisi kaydi.
 
+7. Musteri mobil urun detayina galeri ve paket icerigi eklendi.
+   - Tip: `mobile/b2b/src/types.ts` -> `Product.images`, `isBundle`, `bundleDiscountPercent`, `bundleContents`
+   - UI: `mobile/b2b/src/screens/ProductDetailScreen.tsx`
+   - Ozellikler: backend detayindan gelen coklu gorsel galerisi, thumbnail secimi, paket/set urunlerde bilesen listesi ve paket indirim bilgisi.
+
 ## Hala eksik olan yuksek oncelikli portal/admin modulleri
 
 Webde var, mobil portalda ekran/API paritesi henuz yok veya cok sinirli:
@@ -88,7 +93,7 @@ Bu turda fatura eklendi; kalan musteri web parite aciklari:
 - `collections/[id]`: koleksiyon detay deneyimi mobilde yok.
 - `new-categories`: hic alinmayan/yeni kategori kesfi mobilde yok.
 - Ana sayfa vitrin zenginligi web kadar genis degil: banner, koleksiyon, GWP, kategori kesfi ve kampanya bloklari tek tek karsilastirilmali.
-- Urun detayinda webdeki coklu galeri, paket icerigi, oneriler ve fiyat guven karti mobilde tek tek dogrulanmali.
+- Urun detayinda coklu galeri ve paket icerigi mobilde eklendi; fiyat guven karti, hediye/GWP ve webdeki tum fiyat vurgulari birebir dogrulanmali.
 - Sepette webdeki GWP/hediye secimi, tamamlayici oneriler ve fiyat guven kontrolleri mobilde birebir test edilmeli.
 - Bildirim tercihleri mobilde native push temeli var; webdeki kategori bazli tercih UI'i musteri mobilinde sinirli.
 

@@ -38,6 +38,7 @@ export function ProductDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [priceType, setPriceType] = useState<PriceType>('INVOICED');
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -64,6 +65,7 @@ export function ProductDetailScreen() {
     try {
       const data = await customerApi.getProductById(route.params.productId);
       setProduct(data);
+      setActiveImageIndex(0);
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Urun bulunamadi.');
     } finally {
@@ -227,7 +229,10 @@ export function ProductDetailScreen() {
   const isDiscounted = product.pricingMode === 'EXCESS';
   const displayStock = isDiscounted ? product.excessStock ?? totalStock : totalStock;
   const stockLabel = isDiscounted ? 'Fazla Stok' : 'Stok';
-  const imageUrl = resolveImageUrl(product.imageUrl);
+  const gallery = ((product.images?.length ? product.images : product.imageUrl ? [product.imageUrl] : [])
+    .map((item) => resolveImageUrl(item))
+    .filter(Boolean)) as string[];
+  const imageUrl = gallery[activeImageIndex] || gallery[0] || null;
   const description = product.description?.trim() || 'Aciklama bulunamadi.';
 
   return (
@@ -253,6 +258,23 @@ export function ProductDetailScreen() {
               <Text style={styles.stockBadgeValue}>{displayStock}</Text>
             </View>
           </View>
+          {gallery.length > 1 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.thumbnailRow}
+            >
+              {gallery.map((item, index) => (
+                <TouchableOpacity
+                  key={`${item}-${index}`}
+                  style={[styles.thumbnailButton, activeImageIndex === index && styles.thumbnailActive]}
+                  onPress={() => setActiveImageIndex(index)}
+                >
+                  <Image source={{ uri: item }} style={styles.thumbnailImage} resizeMode="contain" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
           <Text style={styles.title}>{product.name}</Text>
           <Text style={styles.meta}>Kod: {product.mikroCode}</Text>
           {product.category?.name && <Text style={styles.meta}>Kategori: {product.category.name}</Text>}
@@ -270,6 +292,26 @@ export function ProductDetailScreen() {
             <View style={styles.agreementBox}>
               <Text style={styles.agreementTitle}>Anlasma</Text>
               <Text style={styles.agreementMeta}>Min: {product.agreement.minQuantity}</Text>
+            </View>
+          )}
+
+          {product.isBundle && product.bundleContents && product.bundleContents.length > 0 && (
+            <View style={styles.bundleBox}>
+              <Text style={styles.bundleTitle}>Set Icerigi</Text>
+              {product.bundleContents.map((item, index) => (
+                <View key={`${item.mikroCode}-${index}`} style={styles.bundleLine}>
+                  <View style={styles.bundleLineText}>
+                    <Text style={styles.bundleItemName}>{item.name}</Text>
+                    <Text style={styles.bundleItemCode}>{item.mikroCode}</Text>
+                  </View>
+                  <Text style={styles.bundleQty}>
+                    {item.quantity} {item.unit || 'adet'}
+                  </Text>
+                </View>
+              ))}
+              {!!product.bundleDiscountPercent && (
+                <Text style={styles.bundleDiscount}>Sete ozel indirim: %{product.bundleDiscountPercent}</Text>
+              )}
             </View>
           )}
 
@@ -431,6 +473,28 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  thumbnailRow: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  thumbnailButton: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+    overflow: 'hidden',
+    padding: 3,
+  },
+  thumbnailActive: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+  },
   imagePlaceholder: {
     flex: 1,
     alignItems: 'center',
@@ -521,6 +585,54 @@ const styles = StyleSheet.create({
   agreementMeta: {
     fontFamily: fonts.regular,
     color: colors.textMuted,
+  },
+  bundleBox: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    backgroundColor: '#F8FAFC',
+  },
+  bundleTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.md,
+    color: colors.text,
+  },
+  bundleLine: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.sm,
+  },
+  bundleLineText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  bundleItemName: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  bundleItemCode: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  bundleQty: {
+    flexShrink: 0,
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: colors.primary,
+  },
+  bundleDiscount: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: '#059669',
   },
   segment: {
     flexDirection: 'row',

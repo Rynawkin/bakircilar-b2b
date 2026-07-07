@@ -26,6 +26,7 @@ export interface Product {
   name: string;
   mikroCode: string;
   imageUrl?: string | null;
+  images?: string[];
   description?: string | null;
   recommendationNote?: string | null;
   unit?: string | null;
@@ -50,6 +51,15 @@ export interface Product {
     invoiced?: number;
     white?: number;
   };
+  isBundle?: boolean;
+  bundleDiscountPercent?: number | null;
+  bundleItemCount?: number;
+  bundleContents?: Array<{
+    mikroCode: string;
+    name: string;
+    quantity: number;
+    unit?: string | null;
+  }>;
   category?: {
     id: string;
     name: string;
