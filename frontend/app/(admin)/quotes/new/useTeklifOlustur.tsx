@@ -26,6 +26,15 @@ import {
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import type { CustomerContact, Quote, QuoteItem } from '@/types';
 
+const getErrorMessage = (error: any, fallback: string) => {
+  const raw = error?.response?.data?.error || error?.response?.data?.message || error?.message;
+  if (!raw) return fallback;
+  if (typeof raw === 'string') return raw;
+  if (typeof raw?.message === 'string') return raw.message;
+  if (typeof raw?.code === 'string') return raw.code;
+  return fallback;
+};
+
 export interface LastSale {
   saleDate: string;
   quantity: number;
@@ -3223,9 +3232,13 @@ export function useTeklifOlustur() {
 
         const result = await adminApi.createManualOrder(orderPayload);
         const orderLabel = result.orderNumber
-          ? `${result.orderNumber} (${result.mikroOrderIds.join(', ')})`
+          ? `${result.orderNumber}${result.mikroOrderIds.length ? ` (${result.mikroOrderIds.join(', ')})` : ''}`
           : result.mikroOrderIds.join(', ');
-        toast.success(`Siparis olusturuldu: ${orderLabel}`);
+        if (result.mikroPending) {
+          toast.error(result.warning || `Siparis B2B'ye kaydedildi, Mikro beklemede: ${orderLabel}`, { duration: 9000 });
+        } else {
+          toast.success(`Siparis olusturuldu: ${orderLabel}`);
+        }
         router.push('/orders');
         return;
       }
@@ -3287,7 +3300,7 @@ export function useTeklifOlustur() {
       const fallback = isOrderMode
         ? (isOrderEditMode ? 'Siparis guncellenemedi.' : 'Siparis olusturulamadi.')
         : 'Teklif olusturulamadi.';
-      toast.error(error.response?.data?.error || fallback);
+      toast.error(getErrorMessage(error, fallback));
     } finally {
       setSubmitting(false);
     }

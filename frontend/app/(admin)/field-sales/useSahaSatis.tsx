@@ -898,7 +898,11 @@ export function useSahaSatis() {
           lineDescription: item.productName,
         })),
       });
-      toast.success(`Siparis olusturuldu: ${result.orderNumber}`);
+      if (result.mikroPending) {
+        toast.error(result.warning || `Siparis B2B'ye kaydedildi, Mikro beklemede: ${result.orderNumber}`, { duration: 9000 });
+      } else {
+        toast.success(`Siparis olusturuldu: ${result.orderNumber}`);
+      }
       clearDraft();
       router.push('/orders');
     } catch (error: any) {
@@ -906,7 +910,9 @@ export function useSahaSatis() {
       if (!error.response) {
         toast.error('Baglanti hatasi: Siparis gonderilemedi. Internet baglantinizi kontrol edip tekrar deneyin.');
       } else {
-        toast.error(error.response?.data?.error || 'Siparis olusturulamadi.');
+        const raw = error.response?.data?.error || error.response?.data?.message;
+        const message = typeof raw === 'string' ? raw : raw?.message || raw?.code || 'Siparis olusturulamadi.';
+        toast.error(message);
       }
     } finally {
       setSubmitting(false);

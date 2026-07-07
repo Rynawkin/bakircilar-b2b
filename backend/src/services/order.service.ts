@@ -1065,7 +1065,13 @@ class OrderService {
     whiteSeries?: string;
     whiteSira?: number;
     requestedById?: string;
-  }): Promise<{ mikroOrderIds: string[]; orderId: string; orderNumber: string }> {
+  }): Promise<{
+    mikroOrderIds: string[];
+    orderId: string;
+    orderNumber: string;
+    mikroWriteStatus: 'APPROVED' | 'PENDING' | 'PARTIAL';
+    warning?: string;
+  }> {
     const {
       customerId,
       items,
@@ -1114,16 +1120,6 @@ class OrderService {
     if (!customer || !customer.mikroCariCode) {
       throw new Error('Customer not found or missing Mikro cari code');
     }
-
-    await mikroService.ensureCariExists({
-      cariCode: customer.mikroCariCode,
-      unvan: customer.displayName || customer.name || customer.mikroCariCode,
-      email: customer.email || undefined,
-      phone: customer.phone || undefined,
-      city: customer.city || undefined,
-      district: customer.district || undefined,
-      hasEInvoice: customer.hasEInvoice || false,
-    });
 
     const productIds = items
       .map((item) => item.productId)
@@ -1296,6 +1292,16 @@ class OrderService {
     };
 
     try {
+      await mikroService.ensureCariExists({
+        cariCode: customer.mikroCariCode,
+        unvan: customer.displayName || customer.name || customer.mikroCariCode,
+        email: customer.email || undefined,
+        phone: customer.phone || undefined,
+        city: customer.city || undefined,
+        district: customer.district || undefined,
+        hasEInvoice: customer.hasEInvoice || false,
+      });
+
       if (invoicedItems.length > 0) {
         const invoicedOrderId = await mikroService.writeOrder({
           cariCode: customer.mikroCariCode,
@@ -1355,7 +1361,12 @@ class OrderService {
         data: { status: 'APPROVED', approvedAt: new Date() },
       });
 
-      return { mikroOrderIds, orderId: order.id, orderNumber: order.orderNumber };
+      return {
+        mikroOrderIds,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        mikroWriteStatus: 'APPROVED',
+      };
     } catch (error: any) {
       console.error('Manuel siparis Mikro yazimi tamamlanamadi:', order.orderNumber, error);
       const partialInfo =
@@ -1373,17 +1384,19 @@ class OrderService {
         console.error('KRITIK: MIKRO_PARTIAL isareti kaydedilemedi:', order.id, persistErr);
       }
 
-      if (mikroOrderIds.length > 0) {
-        throw new Error(
-          `Siparis Mikro'ya KISMEN yazildi (${mikroOrderIds.join(', ')}). ` +
-          `B2B siparisi ${order.orderNumber} beklemede birakildi; siparis tekrar onaylandiginda ` +
-          `yazilmis evraklar ATLANIR, cift evrak olusmaz. Detay: ${error.message}`
-        );
-      }
-      throw new Error(
-        `Siparis Mikro'ya yazilamadi. B2B siparisi ${order.orderNumber} beklemede; ` +
-        `kontrol edip siparis onay ekranindan tekrar deneyebilirsiniz. Detay: ${error.message}`
-      );
+      const detail = String(error?.message || error || 'bilinmeyen hata');
+      const warning =
+        mikroOrderIds.length > 0
+          ? `Siparis Mikro'ya KISMEN yazildi (${mikroOrderIds.join(', ')}). B2B siparisi ${order.orderNumber} beklemede; onay ekranindan tekrar deneyebilirsiniz. Detay: ${detail}`
+          : `Siparis B2B'ye kaydedildi (${order.orderNumber}) fakat Mikro'ya yazilamadi. Onay ekranindan tekrar deneyebilirsiniz. Detay: ${detail}`;
+
+      return {
+        mikroOrderIds,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        mikroWriteStatus: mikroOrderIds.length > 0 ? 'PARTIAL' : 'PENDING',
+        warning,
+      };
     }
   }
 

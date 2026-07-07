@@ -2736,14 +2736,22 @@ export class AdminController {
           customerId,
           itemCount: Array.isArray(items) ? items.length : 0,
           mikroOrderIds: result.mikroOrderIds,
+          mikroWriteStatus: result.mikroWriteStatus,
+          warning: result.warning || null,
         },
       });
 
+      const mikroPending = result.mikroWriteStatus !== 'APPROVED';
       res.json({
-        message: 'Order created in Mikro',
+        message: mikroPending
+          ? 'Order saved in B2B; Mikro write pending'
+          : 'Order created in Mikro',
         mikroOrderIds: result.mikroOrderIds,
         orderId: result.orderId,
         orderNumber: result.orderNumber,
+        mikroWriteStatus: result.mikroWriteStatus,
+        mikroPending,
+        warning: result.warning || null,
       });
     } catch (error) {
       next(error);

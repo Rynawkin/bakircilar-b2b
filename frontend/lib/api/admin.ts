@@ -1604,7 +1604,15 @@ export const adminApi = {
     invoicedSira?: number;
     whiteSeries?: string;
     whiteSira?: number;
-  }): Promise<{ message: string; mikroOrderIds: string[]; orderId: string; orderNumber: string }> => {
+  }): Promise<{
+    message: string;
+    mikroOrderIds: string[];
+    orderId: string;
+    orderNumber: string;
+    mikroWriteStatus?: 'APPROVED' | 'PENDING' | 'PARTIAL';
+    mikroPending?: boolean;
+    warning?: string | null;
+  }> => {
     const response = await apiClient.post('/admin/orders/manual', payload);
     return response.data;
   },

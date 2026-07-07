@@ -33,6 +33,32 @@ interface Warning {
   recommended: Recommended;
 }
 
+const SUGGESTION_CACHE_TTL_MS = 60_000;
+const SUGGESTION_MAX_CONCURRENT = 3;
+const suggestionCache = new Map<string, { ts: number; warnings: Warning[] }>();
+const suggestionInflight = new Map<string, Promise<Warning[]>>();
+const suggestionQueue: Array<() => void> = [];
+let activeSuggestionRequests = 0;
+
+const runWithSuggestionLimit = async <T,>(fn: () => Promise<T>): Promise<T> => {
+  if (activeSuggestionRequests >= SUGGESTION_MAX_CONCURRENT) {
+    await new Promise<void>((resolve) => suggestionQueue.push(resolve));
+  }
+  activeSuggestionRequests += 1;
+  try {
+    return await fn();
+  } finally {
+    activeSuggestionRequests = Math.max(0, activeSuggestionRequests - 1);
+    suggestionQueue.shift()?.();
+  }
+};
+
+const pruneSuggestionCache = () => {
+  if (suggestionCache.size <= 300) return;
+  const oldestKey = suggestionCache.keys().next().value;
+  if (oldestKey) suggestionCache.delete(oldestKey);
+};
+
 interface Props {
   productCode?: string;
   /** Kalemin ANA/BASE birim cinsinden miktari (parent cevirir). */
@@ -73,11 +99,33 @@ export function StockFamilySuggestion({
     }
     // Controller en fazla 200 kod kabul ediyor; buyuk tekliflerde 400 yememek icin kirp.
     const codes = (excludeKey ? excludeKey.split('|') : []).slice(0, 200);
+    const requestQuantity = Number(baseQuantity || 0);
+    const cacheKey = `${productCode}|${requestQuantity}|${codes.join('|')}`;
+    const cached = suggestionCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < SUGGESTION_CACHE_TTL_MS) {
+      setWarnings(cached.warnings);
+      return;
+    }
+    if (cached) suggestionCache.delete(cacheKey);
+
     const myReq = ++reqRef.current;
     const t = setTimeout(async () => {
       try {
-        const res = await adminApi.getStockFamilySuggestions(productCode, baseQuantity, codes);
-        if (reqRef.current === myReq) setWarnings(res.warnings || []);
+        let promise = suggestionInflight.get(cacheKey);
+        if (!promise) {
+          promise = runWithSuggestionLimit(async () => {
+            const res = await adminApi.getStockFamilySuggestions(productCode, requestQuantity, codes);
+            const nextWarnings = res.warnings || [];
+            suggestionCache.set(cacheKey, { ts: Date.now(), warnings: nextWarnings });
+            pruneSuggestionCache();
+            return nextWarnings;
+          }).finally(() => {
+            suggestionInflight.delete(cacheKey);
+          });
+          suggestionInflight.set(cacheKey, promise);
+        }
+        const nextWarnings = await promise;
+        if (reqRef.current === myReq) setWarnings(nextWarnings);
       } catch {
         if (reqRef.current === myReq) setWarnings([]);
       }
