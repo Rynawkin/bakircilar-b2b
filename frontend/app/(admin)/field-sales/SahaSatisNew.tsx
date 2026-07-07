@@ -1054,14 +1054,14 @@ function ProductPanel(props: any) {
                 <div className="flex gap-3">
                   <ProductImage product={product} card />
                   <div className="min-w-0 flex-1">
-                    <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-[#14223b]">
+                    <p className="text-[14px] font-semibold leading-snug text-[#14223b] [overflow-wrap:anywhere]">
                       {product.name}
                     </p>
                     <p className="text-[11px] font-medium text-[#51607a] font-mono">
                       {product.mikroCode} - {product.unit}
                     </p>
                     <CategoryLastPurchasePill info={categoryInfo} />
-                    {rawProduct.reason && <p className="mt-1 line-clamp-2 text-[11px] font-medium text-[#92500a]">{rawProduct.reason}</p>}
+                    {rawProduct.reason && <p className="mt-1 text-[11px] font-medium leading-snug text-[#92500a] [overflow-wrap:anywhere]">{rawProduct.reason}</p>}
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[10.5px] font-semibold">
                       <span className={cnx('rounded-full border px-2 py-0.5', stockTone)}>
                         Merkez+Topca: {isSummaryRow ? 'Detayda' : n(stockTotal)}
@@ -1282,7 +1282,7 @@ function DraftPanel(props: any) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-[13px] font-semibold text-[#14223b]">{item.productName}</p>
+                      <p className="text-[13px] font-semibold leading-snug text-[#14223b] [overflow-wrap:anywhere]">{item.productName}</p>
                       <p className="text-[11px] font-medium text-[#51607a] font-mono">
                         {item.productCode} - {item.unit}
                       </p>
@@ -1593,7 +1593,7 @@ function HistoryPanel({ recentCustomers, recentProducts, setSelectedCustomer, op
             >
               <ProductImage product={product} small />
               <div className="min-w-0">
-                <p className="truncate text-[13px] font-semibold text-[#14223b]">{product.name}</p>
+                <p className="text-[13px] font-semibold leading-snug text-[#14223b] [overflow-wrap:anywhere]">{product.name}</p>
                 <p className="text-[11px] text-[#51607a] font-mono">{product.mikroCode}</p>
               </div>
             </button>
@@ -2000,7 +2000,7 @@ function OpportunityList({ opportunities }: any) {
         <div key={`${row.type}-${row.productCode}-${index}`} className="rounded-lg bg-[#f8fafc] border border-[#eef1f6] p-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-[12.5px] font-semibold text-[#14223b]">{row.productName || row.productCode}</p>
+              <p className="text-[12.5px] font-semibold leading-snug text-[#14223b] [overflow-wrap:anywhere]">{row.productName || row.productCode}</p>
               <p className="text-[11px] font-semibold text-[#92500a]">{row.title}</p>
             </div>
             <span className="shrink-0 rounded-full bg-white border border-[#e3e8f0] px-2 py-0.5 text-[10px] font-semibold text-[#51607a]">

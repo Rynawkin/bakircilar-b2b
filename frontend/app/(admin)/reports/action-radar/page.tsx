@@ -44,6 +44,14 @@ const btn: React.CSSProperties = {
   textDecoration: 'none',
   cursor: 'pointer',
 };
+const actionBtn: React.CSSProperties = {
+  ...btn,
+  height: 30,
+  padding: '0 10px',
+  fontSize: 11.5,
+  borderColor: '#c7d2fe',
+  color: PRIMARY,
+};
 
 const fmtDate = (value?: string | null) => {
   if (!value) return '-';
@@ -110,6 +118,15 @@ function SimpleTable({ rows, columns, empty }: { rows: any[]; empty: string; col
   );
 }
 
+function ActionLink({ href, children = 'Ac' }: { href?: string | null; children?: React.ReactNode }) {
+  if (!href) return <span style={{ color: FAINT }}>-</span>;
+  return (
+    <Link href={href} style={actionBtn}>
+      {children}
+    </Link>
+  );
+}
+
 export default function ActionRadarPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -160,6 +177,7 @@ export default function ActionRadarPage() {
           </h1>
           <p style={{ margin: '6px 0 0', color: FAINT, fontSize: 13 }}>
             Teklif, sepet, tamamlayici urun, paket, katalog, saha ziyareti ve anomali sinyalleri.
+            {data?.scope?.mode === 'assigned-sectors' ? ` Satisci kapsami: ${(data.scope.sectorCodes || []).join(', ') || 'atanmis sektor yok'}.` : ''}
           </p>
         </div>
         <button type="button" style={btn} onClick={load} disabled={loading}>
@@ -188,6 +206,7 @@ export default function ActionRadarPage() {
                   ['Durum', (r) => r.issue],
                   ['Tutar', (r) => <b>{formatCurrency(r.grandTotal)}</b>],
                   ['Vade', (r) => fmtDate(r.validityDate)],
+                  ['Islem', (r) => <ActionLink href={r.actionUrl}>Teklifi ac</ActionLink>],
                 ]}
               />
             </Section>
@@ -202,6 +221,7 @@ export default function ActionRadarPage() {
                   ['Kalem', (r) => r.itemCount],
                   ['Tutar', (r) => <b>{formatCurrency(r.totalAmount)}</b>],
                   ['Ilk urunler', (r) => (r.firstItems || []).map((i: any) => i.productName).join(', ')],
+                  ['Islem', (r) => <ActionLink href={r.actionUrl}>Sepeti ac</ActionLink>],
                 ]}
               />
             </Section>
@@ -229,6 +249,12 @@ export default function ActionRadarPage() {
                   ['Kod', (r) => <span style={{ fontFamily: "'Roboto Mono', monospace" }}>{r.mikroCode}</span>],
                   ['Urun', (r) => r.name],
                   ['Populerlik', (r) => Number(r.popularSalesValue || 0).toLocaleString('tr-TR')],
+                  ['Islem', (r) => (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <ActionLink href={r.actionUrl}>Urun</ActionLink>
+                      <ActionLink href={r.imageIssueUrl}>Gorsel</ActionLink>
+                    </div>
+                  )],
                 ]}
               />
             </Section>
@@ -268,6 +294,12 @@ export default function ActionRadarPage() {
                   ['Vade', (r) => formatCurrency(r.pastDueBalance)],
                   ['Sepet', (r) => formatCurrency(r.cartAmount)],
                   ['Aksiyon', (r) => r.suggestedAction],
+                  ['Islem', (r) => (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <ActionLink href={r.actionUrl}>Saha</ActionLink>
+                      <ActionLink href={r.customer360Url}>360</ActionLink>
+                    </div>
+                  )],
                 ]}
               />
             </Section>

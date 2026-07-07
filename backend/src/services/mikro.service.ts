@@ -3206,7 +3206,7 @@ class MikroService {
         efi_gonderim_tarihi,
         efi_create_date,
         cari_unvan1,
-        NULLIF(LTRIM(RTRIM(COALESCE(NULLIF(cari_vdaire_no, ''), NULLIF(cari_vergikimlikno, '')))), '') AS customer_tax_no
+        NULLIF(LTRIM(RTRIM(COALESCE(NULLIF(cari_vdaire_no, ''), NULLIF(cari_VergiKimlikNo, '')))), '') AS customer_tax_no
       FROM E_FATURA_ISLEMLERI
       LEFT JOIN CARI_HESAPLAR ON cari_kod = efi_carikod
       WHERE efi_gib_seri_sira = @gibNo
@@ -3443,7 +3443,6 @@ class MikroService {
 }
 
 export default new MikroService();
-
 
 
 

@@ -56,6 +56,17 @@ interface CostUpdateAlertResponse {
 
 type UcarerMinMaxJobStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
 
+interface ReportRequestScope {
+  userId?: string | null;
+  role?: string | null;
+  assignedSectorCodes?: string[] | null;
+}
+
+const getSalesRepSectorCodes = (scope?: ReportRequestScope) =>
+  scope?.role === UserRole.SALES_REP
+    ? Array.from(new Set((scope.assignedSectorCodes || []).map((code) => String(code || '').trim()).filter(Boolean)))
+    : [];
+
 interface UcarerMinMaxJobState {
   id: string;
   status: UcarerMinMaxJobStatus;
@@ -5859,6 +5870,7 @@ export class ReportsService {
     userId?: string;
     page?: number;
     limit?: number;
+    scope?: ReportRequestScope;
   }): Promise<CustomerActivityReportResponse> {
     const now = new Date();
     const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -5881,7 +5893,10 @@ export class ReportsService {
     const page = options.page && options.page > 0 ? options.page : 1;
     const limit = options.limit && options.limit > 0 ? options.limit : 50;
 
-    let customer: { id: string; code: string; name: string | null } | null = null;
+    const sectorCodes = getSalesRepSectorCodes(options.scope);
+    const hasEmptySalesRepScope = options.scope?.role === UserRole.SALES_REP && sectorCodes.length === 0;
+
+    let customer: { id: string; code: string; name: string | null; sectorCode: string | null } | null = null;
     if (options.customerCode) {
       const customerUser = await prisma.user.findFirst({
         where: {
@@ -5894,6 +5909,7 @@ export class ReportsService {
           mikroCariCode: true,
           displayName: true,
           name: true,
+          sectorCode: true,
         },
       });
 
@@ -5905,7 +5921,12 @@ export class ReportsService {
         id: customerUser.id,
         code: customerUser.mikroCariCode || options.customerCode,
         name: customerUser.displayName || customerUser.name || null,
+        sectorCode: customerUser.sectorCode || null,
       };
+
+      if (options.scope?.role === UserRole.SALES_REP && (!customer.sectorCode || !sectorCodes.includes(customer.sectorCode))) {
+        throw new AppError('Bu carinin aktivitesine erisemezsiniz.', 403, ErrorCode.FORBIDDEN);
+      }
     }
 
     const where: Prisma.CustomerActivityEventWhereInput = {
@@ -5926,6 +5947,20 @@ export class ReportsService {
       where.userId = options.userId;
     }
 
+    if (hasEmptySalesRepScope) {
+      where.customerId = '__none__';
+    } else if (options.scope?.role === UserRole.SALES_REP) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        {
+          OR: [
+            { customer: { sectorCode: { in: sectorCodes } } },
+            { user: { sectorCode: { in: sectorCodes } } },
+          ],
+        },
+      ];
+    }
+
     // Gunluk olay sayisi (Aktivite Trendi + KPI sparkline icin). Salt-okuma.
     // Postgres date_trunc ile gun bazinda gruplanir; opsiyonel cari/kullanici filtreleri uygulanir.
     const dailyWhereSql: Prisma.Sql[] = [
@@ -5938,6 +5973,16 @@ export class ReportsService {
     }
     if (options.userId) {
       dailyWhereSql.push(Prisma.sql`"userId" = ${options.userId}`);
+    }
+    if (hasEmptySalesRepScope) {
+      dailyWhereSql.push(Prisma.sql`FALSE`);
+    } else if (options.scope?.role === UserRole.SALES_REP) {
+      dailyWhereSql.push(Prisma.sql`
+        (
+          "customerId" IN (SELECT "id" FROM "User" WHERE "sectorCode" IN (${Prisma.join(sectorCodes)}))
+          OR "userId" IN (SELECT "id" FROM "User" WHERE "sectorCode" IN (${Prisma.join(sectorCodes)}))
+        )
+      `);
     }
 
     const [totalRecords, uniqueUserRows, typeCounts, activeAgg, dailyCountRows] = await Promise.all([
@@ -6414,13 +6459,29 @@ export class ReportsService {
     includeEmpty?: boolean;
     page?: number;
     limit?: number;
+    scope?: ReportRequestScope;
   }): Promise<CustomerCartsReportResponse> {
     const page = options.page && options.page > 0 ? options.page : 1;
     const limit = options.limit && options.limit > 0 ? options.limit : 20;
     const searchTerm = options.search ? options.search.trim() : '';
 
+    const sectorCodes = getSalesRepSectorCodes(options.scope);
+    if (options.scope?.role === UserRole.SALES_REP && sectorCodes.length === 0) {
+      return {
+        carts: [],
+        pagination: { page, limit, totalPages: 1, totalRecords: 0 },
+      };
+    }
+
+    const scopedUserWhere: Prisma.UserWhereInput = {
+      role: 'CUSTOMER',
+      ...(options.scope?.role === UserRole.SALES_REP
+        ? { OR: [{ sectorCode: { in: sectorCodes } }, { parentCustomer: { sectorCode: { in: sectorCodes } } }] }
+        : {}),
+    };
+
     const where: Prisma.CartWhereInput = {
-      user: { role: 'CUSTOMER' },
+      user: scopedUserWhere,
     };
 
     if (!options.includeEmpty) {

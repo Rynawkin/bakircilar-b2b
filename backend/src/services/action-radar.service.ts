@@ -2,6 +2,7 @@ import { OrderStatus, QuoteStatus, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const LIST_LIMIT = 50;
 
 const toNumber = (value: unknown) => {
   const parsed = Number(value);
@@ -10,24 +11,73 @@ const toNumber = (value: unknown) => {
 
 const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+type ActionRadarContext = {
+  userId?: string | null;
+  role?: string | null;
+  assignedSectorCodes?: string[] | null;
+};
+
+const cleanSectorCodes = (codes?: string[] | null) =>
+  Array.from(new Set((codes || []).map((code) => String(code || '').trim()).filter(Boolean)));
+
 class ActionRadarService {
-  async getSnapshot() {
+  async getSnapshot(context: ActionRadarContext = {}) {
     const now = new Date();
     const oneDayAgo = new Date(now.getTime() - DAY_MS);
     const sevenDaysAgo = new Date(now.getTime() - 7 * DAY_MS);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * DAY_MS);
     const ninetyDaysAgo = new Date(now.getTime() - 90 * DAY_MS);
     const validitySoon = new Date(now.getTime() + 3 * DAY_MS);
+    const isSalesRep = context.role === UserRole.SALES_REP;
+    const sectorCodes = isSalesRep ? cleanSectorCodes(context.assignedSectorCodes) : [];
+    const emptyScope = isSalesRep && sectorCodes.length === 0;
+    const customerSectorWhere: any = emptyScope ? { id: '__none__' } : isSalesRep ? { sectorCode: { in: sectorCodes } } : {};
+    const quoteCustomerWhere: any = emptyScope ? { customer: { id: '__none__' } } : isSalesRep ? { customer: { sectorCode: { in: sectorCodes } } } : {};
+    const scopedCustomerUserWhere: any = {
+      role: UserRole.CUSTOMER,
+      OR: [{ sectorCode: { in: sectorCodes } }, { parentCustomer: { sectorCode: { in: sectorCodes } } }],
+    };
+    const scopedOrderUserWhere: any = {
+      OR: [{ sectorCode: { in: sectorCodes } }, { parentCustomer: { sectorCode: { in: sectorCodes } } }],
+    };
+    const orderUserWhere: any = emptyScope ? { user: { id: '__none__' } } : isSalesRep ? { user: scopedOrderUserWhere } : {};
+    const cartUserWhere: any = emptyScope
+      ? { user: { id: '__none__' } }
+      : isSalesRep
+        ? { user: scopedCustomerUserWhere }
+        : { user: { role: UserRole.CUSTOMER } };
+    const missingImageWhere: any = { active: true, OR: [{ imageUrl: null }, { imageUrl: '' }] };
+    const invalidUnitWhere: any = {
+      active: true,
+      unit2: { not: null },
+      OR: [{ unit2Factor: null }, { unit2Factor: { lte: 0 } }],
+    };
+    const invalidVatWhere: any = { active: true, OR: [{ vatRate: { lte: 0 } }, { vatRate: { gt: 0.3 } }] };
+    const quoteRiskWhere: any = {
+      ...quoteCustomerWhere,
+      status: { in: [QuoteStatus.PENDING_APPROVAL, QuoteStatus.SENT_TO_MIKRO] },
+      OR: [{ validityDate: { lt: now } }, { validityDate: { lte: validitySoon } }],
+    };
+    const abandonedCartWhere: any = {
+      ...cartUserWhere,
+      updatedAt: { lte: oneDayAgo },
+      items: { some: {} },
+    };
 
     const [
       quoteStats,
+      quoteRiskTotal,
       quoteRisks,
+      abandonedCartTotal,
       abandonedCarts,
       complementStats,
       activeProducts,
+      missingImageTotal,
       missingImageProducts,
       missingCategoryProducts,
+      invalidUnitTotal,
       invalidUnitProducts,
+      invalidVatTotal,
       invalidVatProducts,
       galleryImages,
       bundleProducts,
@@ -38,17 +88,15 @@ class ActionRadarService {
     ] = await Promise.all([
       prisma.quote.groupBy({
         by: ['status'],
-        where: { createdAt: { gte: ninetyDaysAgo } },
+        where: { createdAt: { gte: ninetyDaysAgo }, ...quoteCustomerWhere },
         _count: { _all: true },
         _sum: { grandTotal: true },
       }),
+      prisma.quote.count({ where: quoteRiskWhere }),
       prisma.quote.findMany({
-        where: {
-          status: { in: [QuoteStatus.PENDING_APPROVAL, QuoteStatus.SENT_TO_MIKRO] },
-          OR: [{ validityDate: { lt: now } }, { validityDate: { lte: validitySoon } }],
-        },
+        where: quoteRiskWhere,
         orderBy: [{ validityDate: 'asc' }, { createdAt: 'desc' }],
-        take: 12,
+        take: LIST_LIMIT,
         select: {
           id: true,
           quoteNumber: true,
@@ -60,14 +108,11 @@ class ActionRadarService {
           _count: { select: { items: true } },
         },
       }),
+      prisma.cart.count({ where: abandonedCartWhere }),
       prisma.cart.findMany({
-        where: {
-          updatedAt: { lte: oneDayAgo },
-          items: { some: {} },
-          user: { role: UserRole.CUSTOMER },
-        },
+        where: abandonedCartWhere,
         orderBy: { updatedAt: 'asc' },
-        take: 20,
+        take: LIST_LIMIT,
         select: {
           id: true,
           updatedAt: true,
@@ -95,25 +140,24 @@ class ActionRadarService {
         }),
       ]),
       prisma.product.count({ where: { active: true } }),
+      prisma.product.count({ where: missingImageWhere }),
       prisma.product.findMany({
-        where: { active: true, OR: [{ imageUrl: null }, { imageUrl: '' }] },
+        where: missingImageWhere,
         orderBy: { popularSalesValue: 'desc' },
-        take: 12,
+        take: LIST_LIMIT,
         select: { id: true, mikroCode: true, name: true, popularSalesValue: true },
       }),
       Promise.resolve([] as Array<{ id: string; mikroCode: string; name: string }>),
+      prisma.product.count({ where: invalidUnitWhere }),
       prisma.product.findMany({
-        where: {
-          active: true,
-          unit2: { not: null },
-          OR: [{ unit2Factor: null }, { unit2Factor: { lte: 0 } }],
-        },
-        take: 12,
+        where: invalidUnitWhere,
+        take: LIST_LIMIT,
         select: { id: true, mikroCode: true, name: true, unit2: true, unit2Factor: true },
       }),
+      prisma.product.count({ where: invalidVatWhere }),
       prisma.product.findMany({
-        where: { active: true, OR: [{ vatRate: { lte: 0 } }, { vatRate: { gt: 0.3 } }] },
-        take: 12,
+        where: invalidVatWhere,
+        take: LIST_LIMIT,
         select: { id: true, mikroCode: true, name: true, vatRate: true },
       }),
       prisma.productImage.groupBy({ by: ['productId'], _count: { _all: true } }),
@@ -132,7 +176,7 @@ class ActionRadarService {
       }),
       prisma.productComplementAuto.findMany({
         orderBy: [{ pairCount: 'desc' }, { rank: 'asc' }],
-        take: 25,
+        take: LIST_LIMIT,
         select: {
           pairCount: true,
           product: { select: { id: true, mikroCode: true, name: true, imageUrl: true } },
@@ -141,6 +185,7 @@ class ActionRadarService {
       }),
       prisma.user.findMany({
         where: {
+          ...customerSectorWhere,
           role: UserRole.CUSTOMER,
           parentCustomerId: null,
           active: true,
@@ -152,7 +197,7 @@ class ActionRadarService {
           ],
         },
         orderBy: [{ balance: 'desc' }, { lastLoginAt: 'asc' }],
-        take: 20,
+        take: LIST_LIMIT,
         select: {
           id: true,
           mikroCariCode: true,
@@ -166,9 +211,9 @@ class ActionRadarService {
         },
       }),
       Promise.all([
-        prisma.quote.count({ where: { validityDate: { lt: now }, status: { in: [QuoteStatus.PENDING_APPROVAL, QuoteStatus.SENT_TO_MIKRO] } } }),
-        prisma.order.count({ where: { status: OrderStatus.PENDING, createdAt: { lt: sevenDaysAgo } } }),
-        prisma.cart.count({ where: { updatedAt: { lt: new Date(now.getTime() - 14 * DAY_MS) }, items: { some: {} } } }),
+        prisma.quote.count({ where: { ...quoteCustomerWhere, validityDate: { lt: now }, status: { in: [QuoteStatus.PENDING_APPROVAL, QuoteStatus.SENT_TO_MIKRO] } } }),
+        prisma.order.count({ where: { ...orderUserWhere, status: OrderStatus.PENDING, createdAt: { lt: sevenDaysAgo } } }),
+        prisma.cart.count({ where: { ...cartUserWhere, updatedAt: { lt: new Date(now.getTime() - 14 * DAY_MS) }, items: { some: {} } } }),
       ]),
     ]);
 
@@ -203,14 +248,15 @@ class ActionRadarService {
           productName: item.product.name,
           quantity: item.quantity,
         })),
+        actionUrl: `/reports/customer-carts?search=${encodeURIComponent(cart.user.mikroCariCode || cart.user.id)}`,
       };
     });
 
     const [productCount, autoCount, manualCount, productsWithoutComplements] = complementStats;
-    const missingImageCount = missingImageProducts.length;
+    const missingImageCount = missingImageTotal;
     const missingCategoryCount = missingCategoryProducts.length;
-    const invalidUnitCount = invalidUnitProducts.length;
-    const invalidVatCount = invalidVatProducts.length;
+    const invalidUnitCount = invalidUnitTotal;
+    const invalidVatCount = invalidVatTotal;
     const productsWithGallery = galleryImages.length;
     const catalogPenalty =
       Math.min(missingImageCount, 150) * 0.18 +
@@ -220,11 +266,16 @@ class ActionRadarService {
 
     return {
       generatedAt: now.toISOString(),
+      scope: {
+        mode: isSalesRep ? 'assigned-sectors' : 'all',
+        sectorCodes,
+      },
       quoteHealth: {
         summary: {
           ...quoteSummary,
           amount: round2(quoteSummary.amount),
-          expiringOrExpired: quoteRisks.length,
+          expiringOrExpired: quoteRiskTotal,
+          shownRows: quoteRisks.length,
         },
         rows: quoteRisks.map((quote) => ({
           id: quote.id,
@@ -238,11 +289,13 @@ class ActionRadarService {
           sectorCode: quote.customer.sectorCode,
           createdByName: quote.createdBy.name || quote.createdBy.email,
           issue: quote.validityDate < now ? 'Suresi gecmis teklif' : 'Suresi 3 gun icinde doluyor',
+          actionUrl: `/quotes?search=${encodeURIComponent(quote.quoteNumber)}`,
         })),
       },
       abandonedCarts: {
         summary: {
-          total: cartRows.length,
+          total: abandonedCartTotal,
+          shownRows: cartRows.length,
           totalAmount: round2(cartRows.reduce((sum, row) => sum + row.totalAmount, 0)),
           over7Days: cartRows.filter((row) => row.daysIdle >= 7).length,
         },
@@ -264,7 +317,11 @@ class ActionRadarService {
           galleryProductCount: productsWithGallery,
           galleryCoveragePct: activeProducts ? Math.round((productsWithGallery / activeProducts) * 100) : 0,
         },
-        missingImageProducts,
+        missingImageProducts: missingImageProducts.map((product) => ({
+          ...product,
+          actionUrl: `/admin-products?search=${encodeURIComponent(product.mikroCode)}`,
+          imageIssueUrl: `/warehouse/image-issues?search=${encodeURIComponent(product.mikroCode)}`,
+        })),
       },
       bundlePerformance: {
         summary: {
@@ -334,6 +391,8 @@ class ActionRadarService {
             totalBalance: round2(toNumber(customer.vadeBalance?.totalBalance || customer.balance)),
             priorityScore,
             suggestedAction: cartAmount > 0 ? 'Sepet uzerinden teklif/arama' : pastDue > 100 ? 'Vade tahsilat ziyareti' : 'Aktivasyon ziyareti',
+            actionUrl: `/field-sales?customerCode=${encodeURIComponent(customer.mikroCariCode || customer.id)}`,
+            customer360Url: `/customer-360?customerCode=${encodeURIComponent(customer.mikroCariCode || customer.id)}`,
           };
         }).sort((a, b) => b.priorityScore - a.priorityScore),
       },

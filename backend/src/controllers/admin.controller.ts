@@ -5092,6 +5092,7 @@ export class AdminController {
         userId: userId as string,
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
+        scope: buildReportRequestContext(req),
       });
 
       res.json({
@@ -5143,6 +5144,7 @@ export class AdminController {
         includeEmpty: includeEmpty === '1' || includeEmpty === 'true',
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
+        scope: buildReportRequestContext(req),
       });
 
       res.json({
@@ -5161,7 +5163,7 @@ export class AdminController {
    */
   async getActionRadar(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await actionRadarService.getSnapshot();
+      const data = await actionRadarService.getSnapshot(buildReportRequestContext(req));
       res.json({ success: true, data });
     } catch (error) {
       next(error);
