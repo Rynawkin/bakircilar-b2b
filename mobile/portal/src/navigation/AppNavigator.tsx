@@ -12,6 +12,7 @@ import { CustomersScreen } from '../screens/CustomersScreen';
 import { EkstreScreen } from '../screens/EkstreScreen';
 import { EInvoicesScreen } from '../screens/EInvoicesScreen';
 import { ExclusionsScreen } from '../screens/ExclusionsScreen';
+import { FieldSalesScreen } from '../screens/FieldSalesScreen';
 import { OrderTrackingScreen } from '../screens/OrderTrackingScreen';
 import { OrderDetailScreen } from '../screens/OrderDetailScreen';
 import { OrderCreateScreen } from '../screens/OrderCreateScreen';
@@ -43,6 +44,7 @@ export type PortalStackParamList = {
   CustomerEngagement: undefined;
   Customer360: { customerIdOrCode?: string } | undefined;
   CustomerDetail: { customerId: string };
+  FieldSales: { customerIdOrCode?: string } | undefined;
   Vade: undefined;
   VadeCustomer: { customerId: string };
   Ekstre: undefined;
@@ -93,6 +95,7 @@ export function AppNavigator() {
         <Stack.Screen name="CustomerEngagement" component={CustomerEngagementScreen} />
         <Stack.Screen name="Customer360" component={Customer360Screen} />
         <Stack.Screen name="CustomerDetail" component={CustomerDetailScreen} />
+        <Stack.Screen name="FieldSales" component={FieldSalesScreen} />
         <Stack.Screen name="Vade" component={VadeScreen} />
         <Stack.Screen name="VadeCustomer" component={VadeCustomerScreen} />
         <Stack.Screen name="Ekstre" component={EkstreScreen} />

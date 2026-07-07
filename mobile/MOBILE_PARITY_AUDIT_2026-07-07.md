@@ -38,6 +38,12 @@ Bu dosya canli kod incelemesine gore yazildi; eski `mobile/FEATURE_PARITY.md` ar
    - Ozellikler: sepet kartinda kalem detaylarini ac/kapat, urun kodu/ad/miktar/birim fiyat/toplam fiyat goruntuleme, yetkili personel icin onayli sepet temizleme.
    - Not: backend endpoint satis temsilcisi sektor kapsam kontrolu ve audit log kaydi yapiyor.
 
+6. Portal uygulamasina `Saha Satis` ilk mobil ekrani eklendi.
+   - API: `mobile/portal/src/api/admin.ts` -> `searchFieldSalesCustomers`, `getFieldSalesCustomer`, `searchFieldSalesProducts`, `getFieldSalesProduct`, `createFieldSalesVisitNote`
+   - UI: `mobile/portal/src/screens/FieldSalesScreen.tsx`
+   - Navigasyon: `mobile/portal/src/navigation/AppNavigator.tsx`, `mobile/portal/src/screens/MoreScreen.tsx`
+   - Ozellikler: cari arama/secim, cari bakiye/acik siparis/acik teklif/sepet ozeti, mobilde tam genislikli urun kartlari, uzun urun adlarini sarmalayan layout, stok/depo/fiyat/son satis bilgisi, safe-mode maliyet gizleme, firsat kartlari ve ziyaret notu/talep/rakip bilgisi kaydi.
+
 ## Hala eksik olan yuksek oncelikli portal/admin modulleri
 
 Webde var, mobil portalda ekran/API paritesi henuz yok veya cok sinirli:
@@ -45,7 +51,7 @@ Webde var, mobil portalda ekran/API paritesi henuz yok veya cok sinirli:
 - `admin-products`: urun detay yonetimi, gorsel galeri, tamamlayici ayarlari, katalog kalitesi.
 - `bundles`: paket olusturma/duzenleme, paket performans aksiyonlari.
 - `customer-360`: temel mobil ekran eklendi; webdeki sekmeli desktop deneyimin birebir derinligi, tablo/export aksiyonlari ve tablet gorsel QA henuz tamamlanmadi.
-- `field-sales`: mobilde web saha satis moduluyle tam parite yok; urun arama/sepete hizli ekleme/saha notu ergonomisi ayrica elden gecmeli.
+- `field-sales`: temel mobil saha satis ekrani eklendi; webdeki teklif taslagi/kalem havuzu/yeni ziyaret carisi/fotograf-konum akislarinin tamamÄ± henuz mobilde birebir yok.
 - `hot-sales`: sicak satis/arac stok/gun sonu akislarinin mobil paritesi yok.
 - `warehouse`, `warehouse/image-issues`, `warehouse/retail`: depo kiosk, gorsel hata, perakende satis mobilde yok.
 - `product-dimensions`: olcu/desi/kg/raf kodu mobilde yok.

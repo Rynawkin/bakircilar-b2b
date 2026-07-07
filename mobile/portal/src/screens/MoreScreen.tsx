@@ -11,6 +11,7 @@ const links: Array<{ label: string; route: keyof PortalStackParamList; descripti
   { label: 'Musteriler', route: 'Customers', description: 'Cari listesi ve fiyat ayarlari.' },
   { label: 'Cari 360', route: 'Customer360', description: 'Cari ozet, sepet, vade, temas ve fiyat guveni.' },
   { label: 'Cari Aktivite', route: 'CustomerEngagement', description: 'Giris, siparis ve temas aksiyonlari.' },
+  { label: 'Saha Satis', route: 'FieldSales', description: 'Mobil urun arama, fiyat/stok ve ziyaret notu.' },
   { label: 'Anlasmalar', route: 'CustomerAgreements', description: 'Anlasmali fiyat listesi.' },
   { label: 'Teklif Kalemleri', route: 'QuoteLines', description: 'Teklif satirlarini kapat/ac yonetimi.' },
   { label: 'Arama', route: 'Search', description: 'Stok ve cari arama.' },

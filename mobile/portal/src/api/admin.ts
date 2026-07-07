@@ -1051,6 +1051,47 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/customer-360/${encodeURIComponent(customerIdOrCode)}`);
     return response.data as { success: boolean; data: any };
   },
+  searchFieldSalesCustomers: async (params?: { search?: string; limit?: number }) => {
+    const response = await apiClient.get('/admin/field-sales/customers', { params });
+    return response.data as { customers: any[] };
+  },
+  getFieldSalesCustomer: async (customerIdOrCode: string) => {
+    const response = await apiClient.get(`/admin/field-sales/customers/${encodeURIComponent(customerIdOrCode)}`);
+    return response.data as { success: boolean; data: any };
+  },
+  searchFieldSalesProducts: async (params?: {
+    search?: string;
+    customerId?: string;
+    limit?: number;
+    safeMode?: boolean;
+  }) => {
+    const response = await apiClient.get('/admin/field-sales/products', { params });
+    return response.data as { products: any[] };
+  },
+  getFieldSalesProduct: async (
+    productCode: string,
+    params?: { customerId?: string; safeMode?: boolean }
+  ) => {
+    const response = await apiClient.get(`/admin/field-sales/products/${encodeURIComponent(productCode)}`, { params });
+    return response.data as { success: boolean; data: any };
+  },
+  createFieldSalesVisitNote: async (
+    customerIdOrCode: string,
+    payload: {
+      note: string;
+      demand?: string | null;
+      competitorInfo?: string | null;
+      photoUrl?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+    }
+  ) => {
+    const response = await apiClient.post(
+      `/admin/field-sales/customers/${encodeURIComponent(customerIdOrCode)}/visit-notes`,
+      payload
+    );
+    return response.data as { success: boolean; data: any };
+  },
   getCustomerEngagement: async (params?: {
     search?: string;
     status?: string;
