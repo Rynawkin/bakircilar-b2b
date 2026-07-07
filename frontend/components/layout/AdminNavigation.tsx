@@ -222,15 +222,25 @@ export function AdminNavigation() {
             linkUrl: '/dashboard',
           });
         },
+        localTestNotification: {
+          title: 'Tarayici bildirimleri acildi',
+          body: 'Bu tarayici Bakircilar B2B bildirimlerini alacak.',
+          linkUrl: '/dashboard',
+        },
       });
       if (result.enabled) {
-        toast.success('Tarayici bildirimleri acildi. Test bildirimi gonderildi.');
+        toast.success(
+          result.reason === 'test-failed'
+            ? 'Tarayici bildirimleri acildi. Sunucu test bildirimi sonra tekrar denenebilir.'
+            : 'Tarayici bildirimleri acildi. Test bildirimi gonderildi.'
+        );
       } else {
         toast.error(browserPushReasonLabel(result.reason));
       }
     } catch (error) {
       console.error('Browser push not enabled:', error);
-      toast.error('Tarayici bildirimi acilamadi.');
+      const message = (error as any)?.response?.data?.error || (error as any)?.message || 'Tarayici bildirimi acilamadi.';
+      toast.error(message);
     } finally {
       setPushBusy(false);
     }
@@ -266,7 +276,7 @@ export function AdminNavigation() {
   useEffect(() => {
     if (!user) return;
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 15000);
+    const interval = setInterval(fetchNotifications, 60000);
     return () => clearInterval(interval);
   }, [user?.id]);
 
