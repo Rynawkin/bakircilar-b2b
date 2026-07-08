@@ -509,22 +509,6 @@ class QuoteService {
     };
   }
 
-  private async getLocalPurchasedProductCodes(customerId: string, take = 500): Promise<string[]> {
-    const rows = await prisma.orderItem.findMany({
-      where: {
-        mikroCode: { not: '' },
-        order: {
-          userId: customerId,
-          status: { in: ['APPROVED', 'PENDING'] as any },
-        },
-      },
-      select: { mikroCode: true },
-      orderBy: { createdAt: 'desc' },
-      take,
-    });
-    return Array.from(new Set(rows.map((row) => String(row.mikroCode || '').trim()).filter(Boolean)));
-  }
-
   async getCustomerPurchasedProducts(
     customerId: string,
     lastSalesCount: number,
@@ -542,20 +526,9 @@ class QuoteService {
     if (!customer || !customer.mikroCariCode) {
       throw new Error("Customer not found or missing Mikro cari code");
     }
-    let mikroPurchaseLookupOk = true;
-    let purchasedCodes: string[] = [];
-    try {
-      purchasedCodes = await mikroService.getPurchasedProductCodes(
-        customer.mikroCariCode,
-      );
-    } catch (error) {
-      mikroPurchaseLookupOk = false;
-      console.warn("Customer purchased products Mikro lookup failed; using B2B order fallback", {
-        customerId,
-        error,
-      });
-      purchasedCodes = await this.getLocalPurchasedProductCodes(customer.id);
-    }
+    const purchasedCodes = await mikroService.getPurchasedProductCodes(
+      customer.mikroCariCode,
+    );
     if (purchasedCodes.length === 0) {
       return { customer, products: [] };
     }
@@ -568,16 +541,14 @@ class QuoteService {
       products.map((product) => product.mikroCode),
     );
     let salesMovements: MikroCustomerSaleMovement[] = [];
-    if (mikroPurchaseLookupOk) {
-      try {
-        salesMovements = await mikroService.getCustomerSalesMovements(
-          customer.mikroCariCode,
-          purchasedCodes,
-          Math.max(1, lastSalesCount),
-        );
-      } catch (error) {
-        console.error("Customer sales movements failed", { customerId, error });
-      }
+    try {
+      salesMovements = await mikroService.getCustomerSalesMovements(
+        customer.mikroCariCode,
+        purchasedCodes,
+        Math.max(1, lastSalesCount),
+      );
+    } catch (error) {
+      console.error("Customer sales movements failed", { customerId, error });
     }
     const salesMap = new Map<string, typeof salesMovements>();
     for (const movement of salesMovements) {
@@ -590,12 +561,10 @@ class QuoteService {
       products.map((product) => product.mikroCode),
       Math.max(1, lastSalesCount),
     );
-    const categoryLastByProduct = mikroPurchaseLookupOk
-      ? await customerCategoryPurchaseService.getProductCategoryLastPurchases(
-        customer.mikroCariCode,
-        products,
-      )
-      : new Map<string, any>();
+    const categoryLastByProduct = await customerCategoryPurchaseService.getProductCategoryLastPurchases(
+      customer.mikroCariCode,
+      products,
+    );
     const productsWithLists = products.map((product) => {
       const priceStats = priceStatsMap.get(product.mikroCode) || null;
       const mikroPriceLists: Record<string, number> = {};

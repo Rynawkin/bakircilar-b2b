@@ -112,59 +112,6 @@ export const getStocksByCodes = async (req: Request, res: Response) => {
       )
     );
 
-  const buildFallbackRows = async (codes: string[]) => {
-    const products = await prisma.product.findMany({
-      where: { mikroCode: { in: codes } },
-      select: {
-        id: true,
-        name: true,
-        mikroCode: true,
-        unit: true,
-        unit2: true,
-        unit2Factor: true,
-        excessStock: true,
-        currentCost: true,
-        lastEntryPrice: true,
-        vatRate: true,
-        category: { select: { name: true, mikroCode: true } },
-      },
-    });
-
-    const byCode = new Map(products.map((product) => [product.mikroCode, product]));
-    return codes
-      .map((code) => byCode.get(code))
-      .filter(Boolean)
-      .map((product: any) => {
-        const vatPercent = Number(product.vatRate || 0) <= 1
-          ? Number(product.vatRate || 0) * 100
-          : Number(product.vatRate || 0);
-        return ({
-        msg_S_0088: product.id,
-        msg_S_0078: product.mikroCode,
-        msg_S_0870: product.name,
-        Birim: product.unit,
-        '2. Birim': product.unit2,
-        '2. Birim Katsayisi': product.unit2Factor,
-        ['2. Birim Katsay\u0131s\u0131']: product.unit2Factor,
-        'Kategori kodu': product.category?.mikroCode || '',
-        'Kategori Adi': product.category?.name || '',
-        ['Kategori Ad\u0131']: product.category?.name || '',
-        'Toplam Satilabilir': product.excessStock,
-        ['Toplam Sat\u0131labilir']: product.excessStock,
-        'Fazla Miktar': product.excessStock,
-        'Guncel Maliyet Kdv Dahil': product.currentCost,
-        ['G\u00fcncel Maliyet Kdv Dahil']: product.currentCost,
-        ['G\u00fcncel Maliyet + Kdv.']: product.currentCost,
-        'Son Giris Maliyeti Kdv Dahil': product.lastEntryPrice,
-        ['Son Giri\u015f Maliyeti Kdv Dahil']: product.lastEntryPrice,
-        ['Son Giri\u015f Maliyeti + Kdv']: product.lastEntryPrice,
-        'KDV Orani': vatPercent,
-        ['KDV Oran\u0131']: vatPercent,
-        __source: 'POSTGRES_FALLBACK',
-      });
-      });
-  };
-
   try {
     const { codes } = req.body as { codes?: string[] };
     const normalizedCodes = normalizeCodes(codes);
@@ -172,32 +119,14 @@ export const getStocksByCodes = async (req: Request, res: Response) => {
       return res.json({ success: true, data: [] });
     }
 
-    // Bu endpoint teklif/siparis ekraninda secili kalemler degistikce calisir.
-    // Mikro F10 sorgusu burada kritik akisi 30-120 sn bloklayabiliyor; secili kodlar
-    // icin B2B urun cache'i yeterli ve satis kaydini Mikro havuzundan bagimsiz tutar.
-    const fallback = await buildFallbackRows(normalizedCodes);
+    const result = await stockF10Service.getStocksByCodes(normalizedCodes);
     res.json({
       success: true,
-      data: fallback,
-      total: fallback.length,
-      source: 'POSTGRES_CACHE',
+      data: result,
+      total: result.length,
+      source: 'MIKRO',
     });
   } catch (error: any) {
-    const normalizedCodes = normalizeCodes((req.body as { codes?: string[] })?.codes);
-    if (normalizedCodes.length > 0) {
-      try {
-        const fallback = await buildFallbackRows(normalizedCodes);
-        return res.json({
-          success: true,
-          data: fallback,
-          total: fallback.length,
-          source: 'POSTGRES_FALLBACK',
-          warning: 'Mikro stok detaylari alinamadi; B2B urun cache verisi kullanildi.',
-        });
-      } catch (fallbackError: any) {
-        console.error('Stok kodlari fallback hatasi:', fallbackError);
-      }
-    }
     console.error('Stok kodlarÄ± getirilirken hata:', error);
     res.status(500).json({ message: 'Stok kodlarÄ± alÄ±namadÄ±', error: error.message });
   }
