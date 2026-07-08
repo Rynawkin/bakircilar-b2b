@@ -60,6 +60,7 @@ export default function SiparisTakipNew() {
     selectedSupplierCodes,
     markingSupplierTransmission,
     closingOrderTarget,
+    updatingQuantityTarget,
     expandedCustomers,
     emailOverrides,
     setEmailOverrides,
@@ -92,6 +93,7 @@ export default function SiparisTakipNew() {
     handleDownloadSupplierExcel,
     handleMarkSupplierTransmitted,
     handleCloseRemaining,
+    handleUpdateLineQuantity,
     formatCurrency,
     formatDate,
     formatDateTime,
@@ -941,22 +943,37 @@ export default function SiparisTakipNew() {
                                         {formatCurrency(item.lineTotal)}
                                       </td>
                                       <td className="px-2.5 py-2 align-top text-center">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleCloseRemaining(order, isSupplierTab ? 'supplier' : 'customer', item)
-                                          }
-                                          disabled={
-                                            isFullyDelivered ||
-                                            closingOrderTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
-                                          }
-                                          className="inline-flex items-center justify-center gap-1 rounded-md border border-[#fecaca] bg-white px-2 py-1 text-[10.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:cursor-not-allowed disabled:opacity-45"
-                                        >
-                                          <X width={10} height={10} stroke="currentColor" strokeWidth={2.4} />
-                                          {closingOrderTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
-                                            ? 'Kapatiliyor'
-                                            : 'Kapat'}
-                                        </button>
+                                        <div className="flex flex-wrap justify-center gap-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleUpdateLineQuantity(order, isSupplierTab ? 'supplier' : 'customer', item)
+                                            }
+                                            disabled={updatingQuantityTarget === `${order.mikroOrderNumber}:${item.rowNumber}`}
+                                            className="inline-flex items-center justify-center gap-1 rounded-md border border-[#c7d2fe] bg-white px-2 py-1 text-[10.5px] font-semibold text-[#15356b] hover:bg-[#eef4ff] disabled:cursor-not-allowed disabled:opacity-45"
+                                          >
+                                            <Pencil width={10} height={10} stroke="currentColor" strokeWidth={2.2} />
+                                            {updatingQuantityTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
+                                              ? 'Kaydediliyor'
+                                              : 'Duzenle'}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleCloseRemaining(order, isSupplierTab ? 'supplier' : 'customer', item)
+                                            }
+                                            disabled={
+                                              isFullyDelivered ||
+                                              closingOrderTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
+                                            }
+                                            className="inline-flex items-center justify-center gap-1 rounded-md border border-[#fecaca] bg-white px-2 py-1 text-[10.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:cursor-not-allowed disabled:opacity-45"
+                                          >
+                                            <X width={10} height={10} stroke="currentColor" strokeWidth={2.4} />
+                                            {closingOrderTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
+                                              ? 'Kapatiliyor'
+                                              : 'Kapat'}
+                                          </button>
+                                        </div>
                                       </td>
                                     </tr>
                                   );

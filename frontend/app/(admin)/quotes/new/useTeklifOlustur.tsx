@@ -1036,8 +1036,14 @@ export function useTeklifOlustur() {
     let active = true;
     const timer = setTimeout(async () => {
       try {
-        const { data } = await adminApi.getStocksByCodes(codes);
+        const result = await adminApi.getStocksByCodes(codes);
         if (!active) return;
+        if (result.warning) {
+          toast.error(result.warning.message || 'Canli Mikro stok verisi alinamadi; son bilinen veri gosteriliyor.', {
+            duration: 8000,
+          });
+        }
+        const { data } = result;
         const nextMap: Record<string, any> = {};
         data.forEach((row: any) => {
           if (row?.msg_S_0078) {

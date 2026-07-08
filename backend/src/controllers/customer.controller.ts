@@ -3151,8 +3151,11 @@ export class CustomerController {
     try {
       const { itemId } = req.params;
 
-      const cartItem = await prisma.cartItem.findUnique({
-        where: { id: itemId },
+      const cartItem = await prisma.cartItem.findFirst({
+        where: {
+          id: itemId,
+          cart: { userId: req.user!.userId },
+        },
         include: {
           product: true,
         },
@@ -3228,9 +3231,27 @@ export class CustomerController {
    */
   async getOrders(req: Request, res: Response, next: NextFunction) {
     try {
-      const orders = await orderService.getUserOrders(req.user!.userId);
+      const { status, search, page, pageSize } = req.query;
+      const result = await orderService.getUserOrders(req.user!.userId, {
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined,
+        page: page !== undefined ? Number(page) : undefined,
+        pageSize: pageSize !== undefined ? Number(pageSize) : undefined,
+      });
 
-      res.json({ orders });
+      if (Array.isArray(result)) {
+        res.json({ orders: result });
+      } else {
+        res.json({
+          orders: result.orders,
+          pagination: {
+            total: result.total,
+            page: result.page,
+            pageSize: result.pageSize,
+            totalPages: Math.max(1, Math.ceil(result.total / result.pageSize)),
+          },
+        });
+      }
     } catch (error) {
       next(error);
     }

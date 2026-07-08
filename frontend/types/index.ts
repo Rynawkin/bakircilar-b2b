@@ -726,6 +726,7 @@ export interface EInvoiceDocument {
   customerCode?: string | null;
   customerName?: string | null;
   customerTaxNo?: string | null;
+  customerBalance?: number | null;
   issueDate?: string | null;
   sentAt?: string | null;
   subtotalAmount?: number | null;

@@ -618,6 +618,11 @@ export function useSahaSatis() {
       const nextProducts = result.products || [];
       productSearchCacheRef.current.set(cacheKey, nextProducts);
       setProducts(nextProducts);
+      if (result.warning) {
+        toast.error(result.warning.message || 'Canli Mikro urun aramasi alinamadi; son bilinen veri gosteriliyor.', {
+          duration: 8000,
+        });
+      }
     } catch (error: any) {
       toast.error(getApiErrorMessage(error, 'Urun aramasi yapilamadi.'));
     } finally {
@@ -646,6 +651,11 @@ export function useSahaSatis() {
       const detail = result.data.product || normalizedProduct;
       productDetailCacheRef.current.set(cacheKey, detail);
       setSelectedProduct(detail);
+      if (result.warning) {
+        toast.error(result.warning.message || `${code} icin canli Mikro verisi alinamadi; son bilinen veri gosteriliyor.`, {
+          duration: 8000,
+        });
+      }
     } catch {
       setSelectedProduct(normalizedProduct);
     }
@@ -665,6 +675,11 @@ export function useSahaSatis() {
       });
       const detail = result.data.product || { ...product, mikroCode: code };
       productDetailCacheRef.current.set(cacheKey, detail);
+      if (result.warning) {
+        toast.error(result.warning.message || `${code} icin canli Mikro verisi alinamadi; son bilinen veri gosteriliyor.`, {
+          duration: 8000,
+        });
+      }
       return detail;
     } catch {
       return { ...product, mikroCode: code };

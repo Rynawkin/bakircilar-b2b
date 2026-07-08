@@ -541,7 +541,13 @@ export function useTeklifler() {
     if (codes.length === 0) return {} as Record<string, string>;
 
     try {
-      const { data } = await adminApi.getStocksByCodes(codes);
+      const result = await adminApi.getStocksByCodes(codes);
+      if (result.warning) {
+        toast.error(result.warning.message || 'Canli Mikro stok verisi alinamadi; son bilinen veri gosteriliyor.', {
+          duration: 8000,
+        });
+      }
+      const { data } = result;
       const stockByCode = new Map<string, number | null>();
       (data || []).forEach((row: Record<string, unknown>) => {
         const code = String(row?.['msg_S_0078'] ?? row?.['Stok Kodu'] ?? row?.['stok kod'] ?? '').trim();

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 
@@ -74,6 +75,11 @@ export function useStokArama() {
       const params = showAll ? { limit: 1000 } : { searchTerm: searchTerm.trim(), limit };
       const response = await adminApi.searchStocks(params);
       setStocks(response.data);
+      if (response.warning) {
+        toast.error(response.warning.message || 'Canli Mikro stok aramasi alinamadi; son bilinen veri gosteriliyor.', {
+          duration: 8000,
+        });
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Arama yapılırken bir hata oluştu');
       setStocks([]);

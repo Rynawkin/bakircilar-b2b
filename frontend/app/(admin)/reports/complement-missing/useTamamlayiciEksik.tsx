@@ -207,6 +207,11 @@ export function useTamamlayiciEksik() {
       try {
         const result = await adminApi.searchStocks({ searchTerm: term, limit: 12, offset: 0 });
         setProductOptions(result.data || []);
+        if (result.warning) {
+          toast.error(result.warning.message || 'Canli Mikro urun aramasi alinamadi; son bilinen veri gosteriliyor.', {
+            duration: 8000,
+          });
+        }
       } catch (_err) {
         setProductOptions([]);
       } finally {

@@ -140,6 +140,7 @@ export function useSiparisTakip() {
   const [selectedSupplierCodes, setSelectedSupplierCodes] = useState<Set<string>>(new Set());
   const [markingSupplierTransmission, setMarkingSupplierTransmission] = useState<string | null>(null);
   const [closingOrderTarget, setClosingOrderTarget] = useState<string | null>(null);
+  const [updatingQuantityTarget, setUpdatingQuantityTarget] = useState<string | null>(null);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [emailOverrides, setEmailOverrides] = useState<Record<string, string>>({});
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -1452,6 +1453,55 @@ export function useSiparisTakip() {
     });
   };
 
+  const handleUpdateLineQuantity = async (
+    order: OrderDetail,
+    orderType: 'customer' | 'supplier',
+    item: OrderItem
+  ) => {
+    const lineNumber = item?.rowNumber;
+    if (lineNumber === null || lineNumber === undefined || !Number.isFinite(Number(lineNumber))) {
+      toast.error('Satir numarasi bulunamadi. Listeyi sync edip tekrar deneyin.');
+      return;
+    }
+
+    const minQuantity = Number(item.deliveredQty || 0);
+    const currentQuantity = Number(item.quantity || 0);
+    const value = window.prompt(
+      `${item.productCode} icin yeni toplam siparis miktari\nMinimum: ${formatNumber(minQuantity)} (teslim edilen miktar)\nMevcut: ${formatNumber(currentQuantity)}`,
+      String(currentQuantity)
+    );
+    if (value === null) return;
+
+    const normalized = Number(String(value).replace(',', '.'));
+    if (!Number.isFinite(normalized) || normalized < 0) {
+      toast.error('Gecerli bir miktar girin.');
+      return;
+    }
+    if (normalized < minQuantity) {
+      toast.error(`Yeni miktar teslim edilen miktardan (${formatNumber(minQuantity)}) dusuk olamaz.`);
+      return;
+    }
+
+    const targetKey = `${order.mikroOrderNumber}:${lineNumber}`;
+    setUpdatingQuantityTarget(targetKey);
+    try {
+      const response = await apiClient.patch(
+        `/order-tracking/admin/orders/${encodeURIComponent(order.mikroOrderNumber)}/line-quantity`,
+        {
+          orderType,
+          lineNumber: Number(lineNumber),
+          quantity: normalized,
+        }
+      );
+      toast.success(response.data?.message || 'Satir miktari guncellendi.');
+      await fetchData();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Satir miktari guncellenemedi.');
+    } finally {
+      setUpdatingQuantityTarget(null);
+    }
+  };
+
   // Cron schedule'ı kullanıcı dostu formatta göster
   const formatSchedule = (cronString: string) => {
     const { hour, days } = parseCronSchedule(cronString);
@@ -1546,6 +1596,7 @@ export function useSiparisTakip() {
     selectedSupplierCodes,
     markingSupplierTransmission,
     closingOrderTarget,
+    updatingQuantityTarget,
     expandedCustomers,
     emailOverrides,
     setEmailOverrides,
@@ -1576,6 +1627,7 @@ export function useSiparisTakip() {
     handleDownloadSupplierExcel,
     handleMarkSupplierTransmitted,
     handleCloseRemaining,
+    handleUpdateLineQuantity,
     // formatters & helpers (JSX'te kullanilanlar)
     formatCurrency,
     formatDate,

@@ -487,13 +487,25 @@ class FieldSalesService {
     const customer = input.customerIdOrCode
       ? await this.resolveCustomer(input.customerIdOrCode, input.scope)
       : null;
-    const rows = rowsFromMikro(await stockF10Service.searchStocks({ searchTerm, limit, offset: 0 }));
+    let rows: any[] = [];
+    let warning: any = null;
+    try {
+      rows = rowsFromMikro(await stockF10Service.searchStocks({ searchTerm, limit, offset: 0 }));
+    } catch (error: any) {
+      rows = rowsFromMikro(await stockF10Service.searchFallbackStocks({ searchTerm, limit, offset: 0 }));
+      warning = {
+        type: 'MIKRO_FALLBACK',
+        message: 'Canli Mikro urun aramasi alinamadi; gecici olarak son bilinen B2B urun verisi gosteriliyor.',
+        searchTerm,
+        originalError: error?.message || null,
+      };
+    }
     const products = await this.normalizeStockRows(rows, {
       customer,
       safeMode: input.safeMode !== false,
     });
 
-    return { products };
+    return warning ? { products, source: 'LOCAL_CACHE', warning } : { products, source: 'MIKRO' };
   }
 
   async getProductDetail(input: {
@@ -508,7 +520,19 @@ class FieldSalesService {
     const customer = input.customerIdOrCode
       ? await this.resolveCustomer(input.customerIdOrCode, input.scope)
       : null;
-    const rows = rowsFromMikro(await stockF10Service.getStocksByCodes([code]));
+    let rows: any[] = [];
+    let warning: any = null;
+    try {
+      rows = rowsFromMikro(await stockF10Service.getStocksByCodes([code]));
+    } catch (error: any) {
+      rows = rowsFromMikro(await stockF10Service.getFallbackStocksByCodes([code]));
+      warning = {
+        type: 'MIKRO_FALLBACK',
+        message: 'Canli Mikro urun detayi alinamadi; gecici olarak son bilinen B2B urun verisi gosteriliyor.',
+        requestedCodes: [code],
+        originalError: error?.message || null,
+      };
+    }
     const products = await this.normalizeStockRows(rows, {
       customer,
       safeMode: input.safeMode !== false,
@@ -516,7 +540,7 @@ class FieldSalesService {
     const product = products[0] || null;
     if (!product) throw new AppError('Urun bulunamadi.', 404, ErrorCode.NOT_FOUND);
 
-    return { product };
+    return warning ? { product, source: 'LOCAL_CACHE', warning } : { product, source: 'MIKRO' };
   }
 
   private async normalizeStockRows(

@@ -92,10 +92,32 @@ type CloseRemainingResult = {
   message: string;
 };
 
+type UpdateLineQuantityInput = {
+  mikroOrderNumber: string;
+  orderType?: CloseOrderType;
+  lineNumber: number;
+  quantity: number;
+  scope?: StaffScope;
+};
+
+type UpdateLineQuantityResult = {
+  success: boolean;
+  mikroOrderNumber: string;
+  orderType: CloseOrderType;
+  lineNumber: number;
+  previousQuantity: number;
+  newQuantity: number;
+  deliveredQty: number;
+  remainingQty: number;
+  message: string;
+};
+
 const toNumber = (value: unknown): number => {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
 };
+
+const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 
 const normalizeCode = (value: unknown): string => String(value || '').trim();
 
@@ -1229,6 +1251,186 @@ class OrderTrackingService {
         targetLineNumbers.length === 1
           ? 'Siparis satirinin kalan miktari kapatildi.'
           : `${targetLineNumbers.length} siparis satirinin kalan miktari kapatildi.`,
+    };
+  }
+
+  async updateLineQuantity(input: UpdateLineQuantityInput): Promise<UpdateLineQuantityResult> {
+    const mikroOrderNumber = normalizeCode(input.mikroOrderNumber);
+    if (!mikroOrderNumber) {
+      throw httpError('Siparis numarasi gerekli.', 400);
+    }
+
+    const lineNumber = Number(input.lineNumber);
+    if (!Number.isInteger(lineNumber) || lineNumber < 0) {
+      throw httpError('Gecerli satir numarasi gerekli.', 400);
+    }
+
+    const nextQuantity = Number(input.quantity);
+    if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
+      throw httpError('Gecerli miktar girin.', 400);
+    }
+
+    const orderType: CloseOrderType = input.orderType === 'supplier' ? 'supplier' : 'customer';
+    const orderTypeNo = orderType === 'supplier' ? 1 : 0;
+
+    if (orderType === 'supplier' && input.scope?.role === 'SALES_REP') {
+      throw httpError('Satis temsilcileri tedarikci siparislerini duzenleyemez.', 403);
+    }
+
+    let series: string;
+    let sequence: number;
+    let cacheOrder:
+      | {
+          id: string;
+          orderSeries: string;
+          orderSequence: number;
+          sectorCode: string | null;
+          items: any;
+        }
+      | null = null;
+
+    if (orderType === 'customer') {
+      cacheOrder = await prisma.pendingMikroOrder.findUnique({
+        where: { mikroOrderNumber },
+        select: {
+          id: true,
+          orderSeries: true,
+          orderSequence: true,
+          sectorCode: true,
+          items: true,
+        },
+      });
+
+      if (!cacheOrder) {
+        throw httpError('Bekleyen siparis bulunamadi. Once listeyi sync edin.', 404);
+      }
+
+      if (input.scope?.role === 'SALES_REP') {
+        const assigned = (input.scope.assignedSectorCodes || [])
+          .map((code) => normalizeCode(code).toLocaleUpperCase('tr-TR'))
+          .filter(Boolean);
+        const orderSector = normalizeCode(cacheOrder.sectorCode).toLocaleUpperCase('tr-TR');
+        if (!orderSector || !assigned.includes(orderSector)) {
+          throw httpError('Bu siparisi duzenleme yetkiniz yok.', 403);
+        }
+      }
+
+      series = cacheOrder.orderSeries;
+      sequence = cacheOrder.orderSequence;
+    } else {
+      const parsed = parseMikroOrderNumber(mikroOrderNumber);
+      series = parsed.series;
+      sequence = parsed.sequence;
+    }
+
+    const safeSeries = escapeSqlString(series);
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP 1
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_NO} as rowNumber,
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE} as productCode,
+        ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY}, 0) as quantity,
+        ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0) as deliveredQty,
+        ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.UNIT_PRICE}, 0) as unitPrice,
+        ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_TOTAL}, 0) as lineTotal,
+        ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.VAT}, 0) as vat
+      FROM ${MIKRO_TABLES.ORDERS} s WITH (NOLOCK)
+      WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} = '${safeSeries}'
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} = ${sequence}
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = ${orderTypeNo}
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_NO} = ${lineNumber}
+        AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED}, 0) = 0
+    `);
+
+    const row = rows?.[0];
+    if (!row) {
+      throw httpError('Siparis satiri bulunamadi.', 404);
+    }
+
+    const previousQuantity = toNumber(row.quantity);
+    const deliveredQty = toNumber(row.deliveredQty);
+    const unitPrice = toNumber(row.unitPrice);
+    const currentLineTotal = toNumber(row.lineTotal);
+    const currentVat = toNumber(row.vat);
+    const nextLineTotal = unitPrice > 0 ? round2(nextQuantity * unitPrice) : currentLineTotal;
+    const vatRatio = currentLineTotal > 0 ? currentVat / currentLineTotal : 0;
+    const nextVat = round2(nextLineTotal * vatRatio);
+    if (nextQuantity < deliveredQty) {
+      throw httpError(`Yeni miktar teslim edilen miktardan (${deliveredQty}) dusuk olamaz.`, 400);
+    }
+
+    const isClosed = nextQuantity <= deliveredQty ? 1 : 0;
+    const updateRows = await mikroService.executeQuery(`
+      UPDATE s
+      SET
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY} = ${nextQuantity},
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_TOTAL} = ${nextLineTotal},
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.VAT} = ${nextVat},
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = ${isClosed},
+        s.sip_lastup_date = GETDATE()
+      FROM ${MIKRO_TABLES.ORDERS} s
+      WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} = '${safeSeries}'
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} = ${sequence}
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = ${orderTypeNo}
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_NO} = ${lineNumber}
+        AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED}, 0) = 0;
+
+      SELECT @@ROWCOUNT as affected;
+    `);
+
+    const affected = Number(updateRows?.[0]?.affected || 0);
+    if (affected !== 1) {
+      throw httpError('Mikro miktar guncelleme islemi dogrulanamadi. Listeyi yenileyip tekrar deneyin.', 500);
+    }
+
+    const remainingQty = Math.max(nextQuantity - deliveredQty, 0);
+
+    if (orderType === 'customer' && cacheOrder) {
+      const existingItems = Array.isArray(cacheOrder.items) ? (cacheOrder.items as any[]) : [];
+      const updatedItems = existingItems
+        .map((item) => {
+          if (Number(item?.rowNumber) !== lineNumber) return item;
+          const unitPrice = toNumber(item?.unitPrice);
+          return {
+            ...item,
+            quantity: nextQuantity,
+            deliveredQty,
+            remainingQty,
+            unitPrice: unitPrice || row.unitPrice || 0,
+            lineTotal: nextLineTotal,
+            vat: nextVat,
+          };
+        })
+        .filter((item) => Math.max(toNumber(item?.remainingQty), 0) > 0);
+
+      if (updatedItems.length === 0) {
+        await prisma.pendingMikroOrder.delete({ where: { id: cacheOrder.id } });
+      } else {
+        const totalAmount = updatedItems.reduce((sum, item) => sum + Math.max(toNumber(item?.lineTotal), 0), 0);
+        const totalVAT = updatedItems.reduce((sum, item) => sum + Math.max(toNumber(item?.vat), 0), 0);
+        await prisma.pendingMikroOrder.update({
+          where: { id: cacheOrder.id },
+          data: {
+            items: updatedItems as any,
+            itemCount: updatedItems.length,
+            totalAmount,
+            totalVAT,
+            grandTotal: totalAmount + totalVAT,
+            syncedAt: new Date(),
+          },
+        });
+      }
+    }
+
+    return {
+      success: true,
+      mikroOrderNumber,
+      orderType,
+      lineNumber,
+      previousQuantity,
+      newQuantity: nextQuantity,
+      deliveredQty,
+      remainingQty,
+      message: 'Siparis satir miktari guncellendi.',
     };
   }
 

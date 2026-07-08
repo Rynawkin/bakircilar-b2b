@@ -673,6 +673,17 @@ export default function FaturalarNew() {
                     >
                       {doc.customerCode || '-'}
                     </div>
+                    <div
+                      style={{
+                        marginTop: 3,
+                        fontSize: 10.5,
+                        color: '#15356b',
+                        fontWeight: 700,
+                        fontFamily: "'Roboto Mono', monospace",
+                      }}
+                    >
+                      Bakiye: {formatAmount(doc.customerBalance, 'TRY')}
+                    </div>
                   </div>
                   <span style={{ color: INK_SOFT }}>
                     {doc.issueDate ? formatDateShort(doc.issueDate) : '-'}

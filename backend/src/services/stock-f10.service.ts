@@ -1,4 +1,6 @@
 import mikroFactory from './mikroFactory.service';
+import { prisma } from '../utils/prisma';
+import { normalizeSearchText, splitSearchTokens } from '../utils/search';
 
 interface StockF10SearchParams {
   searchTerm?: string;
@@ -17,6 +19,140 @@ const buildSqlSearchTokens = (value?: string) => {
 };
 
 class StockF10Service {
+  private toNumber(value: any, fallback = 0) {
+    if (value === null || value === undefined || value === '') return fallback;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+    if (typeof value === 'object' && typeof value.toNumber === 'function') {
+      const parsed = value.toNumber();
+      return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    const parsed = Number(String(value).replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private readWarehouseStock(stocks: any, keys: string[]) {
+    if (!stocks || typeof stocks !== 'object') return 0;
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(stocks, key)) {
+        return this.toNumber(stocks[key]);
+      }
+    }
+    return 0;
+  }
+
+  private mapLocalProductToStockRow(product: any) {
+    const stocks = product.warehouseStocks || {};
+    const merkez = this.readWarehouseStock(stocks, ['1', 'DEPO1', 'MERKEZ', 'Merkez', 'merkez']);
+    const eregli = this.readWarehouseStock(stocks, ['2', 'DEPO2', 'EREGLI', 'Eregli', 'eregli']);
+    const topca = this.readWarehouseStock(stocks, ['6', 'DEPO6', 'TOPCA', 'Topca', 'topca']);
+    const dukkan = this.readWarehouseStock(stocks, ['7', 'DEPO7', 'DUKKAN', 'Dukkan', 'dukkan']);
+    const istanbulArac = this.readWarehouseStock(stocks, ['8', 'DEPO8', 'ISTANBUL_ARAC']);
+    const istanbulYeni = this.readWarehouseStock(stocks, ['9', 'DEPO9', 'ISTANBUL_YENI']);
+    const totalStock = merkez + eregli + topca + dukkan;
+    const pendingCustomer = this.toNumber(product.pendingCustomerOrders);
+    const pendingPurchase = this.toNumber(product.pendingPurchaseOrders);
+    const totalSellable = totalStock - pendingCustomer + pendingPurchase;
+    const vatRatePct = this.toNumber(product.vatRate) > 1
+      ? this.toNumber(product.vatRate)
+      : this.toNumber(product.vatRate) * 100;
+    const currentCost = this.toNumber(product.currentCost);
+    const currentCostVatIncluded = currentCost * (1 + (vatRatePct / 100));
+
+    return {
+      msg_S_0088: product.id,
+      msg_S_0870: product.name,
+      'Yab.İsim': product.foreignName || null,
+      'Kısa İsim': null,
+      msg_S_0078: product.mikroCode,
+      'KDV Oranı': vatRatePct,
+      'BİR AYLIK SATIS MİKTARI': 0,
+      '3 Aylık Satış': product.popularSalesQuantity || 0,
+      'Güncel Maliyet + Kdv.': currentCost,
+      'Güncel Maliyet Kdv Dahil': currentCostVatIncluded,
+      'Güncel Maliyet Tarihi': product.currentCostDate || null,
+      'Son Giriş Tarihi': product.lastEntryDate || null,
+      'Son Giriş Maliyeti + Kdv': product.lastEntryPrice || 0,
+      'Son Giriş Maliyeti Kdv Dahil': product.lastEntryPrice
+        ? this.toNumber(product.lastEntryPrice) * (1 + (vatRatePct / 100))
+        : 0,
+      'Merkez Depo': merkez,
+      'Merkez Depo Siparişte Bekleyen': pendingCustomer,
+      'Merkez Depo Satın Alma Siparişte Bekleyen': pendingPurchase,
+      'Merkez Depo Satılabilir': merkez,
+      'Ereglı Depo': eregli,
+      'Ereglı Depo Siparişte Bekleyen': 0,
+      'Ereglı Depo Satın Alma Siparişte Bekleyen': 0,
+      'Eregli Depo Satılabilir': eregli,
+      'Topca Depo': topca,
+      'Topca Depo Siparişte Bekleyen': 0,
+      'Topca Depo Satın Alma Siparişte Bekleyen': 0,
+      'Topca Depo Satılabilir': topca,
+      'Dükkan Depo': dukkan,
+      'Dükkan Depo Siparişte Bekleyen': 0,
+      'Dükkan Depo Satın Alma Siparişte Bekleyen': 0,
+      'Dükkan Depo Satılabilir': dukkan,
+      'Toplam Eldeki Miktar': totalStock,
+      'Toplam Satılabilir': totalSellable,
+      'Fazla Miktar': product.excessStock || 0,
+      'İstanbul Araç Depo': istanbulArac,
+      'İstanbul Yeni Depo': istanbulYeni,
+      Birim: product.unit || 'ADET',
+      '2. Birim': product.unit2 || null,
+      '2. Birim Katsayısı': product.unit2Factor || null,
+      Marka: product.brandCode || null,
+      'Kategori kodu': product.category?.mikroCode || null,
+      'Kategori Adı': product.category?.name || null,
+      __source: 'LOCAL_CACHE',
+    };
+  }
+
+  async getFallbackStocksByCodes(productCodes: string[]): Promise<any[]> {
+    const normalizedCodes = Array.from(
+      new Set(productCodes.map((code) => String(code || '').trim()).filter(Boolean))
+    );
+    if (normalizedCodes.length === 0) return [];
+
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: normalizedCodes }, active: true },
+      include: { category: { select: { mikroCode: true, name: true } } },
+    });
+    const byCode = new Map(products.map((product) => [String(product.mikroCode || '').trim(), product]));
+    return normalizedCodes
+      .map((code) => byCode.get(code))
+      .filter(Boolean)
+      .map((product) => this.mapLocalProductToStockRow(product));
+  }
+
+  async searchFallbackStocks(params: StockF10SearchParams = {}): Promise<any[]> {
+    const rawTerm = String(params.searchTerm || '').trim();
+    if (!rawTerm) return [];
+
+    const tokens = splitSearchTokens(rawTerm).map(normalizeSearchText).filter(Boolean);
+    const where: any = {
+      active: true,
+      ...(tokens.length
+        ? {
+            AND: tokens.map((token) => ({
+              OR: [
+                { searchText: { contains: token } },
+                { mikroCode: { contains: token, mode: 'insensitive' } },
+                { name: { contains: token, mode: 'insensitive' } },
+                { brandCode: { contains: token, mode: 'insensitive' } },
+              ],
+            })),
+          }
+        : {}),
+    };
+
+    const products = await prisma.product.findMany({
+      where,
+      include: { category: { select: { mikroCode: true, name: true } } },
+      orderBy: [{ popularSalesValue: 'desc' }, { name: 'asc' }],
+      take: Math.max(1, Math.min(Number(params.limit) || 100, 200)),
+    });
+
+    return products.map((product) => this.mapLocalProductToStockRow(product));
+  }
   // Stok F10 sorgusunu çalıştırır
   async searchStocks(params: StockF10SearchParams = {}): Promise<any> {
     const { searchTerm, productCodes, limit = 100, offset = 0 } = params;

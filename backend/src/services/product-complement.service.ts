@@ -18,6 +18,8 @@ const normalizeCode = (value: unknown): string => {
   return value.trim().toUpperCase();
 };
 
+const normalizeGroupCode = (value: unknown): string => normalizeCode(value);
+
 const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''");
 
 const buildDocKey = (row: any): string => {
@@ -44,6 +46,31 @@ const chunkArray = <T>(items: T[], size: number): T[][] => {
 };
 
 class ProductComplementService {
+  private recommendationAllowedByGroup(
+    baseGroupById: Map<string, string>,
+    relatedGroupById: Map<string, string>,
+    baseProductId: string,
+    relatedProductId: string
+  ): boolean {
+    const baseGroup = baseGroupById.get(baseProductId) || '';
+    if (!baseGroup) return true;
+    return (relatedGroupById.get(relatedProductId) || '') === baseGroup;
+  }
+
+  private async getGroupMap(productIds: string[]): Promise<Map<string, string>> {
+    const uniqueIds = Array.from(new Set(productIds.filter(Boolean)));
+    const result = new Map<string, string>();
+    if (uniqueIds.length === 0) return result;
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, complementGroupCode: true },
+    });
+    products.forEach((product) => {
+      result.set(product.id, normalizeGroupCode(product.complementGroupCode));
+    });
+    return result;
+  }
 
   private async getPopularityCountsByCodes(
     productCodes: string[],
@@ -464,29 +491,33 @@ class ProductComplementService {
   async getRecommendationIdsForProduct(productId: string, limit = COMPLEMENT_LIMIT) {
     const product = await prisma.product.findUnique({
       where: { id: productId },
-      select: { complementMode: true },
+      select: { complementMode: true, complementGroupCode: true },
     });
     if (!product) return [];
+    const baseGroup = normalizeGroupCode(product.complementGroupCode);
+    const filterByGroup = async (ids: string[]) => {
+      if (!baseGroup || ids.length === 0) return ids;
+      const relatedGroupById = await this.getGroupMap(ids);
+      return ids.filter((id) => (relatedGroupById.get(id) || '') === baseGroup);
+    };
 
     if (product.complementMode === 'MANUAL') {
       const manualRows = await prisma.productComplementManual.findMany({
         where: { productId },
         orderBy: { sortOrder: 'asc' },
-        take: limit,
         select: { relatedProductId: true },
       });
       if (manualRows.length > 0) {
-        return manualRows.map((row) => row.relatedProductId);
+        return (await filterByGroup(manualRows.map((row) => row.relatedProductId))).slice(0, limit);
       }
     }
 
     const autoRows = await prisma.productComplementAuto.findMany({
       where: { productId },
       orderBy: { rank: 'asc' },
-      take: limit,
       select: { relatedProductId: true },
     });
-    return autoRows.map((row) => row.relatedProductId);
+    return (await filterByGroup(autoRows.map((row) => row.relatedProductId))).slice(0, limit);
   }
 
   async getRecommendationIdsForCart(productIds: string[], limit = COMPLEMENT_LIMIT) {
@@ -518,14 +549,21 @@ class ProductComplementService {
     ]);
 
     const scores = new Map<string, number>();
+    const baseGroupById = new Map(products.map((product) => [product.id, normalizeGroupCode(product.complementGroupCode)]));
+    const relatedGroupById = await this.getGroupMap([
+      ...manualRows.map((row) => row.relatedProductId),
+      ...autoRows.map((row) => row.relatedProductId),
+    ]);
 
     manualRows.forEach((row) => {
       if (uniqueProductIds.includes(row.relatedProductId)) return;
+      if (!this.recommendationAllowedByGroup(baseGroupById, relatedGroupById, row.productId, row.relatedProductId)) return;
       scores.set(row.relatedProductId, (scores.get(row.relatedProductId) || 0) + MANUAL_WEIGHT);
     });
 
     autoRows.forEach((row) => {
       if (uniqueProductIds.includes(row.relatedProductId)) return;
+      if (!this.recommendationAllowedByGroup(baseGroupById, relatedGroupById, row.productId, row.relatedProductId)) return;
       const weight = Math.max(1, row.pairCount || 0);
       scores.set(row.relatedProductId, (scores.get(row.relatedProductId) || 0) + weight);
     });
@@ -585,6 +623,11 @@ class ProductComplementService {
 
     const excludeSet = new Set(excludeIds.filter(Boolean));
     const result: Record<string, string[]> = {};
+    const baseGroupById = new Map(products.map((product) => [product.id, normalizeGroupCode(product.complementGroupCode)]));
+    const relatedGroupById = await this.getGroupMap([
+      ...manualRows.map((row) => row.relatedProductId),
+      ...autoRows.map((row) => row.relatedProductId),
+    ]);
 
     products.forEach((product) => {
       const manualList = manualMap.get(product.id) || [];
@@ -595,6 +638,7 @@ class ProductComplementService {
 
       const filtered = baseList
         .filter((id) => id && id !== product.id && !excludeSet.has(id))
+        .filter((id) => this.recommendationAllowedByGroup(baseGroupById, relatedGroupById, product.id, id))
         .slice(0, limit);
 
       result[product.id] = filtered;

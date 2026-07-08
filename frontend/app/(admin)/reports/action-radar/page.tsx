@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 import {
   AlertTriangle,
   Box,
   ChevronRight,
+  ClipboardList,
   FileText,
   Image as ImageIcon,
   MapPin,
@@ -14,6 +16,8 @@ import {
   SearchCheck,
   ShoppingCart,
   Sparkles,
+  Trash2,
+  Upload,
 } from 'lucide-react';
 import adminApi from '@/lib/api/admin';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
@@ -131,6 +135,7 @@ export default function ActionRadarPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -148,6 +153,85 @@ export default function ActionRadarPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const runAction = async (key: string, action: () => Promise<void>) => {
+    setBusyAction(key);
+    try {
+      await action();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Aksiyon tamamlanamadi.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleClearCart = async (row: any) => {
+    if (!row?.cartId) return;
+    if (!window.confirm(`${row.customerName || row.customerCode} sepetindeki tum kalemler silinsin mi?`)) return;
+    await runAction(`cart:${row.cartId}`, async () => {
+      const response = await adminApi.clearCustomerCart(row.cartId);
+      toast.success(`${response.data.deletedCount || 0} sepet kalemi temizlendi.`);
+      await load();
+    });
+  };
+
+  const handleImageUpload = async (row: any, file?: File | null) => {
+    if (!row?.id || !file) return;
+    await runAction(`image:${row.id}`, async () => {
+      const formData = new FormData();
+      formData.append('image', file);
+      await adminApi.addProductImage(row.id, formData);
+      toast.success(`${row.mikroCode || row.name} gorseli yuklendi.`);
+      await load();
+    });
+  };
+
+  const handleCreateTask = async (kind: 'quote' | 'cart' | 'image' | 'visit', row: any) => {
+    const key = `task:${kind}:${row.id || row.cartId || row.customerId || row.mikroCode}`;
+    await runAction(key, async () => {
+      const links: any[] = [];
+      if (row.customerId || row.customerCode) {
+        links.push({
+          type: 'CUSTOMER',
+          label: row.customerName || row.customerCode,
+          referenceId: row.customerId,
+          referenceCode: row.customerCode,
+        });
+      }
+      if (row.id && kind === 'quote') {
+        links.push({ type: 'QUOTE', label: row.quoteNumber, referenceId: row.id, referenceCode: row.quoteNumber });
+      }
+      if (row.id && kind === 'image') {
+        links.push({ type: 'PRODUCT', label: row.name || row.mikroCode, referenceId: row.id, referenceCode: row.mikroCode });
+      }
+      if (row.actionUrl) {
+        links.push({ type: 'PAGE', label: 'Aksiyon radari kaynagi', referenceUrl: row.actionUrl });
+      }
+
+      const titleByKind = {
+        quote: `Teklif takibi: ${row.quoteNumber || row.customerName || ''}`.trim(),
+        cart: `Terk sepet takibi: ${row.customerName || row.customerCode || ''}`.trim(),
+        image: `Urun gorseli yukle: ${row.mikroCode || row.name || ''}`.trim(),
+        visit: `Saha ziyareti: ${row.customerName || row.customerCode || ''}`.trim(),
+      };
+      const description = [
+        kind === 'cart' ? `Sepet bekleme: ${row.daysIdle || 0} gun, tutar: ${formatCurrency(row.totalAmount || 0)}` : null,
+        kind === 'quote' ? `Teklif sorunu: ${row.issue || '-'}, tutar: ${formatCurrency(row.grandTotal || 0)}` : null,
+        kind === 'image' ? `Eksik gorselli urun: ${row.mikroCode || '-'} ${row.name || ''}` : null,
+        kind === 'visit' ? `Onerilen aksiyon: ${row.suggestedAction || '-'}` : null,
+      ].filter(Boolean).join('\n');
+
+      await adminApi.createTask({
+        title: titleByKind[kind],
+        description,
+        type: 'REPORT',
+        status: 'NEW',
+        priority: kind === 'image' ? 'MEDIUM' : 'HIGH',
+        links,
+      });
+      toast.success('Gorev olusturuldu.');
+    });
+  };
 
   const topMetrics = useMemo(() => {
     if (!data) return [];
@@ -206,7 +290,20 @@ export default function ActionRadarPage() {
                   ['Durum', (r) => r.issue],
                   ['Tutar', (r) => <b>{formatCurrency(r.grandTotal)}</b>],
                   ['Vade', (r) => fmtDate(r.validityDate)],
-                  ['Islem', (r) => <ActionLink href={r.actionUrl}>Teklifi ac</ActionLink>],
+                  ['Islem', (r) => (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <ActionLink href={r.actionUrl}>Teklifi ac</ActionLink>
+                      <button
+                        type="button"
+                        style={actionBtn}
+                        disabled={busyAction === `task:quote:${r.id}`}
+                        onClick={() => handleCreateTask('quote', r)}
+                      >
+                        <ClipboardList size={12} />
+                        Gorev
+                      </button>
+                    </div>
+                  )],
                 ]}
               />
             </Section>
@@ -221,7 +318,29 @@ export default function ActionRadarPage() {
                   ['Kalem', (r) => r.itemCount],
                   ['Tutar', (r) => <b>{formatCurrency(r.totalAmount)}</b>],
                   ['Ilk urunler', (r) => (r.firstItems || []).map((i: any) => i.productName).join(', ')],
-                  ['Islem', (r) => <ActionLink href={r.actionUrl}>Sepeti ac</ActionLink>],
+                  ['Islem', (r) => (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <ActionLink href={r.actionUrl}>Sepeti ac</ActionLink>
+                      <button
+                        type="button"
+                        style={{ ...actionBtn, borderColor: '#fecaca', color: RED }}
+                        disabled={busyAction === `cart:${r.cartId}`}
+                        onClick={() => handleClearCart(r)}
+                      >
+                        <Trash2 size={12} />
+                        Temizle
+                      </button>
+                      <button
+                        type="button"
+                        style={actionBtn}
+                        disabled={busyAction === `task:cart:${r.cartId}`}
+                        onClick={() => handleCreateTask('cart', r)}
+                      >
+                        <ClipboardList size={12} />
+                        Gorev
+                      </button>
+                    </div>
+                  )],
                 ]}
               />
             </Section>
@@ -253,6 +372,30 @@ export default function ActionRadarPage() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <ActionLink href={r.actionUrl}>Urun</ActionLink>
                       <ActionLink href={r.imageIssueUrl}>Gorsel</ActionLink>
+                      <label style={{ ...actionBtn, margin: 0 }}>
+                        <Upload size={12} />
+                        Yukle
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          disabled={busyAction === `image:${r.id}`}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] || null;
+                            event.currentTarget.value = '';
+                            handleImageUpload(r, file);
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        style={actionBtn}
+                        disabled={busyAction === `task:image:${r.id}`}
+                        onClick={() => handleCreateTask('image', r)}
+                      >
+                        <ClipboardList size={12} />
+                        Gorev
+                      </button>
                     </div>
                   )],
                 ]}
@@ -298,6 +441,15 @@ export default function ActionRadarPage() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <ActionLink href={r.actionUrl}>Saha</ActionLink>
                       <ActionLink href={r.customer360Url}>360</ActionLink>
+                      <button
+                        type="button"
+                        style={actionBtn}
+                        disabled={busyAction === `task:visit:${r.customerId}`}
+                        onClick={() => handleCreateTask('visit', r)}
+                      >
+                        <ClipboardList size={12} />
+                        Gorev
+                      </button>
                     </div>
                   )],
                 ]}

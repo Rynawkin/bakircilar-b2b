@@ -1144,7 +1144,7 @@ export const adminApi = {
     customerId?: string;
     limit?: number;
     safeMode?: boolean;
-  }): Promise<{ products: any[] }> => {
+  }): Promise<{ products: any[]; source?: 'MIKRO' | 'LOCAL_CACHE'; warning?: any }> => {
     const response = await apiClient.get('/admin/field-sales/products', { params });
     return response.data;
   },
@@ -1152,7 +1152,7 @@ export const adminApi = {
   getFieldSalesProduct: async (
     productCode: string,
     params?: { customerId?: string; safeMode?: boolean }
-  ): Promise<{ success: boolean; data: { product: any } }> => {
+  ): Promise<{ success: boolean; data: { product: any }; source?: 'MIKRO' | 'LOCAL_CACHE'; warning?: any }> => {
     const response = await apiClient.get(`/admin/field-sales/products/${encodeURIComponent(productCode)}`, { params });
     return response.data;
   },
@@ -4975,6 +4975,8 @@ export const adminApi = {
     success: boolean;
     data: any[];
     total: number;
+    source?: 'MIKRO' | 'LOCAL_CACHE';
+    warning?: any;
   }> => {
     const response = await apiClient.get('/search/stocks', { params });
     return response.data;
@@ -4984,6 +4986,8 @@ export const adminApi = {
     success: boolean;
     data: any[];
     total: number;
+    source?: 'MIKRO' | 'LOCAL_CACHE';
+    warning?: any;
   }> => {
     const response = await apiClient.post('/search/stocks/by-codes', { codes });
     return response.data;

@@ -805,7 +805,7 @@ class EInvoiceService {
         take: limit,
         include: {
           uploadedBy: { select: { id: true, name: true } },
-          customer: { select: { id: true, name: true, displayName: true, mikroName: true, mikroCariCode: true } },
+          customer: { select: { id: true, name: true, displayName: true, mikroName: true, mikroCariCode: true, balance: true } },
         },
       }),
     ]);
@@ -832,9 +832,13 @@ class EInvoiceService {
         console.warn('E-fatura VKN fallback Mikro sorgusu basarisiz:', error);
       }
     }
+    const documentsWithBalance = enrichedDocuments.map((document: any) => ({
+      ...document,
+      customerBalance: document.customer?.balance ?? null,
+    }));
 
     return {
-      documents: enrichedDocuments,
+      documents: documentsWithBalance,
       pagination: {
         page,
         limit,

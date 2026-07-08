@@ -77,9 +77,8 @@ export const getCustomerColumns = async (req: Request, res: Response) => {
  *   - offset: Başlangıç noktası (varsayılan: 0)
  */
 export const searchStocks = async (req: Request, res: Response) => {
+  const { searchTerm, limit = 100, offset = 0 } = req.query;
   try {
-    const { searchTerm, limit = 100, offset = 0 } = req.query;
-
     const result = await stockF10Service.searchStocks({
       searchTerm: searchTerm as string,
       limit: parseInt(limit as string, 10),
@@ -89,11 +88,28 @@ export const searchStocks = async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: result,
-      total: result.length
+      total: result.length,
+      source: 'MIKRO',
     });
   } catch (error: any) {
-    console.error('Stok arama hatası:', error);
-    res.status(500).json({ message: 'Stok araması yapılamadı', error: error.message });
+    console.error('Stok arama hatasi:', error);
+    const fallback = await stockF10Service.searchFallbackStocks({
+      searchTerm: searchTerm as string,
+      limit: parseInt(limit as string, 10),
+      offset: parseInt(offset as string, 10),
+    });
+    return res.json({
+      success: true,
+      data: fallback,
+      total: fallback.length,
+      source: 'LOCAL_CACHE',
+      warning: {
+        type: 'MIKRO_FALLBACK',
+        message: 'Canli Mikro stok aramasi alinamadi; gecici olarak son bilinen B2B urun verisi gosteriliyor.',
+        searchTerm: searchTerm || null,
+        originalError: error?.message || null,
+      },
+    });
   }
 };
 
@@ -127,8 +143,25 @@ export const getStocksByCodes = async (req: Request, res: Response) => {
       source: 'MIKRO',
     });
   } catch (error: any) {
-    console.error('Stok kodlarÄ± getirilirken hata:', error);
-    res.status(500).json({ message: 'Stok kodlarÄ± alÄ±namadÄ±', error: error.message });
+    console.error('Stok kodlari getirilirken hata:', error);
+    const { codes } = req.body as { codes?: string[] };
+    const normalizedCodes = normalizeCodes(codes);
+    const fallback = await stockF10Service.getFallbackStocksByCodes(normalizedCodes);
+    const returnedCodes = new Set(fallback.map((row: any) => String(row?.msg_S_0078 || '').trim()));
+    const missingCodes = normalizedCodes.filter((code) => !returnedCodes.has(code));
+    return res.json({
+      success: true,
+      data: fallback,
+      total: fallback.length,
+      source: 'LOCAL_CACHE',
+      warning: {
+        type: 'MIKRO_FALLBACK',
+        message: 'Canli Mikro stok kodu verisi alinamadi; gecici olarak son bilinen B2B urun verisi gosteriliyor.',
+        requestedCodes: normalizedCodes,
+        missingCodes,
+        originalError: error?.message || null,
+      },
+    });
   }
 };
 

@@ -7,6 +7,7 @@
 import { Request, Response } from 'express';
 import orderTrackingService from '../services/order-tracking.service';
 import emailService from '../services/email.service';
+import auditLogService from '../services/audit-log.service';
 
 const buildStaffScope = (req: Request) => ({
   role: req.user?.role || null,
@@ -180,10 +181,70 @@ class OrderTrackingController {
         scope: buildStaffScope(req),
       });
 
+      await auditLogService.fromRequest(req, {
+        action: 'ORDER_TRACKING_CLOSE_REMAINING',
+        entityType: orderType === 'supplier' ? 'SUPPLIER_ORDER' : 'CUSTOMER_ORDER',
+        entityCode: mikroOrderNumber,
+        summary:
+          orderType === 'supplier'
+            ? 'Tedarikci siparisindeki kalan acik miktarlar kapatildi'
+            : 'Musteri siparisindeki kalan acik miktarlar kapatildi',
+        metadata: {
+          orderType,
+          lineNumbers: lineNumbers || null,
+          closedLineCount: result.closedLineCount,
+          message: result.message,
+        },
+      });
+
       res.json(result);
     } catch (error: any) {
       console.error('Siparis kalan kapatma hatasi:', error);
       res.status(error.statusCode || 500).json({ error: error.message || 'Siparis kapatilamadi' });
+    }
+  }
+
+  /**
+   * PATCH /api/admin/order-tracking/orders/:mikroOrderNumber/line-quantity
+   * Siparis satirinin toplam miktarini teslim edilen miktarin altina dusmeden gunceller.
+   */
+  async updateOrderLineQuantity(req: Request, res: Response) {
+    try {
+      const { mikroOrderNumber } = req.params;
+      const orderType = req.body?.orderType === 'supplier' ? 'supplier' : 'customer';
+      const lineNumber = Number(req.body?.lineNumber);
+      const quantity = Number(req.body?.quantity);
+
+      const result = await orderTrackingService.updateLineQuantity({
+        mikroOrderNumber,
+        orderType,
+        lineNumber,
+        quantity,
+        scope: buildStaffScope(req),
+      });
+
+      await auditLogService.fromRequest(req, {
+        action: 'ORDER_TRACKING_UPDATE_LINE_QUANTITY',
+        entityType: orderType === 'supplier' ? 'SUPPLIER_ORDER' : 'CUSTOMER_ORDER',
+        entityCode: mikroOrderNumber,
+        summary:
+          orderType === 'supplier'
+            ? 'Tedarikci siparis satir miktari guncellendi'
+            : 'Musteri siparis satir miktari guncellendi',
+        metadata: {
+          orderType,
+          lineNumber,
+          previousQuantity: result.previousQuantity,
+          newQuantity: result.newQuantity,
+          deliveredQty: result.deliveredQty,
+          remainingQty: result.remainingQty,
+        },
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Siparis satir miktar guncelleme hatasi:', error);
+      res.status(error.statusCode || 500).json({ error: error.message || 'Siparis satir miktari guncellenemedi' });
     }
   }
 
