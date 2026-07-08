@@ -28,19 +28,85 @@ export type BrowserPushResult = {
   reason?: string;
 };
 
+type LocalBrowserNotification = {
+  title: string;
+  body?: string;
+  linkUrl?: string;
+};
+
 export const browserPushReasonLabel = (reason?: string) => {
   if (reason === 'unsupported') return 'Bu tarayici web bildirimlerini desteklemiyor.';
   if (reason === 'missing-key') return 'Bildirim anahtari bulunamadi. Sistem ayarlari kontrol edilmeli.';
   if (reason === 'denied') return 'Tarayici bildirim izni engellenmis. Site izinlerinden tekrar acilmali.';
   if (reason === 'default') return 'Bildirim izni verilmedi.';
   if (reason === 'server') return 'Bildirimler sadece tarayicida acilabilir.';
+  if (reason === 'test-failed') return 'Bildirim acildi, ancak test bildirimi sunucudan gonderilemedi.';
   return 'Tarayici bildirimi acilamadi.';
+};
+
+const showLocalBrowserNotification = async (
+  registration: ServiceWorkerRegistration,
+  notification?: LocalBrowserNotification
+) => {
+  if (!notification || typeof window === 'undefined' || Notification.permission !== 'granted') return;
+
+  const title = notification.title || 'Bakircilar B2B';
+  const options: NotificationOptions & { renotify?: boolean } = {
+    body: notification.body || 'Tarayici bildirimleri acildi.',
+    icon: '/favicon.png',
+    badge: '/favicon.png',
+    data: { url: notification.linkUrl || '/' },
+    tag: 'bakircilar-b2b-browser-push-test',
+    renotify: true,
+  };
+
+  if (registration?.showNotification) {
+    try {
+      await registration.showNotification(title, options);
+      return;
+    } catch (error) {
+      console.error('Service worker notification preview failed:', error);
+    }
+  }
+
+  const fallback = new Notification(title, options);
+  fallback.onclick = () => {
+    const target = notification.linkUrl || '/';
+    window.focus();
+    if (target) window.location.assign(target);
+  };
+};
+
+const waitForActiveRegistration = async (registration: ServiceWorkerRegistration) => {
+  if (registration.active) return registration;
+
+  const worker = registration.installing || registration.waiting;
+  if (!worker) return navigator.serviceWorker.ready;
+
+  await new Promise<void>((resolve) => {
+    const timeout = window.setTimeout(resolve, 5000);
+    const done = () => resolve();
+    if (worker.state === 'activated') {
+      window.clearTimeout(timeout);
+      done();
+      return;
+    }
+    worker.addEventListener('statechange', () => {
+      if (worker.state === 'activated' || worker.state === 'redundant') {
+        window.clearTimeout(timeout);
+        done();
+      }
+    });
+  });
+
+  return registration.active ? registration : navigator.serviceWorker.ready;
 };
 
 export async function registerBrowserPush(options: {
   getPublicKey: () => Promise<string | null | undefined>;
   registerSubscription: (subscription: PushSubscriptionJSON) => Promise<unknown>;
   afterRegister?: () => Promise<unknown>;
+  localTestNotification?: LocalBrowserNotification;
 }): Promise<BrowserPushResult> {
   if (typeof window === 'undefined') return { enabled: false, reason: 'server' };
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
@@ -59,13 +125,15 @@ export async function registerBrowserPush(options: {
       [item.active, item.waiting, item.installing].some((worker) => worker?.scriptURL?.endsWith('/web-push-sw.js'))
     ) || (await navigator.serviceWorker.register('/web-push-sw.js', { scope: '/' }));
 
+  const readyRegistration = await waitForActiveRegistration(registration);
+
   try {
-    await registration.update();
+    await readyRegistration.update();
   } catch {
     // Eski tarayicilarda update hatasi abonelik kurulumunu engellemesin.
   }
 
-  const pushRegistration = registration;
+  const pushRegistration = readyRegistration;
 
   const expectedKey = publicKey.replace(/=+$/g, '');
   let existing = await pushRegistration.pushManager.getSubscription();
@@ -83,8 +151,21 @@ export async function registerBrowserPush(options: {
     }));
 
   await options.registerSubscription(subscription.toJSON());
+  let afterRegisterFailed = false;
   if (options.afterRegister) {
-    await options.afterRegister();
+    try {
+      await options.afterRegister();
+    } catch (error) {
+      afterRegisterFailed = true;
+      console.error('Browser push test dispatch failed:', error);
+    }
   }
-  return { enabled: true };
+
+  try {
+    await showLocalBrowserNotification(pushRegistration, options.localTestNotification);
+  } catch (error) {
+    console.error('Local browser push preview failed:', error);
+  }
+
+  return { enabled: true, reason: afterRegisterFailed ? 'test-failed' : undefined };
 }
