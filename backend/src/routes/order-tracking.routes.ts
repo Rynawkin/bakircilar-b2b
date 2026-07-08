@@ -29,6 +29,7 @@ router.get('/admin/pending-orders', authenticate, requirePermission('admin:order
 router.get('/admin/summary', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getCustomerSummary);
 router.get('/admin/supplier-summary', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getSupplierSummary);
 router.get('/admin/email-logs', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getEmailLogs);
+router.post('/admin/orders/:mikroOrderNumber/close-remaining', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.closeRemainingOrderLines);
 router.get('/admin/warehouse/overview', authenticate, requireAnyPermission(['admin:order-tracking', 'admin:warehouse-kiosk']), warehouseWorkflowController.getOverview);
 router.get('/admin/warehouse/dispatch-catalog', authenticate, requireAnyPermission(['admin:order-tracking', 'admin:warehouse-kiosk']), warehouseWorkflowController.getDispatchCatalog);
 router.get('/admin/warehouse/dispatch-catalog/admin', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getDispatchCatalogAdmin);

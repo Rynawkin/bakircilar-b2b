@@ -75,12 +75,64 @@ type StaffScope = {
   assignedSectorCodes?: string[] | null;
 };
 
+type CloseOrderType = 'customer' | 'supplier';
+
+type CloseRemainingInput = {
+  mikroOrderNumber: string;
+  orderType?: CloseOrderType;
+  lineNumbers?: number[];
+  scope?: StaffScope;
+};
+
+type CloseRemainingResult = {
+  success: boolean;
+  mikroOrderNumber: string;
+  orderType: CloseOrderType;
+  closedLineCount: number;
+  message: string;
+};
+
 const toNumber = (value: unknown): number => {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
 };
 
 const normalizeCode = (value: unknown): string => String(value || '').trim();
+
+const escapeSqlString = (value: unknown): string => String(value || '').replace(/'/g, "''");
+
+const parseMikroOrderNumber = (mikroOrderNumber: string): { series: string; sequence: number } => {
+  const value = normalizeCode(mikroOrderNumber);
+  const match = value.match(/^(.*)-(\d+)$/);
+  if (!match) {
+    throw new Error('Siparis numarasi gecersiz.');
+  }
+
+  const series = match[1].trim();
+  const sequence = Number(match[2]);
+  if (!series || !Number.isFinite(sequence)) {
+    throw new Error('Siparis numarasi gecersiz.');
+  }
+
+  return { series, sequence };
+};
+
+const normalizeLineNumbers = (lineNumbers?: number[]): number[] => {
+  if (!Array.isArray(lineNumbers)) return [];
+  return Array.from(
+    new Set(
+      lineNumbers
+        .map((line) => Number(line))
+        .filter((line) => Number.isInteger(line) && line >= 0)
+    )
+  );
+};
+
+const httpError = (message: string, statusCode: number) => {
+  const error: any = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
 
 const resolveWarehouseStockValue = (warehouseStocks: unknown, warehouseCode: string): number => {
   const target = normalizeCode(warehouseCode);
@@ -1025,6 +1077,159 @@ class OrderTrackingService {
     }
 
     return Array.from(summary.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  async closeRemainingLines(input: CloseRemainingInput): Promise<CloseRemainingResult> {
+    const mikroOrderNumber = normalizeCode(input.mikroOrderNumber);
+    if (!mikroOrderNumber) {
+      throw httpError('Siparis numarasi gerekli.', 400);
+    }
+
+    const orderType: CloseOrderType = input.orderType === 'supplier' ? 'supplier' : 'customer';
+    const requestedLineNumbers = normalizeLineNumbers(input.lineNumbers);
+    const orderTypeNo = orderType === 'supplier' ? 1 : 0;
+
+    if (orderType === 'supplier' && input.scope?.role === 'SALES_REP') {
+      throw httpError('Satis temsilcileri tedarikci siparislerini kapatamaz.', 403);
+    }
+
+    let series: string;
+    let sequence: number;
+    let cacheOrder:
+      | {
+          id: string;
+          orderSeries: string;
+          orderSequence: number;
+          sectorCode: string | null;
+          items: any;
+        }
+      | null = null;
+
+    if (orderType === 'customer') {
+      cacheOrder = await prisma.pendingMikroOrder.findUnique({
+        where: { mikroOrderNumber },
+        select: {
+          id: true,
+          orderSeries: true,
+          orderSequence: true,
+          sectorCode: true,
+          items: true,
+        },
+      });
+
+      if (!cacheOrder) {
+        throw httpError('Bekleyen siparis bulunamadi. Once listeyi sync edin.', 404);
+      }
+
+      if (input.scope?.role === 'SALES_REP') {
+        const assigned = (input.scope.assignedSectorCodes || [])
+          .map((code) => normalizeCode(code).toLocaleUpperCase('tr-TR'))
+          .filter(Boolean);
+        const orderSector = normalizeCode(cacheOrder.sectorCode).toLocaleUpperCase('tr-TR');
+        if (!orderSector || !assigned.includes(orderSector)) {
+          throw httpError('Bu siparisi kapatma yetkiniz yok.', 403);
+        }
+      }
+
+      series = cacheOrder.orderSeries;
+      sequence = cacheOrder.orderSequence;
+    } else {
+      const parsed = parseMikroOrderNumber(mikroOrderNumber);
+      series = parsed.series;
+      sequence = parsed.sequence;
+    }
+
+    const safeSeries = escapeSqlString(series);
+    const requestedLineCondition = requestedLineNumbers.length
+      ? `AND s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_NO} IN (${requestedLineNumbers.join(',')})`
+      : '';
+
+    const targetRows = await mikroService.executeQuery(`
+      SELECT
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_NO} as rowNumber,
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE} as productCode,
+        ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY}, 0) as quantity,
+        ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0) as deliveredQty,
+        (ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY}, 0) - ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0)) as remainingQty
+      FROM ${MIKRO_TABLES.ORDERS} s WITH (NOLOCK)
+      WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} = '${safeSeries}'
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} = ${sequence}
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = ${orderTypeNo}
+        AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED}, 0) = 0
+        AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED}, 0) = 0
+        AND (ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY}, 0) - ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0)) > 0
+        ${requestedLineCondition}
+      ORDER BY s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_NO}
+    `);
+
+    const targetLineNumbers = Array.from(
+      new Set((targetRows || []).map((row) => Number(row.rowNumber)).filter((row) => Number.isInteger(row) && row >= 0))
+    );
+
+    if (targetLineNumbers.length === 0) {
+      throw httpError('Kapatilacak acik satir bulunamadi.', 400);
+    }
+
+    if (requestedLineNumbers.length > 0 && targetLineNumbers.length !== requestedLineNumbers.length) {
+      throw httpError('Secilen satirlardan bazilari acik degil veya bulunamadi.', 400);
+    }
+
+    const updateRows = await mikroService.executeQuery(`
+      UPDATE s
+      SET
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = 1,
+        s.sip_lastup_date = GETDATE()
+      FROM ${MIKRO_TABLES.ORDERS} s
+      WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} = '${safeSeries}'
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} = ${sequence}
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = ${orderTypeNo}
+        AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED}, 0) = 0
+        AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED}, 0) = 0
+        AND (ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY}, 0) - ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0)) > 0
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_NO} IN (${targetLineNumbers.join(',')});
+
+      SELECT @@ROWCOUNT as affected;
+    `);
+
+    const affected = Number(updateRows?.[0]?.affected || 0);
+    if (affected !== targetLineNumbers.length) {
+      throw httpError('Mikro kapatma islemi dogrulanamadi. Listeyi yenileyip tekrar deneyin.', 500);
+    }
+
+    if (orderType === 'customer' && cacheOrder) {
+      const closedSet = new Set(targetLineNumbers);
+      const existingItems = Array.isArray(cacheOrder.items) ? (cacheOrder.items as any[]) : [];
+      const remainingItems = existingItems.filter((item) => !closedSet.has(Number(item?.rowNumber)));
+
+      if (remainingItems.length === 0) {
+        await prisma.pendingMikroOrder.delete({ where: { id: cacheOrder.id } });
+      } else {
+        const totalAmount = remainingItems.reduce((sum, item) => sum + Math.max(toNumber(item?.lineTotal), 0), 0);
+        const totalVAT = remainingItems.reduce((sum, item) => sum + Math.max(toNumber(item?.vat), 0), 0);
+        await prisma.pendingMikroOrder.update({
+          where: { id: cacheOrder.id },
+          data: {
+            items: remainingItems as any,
+            itemCount: remainingItems.length,
+            totalAmount,
+            totalVAT,
+            grandTotal: totalAmount + totalVAT,
+            syncedAt: new Date(),
+          },
+        });
+      }
+    }
+
+    return {
+      success: true,
+      mikroOrderNumber,
+      orderType,
+      closedLineCount: targetLineNumbers.length,
+      message:
+        targetLineNumbers.length === 1
+          ? 'Siparis satirinin kalan miktari kapatildi.'
+          : `${targetLineNumbers.length} siparis satirinin kalan miktari kapatildi.`,
+    };
   }
 
   async markSupplierTransmitted(params: {

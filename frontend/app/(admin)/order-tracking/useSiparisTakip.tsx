@@ -27,6 +27,7 @@ export interface OrderItem {
   productCode: string;
   productName: string;
   unit: string;
+  rowNumber?: number | null;
   warehouseCode?: string | null;
   warehouseStocks?: {
     merkez: number;
@@ -138,6 +139,7 @@ export function useSiparisTakip() {
   const [selectedCustomerCodes, setSelectedCustomerCodes] = useState<Set<string>>(new Set());
   const [selectedSupplierCodes, setSelectedSupplierCodes] = useState<Set<string>>(new Set());
   const [markingSupplierTransmission, setMarkingSupplierTransmission] = useState<string | null>(null);
+  const [closingOrderTarget, setClosingOrderTarget] = useState<string | null>(null);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [emailOverrides, setEmailOverrides] = useState<Record<string, string>>({});
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -1403,6 +1405,52 @@ export function useSiparisTakip() {
     }
   };
 
+  const handleCloseRemaining = (
+    order: OrderDetail,
+    orderType: 'customer' | 'supplier',
+    item?: OrderItem
+  ) => {
+    const isLineClose = Boolean(item);
+    const lineNumber = item?.rowNumber;
+
+    if (isLineClose && (lineNumber === null || lineNumber === undefined || !Number.isFinite(Number(lineNumber)))) {
+      toast.error('Satir numarasi bulunamadi. Listeyi sync edip tekrar deneyin.');
+      return;
+    }
+
+    const targetKey = isLineClose
+      ? `${order.mikroOrderNumber}:${lineNumber}`
+      : `${order.mikroOrderNumber}:ORDER`;
+    const lineNumbers = isLineClose ? [Number(lineNumber)] : undefined;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: isLineClose ? 'Satir kalanini kapat' : 'Siparis kalanlarini kapat',
+      message: isLineClose
+        ? `${order.mikroOrderNumber} siparisinde ${item?.productCode} satirinin kalan miktari kapatilacak. Teslim miktari degismeyecek, sadece kalan acik miktar kapanacak. Onayliyor musunuz?`
+        : `${order.mikroOrderNumber} siparisindeki tum acik satirlarin kalan miktari kapatilacak. Teslim miktarlari degismeyecek. Onayliyor musunuz?`,
+      type: 'warning',
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        setClosingOrderTarget(targetKey);
+        try {
+          const response = await apiClient.post(
+            `/order-tracking/admin/orders/${encodeURIComponent(order.mikroOrderNumber)}/close-remaining`,
+            {
+              orderType,
+              ...(lineNumbers ? { lineNumbers } : {}),
+            }
+          );
+          toast.success(response.data?.message || 'Kalan siparis kapatildi.');
+          await fetchData();
+        } catch (error: any) {
+          toast.error(error?.response?.data?.error || 'Kalan siparis kapatilamadi.');
+        } finally {
+          setClosingOrderTarget(null);
+        }
+      },
+    });
+  };
 
   // Cron schedule'ı kullanıcı dostu formatta göster
   const formatSchedule = (cronString: string) => {
@@ -1497,6 +1545,7 @@ export function useSiparisTakip() {
     selectedCustomerCodes,
     selectedSupplierCodes,
     markingSupplierTransmission,
+    closingOrderTarget,
     expandedCustomers,
     emailOverrides,
     setEmailOverrides,
@@ -1526,6 +1575,7 @@ export function useSiparisTakip() {
     handleDownloadSupplierPdf,
     handleDownloadSupplierExcel,
     handleMarkSupplierTransmitted,
+    handleCloseRemaining,
     // formatters & helpers (JSX'te kullanilanlar)
     formatCurrency,
     formatDate,

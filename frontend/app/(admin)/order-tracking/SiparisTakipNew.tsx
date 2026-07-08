@@ -59,6 +59,7 @@ export default function SiparisTakipNew() {
     selectedCustomerCodes,
     selectedSupplierCodes,
     markingSupplierTransmission,
+    closingOrderTarget,
     expandedCustomers,
     emailOverrides,
     setEmailOverrides,
@@ -90,6 +91,7 @@ export default function SiparisTakipNew() {
     handleDownloadSupplierPdf,
     handleDownloadSupplierExcel,
     handleMarkSupplierTransmitted,
+    handleCloseRemaining,
     formatCurrency,
     formatDate,
     formatDateTime,
@@ -800,6 +802,20 @@ export default function SiparisTakipNew() {
                             <span className="ml-auto text-[14px] font-semibold text-[#14223b]">
                               {formatCurrency(order.grandTotal)}
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCloseRemaining(order, isSupplierTab ? 'supplier' : 'customer')}
+                              disabled={
+                                closingOrderTarget === `${order.mikroOrderNumber}:ORDER` ||
+                                !order.items.some((item) => item.remainingQty > 0)
+                              }
+                              className="inline-flex items-center gap-1 rounded-lg border border-[#fecaca] bg-[#fef2f2] px-2.5 py-1.5 text-[11px] font-semibold text-[#b91c1c] hover:bg-[#fee2e2] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <X width={12} height={12} stroke="currentColor" strokeWidth={2.4} />
+                              {closingOrderTarget === `${order.mikroOrderNumber}:ORDER`
+                                ? 'Kapatiliyor'
+                                : 'Tum Kalanlari Kapat'}
+                            </button>
                           </div>
 
                           {/* Kalem tablosu */}
@@ -819,6 +835,7 @@ export default function SiparisTakipNew() {
                                   )}
                                   <th className="px-2.5 py-2 font-semibold text-right">Birim Fiyat</th>
                                   <th className="px-2.5 py-2 font-semibold text-right">Kalan Tutar</th>
+                                  <th className="px-2.5 py-2 font-semibold text-center">Islem</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -922,6 +939,24 @@ export default function SiparisTakipNew() {
                                         }`}
                                       >
                                         {formatCurrency(item.lineTotal)}
+                                      </td>
+                                      <td className="px-2.5 py-2 align-top text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleCloseRemaining(order, isSupplierTab ? 'supplier' : 'customer', item)
+                                          }
+                                          disabled={
+                                            isFullyDelivered ||
+                                            closingOrderTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
+                                          }
+                                          className="inline-flex items-center justify-center gap-1 rounded-md border border-[#fecaca] bg-white px-2 py-1 text-[10.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:cursor-not-allowed disabled:opacity-45"
+                                        >
+                                          <X width={10} height={10} stroke="currentColor" strokeWidth={2.4} />
+                                          {closingOrderTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
+                                            ? 'Kapatiliyor'
+                                            : 'Kapat'}
+                                        </button>
                                       </td>
                                     </tr>
                                   );

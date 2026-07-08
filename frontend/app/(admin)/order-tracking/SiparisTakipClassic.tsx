@@ -37,6 +37,7 @@ export default function SiparisTakipClassic() {
     selectedCustomerCodes,
     selectedSupplierCodes,
     markingSupplierTransmission,
+    closingOrderTarget,
     expandedCustomers,
     emailOverrides,
     setEmailOverrides,
@@ -68,6 +69,7 @@ export default function SiparisTakipClassic() {
     handleDownloadSupplierPdf,
     handleDownloadSupplierExcel,
     handleMarkSupplierTransmitted,
+    handleCloseRemaining,
     formatCurrency,
     formatDate,
     formatDateTime,
@@ -871,6 +873,19 @@ export default function SiparisTakipClassic() {
                                     <div className="text-lg font-bold text-primary-600">
                                       {formatCurrency(order.grandTotal)}
                                     </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCloseRemaining(order, isSupplierTab ? 'supplier' : 'customer')}
+                                      disabled={
+                                        closingOrderTarget === `${order.mikroOrderNumber}:ORDER` ||
+                                        !order.items.some((item) => item.remainingQty > 0)
+                                      }
+                                      className="mt-2 inline-flex items-center justify-center rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {closingOrderTarget === `${order.mikroOrderNumber}:ORDER`
+                                        ? 'Kapatiliyor'
+                                        : 'Tum kalanlari kapat'}
+                                    </button>
                                   </div>
                                 </div>
 
@@ -904,6 +919,9 @@ export default function SiparisTakipClassic() {
                                         </th>
                                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">
                                           Kalan Tutar
+                                        </th>
+                                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-600">
+                                          Islem
                                         </th>
                                       </tr>
                                     </thead>
@@ -985,6 +1003,23 @@ export default function SiparisTakipClassic() {
                                             </td>
                                             <td className={`px-3 py-2 text-right font-semibold ${isFullyDelivered ? 'text-gray-500' : 'text-gray-900'}`}>
                                               {formatCurrency(item.lineTotal)}
+                                            </td>
+                                            <td className="px-3 py-2 text-center">
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  handleCloseRemaining(order, isSupplierTab ? 'supplier' : 'customer', item)
+                                                }
+                                                disabled={
+                                                  isFullyDelivered ||
+                                                  closingOrderTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
+                                                }
+                                                className="inline-flex items-center justify-center rounded border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                              >
+                                                {closingOrderTarget === `${order.mikroOrderNumber}:${item.rowNumber}`
+                                                  ? 'Kapatiliyor'
+                                                  : 'Kapat'}
+                                              </button>
                                             </td>
                                           </tr>
                                         );

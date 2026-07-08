@@ -164,6 +164,30 @@ class OrderTrackingController {
   }
 
   /**
+   * POST /api/admin/order-tracking/orders/:mikroOrderNumber/close-remaining
+   * Siparisin tamaminda veya secili satirlarinda kalan miktari kapatir.
+   */
+  async closeRemainingOrderLines(req: Request, res: Response) {
+    try {
+      const { mikroOrderNumber } = req.params;
+      const lineNumbers = Array.isArray(req.body?.lineNumbers) ? req.body.lineNumbers : undefined;
+      const orderType = req.body?.orderType === 'supplier' ? 'supplier' : 'customer';
+
+      const result = await orderTrackingService.closeRemainingLines({
+        mikroOrderNumber,
+        orderType,
+        lineNumbers,
+        scope: buildStaffScope(req),
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Siparis kalan kapatma hatasi:', error);
+      res.status(error.statusCode || 500).json({ error: error.message || 'Siparis kapatilamadi' });
+    }
+  }
+
+  /**
    * POST /api/admin/order-tracking/send-email/:customerCode
    * Belirli bir müşteriye mail gönder
    * Body: { emailOverride?: string } - Opsiyonel email override
