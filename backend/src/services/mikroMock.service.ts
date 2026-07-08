@@ -561,6 +561,10 @@ export class MikroMockService {
     return null;
   }
 
+  async getCustomerTaxNumbersByCodes(_cariCodes: string[]): Promise<Record<string, string>> {
+    return {};
+  }
+
   async getInvoiceTotalsByEvrak(_evrakSeri: string, _evrakSira: number): Promise<{
     subtotal?: number | null;
     total?: number | null;

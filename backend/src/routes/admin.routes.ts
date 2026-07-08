@@ -391,8 +391,8 @@ router.post(
   adminController.getComplementRecommendations
 );
 
-// Brands - Admin/Manager
-router.get('/brands', requirePermission('admin:price-rules'), adminController.getBrands);
+// Brands - customer editors need this list for price-list rules.
+router.get('/brands', requireAnyPermission(['admin:price-rules', 'admin:customers']), adminController.getBrands);
 
 const updateCustomerSchema = z.object({
   email: z.string().optional(),
@@ -465,11 +465,47 @@ const customerPriceListRulesSchema = z.object({
   ),
 });
 
+const priceRuleBrandTemplateSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional().nullable(),
+  brandCodes: z.array(z.string()).min(1),
+  active: z.boolean().optional(),
+});
+
+const priceRuleBrandTemplateUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
+  brandCodes: z.array(z.string()).min(1).optional(),
+  active: z.boolean().optional(),
+});
+
 
 // Customers - Staff for GET (filtered by sector), ADMIN/MANAGER for POST/PUT
 router.get('/customers', requirePermission('admin:customers'), adminController.getCustomers);
 router.post('/customers', requirePermission('admin:customers'), validateBody(createCustomerSchema), adminController.createCustomer);
 router.put('/customers/:id', requirePermission('admin:customers'), validateBody(updateCustomerSchema), adminController.updateCustomer);
+router.get(
+  '/price-rule-brand-templates',
+  requireAnyPermission(['admin:price-rules', 'admin:customers']),
+  adminController.getPriceRuleBrandTemplates
+);
+router.post(
+  '/price-rule-brand-templates',
+  requirePermission('admin:price-rules'),
+  validateBody(priceRuleBrandTemplateSchema),
+  adminController.createPriceRuleBrandTemplate
+);
+router.put(
+  '/price-rule-brand-templates/:id',
+  requirePermission('admin:price-rules'),
+  validateBody(priceRuleBrandTemplateUpdateSchema),
+  adminController.updatePriceRuleBrandTemplate
+);
+router.delete(
+  '/price-rule-brand-templates/:id',
+  requirePermission('admin:price-rules'),
+  adminController.deletePriceRuleBrandTemplate
+);
 // Fiyat listesi onerisi: motoru elle tetikle + musteri bazli manuel override (null = temizle)
 router.post('/price-list-suggestions/run', requirePermission('admin:customers'), adminController.runPriceListSuggestions);
 router.put('/customers/:id/price-list-suggestion', requirePermission('admin:customers'), adminController.setCustomerPriceListSuggestion);

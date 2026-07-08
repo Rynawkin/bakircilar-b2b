@@ -3256,6 +3256,46 @@ class MikroService {
     };
   }
 
+  async getCustomerTaxNumbersByCodes(cariCodes: string[]): Promise<Record<string, string>> {
+    const codes = Array.from(new Set(
+      cariCodes
+        .map((code) => String(code || '').trim())
+        .filter(Boolean)
+    ));
+
+    if (codes.length === 0) {
+      return {};
+    }
+
+    await this.connect();
+
+    const request = this.pool!.request();
+    const placeholders = codes.map((code, index) => {
+      const paramName = `code${index}`;
+      request.input(paramName, sql.NVarChar(50), code);
+      return `@${paramName}`;
+    });
+
+    const result = await request.query(`
+      SELECT
+        LTRIM(RTRIM(cari_kod)) AS cariCode,
+        NULLIF(LTRIM(RTRIM(COALESCE(NULLIF(cari_vdaire_no, ''), NULLIF(cari_VergiKimlikNo, '')))), '') AS taxNo
+      FROM CARI_HESAPLAR WITH (NOLOCK)
+      WHERE cari_kod IN (${placeholders.join(', ')})
+    `);
+
+    const taxByCode: Record<string, string> = {};
+    for (const row of result.recordset as Array<{ cariCode?: string; taxNo?: string }>) {
+      const code = String(row.cariCode || '').trim();
+      const taxNo = String(row.taxNo || '').trim();
+      if (code && taxNo) {
+        taxByCode[code] = taxNo;
+      }
+    }
+
+    return taxByCode;
+  }
+
   /**
    * Cari hareketlerden fatura tutarlarini getir
    */
@@ -3466,4 +3506,3 @@ class MikroService {
 }
 
 export default new MikroService();
-

@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
-import { Category, Customer, CustomerContact, CustomerPriceListRule } from '@/types';
+import { Category, Customer, CustomerContact, CustomerPriceListRule, PriceRuleBrandTemplate } from '@/types';
 import { CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
 import { formatCurrency } from '@/lib/utils/format';
 
@@ -106,7 +106,27 @@ export function CustomerEditModal({
   const [rulesLoading, setRulesLoading] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
+  const [brandTemplates, setBrandTemplates] = useState<PriceRuleBrandTemplate[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [templateApplyForm, setTemplateApplyForm] = useState({
+    templateId: '',
+    invoicedPriceListNo: '6',
+    whitePriceListNo: '1',
+  });
+  const [templateDraft, setTemplateDraft] = useState<{
+    id: string | null;
+    name: string;
+    description: string;
+    brandCodes: string[];
+  }>({
+    id: null,
+    name: '',
+    description: '',
+    brandCodes: [],
+  });
+  const [templateBrandInput, setTemplateBrandInput] = useState('');
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateDeletingId, setTemplateDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
       if (customer) {
@@ -148,6 +168,11 @@ export function CustomerEditModal({
     setResetCredentials({});
     setResettingSubUserId(null);
     setDeletingSubUserId(null);
+    setTemplateApplyForm({ templateId: '', invoicedPriceListNo: '6', whitePriceListNo: '1' });
+    setTemplateDraft({ id: null, name: '', description: '', brandCodes: [] });
+    setTemplateBrandInput('');
+    setTemplateSaving(false);
+    setTemplateDeletingId(null);
     const loadContacts = async () => {
       setContactsLoading(true);
       try {
@@ -207,22 +232,24 @@ export function CustomerEditModal({
 
   useEffect(() => {
     if (!isOpen || !canEditFields) return;
-    if (categories.length > 0 && brands.length > 0) return;
+    if (categories.length > 0 && brands.length > 0 && brandTemplates.length > 0) return;
     setCatalogLoading(true);
     Promise.all([
       adminApi.getCategories(),
       adminApi.getBrands(),
+      adminApi.getPriceRuleBrandTemplates(),
     ])
-      .then(([categoriesResult, brandsResult]) => {
+      .then(([categoriesResult, brandsResult, templatesResult]) => {
         setCategories(categoriesResult.categories || []);
         setBrands(brandsResult.brands || []);
+        setBrandTemplates(templatesResult.templates || []);
       })
       .catch((error) => {
-        console.error('Marka/kategori listesi yuklenemedi:', error);
-        toast.error('Marka/kategori listesi yuklenemedi.');
+        console.error('Marka/kategori/sablon listesi yuklenemedi:', error);
+        toast.error('Marka/kategori/sablon listesi yuklenemedi.');
       })
       .finally(() => setCatalogLoading(false));
-  }, [isOpen, canEditFields, categories.length, brands.length]);
+  }, [isOpen, canEditFields, categories.length, brands.length, brandTemplates.length]);
 
   const resetContactForm = () => {
     setContactForm({ name: '', phone: '', email: '' });
@@ -252,6 +279,168 @@ export function CustomerEditModal({
 
   const removePriceListRule = (index: number) => {
     setPriceListRules((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const resetTemplateDraft = () => {
+    setTemplateDraft({ id: null, name: '', description: '', brandCodes: [] });
+    setTemplateBrandInput('');
+  };
+
+  const addTemplateDraftBrand = () => {
+    const brandCode = templateBrandInput.trim();
+    if (!brandCode) return;
+    setTemplateDraft((prev) => {
+      if (prev.brandCodes.some((brand) => brand.toLocaleLowerCase('tr') === brandCode.toLocaleLowerCase('tr'))) {
+        return prev;
+      }
+      return {
+        ...prev,
+        brandCodes: [...prev.brandCodes, brandCode].sort((a, b) => a.localeCompare(b, 'tr')),
+      };
+    });
+    setTemplateBrandInput('');
+  };
+
+  const removeTemplateDraftBrand = (brandCode: string) => {
+    setTemplateDraft((prev) => ({
+      ...prev,
+      brandCodes: prev.brandCodes.filter((brand) => brand !== brandCode),
+    }));
+  };
+
+  const editTemplateDraft = (template: PriceRuleBrandTemplate) => {
+    setTemplateDraft({
+      id: template.id,
+      name: template.name,
+      description: template.description || '',
+      brandCodes: [...template.brandCodes],
+    });
+    setTemplateBrandInput('');
+  };
+
+  const saveBrandTemplate = async () => {
+    const name = templateDraft.name.trim();
+    const description = templateDraft.description.trim();
+    const brandCodes = Array.from(new Set(
+      templateDraft.brandCodes.map((brand) => brand.trim()).filter(Boolean)
+    ));
+
+    if (!name) {
+      toast.error('Sablon adi gerekli.');
+      return;
+    }
+
+    if (brandCodes.length === 0) {
+      toast.error('Sablona en az bir marka ekleyin.');
+      return;
+    }
+
+    setTemplateSaving(true);
+    try {
+      if (templateDraft.id) {
+        const result = await adminApi.updatePriceRuleBrandTemplate(templateDraft.id, {
+          name,
+          description: description || null,
+          brandCodes,
+          active: true,
+        });
+        setBrandTemplates((prev) => prev.map((template) => (
+          template.id === result.template.id ? result.template : template
+        )));
+        toast.success('Sablon guncellendi.');
+      } else {
+        const result = await adminApi.createPriceRuleBrandTemplate({
+          name,
+          description: description || null,
+          brandCodes,
+          active: true,
+        });
+        setBrandTemplates((prev) => [...prev, result.template].sort((a, b) => a.name.localeCompare(b.name, 'tr')));
+        toast.success('Sablon kaydedildi.');
+      }
+      resetTemplateDraft();
+    } catch (error: any) {
+      console.error('Sablon kaydedilemedi:', error);
+      toast.error(error?.response?.data?.error || 'Sablon kaydedilemedi.');
+    } finally {
+      setTemplateSaving(false);
+    }
+  };
+
+  const deleteBrandTemplate = async (template: PriceRuleBrandTemplate) => {
+    if (!confirm(`${template.name} sablonunu silmek istediginize emin misiniz?`)) return;
+
+    setTemplateDeletingId(template.id);
+    try {
+      await adminApi.deletePriceRuleBrandTemplate(template.id);
+      setBrandTemplates((prev) => prev.filter((item) => item.id !== template.id));
+      if (templateDraft.id === template.id) {
+        resetTemplateDraft();
+      }
+      if (templateApplyForm.templateId === template.id) {
+        setTemplateApplyForm((prev) => ({ ...prev, templateId: '' }));
+      }
+      toast.success('Sablon silindi.');
+    } catch (error: any) {
+      console.error('Sablon silinemedi:', error);
+      toast.error(error?.response?.data?.error || 'Sablon silinemedi.');
+    } finally {
+      setTemplateDeletingId(null);
+    }
+  };
+
+  const applyBrandTemplate = () => {
+    const template = brandTemplates.find((item) => item.id === templateApplyForm.templateId);
+    if (!template) {
+      toast.error('Uygulanacak sablonu secin.');
+      return;
+    }
+
+    const invoiced = Number(templateApplyForm.invoicedPriceListNo);
+    const white = Number(templateApplyForm.whitePriceListNo);
+    if (!Number.isFinite(invoiced) || invoiced < 6 || invoiced > 10) {
+      toast.error('Faturali fiyat listesi 6-10 arasinda olmalidir.');
+      return;
+    }
+    if (!Number.isFinite(white) || white < 1 || white > 5) {
+      toast.error('Beyaz fiyat listesi 1-5 arasinda olmalidir.');
+      return;
+    }
+
+    const brandCodes = template.brandCodes.map((brand) => brand.trim()).filter(Boolean);
+    if (brandCodes.length === 0) {
+      toast.error('Sablonda marka bulunmuyor.');
+      return;
+    }
+
+    setPriceListRules((prev) => {
+      const next = [...prev];
+      for (const brandCode of brandCodes) {
+        const existingIndex = next.findIndex((rule) => (
+          !rule.categoryId &&
+          String(rule.brandCode || '').trim().toLocaleLowerCase('tr') === brandCode.toLocaleLowerCase('tr')
+        ));
+
+        if (existingIndex >= 0) {
+          next[existingIndex] = {
+            ...next[existingIndex],
+            brandCode,
+            invoicedPriceListNo: invoiced,
+            whitePriceListNo: white,
+          };
+        } else {
+          next.push({
+            brandCode,
+            categoryId: '',
+            invoicedPriceListNo: invoiced,
+            whitePriceListNo: white,
+          });
+        }
+      }
+      return next;
+    });
+
+    toast.success(`${brandCodes.length} marka kurali eklendi/guncellendi.`);
   };
 
   const handleContactSave = async () => {
@@ -701,6 +890,196 @@ export function CustomerEditModal({
                 <option key={brand} value={brand} />
               ))}
             </datalist>
+
+            <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-blue-950 mb-1">Hazir marka sablonu</label>
+                  <select
+                    className="input w-full"
+                    value={templateApplyForm.templateId}
+                    onChange={(e) => setTemplateApplyForm({ ...templateApplyForm, templateId: e.target.value })}
+                    disabled={catalogLoading}
+                  >
+                    <option value="">Sablon secin</option>
+                    {brandTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} ({template.brandCodes.length} marka)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-blue-950 mb-1">Faturali liste</label>
+                  <select
+                    className="input w-full lg:w-44"
+                    value={templateApplyForm.invoicedPriceListNo}
+                    onChange={(e) => setTemplateApplyForm({ ...templateApplyForm, invoicedPriceListNo: e.target.value })}
+                  >
+                    {WHOLESALE_LISTS.map((list) => (
+                      <option key={list.value} value={list.value}>
+                        {list.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-blue-950 mb-1">Beyaz liste</label>
+                  <select
+                    className="input w-full lg:w-44"
+                    value={templateApplyForm.whitePriceListNo}
+                    onChange={(e) => setTemplateApplyForm({ ...templateApplyForm, whitePriceListNo: e.target.value })}
+                  >
+                    {RETAIL_LISTS.map((list) => (
+                      <option key={list.value} value={list.value}>
+                        {list.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  onClick={applyBrandTemplate}
+                  disabled={catalogLoading || !templateApplyForm.templateId}
+                  className="lg:mb-0.5"
+                >
+                  Sablonu Uygula
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-blue-900/80">
+                Secilen sablondaki markalar, bu musterinin marka bazli fiyat kurallarina topluca eklenir.
+              </p>
+            </div>
+
+            <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                Marka sablonlarini yonet
+              </summary>
+
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <Input
+                    label="Sablon adi"
+                    value={templateDraft.name}
+                    onChange={(e) => setTemplateDraft({ ...templateDraft, name: e.target.value })}
+                    placeholder="Orn: Market markalari"
+                  />
+                  <Input
+                    label="Aciklama"
+                    value={templateDraft.description}
+                    onChange={(e) => setTemplateDraft({ ...templateDraft, description: e.target.value })}
+                    placeholder="Opsiyonel"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                  <Input
+                    label="Marka ekle"
+                    value={templateBrandInput}
+                    list="brand-options"
+                    onChange={(e) => setTemplateBrandInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addTemplateDraftBrand();
+                      }
+                    }}
+                    placeholder="Marka kodu secin/yazin"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={addTemplateDraftBrand}
+                    className="md:mb-0.5"
+                  >
+                    Markayi Ekle
+                  </Button>
+                </div>
+
+                {templateDraft.brandCodes.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {templateDraft.brandCodes.map((brandCode) => (
+                      <button
+                        key={brandCode}
+                        type="button"
+                        onClick={() => removeTemplateDraftBrand(brandCode)}
+                        className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50"
+                        title="Kaldir"
+                      >
+                        {brandCode} x
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    onClick={saveBrandTemplate}
+                    isLoading={templateSaving}
+                  >
+                    {templateDraft.id ? 'Sablonu Guncelle' : 'Sablonu Kaydet'}
+                  </Button>
+                  {templateDraft.id && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={resetTemplateDraft}
+                    >
+                      Vazgec
+                    </Button>
+                  )}
+                </div>
+
+                {brandTemplates.length > 0 && (
+                  <div className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+                    {brandTemplates.map((template) => (
+                      <div key={template.id} className="flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">{template.name}</div>
+                          <div className="text-xs text-slate-500">
+                            {template.brandCodes.length} marka
+                            {template.description ? ` - ${template.description}` : ''}
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-xs text-slate-600">
+                            {template.brandCodes.slice(0, 12).join(', ')}
+                            {template.brandCodes.length > 12 ? '...' : ''}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => editTemplateDraft(template)}
+                          >
+                            Duzenle
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="danger"
+                            onClick={() => deleteBrandTemplate(template)}
+                            isLoading={templateDeletingId === template.id}
+                          >
+                            Sil
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
 
             <div className="mt-3 space-y-3">
               {rulesLoading && (

@@ -810,8 +810,31 @@ class EInvoiceService {
       }),
     ]);
 
+    let enrichedDocuments = documents;
+    const missingTaxCodes = Array.from(new Set(
+      documents
+        .filter((document) => !document.customerTaxNo && (document.customerCode || document.customer?.mikroCariCode))
+        .map((document) => String(document.customerCode || document.customer?.mikroCariCode || '').trim())
+        .filter(Boolean)
+    ));
+
+    if (missingTaxCodes.length > 0) {
+      try {
+        const taxByCode = await mikroService.getCustomerTaxNumbersByCodes(missingTaxCodes);
+        enrichedDocuments = documents.map((document) => {
+          const code = String(document.customerCode || document.customer?.mikroCariCode || '').trim();
+          const customerTaxNo = document.customerTaxNo || taxByCode[code] || null;
+          return customerTaxNo === document.customerTaxNo
+            ? document
+            : { ...document, customerTaxNo };
+        });
+      } catch (error) {
+        console.warn('E-fatura VKN fallback Mikro sorgusu basarisiz:', error);
+      }
+    }
+
     return {
-      documents,
+      documents: enrichedDocuments,
       pagination: {
         page,
         limit,

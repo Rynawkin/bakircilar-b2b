@@ -1480,6 +1480,23 @@ model CustomerPriceListRule {
   @@index([categoryId])
 }
 
+// Admin tarafinda onceden tanimlanan marka gruplari.
+// Musteri duzenleme ekraninda bu sablon secilince icindeki markalar musteriye
+// fiyat listesi kurali olarak topluca eklenir; mevcut manuel kural akisi korunur.
+model PriceRuleBrandTemplate {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  brandCodes  String[] @default([])
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active])
+  @@index([createdAt])
+}
+
 // ==================== CART ====================
 
 model Cart {

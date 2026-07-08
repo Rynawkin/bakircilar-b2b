@@ -55,6 +55,18 @@ const DEFAULT_CUSTOMER_PRICE_LISTS = {
   OZEL: { invoiced: 6, white: 1 },
 };
 
+const normalizeTemplateBrandCodes = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b, 'tr'));
+};
+
 const PRODUCT_SELECT = {
   id: true,
   name: true,
@@ -1611,6 +1623,137 @@ export class AdminController {
           .sort((a, b) => a.localeCompare(b, 'tr'));
         res.json({ brands });
       } catch (error) {
+        next(error);
+      }
+    }
+
+    /**
+     * GET /api/admin/price-rule-brand-templates
+     */
+    async getPriceRuleBrandTemplates(req: Request, res: Response, next: NextFunction) {
+      try {
+        const includeInactive = req.query.includeInactive === 'true';
+        const templates = await prisma.priceRuleBrandTemplate.findMany({
+          where: includeInactive ? undefined : { active: true },
+          orderBy: [
+            { active: 'desc' },
+            { name: 'asc' },
+          ],
+        });
+
+        res.json({ templates });
+      } catch (error) {
+        next(error);
+      }
+    }
+
+    /**
+     * POST /api/admin/price-rule-brand-templates
+     */
+    async createPriceRuleBrandTemplate(req: Request, res: Response, next: NextFunction) {
+      try {
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+        const description = typeof req.body?.description === 'string' && req.body.description.trim()
+          ? req.body.description.trim()
+          : null;
+        const brandCodes = normalizeTemplateBrandCodes(req.body?.brandCodes);
+        const active = typeof req.body?.active === 'boolean' ? req.body.active : true;
+
+        if (!name) {
+          return res.status(400).json({ error: 'Template name is required' });
+        }
+
+        if (brandCodes.length === 0) {
+          return res.status(400).json({ error: 'At least one brand code is required' });
+        }
+
+        const template = await prisma.priceRuleBrandTemplate.create({
+          data: {
+            name,
+            description,
+            brandCodes,
+            active,
+            createdById: req.user?.userId || null,
+          },
+        });
+
+        res.status(201).json({ template });
+      } catch (error: any) {
+        if (error?.code === 'P2002') {
+          return res.status(409).json({ error: 'Bu isimde bir sablon zaten var.' });
+        }
+        next(error);
+      }
+    }
+
+    /**
+     * PUT /api/admin/price-rule-brand-templates/:id
+     */
+    async updatePriceRuleBrandTemplate(req: Request, res: Response, next: NextFunction) {
+      try {
+        const { id } = req.params;
+        const data: {
+          name?: string;
+          description?: string | null;
+          brandCodes?: string[];
+          active?: boolean;
+        } = {};
+
+        if (typeof req.body?.name === 'string') {
+          const name = req.body.name.trim();
+          if (!name) {
+            return res.status(400).json({ error: 'Template name is required' });
+          }
+          data.name = name;
+        }
+
+        if ('description' in (req.body || {})) {
+          data.description = typeof req.body.description === 'string' && req.body.description.trim()
+            ? req.body.description.trim()
+            : null;
+        }
+
+        if ('brandCodes' in (req.body || {})) {
+          const brandCodes = normalizeTemplateBrandCodes(req.body.brandCodes);
+          if (brandCodes.length === 0) {
+            return res.status(400).json({ error: 'At least one brand code is required' });
+          }
+          data.brandCodes = brandCodes;
+        }
+
+        if (typeof req.body?.active === 'boolean') {
+          data.active = req.body.active;
+        }
+
+        const template = await prisma.priceRuleBrandTemplate.update({
+          where: { id },
+          data,
+        });
+
+        res.json({ template });
+      } catch (error: any) {
+        if (error?.code === 'P2025') {
+          return res.status(404).json({ error: 'Template not found' });
+        }
+        if (error?.code === 'P2002') {
+          return res.status(409).json({ error: 'Bu isimde bir sablon zaten var.' });
+        }
+        next(error);
+      }
+    }
+
+    /**
+     * DELETE /api/admin/price-rule-brand-templates/:id
+     */
+    async deletePriceRuleBrandTemplate(req: Request, res: Response, next: NextFunction) {
+      try {
+        const { id } = req.params;
+        await prisma.priceRuleBrandTemplate.delete({ where: { id } });
+        res.json({ success: true });
+      } catch (error: any) {
+        if (error?.code === 'P2025') {
+          return res.status(404).json({ error: 'Template not found' });
+        }
         next(error);
       }
     }

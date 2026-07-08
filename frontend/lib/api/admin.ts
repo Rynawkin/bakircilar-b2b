@@ -35,6 +35,7 @@ import {
   VadeAnalytics,
   VadeManagement,
   EInvoiceDocument,
+  PriceRuleBrandTemplate,
 } from '@/types';
 
 type SupplierPriceListOverrides = {
@@ -1372,6 +1373,41 @@ export const adminApi = {
     }>
   ): Promise<{ rules: Array<any> }> => {
     const response = await apiClient.put(`/admin/customers/${customerId}/price-list-rules`, { rules });
+    return response.data;
+  },
+
+  getPriceRuleBrandTemplates: async (includeInactive = false): Promise<{ templates: PriceRuleBrandTemplate[] }> => {
+    const response = await apiClient.get('/admin/price-rule-brand-templates', {
+      params: includeInactive ? { includeInactive: true } : undefined,
+    });
+    return response.data;
+  },
+
+  createPriceRuleBrandTemplate: async (data: {
+    name: string;
+    description?: string | null;
+    brandCodes: string[];
+    active?: boolean;
+  }): Promise<{ template: PriceRuleBrandTemplate }> => {
+    const response = await apiClient.post('/admin/price-rule-brand-templates', data);
+    return response.data;
+  },
+
+  updatePriceRuleBrandTemplate: async (
+    id: string,
+    data: {
+      name?: string;
+      description?: string | null;
+      brandCodes?: string[];
+      active?: boolean;
+    }
+  ): Promise<{ template: PriceRuleBrandTemplate }> => {
+    const response = await apiClient.put(`/admin/price-rule-brand-templates/${id}`, data);
+    return response.data;
+  },
+
+  deletePriceRuleBrandTemplate: async (id: string): Promise<{ success: boolean }> => {
+    const response = await apiClient.delete(`/admin/price-rule-brand-templates/${id}`);
     return response.data;
   },
 

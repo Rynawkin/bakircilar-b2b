@@ -860,6 +860,17 @@ export interface CustomerPriceListRule {
   whitePriceListNo: number;
 }
 
+export interface PriceRuleBrandTemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  brandCodes: string[];
+  active: boolean;
+  createdById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CustomerContact {
   id: string;
   customerId: string;
