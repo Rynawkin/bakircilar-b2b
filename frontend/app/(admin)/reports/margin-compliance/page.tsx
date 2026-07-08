@@ -1,10 +1,7 @@
 'use client';
 
-import { useUiThemeStore } from '@/lib/store/uiThemeStore';
 import KarMarjiUyumNew from './KarMarjiUyumNew';
-import KarMarjiUyumClassic from './KarMarjiUyumClassic';
 
 export default function Page() {
-  const theme = useUiThemeStore((s) => s.theme);
-  return theme === 'new' ? <KarMarjiUyumNew /> : <KarMarjiUyumClassic />;
+  return <KarMarjiUyumNew />;
 }

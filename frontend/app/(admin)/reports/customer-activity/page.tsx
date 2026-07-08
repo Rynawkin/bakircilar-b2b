@@ -1,12 +1,9 @@
 'use client';
 
 import { Suspense } from 'react';
-import { useUiThemeStore } from '@/lib/store/uiThemeStore';
 import MusteriAktiviteNew from './MusteriAktiviteNew';
-import MusteriAktiviteClassic from './MusteriAktiviteClassic';
 
 export default function Page() {
-  const theme = useUiThemeStore((s) => s.theme);
   return (
     <Suspense
       fallback={(
@@ -15,7 +12,7 @@ export default function Page() {
         </div>
       )}
     >
-      {theme === 'new' ? <MusteriAktiviteNew /> : <MusteriAktiviteClassic />}
+      <MusteriAktiviteNew />
     </Suspense>
   );
 }

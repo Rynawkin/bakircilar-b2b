@@ -1,13 +1,10 @@
 'use client';
 
 import { Suspense } from 'react';
-import { useUiThemeStore } from '@/lib/store/uiThemeStore';
 import TeklifOlusturNew from './TeklifOlusturNew';
-import TeklifOlusturClassic from './TeklifOlusturClassic';
 
 function TeklifOlusturThemeSwitch() {
-  const theme = useUiThemeStore((s) => s.theme);
-  return theme === 'new' ? <TeklifOlusturNew /> : <TeklifOlusturClassic />;
+  return <TeklifOlusturNew />;
 }
 
 export default function AdminQuoteNewPage() {

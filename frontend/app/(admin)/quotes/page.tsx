@@ -1,13 +1,10 @@
 'use client';
 
 import { Suspense } from 'react';
-import { useUiThemeStore } from '@/lib/store/uiThemeStore';
 import TekliflerNew from './TekliflerNew';
-import TekliflerClassic from './TekliflerClassic';
 
 function QuotesThemeSwitch() {
-  const theme = useUiThemeStore((s) => s.theme);
-  return theme === 'new' ? <TekliflerNew /> : <TekliflerClassic />;
+  return <TekliflerNew />;
 }
 
 export default function Page() {

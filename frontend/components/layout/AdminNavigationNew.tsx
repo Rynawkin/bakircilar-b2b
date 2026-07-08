@@ -1,9 +1,8 @@
 'use client';
 
 /**
- * AdminNavigationNew — yeni (redesign) yonetim paneli ust cubugu.
- * Klasik AdminNavigation ile AYNI mantik/veri/izin/bildirim; yalnizca gorsel yeni
- * (beyaz-premium topbar, musteri paneliyle tutarli). theme==='new' iken render edilir.
+ * AdminNavigationNew - zorunlu admin paneli ust cubugu.
+ * Admin panelinde klasik gorunum kapatildi; tum kullanicilar bu navigasyonu kullanir.
  */
 
 import { useState, Fragment, useEffect } from 'react';
@@ -12,7 +11,6 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { Menu, Transition } from '@headlessui/react';
 import { useAuthStore } from '@/lib/store/authStore';
-import { useUiThemeStore } from '@/lib/store/uiThemeStore';
 import { LogoLink } from '@/components/ui/Logo';
 import adminApi from '@/lib/api/admin';
 import { formatDateShort } from '@/lib/utils/format';
@@ -30,7 +28,6 @@ export function AdminNavigationNew() {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
-  const { theme: uiTheme, setTheme: setUiTheme, hydrate: hydrateUiTheme } = useUiThemeStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference[]>([]);
@@ -93,11 +90,6 @@ export function AdminNavigationNew() {
             linkUrl: '/dashboard',
           });
         },
-        localTestNotification: {
-          title: 'Tarayici bildirimleri acildi',
-          body: 'Bu tarayici Bakircilar B2B bildirimlerini alacak.',
-          linkUrl: '/dashboard',
-        },
       });
       if (result.enabled) {
         toast.success(
@@ -140,10 +132,6 @@ export function AdminNavigationNew() {
     if (notification.linkUrl) router.push(notification.linkUrl);
   };
 
-  useEffect(() => {
-    hydrateUiTheme();
-  }, [hydrateUiTheme]);
-
   // Mobil menu acikken arka plandaki sayfa kaymasini kilitle.
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -166,12 +154,6 @@ export function AdminNavigationNew() {
   const handleLogout = () => {
     logout();
     router.push('/login');
-  };
-
-  const changeUiTheme = (next: 'new' | 'old') => {
-    if (next === uiTheme) return;
-    setUiTheme(next);
-    if (typeof window !== 'undefined') window.location.reload();
   };
 
   const isActive = (href: string) => pathname === href;
@@ -401,7 +383,7 @@ export function AdminNavigationNew() {
             </Transition>
           </Menu>
 
-          {/* Kullanici menusu + Gorunum toggle */}
+          {/* Kullanici menusu */}
           <Menu as="div" className="relative">
             <Menu.Button className="flex items-center gap-2 rounded-lg border border-[var(--line)] bg-white py-1 pl-1 pr-2.5 transition-colors hover:bg-[var(--surface-0)]">
               <span className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-primary-50 text-[12px] font-semibold text-primary-700">
@@ -427,31 +409,6 @@ export function AdminNavigationNew() {
                     </span>
                   </div>
                   <div className="mt-0.5 text-[11px] text-[var(--ink-3)]">{user?.email}</div>
-                </div>
-
-                {/* Gorunum gecisi */}
-                <div className="px-1 pt-2">
-                  <div className="px-1.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-3)]">Görünüm</div>
-                  <div className="mb-1 flex gap-1 px-0.5">
-                    <button
-                      type="button"
-                      onClick={() => changeUiTheme('new')}
-                      className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${
-                        uiTheme === 'new' ? 'bg-primary-600 text-white' : 'bg-[var(--surface-0)] text-[var(--ink-2)] hover:bg-gray-100'
-                      }`}
-                    >
-                      Yeni
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => changeUiTheme('old')}
-                      className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${
-                        uiTheme === 'old' ? 'bg-primary-600 text-white' : 'bg-[var(--surface-0)] text-[var(--ink-2)] hover:bg-gray-100'
-                      }`}
-                    >
-                      Klasik
-                    </button>
-                  </div>
                 </div>
 
                 <div className="my-1 border-t border-[var(--line)]" />

@@ -1,22 +1,15 @@
 /**
  * Admin UI Theme Store (Zustand)
  *
- * Yonetim paneli icin "yeni gorunum" (redesign) ile "klasik gorunum" (mevcut) arasinda
- * KULLANICI-BAZLI gecis. Tercih cihaz-bazli localStorage'da tutulur.
- *
- * - Ekranlar tek tek yeni tasarima cevrilir. Cevrilen ekran: theme==='new' ise yeni,
- *   degilse (veya cevrilmemisse) klasik render eder (per-screen fallback).
- * - DEFAULT_ADMIN_THEME su an 'old' (production guvenli). Yeterli ekran hazir olunca
- *   'new'e cevrilir; o an ilk-giris pop-up'i (AdminThemeIntro) devreye girer.
+ * Yonetim panelinde yeni gorunum zorunludur.
+ * Eski localStorage tercihleri geriye uyumluluk icin temizlenir; uygulama her zaman
+ * yeni admin kabugunu ve yeni ekran wrapper'larini kullanir.
  */
 
 import { create } from 'zustand';
 
 export type AdminUiTheme = 'new' | 'old';
 
-// 67/67 ekran cevrildi + kullanici onayladi -> varsayilan YENI gorunum.
-// Klasik gorunum hala mevcut: kullanici menusu -> Gorunum -> Klasik ile donulebilir.
-// (Geri almak icin tek satir: 'old' yap.)
 export const DEFAULT_ADMIN_THEME: AdminUiTheme = 'new';
 
 const THEME_KEY = 'admin-ui-theme';
@@ -40,10 +33,10 @@ export const useUiThemeStore = create<UiThemeState>((set) => ({
   hydrate: () => {
     if (typeof window === 'undefined') return;
     try {
-      const storedTheme = localStorage.getItem(THEME_KEY) as AdminUiTheme | null;
       const storedIntro = localStorage.getItem(INTRO_KEY);
+      localStorage.setItem(THEME_KEY, DEFAULT_ADMIN_THEME);
       set({
-        theme: storedTheme === 'new' || storedTheme === 'old' ? storedTheme : DEFAULT_ADMIN_THEME,
+        theme: DEFAULT_ADMIN_THEME,
         introSeen: storedIntro === '1',
         hydrated: true,
       });
@@ -53,10 +46,11 @@ export const useUiThemeStore = create<UiThemeState>((set) => ({
   },
 
   setTheme: (t: AdminUiTheme) => {
-    set({ theme: t });
+    const next = t === 'new' ? t : DEFAULT_ADMIN_THEME;
+    set({ theme: next });
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem(THEME_KEY, t);
+        localStorage.setItem(THEME_KEY, next);
       } catch {
         /* yoksay */
       }
