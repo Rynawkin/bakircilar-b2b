@@ -3231,27 +3231,9 @@ export class CustomerController {
    */
   async getOrders(req: Request, res: Response, next: NextFunction) {
     try {
-      const { status, search, page, pageSize } = req.query;
-      const result = await orderService.getUserOrders(req.user!.userId, {
-        status: typeof status === 'string' ? status : undefined,
-        search: typeof search === 'string' ? search : undefined,
-        page: page !== undefined ? Number(page) : undefined,
-        pageSize: pageSize !== undefined ? Number(pageSize) : undefined,
-      });
+      const orders = await orderService.getUserOrders(req.user!.userId);
 
-      if (Array.isArray(result)) {
-        res.json({ orders: result });
-      } else {
-        res.json({
-          orders: result.orders,
-          pagination: {
-            total: result.total,
-            page: result.page,
-            pageSize: result.pageSize,
-            totalPages: Math.max(1, Math.ceil(result.total / result.pageSize)),
-          },
-        });
-      }
+      res.json({ orders });
     } catch (error) {
       next(error);
     }
