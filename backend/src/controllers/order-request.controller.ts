@@ -14,7 +14,7 @@ import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '
 import { isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { generateOrderNumber } from '../utils/orderNumber';
-import { resolveLastPriceOverride } from '../utils/lastPrice';
+import { applyLastPriceFloor, resolveLastPriceOverride } from '../utils/lastPrice';
 
 const getLastPriceGuardPrices = (
   priceStats: any,
@@ -207,11 +207,17 @@ export class OrderRequestController {
           let unitInvoiced = 0;
           let unitWhite = 0;
 
+          const priceStats = priceStatsMap.get(item.product.mikroCode) || null;
+          const guardPrices = getLastPriceGuardPrices(
+            priceStats,
+            pricingCustomer.lastPriceGuardInvoicedListNo,
+            pricingCustomer.lastPriceGuardWhiteListNo
+          );
+
           if (item.priceMode === 'EXCESS') {
             unitInvoiced = customerPrices.invoiced;
             unitWhite = customerPrices.white;
           } else {
-            const priceStats = priceStatsMap.get(item.product.mikroCode) || null;
             const productPriceListPair = resolveCustomerPriceListsForProduct(
               basePriceListPair,
               priceListRules,
@@ -232,11 +238,6 @@ export class OrderRequestController {
               invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
               white: listWhite > 0 ? listWhite : customerPrices.white,
             };
-            const guardPrices = getLastPriceGuardPrices(
-              priceStats,
-              pricingCustomer.lastPriceGuardInvoicedListNo,
-              pricingCustomer.lastPriceGuardWhiteListNo
-            );
             const lastSalePrice = lastSalesMap.get(item.product.mikroCode);
             const lastPriceResult = resolveLastPriceOverride({
               config: pricingCustomer,
@@ -259,6 +260,22 @@ export class OrderRequestController {
           if (agreement && isAgreementApplicable(agreement, now, item.quantity)) {
             unitInvoiced = resolveAgreementPrice(agreement, 'INVOICED', unitInvoiced);
             unitWhite = resolveAgreementPrice(agreement, 'WHITE', unitWhite);
+          }
+
+          if (item.priceMode === 'EXCESS') {
+            const floored = applyLastPriceFloor({
+              config: pricingCustomer,
+              lastSalePrice: lastSalesMap.get(item.product.mikroCode),
+              basePrices: { invoiced: unitInvoiced, white: unitWhite },
+              guardPrices,
+              product: {
+                currentCost: item.product.currentCost,
+                lastEntryPrice: item.product.lastEntryPrice,
+              },
+              priceVisibility: effectiveVisibility,
+            });
+            unitInvoiced = floored.invoiced;
+            unitWhite = floored.white;
           }
 
           return {
@@ -538,11 +555,18 @@ export class OrderRequestController {
           user.customerType as any
         );
 
+        const itemIsExcess = item.priceMode === 'EXCESS';
+        const priceStats = await priceListService.getPriceStats(item.product.mikroCode);
+        const guardPrices = getLastPriceGuardPrices(
+          priceStats,
+          user.lastPriceGuardInvoicedListNo,
+          user.lastPriceGuardWhiteListNo
+        );
+
         let unitPrice = 0;
-        if (item.priceMode === 'EXCESS') {
+        if (itemIsExcess) {
           unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
         } else {
-          const priceStats = await priceListService.getPriceStats(item.product.mikroCode);
           const productPriceListPair = resolveCustomerPriceListsForProduct(
             basePriceListPair,
             priceListRules,
@@ -563,11 +587,6 @@ export class OrderRequestController {
             invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
             white: listWhite > 0 ? listWhite : customerPrices.white,
           };
-          const guardPrices = getLastPriceGuardPrices(
-            priceStats,
-            user.lastPriceGuardInvoicedListNo,
-            user.lastPriceGuardWhiteListNo
-          );
           const lastSalePrice = lastSalesMap.get(item.product.mikroCode);
           const lastPriceResult = resolveLastPriceOverride({
             config: user,
@@ -600,6 +619,24 @@ export class OrderRequestController {
 
         if (agreement && isAgreementApplicable(agreement, now, quantity)) {
           unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
+        }
+
+        if (itemIsExcess) {
+          const floored = applyLastPriceFloor({
+            config: user,
+            lastSalePrice: lastSalesMap.get(item.product.mikroCode),
+            basePrices:
+              priceType === 'INVOICED'
+                ? { invoiced: unitPrice, white: customerPrices.white }
+                : { invoiced: customerPrices.invoiced, white: unitPrice },
+            guardPrices,
+            product: {
+              currentCost: item.product.currentCost,
+              lastEntryPrice: item.product.lastEntryPrice,
+            },
+            priceVisibility: effectiveVisibility,
+          });
+          unitPrice = priceType === 'INVOICED' ? floored.invoiced : floored.white;
         }
 
         orderItems.push({

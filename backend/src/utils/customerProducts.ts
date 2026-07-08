@@ -13,7 +13,7 @@ import mikroService from '../services/mikroFactory.service';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from './customerPricing';
 import { applyAgreementPrices, isAgreementActive } from './agreements';
-import { resolveLastPriceOverride } from './lastPrice';
+import { applyLastPriceFloor, resolveLastPriceOverride } from './lastPrice';
 
 type PriceVisibilityValue = 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
 
@@ -200,7 +200,7 @@ export const buildCustomerProductPayloads = async (params: {
   const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
 
   let lastSalesMap = new Map<string, number>();
-  if (customer.useLastPrices && customer.mikroCariCode && !isDiscounted) {
+  if (customer.useLastPrices && customer.mikroCariCode) {
     try {
       const sales = await mikroService.getCustomerSalesMovements(
         customer.mikroCariCode as string,
@@ -271,6 +271,17 @@ export const buildCustomerProductPayloads = async (params: {
     const agreementBasePrices = isDiscounted ? customerPrices : listPrices;
     const agreementPrices = agreementActive ? applyAgreementPrices(agreementBasePrices, agreement) : null;
     const agreementExcessPrices = agreementActive ? applyAgreementPrices(customerPrices, agreement) : null;
+    const excessPrices = applyLastPriceFloor({
+      config: customer,
+      lastSalePrice: lastSalesMap.get(product.mikroCode),
+      basePrices: agreementExcessPrices || customerPrices,
+      guardPrices,
+      product: {
+        currentCost: product.currentCost,
+        lastEntryPrice: product.lastEntryPrice,
+      },
+      priceVisibility: effectiveVisibility,
+    });
 
     const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
     const pendingByWarehouse = (product.pendingCustomerOrdersByWarehouse || {}) as Record<string, number>;
@@ -293,8 +304,8 @@ export const buildCustomerProductPayloads = async (params: {
       warehouseExcessStocks,
       imageUrl: product.imageUrl,
       category: product.category,
-      prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
-      excessPrices: agreementExcessPrices || customerPrices,
+      prices: isDiscounted ? excessPrices : (agreementPrices || listPrices),
+      excessPrices,
       listPrices: agreementActive ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
       pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
       agreement: agreementActive

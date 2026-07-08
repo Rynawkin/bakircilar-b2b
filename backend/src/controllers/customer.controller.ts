@@ -22,7 +22,7 @@ import { splitSearchTokens, normalizeSearchText } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { applyAgreementPrices, isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
-import { resolveLastPriceOverride } from '../utils/lastPrice';
+import { applyLastPriceFloor, resolveLastPriceOverride } from '../utils/lastPrice';
 
 const getLastPriceGuardPrices = (
   priceStats: any,
@@ -384,7 +384,7 @@ const buildCustomerProductPayloads = async (params: {
   const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
 
   let lastSalesMap = new Map<string, number>();
-  if (customer.useLastPrices && customer.mikroCariCode && !isDiscounted) {
+  if (customer.useLastPrices && customer.mikroCariCode) {
     try {
       const sales = await mikroService.getCustomerSalesMovements(
         customer.mikroCariCode as string,
@@ -455,6 +455,17 @@ const buildCustomerProductPayloads = async (params: {
     const agreementBasePrices = isDiscounted ? customerPrices : listPrices;
     const agreementPrices = agreementActive ? applyAgreementPrices(agreementBasePrices, agreement) : null;
     const agreementExcessPrices = agreementActive ? applyAgreementPrices(customerPrices, agreement) : null;
+    const excessPrices = applyLastPriceFloor({
+      config: customer,
+      lastSalePrice: lastSalesMap.get(product.mikroCode),
+      basePrices: agreementExcessPrices || customerPrices,
+      guardPrices,
+      product: {
+        currentCost: product.currentCost,
+        lastEntryPrice: product.lastEntryPrice,
+      },
+      priceVisibility: effectiveVisibility,
+    });
 
     const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
     const pendingByWarehouse = (product.pendingCustomerOrdersByWarehouse || {}) as Record<string, number>;
@@ -477,8 +488,8 @@ const buildCustomerProductPayloads = async (params: {
       warehouseExcessStocks,
       imageUrl: product.imageUrl,
       category: product.category,
-      prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
-      excessPrices: agreementExcessPrices || customerPrices,
+      prices: isDiscounted ? excessPrices : (agreementPrices || listPrices),
+      excessPrices,
       listPrices: agreementActive ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
       pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
       agreement: agreementActive
@@ -846,6 +857,17 @@ export class CustomerController {
           const agreementPriceApplies = agreementActive && agreementMinQuantity <= 1;
           const agreementPrices = agreementPriceApplies ? applyAgreementPrices(listPrices, row) : null;
           const agreementExcessPrices = agreementPriceApplies ? applyAgreementPrices(customerPrices, row) : null;
+          const excessPrices = applyLastPriceFloor({
+            config: customer,
+            lastSalePrice,
+            basePrices: agreementExcessPrices || customerPrices,
+            guardPrices,
+            product: {
+              currentCost: product.currentCost,
+              lastEntryPrice: product.lastEntryPrice,
+            },
+            priceVisibility: effectiveVisibility,
+          });
 
           const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
           const warehouseExcessStocks = product.warehouseExcessStocks as Record<string, number>;
@@ -872,7 +894,7 @@ export class CustomerController {
               name: product.category.name,
             },
             prices: agreementPrices || listPrices,
-            excessPrices: agreementExcessPrices || customerPrices,
+            excessPrices,
             listPrices: agreementActive ? listPrices : undefined,
             pricingMode: 'LIST',
             agreementMinQuantity: agreementActive ? agreementMinQuantity : undefined,
@@ -1264,7 +1286,7 @@ export class CustomerController {
       const canFetchLastSalesForList =
         Boolean(limit) || searchTokens.length > 0 || Boolean(categoryId);
       const shouldUseLastPrices =
-        Boolean(customer.useLastPrices && customer.mikroCariCode) && !isDiscounted && canFetchLastSalesForList;
+        Boolean(customer.useLastPrices && customer.mikroCariCode) && canFetchLastSalesForList;
       let lastSalesMap = new Map<string, number>();
       let lastSalesDetailsMap = new Map<string, MikroCustomerSaleMovement[]>();
       if (isPurchased) {
@@ -1409,6 +1431,17 @@ export class CustomerController {
         const agreementBasePrices = isDiscounted ? customerPrices : listPrices;
         const agreementPrices = agreementPriceApplies ? applyAgreementPrices(agreementBasePrices, agreement) : null;
         const agreementExcessPrices = agreementPriceApplies ? applyAgreementPrices(customerPrices, agreement) : null;
+        const excessPrices = applyLastPriceFloor({
+          config: customer,
+          lastSalePrice,
+          basePrices: agreementExcessPrices || customerPrices,
+          guardPrices,
+          product: {
+            currentCost: product.currentCost,
+            lastEntryPrice: product.lastEntryPrice,
+          },
+          priceVisibility: effectiveVisibility,
+        });
 
         const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
         const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
@@ -1455,8 +1488,8 @@ export class CustomerController {
             id: product.category.id,
             name: product.category.name,
           },
-          prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
-          excessPrices: agreementExcessPrices || customerPrices,
+          prices: isDiscounted ? excessPrices : (agreementPrices || listPrices),
+          excessPrices,
           listPrices: agreementActive ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
           pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
           lastSales: isPurchased
@@ -1795,7 +1828,8 @@ export class CustomerController {
         customer.lastPriceGuardWhiteListNo
       );
       let listPrices = listPricesBase;
-      if (customer.useLastPrices && customer.mikroCariCode && !isDiscounted) {
+      let lastSalePrice: number | undefined;
+      if (customer.useLastPrices && customer.mikroCariCode) {
         try {
           const sales = await mikroService.getCustomerSalesMovements(
             customer.mikroCariCode as string,
@@ -1803,7 +1837,7 @@ export class CustomerController {
             1
           );
           const lastSalesMap = buildLastSalesMap(sales);
-          const lastSalePrice = lastSalesMap.get(product.mikroCode);
+          lastSalePrice = lastSalesMap.get(product.mikroCode);
           const lastPriceResult = resolveLastPriceOverride({
             config: customer,
             lastSalePrice,
@@ -1850,6 +1884,17 @@ export class CustomerController {
       const agreementBasePrices = isDiscounted ? customerPrices : listPrices;
       const agreementPrices = agreementPriceApplies ? applyAgreementPrices(agreementBasePrices, agreement) : null;
       const agreementExcessPrices = agreementPriceApplies ? applyAgreementPrices(customerPrices, agreement) : null;
+      const excessPrices = applyLastPriceFloor({
+        config: customer,
+        lastSalePrice,
+        basePrices: agreementExcessPrices || customerPrices,
+        guardPrices,
+        product: {
+          currentCost: product.currentCost,
+          lastEntryPrice: product.lastEntryPrice,
+        },
+        priceVisibility: effectiveVisibility,
+      });
 
       // Urun galerisi (coklu gorsel) — sadece detay ucu doner (liste payload'i sismesin).
       // Primary once, sonra sortOrder. ProductImage yoksa imageUrl'e geri dus.
@@ -1878,8 +1923,8 @@ export class CustomerController {
         imageUrl: product.imageUrl,
         images,
         category: product.category,
-        prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
-        excessPrices: agreementExcessPrices || customerPrices,
+        prices: isDiscounted ? excessPrices : (agreementPrices || listPrices),
+        excessPrices,
         listPrices: agreementActive ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
         pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
         agreementMinQuantity: agreementActive ? agreementMinQuantity : undefined,

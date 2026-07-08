@@ -5,7 +5,7 @@ import mikroService from './mikroFactory.service';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
-import { resolveLastPriceOverride } from '../utils/lastPrice';
+import { applyLastPriceFloor, resolveLastPriceOverride } from '../utils/lastPrice';
 
 export type CartPriceType = 'INVOICED' | 'WHITE';
 export type CartPriceMode = 'LIST' | 'EXCESS';
@@ -425,6 +425,7 @@ export const resolveCartUnitPrices = async (params: {
   );
 
   let listPrices = listPricesBase;
+  let lastSaleCandidate: number | undefined;
   if (customer.useLastPrices && customer.mikroCariCode) {
     try {
       const sales = await mikroService.getCustomerSalesMovements(
@@ -434,7 +435,7 @@ export const resolveCartUnitPrices = async (params: {
       );
       const lastSalesMap = buildLastSalesMap(sales);
       const lastSale = lastSalesMap.get(product.mikroCode);
-      let lastSaleCandidate: number | undefined = lastSale?.price;
+      lastSaleCandidate = lastSale?.price;
 
       // Yapiskan iskonto cozumu: ayar acikken ham son fiyat, satis anindaki liste
       // konumuna endekslenir. Endeksleme mumkun degilse ham fiyata sessizce dusulur.
@@ -492,7 +493,29 @@ export const resolveCartUnitPrices = async (params: {
   }
 
   let listUnitPrice = selectPrice(listPrices, priceType);
-  let excessUnitPrice = selectPrice(customerPrices, priceType);
+  let excessPrices = customerPrices;
+  if (customer.useLastPrices && customer.mikroCariCode) {
+    try {
+      excessPrices = applyLastPriceFloor({
+        config: customer,
+        lastSalePrice: lastSaleCandidate,
+        basePrices: customerPrices,
+        guardPrices,
+        product: {
+          currentCost: product.currentCost,
+          lastEntryPrice: product.lastEntryPrice,
+        },
+        priceVisibility: effectiveVisibility,
+      });
+    } catch (error) {
+      console.error('Customer last price floor failed while pricing excess cart item', {
+        customerId: customer.id,
+        productCode: product.mikroCode,
+        error,
+      });
+    }
+  }
+  let excessUnitPrice = selectPrice(excessPrices, priceType);
 
   const agreement = await prisma.customerPriceAgreement.findFirst({
     where: {
@@ -511,6 +534,24 @@ export const resolveCartUnitPrices = async (params: {
   if (agreement && isAgreementApplicable(agreement, new Date(), totalQuantity)) {
     listUnitPrice = resolveAgreementPrice(agreement, priceType, listUnitPrice);
     excessUnitPrice = resolveAgreementPrice(agreement, priceType, excessUnitPrice);
+  }
+
+  if (customer.useLastPrices && customer.mikroCariCode) {
+    const floored = applyLastPriceFloor({
+      config: customer,
+      lastSalePrice: lastSaleCandidate,
+      basePrices:
+        priceType === 'INVOICED'
+          ? { invoiced: excessUnitPrice, white: excessPrices.white }
+          : { invoiced: excessPrices.invoiced, white: excessUnitPrice },
+      guardPrices,
+      product: {
+        currentCost: product.currentCost,
+        lastEntryPrice: product.lastEntryPrice,
+      },
+      priceVisibility: effectiveVisibility,
+    });
+    excessUnitPrice = selectPrice(floored, priceType);
   }
 
   // excludeFromDiscount: yonetici bu urunu indirime sokmamayi sectiyse fazla stok

@@ -68,3 +68,30 @@ export const resolveLastPriceOverride = (params: {
     usedLastPrice: true,
   };
 };
+
+export const applyLastPriceFloor = (params: {
+  config: LastPriceConfig;
+  lastSalePrice?: number | null;
+  basePrices: PricePair;
+  guardPrices?: PricePair;
+  product: ProductCostInfo;
+  priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH' | null;
+}): PricePair => {
+  const result = resolveLastPriceOverride({
+    config: params.config,
+    lastSalePrice: params.lastSalePrice,
+    listPrices: params.basePrices,
+    guardPrices: params.guardPrices,
+    product: params.product,
+    priceVisibility: params.priceVisibility,
+  });
+
+  if (!result.usedLastPrice) {
+    return params.basePrices;
+  }
+
+  return {
+    invoiced: Math.max(params.basePrices.invoiced, result.prices.invoiced),
+    white: Math.max(params.basePrices.white, result.prices.white),
+  };
+};

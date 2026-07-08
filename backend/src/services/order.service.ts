@@ -20,7 +20,7 @@ import giftCampaignService from './gift-campaign.service';
 import { ProductPrices, MikroCustomerSaleMovement } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
-import { resolveLastPriceOverride } from '../utils/lastPrice';
+import { applyLastPriceFloor, resolveLastPriceOverride } from '../utils/lastPrice';
 
 type PriceVisibilityValue = 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
 
@@ -698,9 +698,8 @@ class OrderService {
     // siparise DAIMA liste fiyatiyla yazilir (indirim bypass korumasi).
     const isExcessItem = (item: any) =>
       item.priceMode === 'EXCESS' && !item.product?.excludeFromDiscount;
-    const listItems = cart.items.filter((item) => !isExcessItem(item));
     const productCodes = Array.from(
-      new Set(listItems.map((item) => String(item.product?.mikroCode || '').trim()).filter(Boolean))
+      new Set(cart.items.map((item) => String(item.product?.mikroCode || '').trim()).filter(Boolean))
     );
     const productIds = Array.from(
       new Set(cart.items.map((item) => String(item.productId || '').trim()).filter(Boolean))
@@ -831,11 +830,18 @@ class OrderService {
         customer.customerType as any
       );
 
+      const itemIsExcess = isExcessItem(item);
+      const priceStats = priceStatsMap.get(product.mikroCode) || null;
+      const guardPrices = getLastPriceGuardPrices(
+        priceStats,
+        customer.lastPriceGuardInvoicedListNo,
+        customer.lastPriceGuardWhiteListNo
+      );
+
       let unitPrice = 0;
-      if (isExcessItem(item)) {
+      if (itemIsExcess) {
         unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
       } else {
-        const priceStats = priceStatsMap.get(product.mikroCode) || null;
         const productPriceListPair = resolveCustomerPriceListsForProduct(
           basePriceListPair,
           priceListRules,
@@ -856,11 +862,6 @@ class OrderService {
           invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
           white: listWhite > 0 ? listWhite : customerPrices.white,
         };
-        const guardPrices = getLastPriceGuardPrices(
-          priceStats,
-          customer.lastPriceGuardInvoicedListNo,
-          customer.lastPriceGuardWhiteListNo
-        );
         const lastPriceResult = resolveLastPriceOverride({
           config: customer,
           lastSalePrice: lastSalesMap.get(product.mikroCode),
@@ -878,6 +879,24 @@ class OrderService {
       const agreement = agreementMap.get(item.productId);
       if (agreement && isAgreementApplicable(agreement, now, quantity)) {
         unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
+      }
+
+      if (itemIsExcess) {
+        const floored = applyLastPriceFloor({
+          config: customer,
+          lastSalePrice: lastSalesMap.get(product.mikroCode),
+          basePrices:
+            priceType === 'INVOICED'
+              ? { invoiced: unitPrice, white: customerPrices.white }
+              : { invoiced: customerPrices.invoiced, white: unitPrice },
+          guardPrices,
+          product: {
+            currentCost: product.currentCost,
+            lastEntryPrice: product.lastEntryPrice,
+          },
+          priceVisibility: effectiveVisibility,
+        });
+        unitPrice = priceType === 'INVOICED' ? floored.invoiced : floored.white;
       }
 
       return [{
