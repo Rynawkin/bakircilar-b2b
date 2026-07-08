@@ -641,6 +641,53 @@ dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 6, 0) AS [Topca Depo],
 FROM DEPO_TOPCA_DURUM DTD
 `;
 
+const UCARER_CUSTOMER_ORDER_NEED_COLUMN = 'Acil Musteri Siparis Ihtiyaci';
+const UCARER_ZERO_MAX_COMPAT_VALUE = 0.000001;
+
+const addUcarerCustomerOrderNeedCompatibility = (rows: any[]) => {
+  if (!Array.isArray(rows) || rows.length === 0) return;
+
+  const keys = Object.keys(rows[0] || {});
+  const findKey = (predicate: (normalized: string) => boolean) =>
+    keys.find((key) => predicate(normalizeKeyToken(key)));
+
+  const incomingOrderKey = findKey((key) => key.includes('alinansiparistebekleyen'));
+  const depotQtyKey = findKey((key) => key.includes('depomiktari'));
+  const outgoingOrderKey = findKey((key) => key.includes('verilensiparistebekleyen'));
+  const incomingDsvKey = findKey((key) =>
+    key.includes('digerdepolardangelecekdsv') || key.includes('gelecekdsvtoplam')
+  );
+  const maxQtyKey = findKey((key) => key.includes('maximummiktar'));
+  const realQtyKey = findKey((key) => key.includes('reelmiktar') || key.includes('satinalmasiparisisonrasi'));
+
+  if (!incomingOrderKey) return;
+
+  rows.forEach((row) => {
+    const incomingCustomerOrders = Math.max(0, toNumber(row?.[incomingOrderKey]));
+    const depotQty = depotQtyKey ? Math.max(0, toNumber(row?.[depotQtyKey])) : 0;
+    const outgoingSupplierOrders = outgoingOrderKey ? Math.max(0, toNumber(row?.[outgoingOrderKey])) : 0;
+    const incomingDsv = incomingDsvKey ? Math.max(0, toNumber(row?.[incomingDsvKey])) : 0;
+    const uncoveredCustomerOrderNeed = Math.max(
+      0,
+      Math.ceil(incomingCustomerOrders - depotQty - outgoingSupplierOrders - incomingDsv)
+    );
+
+    row[UCARER_CUSTOMER_ORDER_NEED_COLUMN] = uncoveredCustomerOrderNeed;
+
+    // Eski frontend bundle'lari INCLUDE_MINMAX modunda MAX <= 0 ise satiri oneriden siliyordu.
+    // Musteri siparisi acik ve karsiliksizse satiri gorunur tutmak icin sadece API cevabinda
+    // sifira cok yakin pozitif bir max isareti kullanilir; Mikro min/max degerleri yazilmaz.
+    if (
+      uncoveredCustomerOrderNeed > 0 &&
+      maxQtyKey &&
+      toNumber(row?.[maxQtyKey]) <= 0 &&
+      (!realQtyKey || toNumber(row?.[realQtyKey]) < 0)
+    ) {
+      row[maxQtyKey] = UCARER_ZERO_MAX_COMPAT_VALUE;
+    }
+  });
+};
+
 const isLikelyRouteIdSegment = (segment: string): boolean => {
   if (!segment) return false;
   if (/^\d{3,}$/.test(segment)) return true;
@@ -6706,6 +6753,7 @@ export class ReportsService {
     }
 
     const normalizedRows = Array.isArray(rows) ? rows : [];
+    addUcarerCustomerOrderNeedCompatibility(normalizedRows);
 
     // "Kac gunluk stok kaldi" kolonlari: son 120 gun satisindan urun basina gunluk ortalama.
     // Tek TOPLU sorgu (N+1 yok); TOPLU srm ve mevcut exclusion kosullari haric tutulur.
