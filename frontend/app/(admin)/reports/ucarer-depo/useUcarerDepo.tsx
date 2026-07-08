@@ -832,17 +832,18 @@ export function useUcarerDepo() {
     const minQty = getFamilyItemMinimum(row);
     const netQty = getFamilyItemNetQuantity(row);
     const effective = netQty + incomingDsv;
+    const customerOrderNeed = getUncoveredCustomerOrderNeed(row);
     // MIN tetikleyici: efektif kendi minimumunu karsiliyorsa siparis onerme.
-    if (minQty > 0 && effective >= minQty) return 0;
+    if (minQty > 0 && effective >= minQty && customerOrderNeed <= 0) return 0;
     if (suggestionMode !== 'INCLUDE_MINMAX') {
       // EXCLUDE_MINMAX: min-max'siz ham ihtiyac (3.SORUN = REEL) — eski davranis korunur.
       if (!thirdIssueColumn) return 0;
-      return toNumberFlexible(row[thirdIssueColumn]) - incomingDsv;
+      return Math.max(customerOrderNeed, toNumberFlexible(row[thirdIssueColumn]) - incomingDsv);
     }
     // INCLUDE_MINMAX: MAX'a doldur.
     const maxQty = getFamilyItemMaximum(row);
-    if (maxQty <= 0) return 0;
-    return Math.max(0, maxQty - effective);
+    if (maxQty <= 0) return customerOrderNeed;
+    return Math.max(customerOrderNeed, Math.max(0, maxQty - effective));
   }
   function getSuggestedQty(row: Record<string, any>): number {
     return Math.max(0, getRawSuggestedQty(row));
@@ -889,6 +890,16 @@ export function useUcarerDepo() {
     const incomingCustomerOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row[incomingOrderColumn])) : 0;
     const outgoingSupplierOrders = outgoingOrderColumn ? Math.max(0, toNumberFlexible(row[outgoingOrderColumn])) : 0;
     return depotQty + outgoingSupplierOrders - incomingCustomerOrders;
+  }
+  function getUncoveredCustomerOrderNeed(row: Record<string, any>): number {
+    const incomingCustomerOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row[incomingOrderColumn])) : 0;
+    if (incomingCustomerOrders <= 0) return 0;
+
+    const depotQty = depotQtyColumn ? Math.max(0, toNumberFlexible(row[depotQtyColumn])) : 0;
+    const outgoingSupplierOrders = outgoingOrderColumn ? Math.max(0, toNumberFlexible(row[outgoingOrderColumn])) : 0;
+    const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
+
+    return Math.max(0, Math.ceil(incomingCustomerOrders - depotQty - outgoingSupplierOrders - incomingDsv));
   }
   function getFamilyItemEffectiveQuantity(row: Record<string, any>): number {
     const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
@@ -950,7 +961,10 @@ export function useUcarerDepo() {
       // Aile tetiklendiginde her uye KENDI MAX'ina tamamlanir (bireysel min kapisi
       // aile seviyesinde uygulanir, uye seviyesinde degil): ihtiyac = max(0, MAX - efektif).
       const need = row
-        ? Math.max(0, Math.trunc(getFamilyItemMaximum(row) - getFamilyItemEffectiveQuantity(row)))
+        ? Math.max(
+            getUncoveredCustomerOrderNeed(row),
+            Math.max(0, Math.trunc(getFamilyItemMaximum(row) - getFamilyItemEffectiveQuantity(row)))
+          )
         : 0;
       needs.push({ code, need });
     });
