@@ -68,6 +68,7 @@ export const config = {
   einvoiceAutoImportEnabled: process.env.EINVOICE_AUTO_IMPORT_ENABLED === 'true',
   einvoiceAutoImportCronSchedule: process.env.EINVOICE_AUTO_IMPORT_CRON_SCHEDULE || '*/20 * * * *',
   orderTrackingKioskSyncEnabled: process.env.ORDER_TRACKING_KIOSK_SYNC_ENABLED !== 'false',
+  orderTrackingKioskBootSyncEnabled: process.env.ORDER_TRACKING_KIOSK_BOOT_SYNC_ENABLED === 'true',
   orderTrackingKioskSyncCronSchedule: process.env.ORDER_TRACKING_KIOSK_SYNC_CRON_SCHEDULE || '*/10 * * * *',
   yolpilotIntegrationApiKey: process.env.YOLPILOT_INTEGRATION_API_KEY || '',
 

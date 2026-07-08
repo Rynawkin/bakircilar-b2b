@@ -443,6 +443,11 @@ class ScheduledJobsService {
    * index.ts bunu enableCron && orderTrackingKioskSyncEnabled iken bir kez cagirir.
    */
   runKioskBootSync(): void {
+    if (!config.orderTrackingKioskBootSyncEnabled) {
+      console.log('Kiosk siparis boot sync kapali (ORDER_TRACKING_KIOSK_BOOT_SYNC_ENABLED=true degil)');
+      return;
+    }
+
     this.runKioskPendingOrderSync('BOOT').catch((error) => {
       console.error('❌ Kiosk siparis boot sync hatasi:', error);
     });
