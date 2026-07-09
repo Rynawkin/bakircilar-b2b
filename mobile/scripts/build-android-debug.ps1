@@ -56,6 +56,17 @@ function Build-App {
   Write-Host "==> $($Config.Label) Android debug build" -ForegroundColor Cyan
   Ensure-Junction -Link $Config.Link -Target $Config.Source
 
+  Push-Location $Config.Link
+  try {
+    Write-Host "Expo native config senkronize ediliyor..." -ForegroundColor DarkCyan
+    & npm.cmd exec expo prebuild -- --platform android --no-install
+    if ($LASTEXITCODE -ne 0) {
+      throw "$($Config.Label) Expo prebuild basarisiz oldu. Exit code: $LASTEXITCODE"
+    }
+  } finally {
+    Pop-Location
+  }
+
   if (-not (Test-Path $androidDir)) {
     throw "$androidDir bulunamadi. Once Expo native android klasoru olusturulmali."
   }
