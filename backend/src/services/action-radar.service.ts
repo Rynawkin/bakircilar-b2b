@@ -116,7 +116,24 @@ class ActionRadarService {
         select: {
           id: true,
           updatedAt: true,
-          user: { select: { id: true, mikroCariCode: true, displayName: true, name: true, sectorCode: true } },
+          user: {
+            select: {
+              id: true,
+              mikroCariCode: true,
+              displayName: true,
+              name: true,
+              sectorCode: true,
+              parentCustomer: {
+                select: {
+                  id: true,
+                  mikroCariCode: true,
+                  displayName: true,
+                  name: true,
+                  sectorCode: true,
+                },
+              },
+            },
+          },
           items: {
             select: {
               quantity: true,
@@ -231,14 +248,15 @@ class ActionRadarService {
     );
 
     const cartRows = abandonedCarts.map((cart) => {
+      const customerInfo = cart.user.parentCustomer || cart.user;
       const total = cart.items.reduce((sum, item) => sum + toNumber(item.quantity) * toNumber(item.unitPrice), 0);
       const daysIdle = Math.max(Math.floor((now.getTime() - new Date(cart.updatedAt).getTime()) / DAY_MS), 0);
       return {
         cartId: cart.id,
-        customerId: cart.user.id,
-        customerCode: cart.user.mikroCariCode || cart.user.id,
-        customerName: cart.user.displayName || cart.user.name || cart.user.mikroCariCode || cart.user.id,
-        sectorCode: cart.user.sectorCode || null,
+        customerId: customerInfo.id,
+        customerCode: customerInfo.mikroCariCode || customerInfo.id,
+        customerName: customerInfo.displayName || customerInfo.name || customerInfo.mikroCariCode || customerInfo.id,
+        sectorCode: customerInfo.sectorCode || null,
         updatedAt: cart.updatedAt,
         daysIdle,
         itemCount: cart.items.length,
@@ -248,7 +266,7 @@ class ActionRadarService {
           productName: item.product.name,
           quantity: item.quantity,
         })),
-        actionUrl: `/reports/customer-carts?search=${encodeURIComponent(cart.user.mikroCariCode || cart.user.id)}`,
+        actionUrl: `/reports/customer-carts?search=${encodeURIComponent(customerInfo.mikroCariCode || customerInfo.id)}`,
       };
     });
 

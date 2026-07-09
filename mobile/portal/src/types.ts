@@ -1,6 +1,6 @@
 export type CustomerType = 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
 export type PriceVisibility = 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
-export type UserRole = 'HEAD_ADMIN' | 'ADMIN' | 'MANAGER' | 'CUSTOMER' | 'DIVERSEY' | 'SALES_REP';
+export type UserRole = 'HEAD_ADMIN' | 'ADMIN' | 'MANAGER' | 'CUSTOMER' | 'DIVERSEY' | 'SALES_REP' | 'DEPOCU';
 
 export interface User {
   id: string;
@@ -73,11 +73,18 @@ export interface DashboardStats {
 
 export interface Notification {
   id: string;
+  category?: string | null;
   title: string;
   body?: string | null;
   linkUrl?: string | null;
   isRead: boolean;
   createdAt: string;
+}
+
+export interface NotificationPreference {
+  key: string;
+  label: string;
+  enabled: boolean;
 }
 
 export interface QuoteItem {
@@ -86,6 +93,8 @@ export interface QuoteItem {
   productCode?: string;
   productName: string;
   unit?: string;
+  unit2?: string | null;
+  unit2Factor?: number | null;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
@@ -100,6 +109,8 @@ export interface QuoteItem {
   lastSales?: LastSale[];
   lastEntryPrice?: number | null;
   currentCost?: number | null;
+  lastEntryDate?: string | null;
+  warehouseStocks?: Record<string, number>;
   mikroPriceLists?: Record<string, number>;
   status?: 'OPEN' | 'CLOSED' | 'CONVERTED';
   closedReason?: string | null;
@@ -126,6 +137,10 @@ export interface Quote {
   note?: string | null;
   documentNo?: string | null;
   responsibleCode?: string | null;
+  contactId?: string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
   vatZeroed?: boolean;
   mikroNumber?: string | null;
   adminNote?: string | null;
@@ -176,31 +191,71 @@ export interface OrderItem {
   id: string;
   productName: string;
   mikroCode: string;
+  unit?: string | null;
+  unit2?: string | null;
+  unit2Factor?: number | null;
+  selectedUnit?: string | null;
   quantity: number;
   priceType: 'INVOICED' | 'WHITE';
   unitPrice: number;
   totalPrice: number;
   status?: 'PENDING' | 'APPROVED' | 'REJECTED';
   rejectionReason?: string | null;
+  mikroOrderId?: string | null;
+  lineNote?: string | null;
+  responsibilityCenter?: string | null;
   product?: {
+    id?: string;
     name?: string;
     mikroCode?: string;
     unit?: string;
     imageUrl?: string | null;
+    vatRate?: number | null;
   };
 }
 
 export interface Order {
   id: string;
   orderNumber: string;
-  status: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | string;
   totalAmount: number;
   createdAt: string;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  adminNote?: string | null;
+  customerOrderNumber?: string | null;
+  deliveryLocation?: string | null;
+  mikroOrderIds?: string[] | null;
   items?: OrderItem[];
   user?: {
+    id?: string;
+    email?: string;
     name?: string;
+    displayName?: string | null;
+    mikroName?: string | null;
+    customerType?: string | null;
     mikroCariCode?: string;
+    sectorCode?: string | null;
   };
+  requestedBy?: {
+    id?: string;
+    name?: string | null;
+    email?: string | null;
+  } | null;
+  customerRequest?: {
+    id: string;
+    createdAt?: string;
+    requestedBy?: {
+      id?: string;
+      name?: string | null;
+      email?: string | null;
+    } | null;
+  } | null;
+  sourceQuote?: {
+    id?: string;
+    quoteNumber?: string | null;
+    createdAt?: string | null;
+  } | null;
 }
 
 export type TaskType =
@@ -386,18 +441,34 @@ export interface Product {
   unit?: string | null;
   unit2?: string | null;
   unit2Factor?: number | null;
+  category?: {
+    id?: string | null;
+    mikroCode?: string | null;
+    name?: string | null;
+  } | null;
   excessStock?: number | null;
   totalStock?: number | null;
+  calculatedCost?: number | null;
   currentCost?: number | null;
+  currentCostDate?: string | null;
   lastEntryPrice?: number | null;
+  lastEntryDate?: string | null;
   vatRate?: number | null;
   mikroPriceLists?: Record<string, number>;
+  prices?: unknown;
+  hiddenFromCustomers?: boolean | null;
   imageUrl?: string | null;
+  imageChecksum?: string | null;
   imageSyncStatus?: string | null;
   imageSyncErrorType?: string | null;
   imageSyncErrorMessage?: string | null;
   imageSyncUpdatedAt?: string | null;
+  imageSizeBytes?: number | null;
+  imageUploadedAt?: string | null;
+  imageUploadedByName?: string | null;
   warehouseStocks?: Record<string, number>;
+  warehouseExcessStocks?: Record<string, number>;
+  pendingCustomerOrdersByWarehouse?: Record<string, number>;
   lastSales?: LastSale[];
 }
 
@@ -437,6 +508,8 @@ export interface PriceHistoryChange {
 export interface CategoryWithPriceRules {
   id: string;
   name: string;
+  mikroCode?: string | null;
+  imageUrl?: string | null;
   priceRules: Array<{ id: string; customerType: CustomerType; profitMargin: number }>;
 }
 
@@ -483,6 +556,198 @@ export interface StaffMember {
   createdAt: string;
 }
 
+export type HotSaleSessionStatus = 'OPEN' | 'CLOSED' | 'CANCELLED';
+export type HotSaleTransactionType = 'CASH_INVOICE' | 'INVOICED_DISPATCH' | 'ORDER' | 'ORDER_DELIVERY';
+export type HotSaleTransactionStatus = 'COMPLETED' | 'SYNC_FAILED' | 'CANCELLED';
+export type HotSalePaymentType = 'CASH' | 'CARD' | 'TRANSFER' | 'OPEN_ACCOUNT' | 'MIXED';
+export type HotSaleClosureAction = 'KEEP_ON_VEHICLE' | 'RETURN_TO_DEPOT';
+
+export interface HotSaleVehicle {
+  id: string;
+  name: string;
+  plate: string;
+  active: boolean;
+  hotWarehouseNo?: number;
+  defaultSourceWarehouseNo?: number;
+  note?: string | null;
+}
+
+export interface HotSaleUserSummary {
+  id?: string;
+  name?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+}
+
+export interface HotSaleSession {
+  id: string;
+  vehicleId: string;
+  userId?: string;
+  status: HotSaleSessionStatus;
+  sourceWarehouseNo?: number;
+  openingCash?: number;
+  closingCash?: number | null;
+  expectedCash?: number;
+  cashDifference?: number | null;
+  startedAt?: string;
+  closedAt?: string | null;
+  loadDocumentNo?: string | null;
+  returnDocumentNo?: string | null;
+  note?: string | null;
+  vehicle?: HotSaleVehicle | null;
+  user?: HotSaleUserSummary | null;
+  transactions?: HotSaleTransaction[];
+  closingCounts?: HotSaleClosingCount[];
+}
+
+export interface HotSaleInventoryItem {
+  productCode: string;
+  productName?: string | null;
+  unit?: string | null;
+  quantity: number;
+}
+
+export interface HotSaleProduct {
+  productCode: string;
+  productName: string;
+  unit?: string | null;
+  vatRate?: number;
+  vehicleStock?: number;
+  hotWarehouseStock?: number;
+  stockMerkez?: number;
+  stockTopca?: number;
+  totalVisibleStock?: number;
+  stockStatus?: 'IN_VEHICLE' | 'NO_STOCK' | 'OTHER_STOCK' | string;
+  priceLists?: Record<string, number>;
+  imageUrl?: string | null;
+  currentCost?: number | null;
+  currentCostVatIncluded?: number | null;
+  lastEntryPrice?: number | null;
+}
+
+export interface HotSaleCustomer {
+  id: string;
+  displayTitle?: string | null;
+  displayName?: string | null;
+  mikroName?: string | null;
+  name?: string | null;
+  mikroCariCode?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  district?: string | null;
+  sectorCode?: string | null;
+}
+
+export interface HotSaleCartItem {
+  productCode: string;
+  productName: string;
+  unit?: string | null;
+  quantity: number;
+  unitPrice: number;
+  priceListNo?: number;
+  vatRate?: number;
+  currentCost?: number | null;
+  currentCostVatIncluded?: number | null;
+  vehicleStock?: number;
+  stockMerkez?: number;
+  stockTopca?: number;
+  hotWarehouseStock?: number;
+}
+
+export interface HotSaleTransactionItem {
+  id?: string;
+  productCode: string;
+  productName: string;
+  unit?: string | null;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  vatRate?: number;
+  priceListNo?: number | null;
+}
+
+export interface HotSalePayment {
+  id?: string;
+  type: HotSalePaymentType;
+  amount: number;
+  referenceNo?: string | null;
+  note?: string | null;
+}
+
+export interface HotSaleTransaction {
+  id: string;
+  sessionId?: string;
+  type: HotSaleTransactionType;
+  status: HotSaleTransactionStatus;
+  customerCode?: string | null;
+  customerName?: string | null;
+  paymentType?: HotSalePaymentType;
+  documentNo?: string | null;
+  mikroDocumentNo?: string | null;
+  linkedOrderNumber?: string | null;
+  totalAmount: number;
+  vatAmount?: number;
+  syncError?: string | null;
+  createdAt?: string;
+  items?: HotSaleTransactionItem[];
+  payments?: HotSalePayment[];
+  session?: HotSaleSession | null;
+}
+
+export interface HotSaleClosingCount {
+  productCode: string;
+  productName?: string | null;
+  unit?: string | null;
+  expectedQty?: number;
+  countedQty?: number;
+  differenceQty?: number;
+  action?: HotSaleClosureAction;
+  note?: string | null;
+}
+
+export interface HotSaleDashboard {
+  vehicles: HotSaleVehicle[];
+  openSessions: HotSaleSession[];
+  myOpenSession?: HotSaleSession | null;
+  recentTransactions: HotSaleTransaction[];
+}
+
+export interface HotSaleOrderItem {
+  orderGuid: string;
+  rowNumber?: number;
+  productCode: string;
+  productName: string;
+  unit?: string | null;
+  quantity: number;
+  deliveredQty: number;
+  remainingQty: number;
+  unitPrice: number;
+  lineTotal?: number;
+  vehicleStock?: number;
+  imageUrl?: string | null;
+}
+
+export interface HotSaleOpenOrder {
+  orderNumber: string;
+  orderDate?: string | null;
+  customerCode?: string | null;
+  customerName?: string | null;
+  totalRemainingQty?: number;
+  totalAmount?: number;
+  canDeliverAll?: boolean;
+  items: HotSaleOrderItem[];
+}
+
+export interface HotSaleDailyReport {
+  filters?: { startDate?: string; endDate?: string };
+  summary?: Record<string, number>;
+  sessions?: any[];
+  transactions?: any[];
+  products?: any[];
+  vehicles?: HotSaleVehicle[];
+  users?: HotSaleUserSummary[];
+}
+
 export type VadeBalanceSource = 'MIKRO' | 'EXCEL' | 'MANUAL';
 
 export interface VadeBalance {
@@ -506,6 +771,78 @@ export interface VadeBalance {
     sectorCode?: string | null;
     groupCode?: string | null;
   };
+}
+
+export type VadeAgingKey = 'd0_30' | 'd31_60' | 'd61_90' | 'd91_180' | 'd181_365' | 'd365plus';
+
+export interface VadeAgingBucket {
+  amount: number;
+  count: number;
+}
+
+export interface VadeDistributionItem {
+  label: string;
+  amount: number;
+  count: number;
+}
+
+export interface VadeDashboard {
+  kpis: { count: number; overdue: number; upcoming: number; total: number };
+  aging: Record<VadeAgingKey, VadeAgingBucket> | null;
+  concentration: { overdueCount: number; top10: number; top20: number; top50: number };
+  sectorDistribution: VadeDistributionItem[];
+  groupDistribution: VadeDistributionItem[];
+  topOverdue: Array<{ id: string; code: string; name: string; sector: string; pastDue: number; valor: number }>;
+}
+
+export interface VadeAnalytics {
+  customerBehavior: Array<{
+    name: string;
+    code: string;
+    sector: string;
+    noteCount: number;
+    promiseCount: number;
+    lastNoteAt: string | null;
+    mostUsedTag: string | null;
+    mostUsedTagCount: number;
+  }>;
+  staffPerformance: Array<{
+    name: string;
+    role: string;
+    totalNotes: number;
+    promiseNotes: number;
+    taggedNotes: number;
+    uniqueCustomers: number;
+    avgNotesPerCustomer: number;
+  }>;
+  days: number;
+}
+
+export interface VadeManagement {
+  summary: {
+    totalUsers: number;
+    totalNotes: number;
+    totalAssignments: number;
+    activeUsers: number;
+  };
+  topPerformers: Array<{
+    id: string;
+    name: string;
+    role: string;
+    noteCount: number;
+    assignedCustomers: number;
+    efficiency: number;
+    activityScore: number;
+    lastActivity: string | null;
+    daysSinceActivity: number | null;
+  }>;
+  issues: Array<{
+    type: 'warning' | 'info' | 'error';
+    title: string;
+    names: string[];
+  }>;
+  dailyTrend: Array<{ date: string; notes: number }>;
+  days: number;
 }
 
 export interface VadeNote {
@@ -558,16 +895,29 @@ export interface VadeSyncLog {
 export interface EInvoiceDocument {
   id: string;
   invoiceNo: string;
-  customerCode?: string;
+  evrakSeri?: string | null;
+  evrakSira?: number | null;
+  eInvoiceUuid?: string | null;
+  customerCode?: string | null;
+  customerTaxNo?: string | null;
+  customerBalance?: number | null;
   documentUrl?: string;
-  fileName?: string;
-  issueDate?: string;
-  sentAt?: string;
-  subtotalAmount?: number;
-  totalAmount?: number;
+  fileName?: string | null;
+  originalName?: string | null;
+  mimeType?: string | null;
+  size?: number | null;
+  issueDate?: string | null;
+  sentAt?: string | null;
+  subtotalAmount?: number | null;
+  totalAmount?: number | null;
   currency?: string;
   matchStatus?: string;
-  customerName?: string;
+  matchError?: string | null;
+  customerName?: string | null;
+  uploadedBy?: {
+    id: string;
+    name: string;
+  } | null;
   createdAt: string;
   updatedAt: string;
   customer?: {
@@ -576,6 +926,7 @@ export interface EInvoiceDocument {
     displayName?: string;
     mikroName?: string;
     mikroCariCode?: string;
+    balance?: number | null;
   };
 }
 

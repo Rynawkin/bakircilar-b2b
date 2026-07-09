@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
 import { adminApi } from '../api/admin';
@@ -125,7 +126,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [user?.id, enabled]);
 
   useEffect(() => {
-    if (!user || !enabled) return;
+    if (!user || !enabled || Platform.OS === 'web') return;
 
     let mounted = true;
     const register = async () => {
@@ -151,6 +152,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [user?.id, enabled]);
 
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     const receivedSubscription = Notifications.addNotificationReceivedListener(() => {
       hapticMedium();
       loadNotifications(false);

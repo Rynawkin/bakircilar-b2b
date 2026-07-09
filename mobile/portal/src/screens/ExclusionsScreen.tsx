@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,6 +14,7 @@ import {
 import { adminApi } from '../api/admin';
 import { Exclusion } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 const EXCLUSION_TYPES: Exclusion['type'][] = [
   'PRODUCT_CODE',
@@ -34,6 +35,21 @@ export function ExclusionsScreen() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const searchSeqRef = useRef(0);
+
+  const beginSaving = () => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    return true;
+  };
+
+  const endSaving = () => {
+    savingRef.current = false;
+    setSaving(false);
+  };
 
   const exclusionByCode = useMemo(() => {
     const map = new Map<string, Exclusion[]>();
@@ -57,14 +73,15 @@ export function ExclusionsScreen() {
     try {
       const response = await adminApi.getExclusions();
       setExclusions(response.data || []);
-    } catch (_err) {
-      Alert.alert('Hata', 'Exclusion listesi yuklenemedi.');
+    } catch (err: any) {
+      Alert.alert('Hata', getApiErrorMessage(err, 'Exclusion listesi yuklenemedi.'));
     } finally {
       setLoading(false);
     }
   };
 
   const searchProducts = async (term: string) => {
+    const requestSeq = ++searchSeqRef.current;
     setSearching(true);
     try {
       const response = await adminApi.searchStocks({
@@ -72,11 +89,17 @@ export function ExclusionsScreen() {
         limit: 20,
         offset: 0,
       });
-      setSearchResults(response.data || []);
+      if (requestSeq === searchSeqRef.current) {
+        setSearchResults(response.data || []);
+      }
     } catch (_err) {
-      setSearchResults([]);
+      if (requestSeq === searchSeqRef.current) {
+        setSearchResults([]);
+      }
     } finally {
-      setSearching(false);
+      if (requestSeq === searchSeqRef.current) {
+        setSearching(false);
+      }
     }
   };
 
@@ -92,12 +115,14 @@ export function ExclusionsScreen() {
   }, [searchTerm]);
 
   const addExclusion = async () => {
+    if (savingRef.current) return;
     const rawValue = value.trim();
     if (!rawValue) {
       Alert.alert('Eksik Bilgi', 'Deger girin.');
       return;
     }
     const normalizedValue = type === 'PRODUCT_CODE' ? normalizeCode(rawValue) : rawValue;
+    if (!beginSaving()) return;
     try {
       await adminApi.createExclusion({
         type,
@@ -108,29 +133,38 @@ export function ExclusionsScreen() {
       setDescription('');
       await fetchExclusions();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kayit basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kayit basarisiz.'));
+    } finally {
+      endSaving();
     }
   };
 
   const toggleActive = async (item: Exclusion) => {
+    if (!beginSaving()) return;
     try {
       await adminApi.updateExclusion(item.id, { active: !item.active });
       await fetchExclusions();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Guncelleme basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Guncelleme basarisiz.'));
+    } finally {
+      endSaving();
     }
   };
 
   const remove = async (id: string) => {
+    if (!beginSaving()) return;
     try {
       await adminApi.deleteExclusion(id);
       await fetchExclusions();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Silme basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Silme basarisiz.'));
+    } finally {
+      endSaving();
     }
   };
 
   const quickExclude = async (stock: any) => {
+    if (savingRef.current) return;
     const code = normalizeCode(stock?.code || stock?.stok_kod);
     if (!code) {
       return;
@@ -143,6 +177,7 @@ export function ExclusionsScreen() {
       return;
     }
 
+    if (!beginSaving()) return;
     try {
       const inactiveRule = existing.find((item) => !item.active);
       if (inactiveRule) {
@@ -156,11 +191,14 @@ export function ExclusionsScreen() {
       }
       await fetchExclusions();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Urun dislanamadi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Urun dislanamadi.'));
+    } finally {
+      endSaving();
     }
   };
 
   const quickUnexclude = async (code: string) => {
+    if (savingRef.current) return;
     const normalized = normalizeCode(code);
     const existing = exclusionByCode.get(normalized) || [];
     const activeRule = existing.find((item) => item.active);
@@ -169,19 +207,35 @@ export function ExclusionsScreen() {
       return;
     }
 
+    if (!beginSaving()) return;
     try {
       await adminApi.updateExclusion(activeRule.id, { active: false });
       await fetchExclusions();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Guncelleme basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Guncelleme basarisiz.'));
+    } finally {
+      endSaving();
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Exclusions</Text>
-        <Text style={styles.subtitle}>Dislanan urunler musteri tarafinda ve raporlarda gizlenir.</Text>
+        <View style={styles.hero}>
+          <Text style={styles.kicker}>Katalog Kontrol</Text>
+          <Text style={styles.title}>Exclusions</Text>
+          <Text style={styles.subtitle}>Dislanan urunler musteri tarafinda ve raporlarda gizlenir.</Text>
+          <View style={styles.heroMetricRow}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{exclusions.length}</Text>
+              <Text style={styles.heroMetricLabel}>Kural</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{activeProductExclusionCount}</Text>
+              <Text style={styles.heroMetricLabel}>Aktif Urun</Text>
+            </View>
+          </View>
+        </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Hizli Urun Dislama</Text>
@@ -235,7 +289,7 @@ export function ExclusionsScreen() {
         ) : (
           exclusions.map((item) => (
             <View key={item.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{item.type}</Text>
+              <Text style={styles.cardTitle} numberOfLines={1}>{item.type}</Text>
               <Text style={styles.cardMeta}>{item.value}</Text>
               {item.description ? <Text style={styles.cardMeta}>{item.description}</Text> : null}
               <View style={styles.row}>
@@ -295,16 +349,40 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#9EC5FF',
+    textTransform: 'uppercase',
+  },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#DDE8FF',
+    lineHeight: 22,
   },
+  heroMetricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 118,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    padding: spacing.sm,
+  },
+  heroMetricValue: { fontFamily: fonts.bold, fontSize: fontSizes.lg, color: '#FFFFFF' },
+  heroMetricLabel: { marginTop: 2, fontFamily: fonts.medium, fontSize: fontSizes.xs, color: '#DDE8FF' },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,15 +8,20 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import * as XLSX from 'xlsx';
 
 import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { CostUpdateAlert, CostUpdateSummary, MarginComplianceRow, PriceHistoryChange } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 type ReportType =
   | 'cost'
@@ -42,13 +47,204 @@ type ActionRadarItem = {
   actionLabel?: string;
   action:
     | { type: 'quoteDetail'; quoteId: string }
+    | { type: 'quotes' }
     | { type: 'cartReport'; search?: string }
     | { type: 'productSearch'; productCode?: string }
+    | {
+        type: 'products';
+        search?: string;
+        qualityFilter?: 'ALL' | 'BAD' | 'WARN' | 'NO_IMAGE' | 'GALLERY_MISSING';
+        detailTab?: 'SUMMARY' | 'PRICES' | 'STOCK' | 'IMAGE';
+        autoOpenFirst?: boolean;
+      }
     | { type: 'customerDetail'; customerId?: string }
+    | { type: 'fieldSales'; customerIdOrCode?: string }
+    | { type: 'orderTracking' }
+    | { type: 'complementManagement' }
+    | { type: 'bundles' }
     | { type: 'none' };
 };
 
 const formatMoney = (value: any) => `${Number(value || 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} TL`;
+
+const reportTitles: Record<ReportType, string> = {
+  cost: 'Maliyet Guncelleme',
+  margin: 'Kar Marji',
+  profit: 'Kar Analizi',
+  price: 'Fiyat Degisimleri',
+  priceNew: 'Fiyat Degisimi Yeni',
+  topProducts: 'Top Urunler',
+  topCustomers: 'Top Cariler',
+  productCustomers: 'Urun Musterileri',
+  complementMissing: 'Tamamlayici Eksikler',
+  customerActivity: 'Musteri Aktivitesi',
+  customerCarts: 'Musteri Sepetleri',
+  actionRadar: 'Aksiyon Radari',
+};
+
+const cell = (value: any) => {
+  if (value == null) return '';
+  if (typeof value === 'number') return Number.isFinite(value) ? value : '';
+  if (typeof value === 'boolean') return value ? 'Evet' : 'Hayir';
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'object' && item ? JSON.stringify(item) : String(item ?? '')))
+      .join(' | ');
+  }
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const genericRows = (rows: any[]) => {
+  const keys = Array.from(
+    rows.reduce((set: Set<string>, row) => {
+      Object.keys(row || {}).forEach((key) => set.add(key));
+      return set;
+    }, new Set<string>())
+  ).slice(0, 40);
+  return [keys, ...rows.map((row) => keys.map((key) => cell(row?.[key])))];
+};
+
+const buildReportSheetRows = (reportType: ReportType, rows: any[]) => {
+  if (reportType === 'cost') {
+    return [
+      ['Urun Kodu', 'Urun Adi', 'Gun Farki', 'Fark %', 'Risk Tutar', 'Mevcut Maliyet', 'Yeni Maliyet'],
+      ...rows.map((row) => [
+        cell(row.productCode),
+        cell(row.productName),
+        cell(row.dayDiff),
+        cell(row.diffPercent),
+        cell(row.riskAmount),
+        cell(row.currentCost ?? row.oldCost),
+        cell(row.newCost ?? row.latestCost),
+      ]),
+    ];
+  }
+
+  if (reportType === 'price') {
+    return [
+      ['Urun Kodu', 'Urun Adi', 'Ortalama Degisim %', 'Guncellenen Liste', 'Tutarlilik', 'Son Degisim'],
+      ...rows.map((row) => [
+        cell(row.productCode),
+        cell(row.productName),
+        cell(row.avgChangePercent),
+        cell(row.updatedListsCount),
+        cell(row.isConsistent),
+        cell(row.lastChangeDate || row.updatedAt),
+      ]),
+    ];
+  }
+
+  if (reportType === 'priceNew') {
+    return [
+      ['Urun Kodu', 'Urun Adi', 'Degisim Sayisi', 'Stok', 'Son Degisim'],
+      ...rows.map((row) => [
+        cell(row.productCode),
+        cell(row.productName),
+        cell(row.totalChanges),
+        cell(row.currentStock),
+        cell(row.lastChangeDate || row.updatedAt),
+      ]),
+    ];
+  }
+
+  if (reportType === 'topProducts') {
+    return [
+      ['Urun Kodu', 'Urun Adi', 'Miktar', 'Ciro', 'Kar', 'Kar %'],
+      ...rows.map((row) => [
+        cell(row.productCode),
+        cell(row.productName),
+        cell(row.quantity ?? row.totalQuantity),
+        cell(row.revenue),
+        cell(row.profit),
+        cell(row.marginPercent ?? row.profitMargin),
+      ]),
+    ];
+  }
+
+  if (reportType === 'topCustomers' || reportType === 'productCustomers') {
+    return [
+      ['Cari Kodu', 'Cari Adi', 'Sektor', 'Miktar', 'Ciro', 'Kar', 'Kar %'],
+      ...rows.map((row) => [
+        cell(row.customerCode),
+        cell(row.customerName),
+        cell(row.sector || row.sectorCode),
+        cell(row.quantity ?? row.totalQuantity),
+        cell(row.revenue ?? row.totalRevenue),
+        cell(row.profit),
+        cell(row.marginPercent ?? row.profitMargin),
+      ]),
+    ];
+  }
+
+  if (reportType === 'complementMissing') {
+    return [
+      ['Cari/Urun Kodu', 'Cari/Urun Adi', 'Evrak', 'Eksik Sayisi', 'Eksik Tamamlayicilar'],
+      ...rows.map((row) => [
+        cell(row.customerCode || row.productCode),
+        cell(row.customerName || row.productName),
+        cell(row.documentCount),
+        cell(row.missingCount),
+        cell((row.missingComplements || []).map((item: any) => `${item.productCode || item.code || ''} ${item.productName || item.name || ''}`)),
+      ]),
+    ];
+  }
+
+  if (reportType === 'customerActivity') {
+    return [
+      ['Tip', 'Kullanici', 'Cari Kodu', 'Cari Adi', 'Sayfa', 'Urun Kodu', 'Arama', 'Tiklama', 'Tarih'],
+      ...rows.map((row) => [
+        cell(row.type),
+        cell(row.userName || row.userId),
+        cell(row.customerCode),
+        cell(row.customerName),
+        cell(row.pagePath),
+        cell(row.productCode),
+        cell(row.searchTerm),
+        cell(row.clickCount),
+        cell(row.createdAt || row.lastActivityAt),
+      ]),
+    ];
+  }
+
+  if (reportType === 'customerCarts') {
+    const out: any[][] = [['Cari Kodu', 'Cari Adi', 'Kullanici', 'Kalem Sayisi', 'Sepet Tutar', 'Urun Kodu', 'Urun Adi', 'Miktar', 'Birim Fiyat', 'Satir Tutar']];
+    rows.forEach((row) => {
+      const items = Array.isArray(row.items) && row.items.length ? row.items : [null];
+      items.forEach((item: any) => {
+        out.push([
+          cell(row.customerCode),
+          cell(row.customerName),
+          cell(row.userName),
+          cell(row.itemCount),
+          cell(row.totalAmount),
+          cell(item?.productCode),
+          cell(item?.productName),
+          cell(item?.quantity),
+          cell(item?.unitPrice),
+          cell(item?.totalPrice),
+        ]);
+      });
+    });
+    return out;
+  }
+
+  if (reportType === 'actionRadar') {
+    return [
+      ['Grup', 'Baslik', 'Alt Baslik', 'Detay', 'Aksiyon'],
+      ...rows.map((row: ActionRadarItem) => [
+        cell(row.group),
+        cell(row.title),
+        cell(row.subtitle),
+        cell(row.meta),
+        cell(row.actionLabel),
+      ]),
+    ];
+  }
+
+  return genericRows(rows);
+};
 
 const flattenActionRadar = (snapshot: any): ActionRadarItem[] => {
   if (!snapshot) return [];
@@ -80,16 +276,129 @@ const flattenActionRadar = (snapshot: any): ActionRadarItem[] => {
     });
   }
 
-  for (const product of snapshot.imageQuality?.missingImageProducts || []) {
+  const missingImageProducts = [
+    ...(snapshot.imageQuality?.missingImageProducts || []),
+    ...(snapshot.catalogScore?.samples?.missingImages || []),
+  ].filter((product, index, source) => {
+    const key = product?.id || product?.mikroCode || product?.productCode || product?.name;
+    if (!key) return index === source.indexOf(product);
+    return source.findIndex((row) => (row?.id || row?.mikroCode || row?.productCode || row?.name) === key) === index;
+  });
+
+  for (const product of missingImageProducts) {
     rows.push({
-      id: `image-${product.id}`,
+      id: `image-${product.id || product.mikroCode || product.productCode}`,
       group: 'Gorsel Kalite',
-      title: product.name || product.mikroCode || 'Urun',
-      subtitle: product.mikroCode || undefined,
+      title: product.name || product.productName || product.mikroCode || product.productCode || 'Urun',
+      subtitle: product.mikroCode || product.productCode || undefined,
       meta: [`Populerlik: ${Number(product.popularSalesValue || 0).toLocaleString('tr-TR')}`, 'Eksik gorsel'],
       tone: 'amber',
-      actionLabel: 'Urunu ara',
-      action: { type: 'productSearch', productCode: product.mikroCode },
+      actionLabel: 'Gorsel yukle',
+      action: {
+        type: 'products',
+        search: product.mikroCode || product.productCode,
+        qualityFilter: 'NO_IMAGE',
+        detailTab: 'IMAGE',
+        autoOpenFirst: true,
+      },
+    });
+  }
+
+  const missingImageTotal = Number(snapshot.catalogScore?.summary?.missingImageCount ?? snapshot.imageQuality?.summary?.missingImageCount ?? 0);
+  if (missingImageTotal > missingImageProducts.length) {
+    rows.push({
+      id: 'image-more',
+      group: 'Gorsel Kalite',
+      title: `${missingImageTotal - missingImageProducts.length} ek eksik gorselli urun`,
+      subtitle: 'Tum liste icin filtreli urun ekranina gecin',
+      meta: [`Toplam: ${missingImageTotal}`, `Ornek: ${missingImageProducts.length}`],
+      tone: 'amber',
+      actionLabel: 'Tumunu ac',
+      action: { type: 'products', qualityFilter: 'NO_IMAGE', detailTab: 'IMAGE' },
+    });
+  }
+
+  const missingCategoryProducts = snapshot.catalogScore?.samples?.missingCategories || [];
+  for (const product of missingCategoryProducts) {
+    rows.push({
+      id: `catalog-category-${product.id || product.mikroCode}`,
+      group: 'Katalog Skoru',
+      title: product.name || product.mikroCode || 'Urun',
+      subtitle: product.mikroCode || undefined,
+      meta: ['Kategori eksik', `Skor: ${snapshot.catalogScore?.summary?.score ?? '-'}/100`],
+      tone: 'amber',
+      actionLabel: 'Urun karti',
+      action: { type: 'products', search: product.mikroCode, qualityFilter: 'BAD', autoOpenFirst: true },
+    });
+  }
+
+  const missingCategoryTotal = Number(snapshot.catalogScore?.summary?.missingCategoryCount || 0);
+  if (missingCategoryTotal > missingCategoryProducts.length) {
+    rows.push({
+      id: 'catalog-category-more',
+      group: 'Katalog Skoru',
+      title: `${missingCategoryTotal - missingCategoryProducts.length} ek kategori eksigi`,
+      subtitle: 'Filtreli urun listesinde toplu kontrol edin',
+      meta: [`Toplam: ${missingCategoryTotal}`, `Ornek: ${missingCategoryProducts.length}`],
+      tone: 'amber',
+      actionLabel: 'Urunler',
+      action: { type: 'products', qualityFilter: 'BAD' },
+    });
+  }
+
+  const invalidUnitProducts = snapshot.catalogScore?.samples?.invalidUnits || [];
+  for (const product of invalidUnitProducts) {
+    rows.push({
+      id: `catalog-unit-${product.id || product.mikroCode}`,
+      group: 'Katalog Skoru',
+      title: product.name || product.mikroCode || 'Urun',
+      subtitle: product.mikroCode || undefined,
+      meta: ['Birim kontrolu', `Skor: ${snapshot.catalogScore?.summary?.score ?? '-'}/100`],
+      tone: 'red',
+      actionLabel: 'Urun karti',
+      action: { type: 'products', search: product.mikroCode, qualityFilter: 'BAD', detailTab: 'STOCK', autoOpenFirst: true },
+    });
+  }
+
+  const invalidUnitTotal = Number(snapshot.catalogScore?.summary?.invalidUnitCount || 0);
+  if (invalidUnitTotal > invalidUnitProducts.length) {
+    rows.push({
+      id: 'catalog-unit-more',
+      group: 'Katalog Skoru',
+      title: `${invalidUnitTotal - invalidUnitProducts.length} ek birim kontrolu`,
+      subtitle: 'Urun kartlarinda birim/katsayi kontrolu yapin',
+      meta: [`Toplam: ${invalidUnitTotal}`, `Ornek: ${invalidUnitProducts.length}`],
+      tone: 'red',
+      actionLabel: 'Urunler',
+      action: { type: 'products', qualityFilter: 'BAD' },
+    });
+  }
+
+  const invalidVatProducts = snapshot.catalogScore?.samples?.invalidVat || [];
+  for (const product of invalidVatProducts) {
+    rows.push({
+      id: `catalog-vat-${product.id || product.mikroCode}`,
+      group: 'Katalog Skoru',
+      title: product.name || product.mikroCode || 'Urun',
+      subtitle: product.mikroCode || undefined,
+      meta: ['KDV kontrolu', `Skor: ${snapshot.catalogScore?.summary?.score ?? '-'}/100`],
+      tone: 'red',
+      actionLabel: 'Urun karti',
+      action: { type: 'products', search: product.mikroCode, qualityFilter: 'BAD', autoOpenFirst: true },
+    });
+  }
+
+  const invalidVatTotal = Number(snapshot.catalogScore?.summary?.invalidVatCount || 0);
+  if (invalidVatTotal > invalidVatProducts.length) {
+    rows.push({
+      id: 'catalog-vat-more',
+      group: 'Katalog Skoru',
+      title: `${invalidVatTotal - invalidVatProducts.length} ek KDV kontrolu`,
+      subtitle: 'Urun kartlarinda KDV verisini kontrol edin',
+      meta: [`Toplam: ${invalidVatTotal}`, `Ornek: ${invalidVatProducts.length}`],
+      tone: 'red',
+      actionLabel: 'Urunler',
+      action: { type: 'products', qualityFilter: 'BAD' },
     });
   }
 
@@ -99,10 +408,28 @@ const flattenActionRadar = (snapshot: any): ActionRadarItem[] => {
       group: 'Saha Ziyaret',
       title: visit.customerName || visit.customerCode || 'Cari',
       subtitle: visit.customerCode || undefined,
-      meta: [`Skor: ${visit.priorityScore ?? 0}`, `Vade: ${formatMoney(visit.pastDueBalance)}`, `Sepet: ${formatMoney(visit.cartAmount)}`],
+      meta: [
+        `Skor: ${visit.priorityScore ?? 0}`,
+        visit.suggestedAction || 'Ziyaret planla',
+        `Vade: ${formatMoney(visit.pastDueBalance)}`,
+        `Sepet: ${formatMoney(visit.cartAmount)}`,
+      ],
       tone: Number(visit.priorityScore || 0) >= 60 ? 'red' : 'amber',
-      actionLabel: 'Cari detay',
-      action: visit.customerId ? { type: 'customerDetail', customerId: visit.customerId } : { type: 'none' },
+      actionLabel: 'Saha ac',
+      action: visit.customerCode ? { type: 'fieldSales', customerIdOrCode: visit.customerCode } : { type: 'none' },
+    });
+  }
+
+  for (const bundle of snapshot.bundlePerformance?.rows || []) {
+    rows.push({
+      id: `bundle-performance-${bundle.bundleName}`,
+      group: 'Paket Performans',
+      title: bundle.bundleName || 'Paket',
+      subtitle: 'Son 90 gun paket satisi',
+      meta: [`Satir: ${bundle.lineCount ?? 0}`, `Miktar: ${bundle.quantity ?? 0}`, `Tutar: ${formatMoney(bundle.amount)}`],
+      tone: Number(bundle.lineCount || 0) > 0 ? 'green' : 'default',
+      actionLabel: 'Paketler',
+      action: { type: 'bundles' },
     });
   }
 
@@ -114,9 +441,78 @@ const flattenActionRadar = (snapshot: any): ActionRadarItem[] => {
       subtitle: bundle.reason || undefined,
       meta: [`Skor: ${bundle.score ?? 0}`],
       tone: 'green',
-      actionLabel: 'Urun ara',
-      action: { type: 'productSearch', productCode: bundle.products?.[0]?.code },
+      actionLabel: 'Paketler',
+      action: { type: 'bundles' },
     });
+  }
+
+  const complementSummary = snapshot.complementHealth?.summary;
+  if (complementSummary && Number(complementSummary.productsWithoutComplements || 0) > 0) {
+    rows.push({
+      id: 'complement-coverage',
+      group: 'Tamamlayici Motor',
+      title: 'Tamamlayicisi olmayan urunler',
+      subtitle: `Kapsama: ${complementSummary.coveragePct ?? 0}%`,
+      meta: [
+        `Bos kalan: ${complementSummary.productsWithoutComplements ?? 0}`,
+        `Oto: ${complementSummary.autoRecommendations ?? 0}`,
+        `Manuel: ${complementSummary.manualRecommendations ?? 0}`,
+      ],
+      tone: Number(complementSummary.coveragePct || 0) >= 80 ? 'green' : 'amber',
+      actionLabel: 'Yonet',
+      action: { type: 'complementManagement' },
+    });
+  }
+
+  const anomaly = snapshot.anomalyRadar?.summary;
+  if (anomaly) {
+    const anomalyRows = [
+      {
+        key: 'expired-quotes',
+        count: anomaly.expiredOpenQuotes,
+        title: 'Suresi gecen acik teklifler',
+        actionLabel: 'Teklifler',
+        action: { type: 'quotes' } as ActionRadarItem['action'],
+        tone: 'red' as const,
+      },
+      {
+        key: 'stale-orders',
+        count: anomaly.stalePendingOrders,
+        title: 'Bekleyen siparis anomalisi',
+        actionLabel: 'Siparis takip',
+        action: { type: 'orderTracking' } as ActionRadarItem['action'],
+        tone: 'amber' as const,
+      },
+      {
+        key: 'stale-carts',
+        count: anomaly.staleCarts,
+        title: 'Eski sepetler',
+        actionLabel: 'Sepet raporu',
+        action: { type: 'cartReport' } as ActionRadarItem['action'],
+        tone: 'amber' as const,
+      },
+      {
+        key: 'catalog-blocked',
+        count: anomaly.catalogBlockedChecks,
+        title: 'Kritik katalog kontrolu',
+        actionLabel: 'Urunler',
+        action: { type: 'products', qualityFilter: 'BAD' } as ActionRadarItem['action'],
+        tone: 'red' as const,
+      },
+    ];
+    for (const item of anomalyRows) {
+      if (Number(item.count || 0) <= 0) continue;
+      rows.push({
+        id: `anomaly-${item.key}`,
+        group: 'Anomali Radar',
+        title: item.title,
+        subtitle: `${item.count} kayit kontrol bekliyor`,
+        meta: [`Adet: ${item.count}`],
+        tone: item.tone,
+        actionLabel: item.actionLabel,
+        action: item.action,
+      });
+    }
   }
 
   return rows;
@@ -124,7 +520,10 @@ const flattenActionRadar = (snapshot: any): ActionRadarItem[] => {
 
 export function ReportsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
-  const [reportType, setReportType] = useState<ReportType>('cost');
+  const route = useRoute<RouteProp<PortalStackParamList, 'Reports'>>();
+  const { width } = useWindowDimensions();
+  const listColumns = width >= 900 ? 2 : 1;
+  const [reportType, setReportType] = useState<ReportType>(route.params?.initialReport || 'cost');
 
   const [costData, setCostData] = useState<CostUpdateAlert[]>([]);
   const [costSummary, setCostSummary] = useState<CostUpdateSummary | null>(null);
@@ -204,8 +603,13 @@ export function ReportsScreen() {
 
   const [actionRadarData, setActionRadarData] = useState<any | null>(null);
   const [actionRadarRows, setActionRadarRows] = useState<ActionRadarItem[]>([]);
+  const [actionRadarGroup, setActionRadarGroup] = useState('ALL');
   const [actionRadarLoading, setActionRadarLoading] = useState(false);
   const [actionRadarError, setActionRadarError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const cartRequestSeqRef = useRef(0);
+  const actionRadarRequestSeqRef = useRef(0);
+  const clearingCartRef = useRef<string | null>(null);
 
   const fetchCost = async () => {
     setCostLoading(true);
@@ -222,7 +626,7 @@ export function ReportsScreen() {
         setCostSummary(response.data.summary || null);
       }
     } catch (err: any) {
-      setCostError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setCostError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setCostLoading(false);
     }
@@ -247,7 +651,7 @@ export function ReportsScreen() {
         setMarginSummary(response.data.summary || null);
       }
     } catch (err: any) {
-      setMarginError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setMarginError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setMarginLoading(false);
     }
@@ -271,7 +675,7 @@ export function ReportsScreen() {
         setPriceSummary(response.data.summary || null);
       }
     } catch (err: any) {
-      setPriceError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setPriceError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setPriceLoading(false);
     }
@@ -294,7 +698,7 @@ export function ReportsScreen() {
         setPriceNewSummary(summary.data || null);
       }
     } catch (err: any) {
-      setPriceNewError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setPriceNewError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setPriceNewLoading(false);
     }
@@ -315,7 +719,7 @@ export function ReportsScreen() {
         setTopProductsSummary(response.data.summary || null);
       }
     } catch (err: any) {
-      setTopProductsError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setTopProductsError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setTopProductsLoading(false);
     }
@@ -336,7 +740,7 @@ export function ReportsScreen() {
         setTopCustomersSummary(response.data.summary || null);
       }
     } catch (err: any) {
-      setTopCustomersError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setTopCustomersError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setTopCustomersLoading(false);
     }
@@ -357,7 +761,7 @@ export function ReportsScreen() {
         setProductCustomersSummary(response.data.summary || null);
       }
     } catch (err: any) {
-      setProductCustomersError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setProductCustomersError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setProductCustomersLoading(false);
     }
@@ -381,7 +785,7 @@ export function ReportsScreen() {
         setComplementSummary(response.data.summary || null);
       }
     } catch (err: any) {
-      setComplementError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setComplementError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setComplementLoading(false);
     }
@@ -404,13 +808,15 @@ export function ReportsScreen() {
         setActivitySummary(response.data.summary || null);
       }
     } catch (err: any) {
-      setActivityError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      setActivityError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
     } finally {
       setActivityLoading(false);
     }
   };
 
   const fetchCustomerCarts = async (override?: { search?: string }) => {
+    const requestSeq = cartRequestSeqRef.current + 1;
+    cartRequestSeqRef.current = requestSeq;
     setCartLoading(true);
     setCartError(null);
     try {
@@ -423,37 +829,57 @@ export function ReportsScreen() {
       });
       if (response.success) {
         const carts = response.data?.carts || [];
-        setCartRows(carts);
-        setCartSummary({
-          total: response.data?.pagination?.totalRecords ?? carts.length,
-        });
+        if (requestSeq === cartRequestSeqRef.current) {
+          setCartRows(carts);
+          setCartSummary({
+            total: response.data?.pagination?.totalRecords ?? carts.length,
+          });
+        }
       }
     } catch (err: any) {
-      setCartError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+      if (requestSeq === cartRequestSeqRef.current) {
+        setCartError(getApiErrorMessage(err, 'Rapor yuklenemedi.'));
+      }
     } finally {
-      setCartLoading(false);
+      if (requestSeq === cartRequestSeqRef.current) {
+        setCartLoading(false);
+      }
     }
   };
 
   const fetchActionRadar = async () => {
+    const requestSeq = actionRadarRequestSeqRef.current + 1;
+    actionRadarRequestSeqRef.current = requestSeq;
     setActionRadarLoading(true);
     setActionRadarError(null);
     try {
       const response = await adminApi.getActionRadar();
       if (response.success) {
         const snapshot = response.data || null;
-        setActionRadarData(snapshot);
-        setActionRadarRows(flattenActionRadar(snapshot));
+        const rows = flattenActionRadar(snapshot);
+        if (requestSeq === actionRadarRequestSeqRef.current) {
+          setActionRadarData(snapshot);
+          setActionRadarRows(rows);
+          setActionRadarGroup((current) => {
+            if (current === 'ALL') return current;
+            return rows.some((row) => row.group === current) ? current : 'ALL';
+          });
+        }
       }
     } catch (err: any) {
-      setActionRadarError(err?.response?.data?.error || 'Aksiyon radari yuklenemedi.');
-      setActionRadarRows([]);
+      if (requestSeq === actionRadarRequestSeqRef.current) {
+        setActionRadarError(getApiErrorMessage(err, 'Aksiyon radari yuklenemedi.'));
+        setActionRadarRows([]);
+      }
     } finally {
-      setActionRadarLoading(false);
+      if (requestSeq === actionRadarRequestSeqRef.current) {
+        setActionRadarLoading(false);
+      }
     }
   };
 
   const clearCustomerCart = (cart: any) => {
+    if (clearingCartRef.current) return;
     if (!cart?.cartId || Number(cart.itemCount || 0) <= 0) return;
     Alert.alert(
       'Sepeti temizle',
@@ -464,6 +890,8 @@ export function ReportsScreen() {
           text: 'Temizle',
           style: 'destructive',
           onPress: async () => {
+            if (clearingCartRef.current) return;
+            clearingCartRef.current = cart.cartId;
             setClearingCartId(cart.cartId);
             try {
               await adminApi.clearCustomerCart(cart.cartId);
@@ -476,8 +904,9 @@ export function ReportsScreen() {
               );
               setExpandedCartId(null);
             } catch (err: any) {
-              Alert.alert('Sepet temizlenemedi', err?.response?.data?.error || 'Islem tamamlanamadi.');
+              Alert.alert('Sepet temizlenemedi', getApiErrorMessage(err, 'Islem tamamlanamadi.'));
             } finally {
+              clearingCartRef.current = null;
               setClearingCartId(null);
             }
           },
@@ -491,6 +920,10 @@ export function ReportsScreen() {
       navigation.navigate('QuoteDetail', { quoteId: item.action.quoteId });
       return;
     }
+    if (item.action.type === 'quotes') {
+      navigation.navigate('Tabs', { screen: 'Quotes' });
+      return;
+    }
     if (item.action.type === 'cartReport') {
       const search = item.action.search || '';
       setCartSearch(search);
@@ -502,10 +935,42 @@ export function ReportsScreen() {
       navigation.navigate('Search', { mode: 'stocks', term: item.action.productCode, autoRun: true });
       return;
     }
+    if (item.action.type === 'products') {
+      navigation.navigate('Products', {
+        search: item.action.search,
+        qualityFilter: item.action.qualityFilter,
+        detailTab: item.action.detailTab,
+        autoOpenFirst: item.action.autoOpenFirst,
+      });
+      return;
+    }
     if (item.action.type === 'customerDetail' && item.action.customerId) {
       navigation.navigate('Customer360', { customerIdOrCode: item.action.customerId });
+      return;
+    }
+    if (item.action.type === 'fieldSales') {
+      navigation.navigate('FieldSales', { customerIdOrCode: item.action.customerIdOrCode });
+      return;
+    }
+    if (item.action.type === 'orderTracking') {
+      navigation.navigate('OrderTracking');
+      return;
+    }
+    if (item.action.type === 'complementManagement') {
+      navigation.navigate('ComplementManagement');
+      return;
+    }
+    if (item.action.type === 'bundles') {
+      navigation.navigate('Bundles');
     }
   };
+
+  useEffect(() => {
+    const nextReportType = route.params?.initialReport;
+    if (nextReportType && nextReportType !== reportType) {
+      setReportType(nextReportType);
+    }
+  }, [reportType, route.params?.initialReport]);
 
   useEffect(() => {
     if (reportType === 'cost' && costData.length === 0 && !costLoading) {
@@ -540,6 +1005,19 @@ export function ReportsScreen() {
     }
   }, [reportType]);
 
+  const actionRadarGroupCounts = useMemo(() => {
+    const counts = actionRadarRows.reduce((acc: Record<string, number>, row) => {
+      acc[row.group] = (acc[row.group] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [actionRadarRows]);
+
+  const filteredActionRadarRows = useMemo(() => {
+    if (actionRadarGroup === 'ALL') return actionRadarRows;
+    return actionRadarRows.filter((row) => row.group === actionRadarGroup);
+  }, [actionRadarGroup, actionRadarRows]);
+
   const data =
     reportType === 'cost'
       ? costData
@@ -561,7 +1039,53 @@ export function ReportsScreen() {
                   ? activityRows
                     : reportType === 'customerCarts'
                       ? cartRows
-                      : actionRadarRows;
+                      : filteredActionRadarRows;
+
+  const exportCurrentReport = async () => {
+    if (exporting) return;
+    const currentRows = data as any[];
+    if (!currentRows.length) {
+      Alert.alert('Bilgi', 'Disa aktarilacak rapor satiri yok.');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const sheetRows = buildReportSheetRows(reportType, currentRows);
+      if (!sheetRows.length || !sheetRows[0]?.length) {
+        Alert.alert('Bilgi', 'Bu rapor icin Excel satiri olusturulamadi.');
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+      ws['!cols'] = sheetRows[0].map((title: any) => ({
+        wch: Math.min(Math.max(String(title || '').length + 5, 12), 42),
+      }));
+      XLSX.utils.book_append_sheet(wb, ws, reportTitles[reportType].slice(0, 31));
+
+      const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
+      const fileName = `${reportType}-${stamp}.xlsx`;
+      const dir = `${FileSystem.documentDirectory}reports/`;
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const target = `${dir}${fileName}`;
+      await FileSystem.writeAsStringAsync(target, base64, { encoding: FileSystem.EncodingType.Base64 });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(target, {
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          dialogTitle: `${reportTitles[reportType]} Excel`,
+        });
+      } else {
+        Alert.alert('Excel olusturuldu', target);
+      }
+    } catch (err: any) {
+      Alert.alert('Excel olusturulamadi', getApiErrorMessage(err, 'Islem tamamlanamadi.'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const headerContent = useMemo(() => {
     if (reportType === 'cost') {
@@ -973,6 +1497,35 @@ export function ReportsScreen() {
               Satisci kapsami: {(actionRadarData.scope.sectorCodes || []).join(', ') || 'atanmis sektor yok'}
             </Text>
           )}
+          {actionRadarRows.length > 0 && (
+            <>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryText}>Gosterilen: {filteredActionRadarRows.length}</Text>
+                <Text style={styles.summaryText}>Toplam: {actionRadarRows.length}</Text>
+              </View>
+              <View style={styles.radarGroupWrap}>
+                <TouchableOpacity
+                  style={[styles.radarGroupChip, actionRadarGroup === 'ALL' && styles.radarGroupChipActive]}
+                  onPress={() => setActionRadarGroup('ALL')}
+                >
+                  <Text style={actionRadarGroup === 'ALL' ? styles.radarGroupTextActive : styles.radarGroupText}>
+                    Tumu ({actionRadarRows.length})
+                  </Text>
+                </TouchableOpacity>
+                {actionRadarGroupCounts.map(([group, count]) => (
+                  <TouchableOpacity
+                    key={group}
+                    style={[styles.radarGroupChip, actionRadarGroup === group && styles.radarGroupChipActive]}
+                    onPress={() => setActionRadarGroup(group)}
+                  >
+                    <Text style={actionRadarGroup === group ? styles.radarGroupTextActive : styles.radarGroupText}>
+                      {group} ({count})
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
           {actionRadarError && <Text style={styles.error}>{actionRadarError}</Text>}
         </View>
       );
@@ -1048,6 +1601,10 @@ export function ReportsScreen() {
     cartSummary,
     cartError,
     actionRadarData,
+    actionRadarRows,
+    filteredActionRadarRows,
+    actionRadarGroup,
+    actionRadarGroupCounts,
     actionRadarError,
   ]);
 
@@ -1055,12 +1612,32 @@ export function ReportsScreen() {
     <SafeAreaView style={styles.safeArea}>
       <FlatList
         data={data}
-        keyExtractor={(_, index) => `${reportType}-${index}`}
+        key={`${reportType}-${listColumns}`}
+        keyExtractor={(item: any, index) => `${reportType}-${item?.id || index}`}
+        numColumns={listColumns}
+        columnWrapperStyle={listColumns > 1 ? styles.columnWrapper : undefined}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.header}>
-            <Text style={styles.title}>Raporlar</Text>
-            <Text style={styles.subtitle}>Guncel analizler ve kontrol listeleri.</Text>
+            <View style={styles.hero}>
+              <Text style={styles.heroKicker}>Rapor Merkezi</Text>
+              <Text style={styles.heroTitle}>{reportTitles[reportType]}</Text>
+              <Text style={styles.heroSubtitle}>Guncel analizler, kontrol listeleri ve aksiyon alinabilir operasyon sinyalleri.</Text>
+              <View style={styles.heroMetricRow}>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue}>{data.length}</Text>
+                  <Text style={styles.heroMetricLabel}>Satir</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue}>{listColumns}</Text>
+                  <Text style={styles.heroMetricLabel}>Kolon</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue}>{exporting ? 'Hazirlaniyor' : 'Hazir'}</Text>
+                  <Text style={styles.heroMetricLabel}>Excel</Text>
+                </View>
+              </View>
+            </View>
 
             <View style={styles.segmentWrap}>
               {(
@@ -1092,6 +1669,13 @@ export function ReportsScreen() {
             </View>
 
             {headerContent}
+            <TouchableOpacity
+              style={[styles.exportButton, exporting && styles.disabledButton]}
+              onPress={exportCurrentReport}
+              disabled={exporting || data.length === 0}
+            >
+              <Text style={styles.exportButtonText}>{exporting ? 'Excel hazirlaniyor' : 'Ekrandaki Raporu Excel Paylas'}</Text>
+            </TouchableOpacity>
           </View>
         }
         renderItem={({ item }) => {
@@ -1099,8 +1683,8 @@ export function ReportsScreen() {
             const row = item as CostUpdateAlert;
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>{row.productName}</Text>
-                <Text style={styles.cardMeta}>Kod: {row.productCode}</Text>
+                <Text style={styles.cardTitle} numberOfLines={2}>{row.productName}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Kod: {row.productCode}</Text>
                 <Text style={styles.cardMeta}>Fark: {row.diffPercent.toFixed(2)}%</Text>
                 <Text style={styles.cardMeta}>Gun: {row.dayDiff}</Text>
                 <Text style={styles.cardMeta}>Risk: {row.riskAmount.toFixed(2)} TL</Text>
@@ -1116,8 +1700,8 @@ export function ReportsScreen() {
             const margin = row.OrtalamaKarYuzde ?? row['SO-KarYuzde'] ?? 0;
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>{stokName}</Text>
-                <Text style={styles.cardMeta}>Cari: {cariName}</Text>
+                <Text style={styles.cardTitle} numberOfLines={2}>{stokName}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Cari: {cariName}</Text>
                 <Text style={styles.cardMeta}>Tutar: {Number(amount).toFixed(2)} TL</Text>
                 <Text style={styles.cardMeta}>Kar: {Number(margin).toFixed(2)}%</Text>
               </View>
@@ -1128,8 +1712,8 @@ export function ReportsScreen() {
             const row = item as PriceHistoryChange;
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>{row.productName}</Text>
-                <Text style={styles.cardMeta}>Kod: {row.productCode}</Text>
+                <Text style={styles.cardTitle} numberOfLines={2}>{row.productName}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Kod: {row.productCode}</Text>
                 <Text style={styles.cardMeta}>Degisim: {row.avgChangePercent.toFixed(2)}%</Text>
                 <Text style={styles.cardMeta}>Liste: {row.updatedListsCount}</Text>
                 <Text style={styles.cardMeta}>Tutarlilik: {row.isConsistent ? 'Evet' : 'Hayir'}</Text>
@@ -1140,8 +1724,8 @@ export function ReportsScreen() {
           if (reportType === 'priceNew') {
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>{item.productName}</Text>
-                <Text style={styles.cardMeta}>Kod: {item.productCode}</Text>
+                <Text style={styles.cardTitle} numberOfLines={2}>{item.productName}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Kod: {item.productCode}</Text>
                 <Text style={styles.cardMeta}>Degisim: {item.totalChanges}</Text>
                 <Text style={styles.cardMeta}>Stok: {item.currentStock}</Text>
               </View>
@@ -1151,8 +1735,8 @@ export function ReportsScreen() {
           if (reportType === 'topProducts') {
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>{item.productName}</Text>
-                <Text style={styles.cardMeta}>Kod: {item.productCode}</Text>
+                <Text style={styles.cardTitle} numberOfLines={2}>{item.productName}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Kod: {item.productCode}</Text>
                 <Text style={styles.cardMeta}>Ciro: {Number(item.revenue).toFixed(2)} TL</Text>
                 <Text style={styles.cardMeta}>Kar: {Number(item.profit).toFixed(2)} TL</Text>
               </View>
@@ -1162,8 +1746,8 @@ export function ReportsScreen() {
           if (reportType === 'topCustomers') {
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>{item.customerName}</Text>
-                <Text style={styles.cardMeta}>Kod: {item.customerCode}</Text>
+                <Text style={styles.cardTitle} numberOfLines={2}>{item.customerName}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Kod: {item.customerCode}</Text>
                 <Text style={styles.cardMeta}>Ciro: {Number(item.revenue).toFixed(2)} TL</Text>
                 <Text style={styles.cardMeta}>Kar: {Number(item.profit).toFixed(2)} TL</Text>
               </View>
@@ -1171,16 +1755,67 @@ export function ReportsScreen() {
           }
 
           if (reportType === 'complementMissing') {
+            const missingComplements = Array.isArray(item.missingComplements) ? item.missingComplements : [];
+            const productCode = item.productCode || item.code;
+            const customerCode = item.customerCode || item.mikroCariCode;
+            const quotePrefills = missingComplements
+              .map((missing: any) => ({
+                productCode: String(missing.productCode || missing.code || missing.mikroCode || '').trim(),
+                productName: missing.productName || missing.name,
+                quantity: Number(missing.suggestedQuantity || missing.quantity || 1) || 1,
+              }))
+              .filter((missing: any) => missing.productCode)
+              .slice(0, 8);
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>
+                <Text style={styles.cardTitle} numberOfLines={2}>
                   {(item.customerCode || item.productCode || '-').toString()}
                 </Text>
-                <Text style={styles.cardMeta}>
+                <Text style={styles.cardMeta} numberOfLines={1}>
                   {item.customerName || item.productName || '-'}
                 </Text>
                 <Text style={styles.cardMeta}>Evrak: {item.documentCount ?? '-'}</Text>
                 <Text style={styles.cardMeta}>Eksik: {item.missingCount ?? '-'}</Text>
+                {missingComplements.length > 0 && (
+                  <View style={styles.metaWrap}>
+                    {missingComplements.slice(0, 6).map((missing: any, index: number) => (
+                      <Text key={`${item.customerCode || item.productCode || 'missing'}-${index}`} style={styles.metaPill} numberOfLines={1}>
+                        {missing.productCode || missing.code || missing.mikroCode || missing.productName || missing.name || 'Eksik urun'}
+                      </Text>
+                    ))}
+                  </View>
+                )}
+                <View style={styles.cardActionRow}>
+                  {customerCode ? (
+                    <TouchableOpacity
+                      style={styles.smallButton}
+                      onPress={() => navigation.navigate('Customer360', { customerIdOrCode: customerCode })}
+                    >
+                      <Text style={styles.smallButtonText}>Cari 360</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {customerCode && quotePrefills.length > 0 ? (
+                    <TouchableOpacity
+                      style={styles.smallButton}
+                      onPress={() =>
+                        navigation.navigate('QuoteCreate', {
+                          customerIdOrCode: customerCode,
+                          productPrefills: quotePrefills,
+                        })
+                      }
+                    >
+                      <Text style={styles.smallButtonText}>Teklif Taslagi</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {productCode ? (
+                    <TouchableOpacity
+                      style={styles.smallButton}
+                      onPress={() => navigation.navigate('ComplementManagement', { initialSearch: productCode, autoSelect: true })}
+                    >
+                      <Text style={styles.smallButtonText}>Tamamlayici</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
             );
           }
@@ -1188,12 +1823,12 @@ export function ReportsScreen() {
           if (reportType === 'customerActivity') {
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>{item.type || '-'}</Text>
-                <Text style={styles.cardMeta}>Kullanici: {item.userName || item.userId || '-'}</Text>
-                <Text style={styles.cardMeta}>
+                <Text style={styles.cardTitle} numberOfLines={2}>{item.type || '-'}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Kullanici: {item.userName || item.userId || '-'}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>
                   Cari: {item.customerCode || '-'} {item.customerName ? `- ${item.customerName}` : ''}
                 </Text>
-                <Text style={styles.cardMeta}>Sayfa: {item.pagePath || '-'}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Sayfa: {item.pagePath || '-'}</Text>
                 <Text style={styles.cardMeta}>Urun: {item.productCode || '-'}</Text>
                 <Text style={styles.cardMeta}>Tiklama: {item.clickCount ?? '-'}</Text>
               </View>
@@ -1205,9 +1840,9 @@ export function ReportsScreen() {
             const canClear = Number(item.itemCount || 0) > 0 && clearingCartId !== item.cartId;
             return (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>{item.customerCode || '-'}</Text>
-                <Text style={styles.cardMeta}>{item.customerName || '-'}</Text>
-                <Text style={styles.cardMeta}>Kullanici: {item.userName || '-'}</Text>
+                <Text style={styles.cardTitle} numberOfLines={1}>{item.customerCode || '-'}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>{item.customerName || '-'}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Kullanici: {item.userName || '-'}</Text>
                 <Text style={styles.cardMeta}>Kalem: {item.itemCount ?? 0}</Text>
                 <Text style={styles.cardMeta}>Miktar: {item.totalQuantity ?? 0}</Text>
                 <Text style={styles.cardMeta}>Tutar: {Number(item.totalAmount || 0).toFixed(2)} TL</Text>
@@ -1235,7 +1870,7 @@ export function ReportsScreen() {
                     ) : (
                       item.items.map((cartItem: any) => (
                         <View key={cartItem.id} style={styles.cartItemCard}>
-                          <Text style={styles.cartItemTitle}>{cartItem.productName || cartItem.productCode || '-'}</Text>
+                          <Text style={styles.cartItemTitle} numberOfLines={2}>{cartItem.productName || cartItem.productCode || '-'}</Text>
                           <Text style={styles.cardMeta}>
                             {cartItem.productCode || '-'} - {Number(cartItem.quantity || 0).toLocaleString('tr-TR')} adet
                           </Text>
@@ -1258,18 +1893,23 @@ export function ReportsScreen() {
                 <View style={styles.cardHeaderRow}>
                   <View style={styles.cardTitleBlock}>
                     <Text style={styles.groupLabel}>{row.group}</Text>
-                    <Text style={styles.cardTitle}>{row.title}</Text>
-                    {!!row.subtitle && <Text style={styles.cardMeta}>{row.subtitle}</Text>}
+                    <Text style={styles.cardTitle} numberOfLines={2}>{row.title}</Text>
+                    {!!row.subtitle && <Text style={styles.cardMeta} numberOfLines={2}>{row.subtitle}</Text>}
                   </View>
                   {row.action.type !== 'none' && (
                     <TouchableOpacity style={styles.smallButton} onPress={() => openActionRadarItem(row)}>
                       <Text style={styles.smallButtonText}>{row.actionLabel || 'Ac'}</Text>
                     </TouchableOpacity>
                   )}
+                  {row.action.type === 'none' && (
+                    <View style={styles.passiveActionBadge}>
+                      <Text style={styles.passiveActionText}>Bilgi</Text>
+                    </View>
+                  )}
                 </View>
                 <View style={styles.metaWrap}>
-                  {row.meta.map((meta) => (
-                    <Text key={meta} style={styles.metaPill}>{meta}</Text>
+                  {row.meta.map((meta, index) => (
+                    <Text key={`${row.id}-${index}-${meta}`} style={styles.metaPill} numberOfLines={1}>{meta}</Text>
                   ))}
                 </View>
               </View>
@@ -1278,8 +1918,8 @@ export function ReportsScreen() {
 
           return (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>{item.customerName}</Text>
-              <Text style={styles.cardMeta}>Kod: {item.customerCode}</Text>
+              <Text style={styles.cardTitle} numberOfLines={2}>{item.customerName}</Text>
+              <Text style={styles.cardMeta} numberOfLines={1}>Kod: {item.customerCode}</Text>
               <Text style={styles.cardMeta}>Ciro: {Number(item.totalRevenue).toFixed(2)} TL</Text>
             </View>
           );
@@ -1319,18 +1959,59 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  columnWrapper: {
+    gap: spacing.md,
+  },
   header: {
     gap: spacing.sm,
   },
-  title: {
-    fontFamily: fonts.bold,
-    fontSize: fontSizes.xl,
-    color: colors.text,
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
   },
-  subtitle: {
+  heroKicker: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  heroTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xxl,
+    color: '#FFFFFF',
+  },
+  heroSubtitle: {
     fontFamily: fonts.regular,
-    fontSize: fontSizes.md,
-    color: colors.textMuted,
+    fontSize: fontSizes.sm,
+    lineHeight: fontSizes.sm + 6,
+    color: '#DDE8FF',
+  },
+  heroMetricRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    minWidth: 92,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: '#FFFFFF',
+  },
+  heroMetricLabel: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
   },
   segmentWrap: {
     flexDirection: 'row',
@@ -1377,10 +2058,12 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   input: {
     flex: 1,
+    minWidth: 180,
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
@@ -1400,6 +2083,19 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontFamily: fonts.semibold,
     color: '#FFFFFF',
+    fontSize: fontSizes.sm,
+  },
+  exportButton: {
+    backgroundColor: colors.primaryMuted,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  exportButtonText: {
+    fontFamily: fonts.semibold,
+    color: colors.primarySoft,
     fontSize: fontSizes.sm,
   },
   summaryRow: {
@@ -1445,11 +2141,39 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.xs,
     color: colors.textMuted,
   },
+  radarGroupWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  radarGroupChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.surface,
+  },
+  radarGroupChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  radarGroupText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  radarGroupTextActive: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#FFFFFF',
+  },
   error: {
     fontFamily: fonts.medium,
     color: colors.danger,
   },
   card: {
+    flex: 1,
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.lg,
@@ -1467,6 +2191,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   cardTitleBlock: {
@@ -1482,18 +2207,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     fontFamily: fonts.semibold,
     fontSize: fontSizes.xs,
-    color: colors.primary,
+    color: colors.primarySoft,
     overflow: 'hidden',
   },
   cardTitle: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.md,
     color: colors.text,
+    minWidth: 0,
+    lineHeight: 22,
   },
   cardMeta: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
     color: colors.textMuted,
+    minWidth: 0,
+    lineHeight: 19,
   },
   cardActionRow: {
     flexDirection: 'row',
@@ -1508,7 +2237,7 @@ const styles = StyleSheet.create({
   cartItemCard: {
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.surfaceMuted,
     borderRadius: radius.md,
     padding: spacing.sm,
     gap: 3,
@@ -1517,6 +2246,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: fontSizes.sm,
     color: colors.text,
+    minWidth: 0,
+    lineHeight: 20,
   },
   metaWrap: {
     flexDirection: 'row',
@@ -1525,7 +2256,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   metaPill: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
@@ -1540,6 +2271,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.sm,
+  },
+  passiveActionBadge: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.surfaceMuted,
+  },
+  passiveActionText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
   },
   dangerButton: {
     backgroundColor: colors.danger,

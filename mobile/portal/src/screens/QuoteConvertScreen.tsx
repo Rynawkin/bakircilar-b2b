@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Quote, QuoteItem } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 import { hapticLight, hapticSuccess } from '../utils/haptics';
 
 type QuoteConvertRoute = { params: { quoteId: string } };
@@ -48,13 +49,18 @@ export function QuoteConvertScreen() {
   const [whiteSeries, setWhiteSeries] = useState('');
 
   const [converting, setConverting] = useState(false);
+  const quoteRequestSeqRef = useRef(0);
+  const convertingRef = useRef(false);
 
   const fetchQuote = async () => {
+    const requestSeq = quoteRequestSeqRef.current + 1;
+    quoteRequestSeqRef.current = requestSeq;
     setLoading(true);
     setError(null);
     try {
       const response = await adminApi.getQuoteById(quoteId);
       const data = response.quote;
+      if (requestSeq !== quoteRequestSeqRef.current) return;
       setQuote(data);
       setDocumentNo(data.documentNo || '');
 
@@ -71,9 +77,13 @@ export function QuoteConvertScreen() {
       setSelectedIds(nextSelected);
       setItemUpdates(nextUpdates);
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Teklif yuklenemedi.');
+      if (requestSeq === quoteRequestSeqRef.current) {
+        setError(getApiErrorMessage(err, 'Teklif yuklenemedi.'));
+      }
     } finally {
-      setLoading(false);
+      if (requestSeq === quoteRequestSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -129,6 +139,7 @@ export function QuoteConvertScreen() {
   };
 
   const submit = async () => {
+    if (convertingRef.current) return;
     if (!quote) return;
     if (!quote.mikroNumber) {
       Alert.alert('Uyari', 'Bu teklif Mikro numarasi olmadigi icin siparise cevrilemez.');
@@ -163,6 +174,7 @@ export function QuoteConvertScreen() {
       return;
     }
 
+    convertingRef.current = true;
     setConverting(true);
     try {
       const result = await adminApi.convertQuoteToOrder(quote.id, {
@@ -186,8 +198,9 @@ export function QuoteConvertScreen() {
       ]);
       hapticSuccess();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Siparise cevirme basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Siparise cevirme basarisiz.'));
     } finally {
+      convertingRef.current = false;
       setConverting(false);
     }
   };
@@ -215,12 +228,28 @@ export function QuoteConvertScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>Geri</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.title}>Teklifi Siparise Cevir</Text>
-        <Text style={styles.subtitle}>{quote.quoteNumber}</Text>
+        <View style={styles.hero}>
+          <TouchableOpacity style={styles.heroBackButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.heroBackText}>Geri</Text>
+          </TouchableOpacity>
+          <Text style={styles.kicker}>Tekliften Siparis</Text>
+          <Text style={styles.title}>Teklifi Siparise Cevir</Text>
+          <Text style={styles.subtitle}>{quote.quoteNumber} - {quote.customer?.name || 'Cari'}</Text>
+          <View style={styles.heroMetrics}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Secili</Text>
+              <Text style={styles.heroMetricValue}>{selectedOpenItems.length}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Toplam</Text>
+              <Text style={styles.heroMetricValue}>{selectedTotal.toFixed(0)} TL</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Depo</Text>
+              <Text style={styles.heroMetricValue}>{warehouseNo || '-'}</Text>
+            </View>
+          </View>
+        </View>
         {error && <Text style={styles.error}>{error}</Text>}
 
         <View style={styles.card}>
@@ -243,14 +272,18 @@ export function QuoteConvertScreen() {
                 }}
               >
                 <View style={styles.itemHeader}>
-                  <Text style={styles.itemTitle}>{item.productName}</Text>
-                  <Text style={styles.itemStatus}>{status}</Text>
+                  <Text style={styles.itemTitle} numberOfLines={3}>
+                    {item.productName}
+                  </Text>
+                  <Text style={styles.itemStatus} numberOfLines={1}>
+                    {status}
+                  </Text>
                 </View>
-                <Text style={styles.itemMeta}>Kod: {item.productCode || '-'}</Text>
+                <Text style={styles.itemMeta} numberOfLines={1}>Kod: {item.productCode || '-'}</Text>
                 <Text style={styles.itemMeta}>Fiyat Tipi: {item.priceType === 'WHITE' ? 'Beyaz' : 'Faturali'}</Text>
                 <Text style={styles.itemMeta}>Birim Fiyat: {Number(item.unitPrice || 0).toFixed(2)} TL</Text>
                 {status === 'CLOSED' && item.closedReason && (
-                  <Text style={styles.itemMeta}>Kapama Nedeni: {item.closedReason}</Text>
+                  <Text style={styles.itemMeta} numberOfLines={2}>Kapama Nedeni: {item.closedReason}</Text>
                 )}
                 {status === 'OPEN' && (
                   <Text style={selected ? styles.selectedText : styles.unselectedText}>
@@ -342,7 +375,11 @@ export function QuoteConvertScreen() {
           <Text style={styles.totalText}>Secili Toplam: {selectedTotal.toFixed(2)} TL</Text>
         </View>
 
-        <TouchableOpacity style={styles.primaryButton} onPress={submit} disabled={converting}>
+        <TouchableOpacity
+          style={[styles.primaryButton, converting && styles.buttonDisabled]}
+          onPress={submit}
+          disabled={converting}
+        >
           <Text style={styles.primaryButtonText}>{converting ? 'Ceviriliyor...' : 'Siparise Cevir'}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -370,17 +407,59 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontFamily: fonts.medium,
-    color: colors.primary,
+    color: colors.primarySoft,
+  },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  heroBackButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
+  heroBackText: {
+    fontFamily: fonts.semibold,
+    color: '#BFDBFE',
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.md,
+    color: '#DCEAFE',
+    lineHeight: 22,
+  },
+  heroMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  heroMetricLabel: {
     fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
     fontSize: fontSizes.sm,
-    color: colors.textMuted,
+    color: '#FFFFFF',
   },
   error: {
     fontFamily: fonts.medium,
@@ -422,7 +501,7 @@ const styles = StyleSheet.create({
   itemStatus: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.xs,
-    color: colors.primary,
+    color: colors.primarySoft,
   },
   itemMeta: {
     fontFamily: fonts.regular,
@@ -431,7 +510,7 @@ const styles = StyleSheet.create({
   },
   selectedText: {
     fontFamily: fonts.semibold,
-    color: colors.primary,
+    color: colors.primarySoft,
     fontSize: fontSizes.xs,
   },
   unselectedText: {
@@ -472,5 +551,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: fontSizes.md,
     color: '#FFFFFF',
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
 });

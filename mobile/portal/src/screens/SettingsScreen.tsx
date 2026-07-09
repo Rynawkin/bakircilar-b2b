@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   SafeAreaView,
@@ -7,18 +7,24 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { adminApi } from '../api/admin';
 import { Settings } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 const COST_METHODS: Settings['costCalculationMethod'][] = ['LAST_ENTRY', 'CURRENT_COST', 'DYNAMIC'];
 
 export function SettingsScreen() {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 820;
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const fetchSeqRef = useRef(0);
 
   const [calculationPeriod, setCalculationPeriod] = useState('');
   const [minimumExcess, setMinimumExcess] = useState('');
@@ -27,16 +33,19 @@ export function SettingsScreen() {
   const [whiteVatFormula, setWhiteVatFormula] = useState('');
 
   const loadSettings = async () => {
+    const requestSeq = ++fetchSeqRef.current;
     try {
       const data = await adminApi.getSettings();
+      if (requestSeq !== fetchSeqRef.current) return;
       setSettings(data);
       setCalculationPeriod(String(data.calculationPeriodMonths || ''));
       setMinimumExcess(String(data.minimumExcessThreshold || ''));
       setWarehouses((data.includedWarehouses || []).join(', '));
       setCostMethod(data.costCalculationMethod || 'LAST_ENTRY');
       setWhiteVatFormula(data.whiteVatFormula || '');
-    } catch (err) {
-      Alert.alert('Hata', 'Ayarlar yuklenemedi.');
+    } catch (err: any) {
+      if (requestSeq !== fetchSeqRef.current) return;
+      Alert.alert('Hata', getApiErrorMessage(err, 'Ayarlar yuklenemedi.'));
     }
   };
 
@@ -45,7 +54,9 @@ export function SettingsScreen() {
   }, []);
 
   const saveSettings = async () => {
+    if (savingRef.current) return;
     if (!settings) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       await adminApi.updateSettings({
@@ -61,17 +72,31 @@ export function SettingsScreen() {
       Alert.alert('Basarili', 'Ayarlar guncellendi.');
       await loadSettings();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kaydetme basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kaydetme basarisiz.'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Ayarlar</Text>
-        <Text style={styles.subtitle}>Sistem ve hesaplama tercihleri.</Text>
+      <ScrollView contentContainerStyle={[styles.container, isTablet && styles.containerTablet]}>
+        <View style={styles.hero}>
+          <Text style={styles.kicker}>Sistem</Text>
+          <Text style={styles.title}>Ayarlar</Text>
+          <Text style={styles.subtitle}>Sistem ve hesaplama tercihleri.</Text>
+          <View style={styles.heroMetricRow}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{calculationPeriod || '-'}</Text>
+              <Text style={styles.heroMetricLabel}>Donem Ay</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{costMethod || '-'}</Text>
+              <Text style={styles.heroMetricLabel}>Maliyet</Text>
+            </View>
+          </View>
+        </View>
 
         <View style={styles.card}>
           <TextInput
@@ -115,7 +140,7 @@ export function SettingsScreen() {
             value={whiteVatFormula}
             onChangeText={setWhiteVatFormula}
           />
-          <TouchableOpacity style={styles.primaryButton} onPress={saveSettings} disabled={saving}>
+          <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={saveSettings} disabled={saving}>
             <Text style={styles.primaryButtonText}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</Text>
           </TouchableOpacity>
         </View>
@@ -133,16 +158,45 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  containerTablet: {
+    maxWidth: 920,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#9EC5FF',
+    textTransform: 'uppercase',
+  },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#DDE8FF',
+    lineHeight: 22,
   },
+  heroMetricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 118,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    padding: spacing.sm,
+  },
+  heroMetricValue: { fontFamily: fonts.bold, fontSize: fontSizes.md, color: '#FFFFFF' },
+  heroMetricLabel: { marginTop: 2, fontFamily: fonts.medium, fontSize: fontSizes.xs, color: '#DDE8FF' },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
@@ -193,6 +247,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingVertical: spacing.sm,
     alignItems: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
   primaryButtonText: {
     fontFamily: fonts.semibold,

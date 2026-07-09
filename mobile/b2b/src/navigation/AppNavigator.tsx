@@ -11,6 +11,7 @@ import { CustomerTaskDetailScreen } from '../screens/CustomerTaskDetailScreen';
 import { CustomerTasksScreen } from '../screens/CustomerTasksScreen';
 import { DiscountedProductsScreen } from '../screens/DiscountedProductsScreen';
 import { InvoicesScreen } from '../screens/InvoicesScreen';
+import { NewCategoriesScreen } from '../screens/NewCategoriesScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { OrdersScreen } from '../screens/OrdersScreen';
 import { OrderDetailScreen } from '../screens/OrderDetailScreen';
@@ -39,6 +40,7 @@ export type RootStackParamList = {
   PurchasedProducts: undefined;
   PendingOrders: undefined;
   Invoices: undefined;
+  NewCategories: undefined;
   Preferences: undefined;
   Tasks: undefined;
   TaskDetail: { taskId: string };
@@ -116,6 +118,7 @@ export function AppNavigator() {
         <Stack.Screen name="PurchasedProducts" component={PurchasedProductsScreen} />
         <Stack.Screen name="PendingOrders" component={PendingOrdersScreen} />
         <Stack.Screen name="Invoices" component={InvoicesScreen} />
+        <Stack.Screen name="NewCategories" component={NewCategoriesScreen} />
         <Stack.Screen name="Preferences" component={PreferencesScreen} />
         <Stack.Screen name="Tasks" component={CustomerTasksScreen} />
         <Stack.Screen name="TaskDetail" component={CustomerTaskDetailScreen} />

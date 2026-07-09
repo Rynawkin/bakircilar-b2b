@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,16 +8,18 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 
 import { adminApi } from '../api/admin';
 import { Agreement, Customer, Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 type AgreementImportRow = {
   mikroCode: string;
@@ -74,11 +76,17 @@ const findColumnIndex = (headers: any[], candidates: string[]) => {
 };
 
 const buildDefaultDate = () => new Date().toISOString().slice(0, 10);
+const CUSTOMER_SEARCH_PAGE_SIZE = 40;
 
 export function CustomerAgreementsScreen() {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 820;
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerPagination, setCustomerPagination] = useState<{ total: number; page: number; pageSize: number; totalPages: number } | null>(null);
+  const [loadingMoreCustomers, setLoadingMoreCustomers] = useState(false);
+  const [hasMoreCustomers, setHasMoreCustomers] = useState(false);
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [agreementSearch, setAgreementSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
@@ -92,21 +100,15 @@ export function CustomerAgreementsScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const savingRef = useRef(false);
+  const importingRef = useRef(false);
+  const customerRequestSeqRef = useRef(0);
   const [importFile, setImportFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [importSummary, setImportSummary] = useState<{
     imported: number;
     failed: number;
     results: Array<{ mikroCode: string; status: string; reason?: string }>;
   } | null>(null);
-
-  const filteredCustomers = useMemo(() => {
-    const term = customerSearch.trim().toLowerCase();
-    if (!term) return customers;
-    return customers.filter((customer) => {
-      const haystack = `${customer.name} ${customer.mikroCariCode || ''} ${customer.email || ''}`.toLowerCase();
-      return haystack.includes(term);
-    });
-  }, [customerSearch, customers]);
 
   const resetAgreementForm = () => {
     setSelectedProduct(null);
@@ -117,15 +119,69 @@ export function CustomerAgreementsScreen() {
     setValidTo('');
   };
 
-  const loadCustomers = async () => {
-    setLoading(true);
+  const beginSaving = () => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    return true;
+  };
+
+  const endSaving = () => {
+    savingRef.current = false;
+    setSaving(false);
+  };
+
+  const beginImporting = () => {
+    if (importingRef.current) return false;
+    importingRef.current = true;
+    setImporting(true);
+    return true;
+  };
+
+  const endImporting = () => {
+    importingRef.current = false;
+    setImporting(false);
+  };
+
+  const loadCustomers = async (append = false, searchOverride?: string) => {
+    const requestSeq = ++customerRequestSeqRef.current;
+    if (append) {
+      setLoadingMoreCustomers(true);
+    } else {
+      setLoading(true);
+    }
     try {
-      const response = await adminApi.getCustomers();
-      setCustomers(response.customers || []);
+      const nextPage = append ? (customerPagination?.page || Math.max(1, Math.ceil(customers.length / CUSTOMER_SEARCH_PAGE_SIZE))) + 1 : 1;
+      const response = await adminApi.getCustomers({
+        search: (searchOverride ?? customerSearch).trim() || undefined,
+        page: nextPage,
+        pageSize: CUSTOMER_SEARCH_PAGE_SIZE,
+      });
+      if (requestSeq !== customerRequestSeqRef.current) return;
+      const nextCustomers = response.customers || [];
+      const nextPagination = response.pagination || {
+        total: nextCustomers.length,
+        page: nextPage,
+        pageSize: CUSTOMER_SEARCH_PAGE_SIZE,
+        totalPages: nextCustomers.length >= CUSTOMER_SEARCH_PAGE_SIZE ? nextPage + 1 : nextPage,
+      };
+      setCustomerPagination(nextPagination);
+      setHasMoreCustomers(response.pagination ? nextPagination.page < nextPagination.totalPages : nextCustomers.length >= CUSTOMER_SEARCH_PAGE_SIZE);
+      setCustomers((current) => {
+        if (!append) return nextCustomers;
+        const byId = new Map<string, Customer>();
+        current.forEach((customer) => byId.set(customer.id, customer));
+        nextCustomers.forEach((customer) => byId.set(customer.id, customer));
+        return Array.from(byId.values());
+      });
     } catch (err) {
+      if (requestSeq !== customerRequestSeqRef.current) return;
       Alert.alert('Hata', 'Musteriler yuklenemedi.');
     } finally {
-      setLoading(false);
+      if (requestSeq === customerRequestSeqRef.current) {
+        setLoading(false);
+        setLoadingMoreCustomers(false);
+      }
     }
   };
 
@@ -154,8 +210,11 @@ export function CustomerAgreementsScreen() {
   };
 
   useEffect(() => {
-    loadCustomers();
-  }, []);
+    const timer = setTimeout(() => {
+      loadCustomers(false, customerSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [customerSearch]);
 
   useEffect(() => {
     if (!selectedCustomer) {
@@ -189,6 +248,7 @@ export function CustomerAgreementsScreen() {
   };
 
   const saveAgreement = async () => {
+    if (savingRef.current) return;
     if (!selectedCustomer || !selectedProduct) {
       Alert.alert('Eksik Bilgi', 'Musteri ve urun secin.');
       return;
@@ -197,7 +257,7 @@ export function CustomerAgreementsScreen() {
       Alert.alert('Eksik Bilgi', 'Fiyatlari girin.');
       return;
     }
-    setSaving(true);
+    if (!beginSaving()) return;
     try {
       await adminApi.upsertAgreement({
         customerId: selectedCustomer.id,
@@ -212,24 +272,28 @@ export function CustomerAgreementsScreen() {
       resetAgreementForm();
       await fetchAgreements();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Anlasma kaydedilemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Anlasma kaydedilemedi.'));
     } finally {
-      setSaving(false);
+      endSaving();
     }
   };
 
   const deleteAgreement = async (agreementId: string) => {
+    if (savingRef.current) return;
     Alert.alert('Sil', 'Anlasmayi silmek istiyor musunuz?', [
       { text: 'Vazgec', style: 'cancel' },
       {
         text: 'Sil',
         style: 'destructive',
         onPress: async () => {
+          if (!beginSaving()) return;
           try {
             await adminApi.deleteAgreement(agreementId);
             await fetchAgreements();
           } catch (err: any) {
-            Alert.alert('Hata', err?.response?.data?.error || 'Silme basarisiz.');
+            Alert.alert('Hata', getApiErrorMessage(err, 'Silme basarisiz.'));
+          } finally {
+            endSaving();
           }
         },
       },
@@ -293,6 +357,7 @@ export function CustomerAgreementsScreen() {
   };
 
   const runImport = async () => {
+    if (importingRef.current) return;
     if (!selectedCustomer) {
       Alert.alert('Eksik Bilgi', 'Once musteri secin.');
       return;
@@ -301,7 +366,7 @@ export function CustomerAgreementsScreen() {
       Alert.alert('Eksik Bilgi', 'Dosya secin.');
       return;
     }
-    setImporting(true);
+    if (!beginImporting()) return;
     setImportSummary(null);
     try {
       const rows = await parseImportFile(importFile);
@@ -310,9 +375,9 @@ export function CustomerAgreementsScreen() {
       Alert.alert('Basarili', 'Excel aktarimi tamamlandi.');
       await fetchAgreements();
     } catch (err: any) {
-      Alert.alert('Hata', err?.message || 'Excel aktarimi basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Excel aktarimi basarisiz.'));
     } finally {
-      setImporting(false);
+      endImporting();
     }
   };
 
@@ -338,7 +403,11 @@ export function CustomerAgreementsScreen() {
         dialogTitle: 'Anlasma Sablonu',
       });
     } else {
-      Alert.alert('Bilgi', `Sablon hazir: ${fileUri}`);
+      const fallbackDirectory = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}reports/`;
+      await FileSystem.makeDirectoryAsync(fallbackDirectory, { intermediates: true });
+      const fallbackUri = `${fallbackDirectory}${fileName}`;
+      await FileSystem.copyAsync({ from: fileUri, to: fallbackUri });
+      Alert.alert('Sablon Hazir', `Paylasim desteklenmiyor. Dosya uygulama belgelerine kaydedildi: ${fileName}`);
     }
   };
 
@@ -354,9 +423,26 @@ export function CustomerAgreementsScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Anlasmali Fiyatlar</Text>
-        <Text style={styles.subtitle}>Musteri bazli sabit fiyatlar.</Text>
+      <ScrollView contentContainerStyle={[styles.container, isTablet && styles.containerTablet]}>
+        <View style={styles.hero}>
+          <Text style={styles.kicker}>Cari Fiyat Kontrolu</Text>
+          <Text style={styles.title}>Anlasmali Fiyatlar</Text>
+          <Text style={styles.subtitle}>Musteri bazli sabit fiyatlar, Excel aktarimi ve urun arama ayni ekranda.</Text>
+          <View style={styles.heroMetrics}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Cari</Text>
+              <Text style={styles.heroMetricValue}>{customerPagination?.total ?? customers.length}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Yuklu</Text>
+              <Text style={styles.heroMetricValue}>{customers.length}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Anlasma</Text>
+              <Text style={styles.heroMetricValue}>{agreements.length}</Text>
+            </View>
+          </View>
+        </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Musteri Secimi</Text>
@@ -366,9 +452,11 @@ export function CustomerAgreementsScreen() {
             placeholderTextColor={colors.textMuted}
             value={customerSearch}
             onChangeText={setCustomerSearch}
+            onSubmitEditing={() => loadCustomers(false, customerSearch)}
+            returnKeyType="search"
           />
           <View style={styles.listBlock}>
-            {filteredCustomers.map((customer) => (
+            {customers.map((customer) => (
               <TouchableOpacity
                 key={customer.id}
                 style={[
@@ -387,6 +475,23 @@ export function CustomerAgreementsScreen() {
                 <Text style={styles.listItemMeta}>{customer.mikroCariCode || '-'}</Text>
               </TouchableOpacity>
             ))}
+            {customers.length === 0 && <Text style={styles.helper}>Musteri bulunamadi.</Text>}
+            {loadingMoreCustomers ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : hasMoreCustomers ? (
+              <TouchableOpacity
+                style={styles.loadMoreButton}
+                onPress={() => loadCustomers(true, customerSearch)}
+                disabled={loadingMoreCustomers}
+              >
+                <Text style={styles.loadMoreText}>
+                  Daha Fazla Yukle
+                  {customerPagination ? ` (${customers.length}/${customerPagination.total})` : ''}
+                </Text>
+              </TouchableOpacity>
+            ) : customers.length > 0 ? (
+              <Text style={styles.helper}>Gosterilen: {customers.length}{customerPagination ? ` / ${customerPagination.total}` : ''}</Text>
+            ) : null}
           </View>
         </View>
 
@@ -495,9 +600,9 @@ export function CustomerAgreementsScreen() {
             />
           </View>
           <View style={styles.row}>
-            <TouchableOpacity style={styles.primaryButton} onPress={saveAgreement} disabled={saving}>
-              <Text style={styles.primaryButtonText}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</Text>
-            </TouchableOpacity>
+          <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={saveAgreement} disabled={saving}>
+            <Text style={styles.primaryButtonText}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</Text>
+          </TouchableOpacity>
             <TouchableOpacity style={styles.secondaryButton} onPress={resetAgreementForm}>
               <Text style={styles.secondaryButtonText}>Temizle</Text>
             </TouchableOpacity>
@@ -514,7 +619,7 @@ export function CustomerAgreementsScreen() {
               {importFile ? `Secilen: ${importFile.name}` : 'Dosya Sec'}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryButton} onPress={runImport} disabled={importing}>
+          <TouchableOpacity style={[styles.primaryButton, importing && styles.buttonDisabled]} onPress={runImport} disabled={importing}>
             <Text style={styles.primaryButtonText}>{importing ? 'Aktariliyor...' : 'Aktar'}</Text>
           </TouchableOpacity>
           {importSummary && (
@@ -548,15 +653,54 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  containerTablet: {
+    maxWidth: 1180,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
+  },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#DCEAFE',
+    lineHeight: 22,
+  },
+  heroMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  heroMetricLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: '#FFFFFF',
   },
   card: {
     backgroundColor: colors.surface,
@@ -589,6 +733,7 @@ const styles = StyleSheet.create({
   },
   smallInput: {
     flex: 1,
+    minWidth: 150,
   },
   listBlock: {
     gap: spacing.sm,
@@ -611,6 +756,20 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
     color: colors.textMuted,
+  },
+  loadMoreButton: {
+    minHeight: 40,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  loadMoreText: {
+    fontFamily: fonts.bold,
+    color: '#FFFFFF',
+    fontSize: fontSizes.sm,
   },
   itemCard: {
     backgroundColor: colors.surfaceAlt,
@@ -660,6 +819,9 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontFamily: fonts.semibold,
     color: colors.text,
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
   summaryBox: {
     backgroundColor: colors.surfaceAlt,

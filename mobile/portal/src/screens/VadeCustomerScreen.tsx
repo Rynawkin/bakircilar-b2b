@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   SafeAreaView,
@@ -16,6 +16,7 @@ import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { VadeAssignment, VadeNote } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 export function VadeCustomerScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
@@ -29,6 +30,20 @@ export function VadeCustomerScreen() {
   const [promiseDate, setPromiseDate] = useState('');
   const [classification, setClassification] = useState('');
   const [riskScore, setRiskScore] = useState('');
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+
+  const beginSaving = () => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    return true;
+  };
+
+  const endSaving = () => {
+    savingRef.current = false;
+    setSaving(false);
+  };
 
   const loadData = async () => {
     try {
@@ -36,8 +51,8 @@ export function VadeCustomerScreen() {
       setCustomer(response.customer || null);
       setNotes(response.notes || []);
       setAssignments(response.assignments || []);
-    } catch (err) {
-      Alert.alert('Hata', 'Detay yuklenemedi.');
+    } catch (err: any) {
+      Alert.alert('Hata', getApiErrorMessage(err, 'Detay yuklenemedi.'));
     }
   };
 
@@ -46,10 +61,12 @@ export function VadeCustomerScreen() {
   }, [customerId]);
 
   const addNote = async () => {
+    if (savingRef.current) return;
     if (!noteContent.trim()) {
       Alert.alert('Eksik Bilgi', 'Not girin.');
       return;
     }
+    if (!beginSaving()) return;
     try {
       await adminApi.createVadeNote({
         customerId,
@@ -60,15 +77,19 @@ export function VadeCustomerScreen() {
       setPromiseDate('');
       await loadData();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Not eklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Not eklenemedi.'));
+    } finally {
+      endSaving();
     }
   };
 
   const saveClassification = async () => {
+    if (savingRef.current) return;
     if (!classification.trim()) {
       Alert.alert('Eksik Bilgi', 'Sinif girin.');
       return;
     }
+    if (!beginSaving()) return;
     try {
       await adminApi.upsertVadeClassification({
         customerId,
@@ -77,21 +98,41 @@ export function VadeCustomerScreen() {
       });
       Alert.alert('Basarili', 'Sinif kaydedildi.');
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kayit basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kayit basarisiz.'));
+    } finally {
+      endSaving();
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>Geri</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Vade Cari Detayi</Text>
+        <View style={styles.hero}>
+          <TouchableOpacity style={styles.heroBackButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.heroBackText}>Geri</Text>
+          </TouchableOpacity>
+          <Text style={styles.kicker}>Tahsilat Takibi</Text>
+          <Text style={styles.title}>Vade Cari Detayi</Text>
+          <Text style={styles.subtitle}>{customer?.name || customer?.displayName || 'Cari kaydi'}</Text>
+          <View style={styles.heroMetrics}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Toplam</Text>
+              <Text style={styles.heroMetricValue}>{customer?.totalBalance?.toFixed?.(0) ?? '-'} TL</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Not</Text>
+              <Text style={styles.heroMetricValue}>{notes.length}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Atama</Text>
+              <Text style={styles.heroMetricValue}>{assignments.length}</Text>
+            </View>
+          </View>
+        </View>
 
         {customer && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>{customer.name || customer.displayName || 'Cari'}</Text>
+            <Text style={styles.cardTitle} numberOfLines={2}>{customer.name || customer.displayName || 'Cari'}</Text>
             <Text style={styles.cardMeta}>Kod: {customer.mikroCariCode || '-'}</Text>
             <Text style={styles.cardMeta}>Toplam: {customer.totalBalance?.toFixed?.(2) ?? '-'}</Text>
           </View>
@@ -122,8 +163,8 @@ export function VadeCustomerScreen() {
             value={promiseDate}
             onChangeText={setPromiseDate}
           />
-          <TouchableOpacity style={styles.secondaryButton} onPress={addNote}>
-            <Text style={styles.secondaryButtonText}>Not Ekle</Text>
+          <TouchableOpacity style={[styles.secondaryButton, saving && styles.buttonDisabled]} onPress={addNote} disabled={saving}>
+            <Text style={styles.secondaryButtonText}>{saving ? 'Kaydediliyor...' : 'Not Ekle'}</Text>
           </TouchableOpacity>
         </View>
 
@@ -155,8 +196,8 @@ export function VadeCustomerScreen() {
             value={riskScore}
             onChangeText={setRiskScore}
           />
-          <TouchableOpacity style={styles.primaryButton} onPress={saveClassification}>
-            <Text style={styles.primaryButtonText}>Kaydet</Text>
+          <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={saveClassification} disabled={saving}>
+            <Text style={styles.primaryButtonText}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -179,12 +220,59 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontFamily: fonts.medium,
-    color: colors.primary,
+    color: colors.primarySoft,
+  },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  heroBackButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
+  heroBackText: {
+    fontFamily: fonts.semibold,
+    color: '#BFDBFE',
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
+  },
+  subtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.md,
+    color: '#DCEAFE',
+    lineHeight: 22,
+  },
+  heroMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  heroMetricLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: '#FFFFFF',
   },
   card: {
     backgroundColor: colors.surface,
@@ -257,5 +345,8 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontFamily: fonts.semibold,
     color: colors.text,
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
 });

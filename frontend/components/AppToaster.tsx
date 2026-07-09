@@ -66,7 +66,7 @@ export function AppToaster() {
   return (
     <Toaster
       key={isMobile ? 'mobile' : 'default'}
-      position="top-right"
+      position={isMobile ? 'bottom-center' : 'top-right'}
       toastOptions={{
         duration: isMobile ? 1000 : 3000,
         style: {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,7 @@ import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { TaskDetail, TaskPriority, TaskStatus, TaskVisibility } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 const STATUS_OPTIONS: TaskStatus[] = ['NEW', 'IN_PROGRESS', 'DONE', 'CANCELLED'];
 const PRIORITY_OPTIONS: TaskPriority[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'URGENT'];
@@ -33,6 +34,7 @@ export function TaskDetailScreen() {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [commentText, setCommentText] = useState('');
   const [commentVisibility, setCommentVisibility] = useState<TaskVisibility>('PUBLIC');
   const [attachmentVisibility, setAttachmentVisibility] = useState<TaskVisibility>('PUBLIC');
@@ -52,7 +54,7 @@ export function TaskDetailScreen() {
       setStatus(normalizeStatus(response.task.status));
       setPriority(response.task.priority);
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Talep yuklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Talep yuklenemedi.'));
     } finally {
       setLoading(false);
     }
@@ -62,13 +64,26 @@ export function TaskDetailScreen() {
     fetchTask();
   }, [taskId]);
 
+  const beginSaving = () => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    return true;
+  };
+
+  const endSaving = () => {
+    savingRef.current = false;
+    setSaving(false);
+  };
+
   const saveTask = async () => {
+    if (savingRef.current) return;
     if (!task) return;
     if (!title.trim()) {
       Alert.alert('Eksik Bilgi', 'Baslik gerekli.');
       return;
     }
-    setSaving(true);
+    if (!beginSaving()) return;
     try {
       const response = await adminApi.updateTask(task.id, {
         title: title.trim(),
@@ -79,18 +94,20 @@ export function TaskDetailScreen() {
       setTask(response.task);
       Alert.alert('Basarili', 'Talep guncellendi.');
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Guncelleme basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Guncelleme basarisiz.'));
     } finally {
-      setSaving(false);
+      endSaving();
     }
   };
 
   const addComment = async () => {
+    if (savingRef.current) return;
     if (!task) return;
     if (!commentText.trim()) {
       Alert.alert('Eksik Bilgi', 'Yorum girin.');
       return;
     }
+    if (!beginSaving()) return;
     try {
       const response = await adminApi.addTaskComment(task.id, {
         body: commentText.trim(),
@@ -109,28 +126,32 @@ export function TaskDetailScreen() {
       );
       setCommentText('');
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Yorum eklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Yorum eklenemedi.'));
+    } finally {
+      endSaving();
     }
   };
 
   const uploadAttachment = async () => {
+    if (savingRef.current) return;
     if (!task) return;
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-    if (result.canceled || !result.assets?.length) return;
-
-    const asset = result.assets[0];
-    const formData = new FormData();
-    formData.append('file', {
-      uri: asset.uri,
-      name: asset.name || 'attachment',
-      type: asset.mimeType || 'application/octet-stream',
-    } as any);
-    formData.append('visibility', attachmentVisibility);
-
+    if (!beginSaving()) return;
     try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        name: asset.name || 'attachment',
+        type: asset.mimeType || 'application/octet-stream',
+      } as any);
+      formData.append('visibility', attachmentVisibility);
+
       const response = await adminApi.addTaskAttachment(task.id, formData);
       setTask((prev) =>
         prev
@@ -144,7 +165,9 @@ export function TaskDetailScreen() {
           : prev
       );
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Dosya yuklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Dosya yuklenemedi.'));
+    } finally {
+      endSaving();
     }
   };
 
@@ -161,11 +184,30 @@ export function TaskDetailScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>Geri</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.title}>Talep Detayi</Text>
+        <View style={styles.hero}>
+          <TouchableOpacity style={styles.heroBackButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.heroBackText}>Geri</Text>
+          </TouchableOpacity>
+          <Text style={styles.kicker}>Talep Merkezi</Text>
+          <Text style={styles.title}>Talep Detayi</Text>
+          <Text style={styles.subtitle} numberOfLines={2}>
+            {task?.title || 'Talep kaydi'}
+          </Text>
+          <View style={styles.heroMetrics}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Durum</Text>
+              <Text style={styles.heroMetricValue}>{status}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Oncelik</Text>
+              <Text style={styles.heroMetricValue}>{priority}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Yorum</Text>
+              <Text style={styles.heroMetricValue}>{task?.comments?.length ?? task?._count?.comments ?? 0}</Text>
+            </View>
+          </View>
+        </View>
 
         {task ? (
           <View style={styles.card}>
@@ -307,12 +349,59 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontFamily: fonts.medium,
-    color: colors.primary,
+    color: colors.primarySoft,
+  },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  heroBackButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
+  heroBackText: {
+    fontFamily: fonts.semibold,
+    color: '#BFDBFE',
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
+  },
+  subtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.md,
+    color: '#DCEAFE',
+    lineHeight: 22,
+  },
+  heroMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  heroMetricLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: '#FFFFFF',
   },
   card: {
     backgroundColor: colors.surface,

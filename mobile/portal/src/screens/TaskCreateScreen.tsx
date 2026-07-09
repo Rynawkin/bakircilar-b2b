@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Alert,
   SafeAreaView,
@@ -16,6 +16,7 @@ import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { TaskPriority, TaskStatus, TaskType } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 const STATUS_OPTIONS: TaskStatus[] = ['NEW', 'IN_PROGRESS', 'DONE', 'CANCELLED'];
 const PRIORITY_OPTIONS: TaskPriority[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'URGENT'];
@@ -29,12 +30,15 @@ export function TaskCreateScreen() {
   const [priority, setPriority] = useState<TaskPriority>('NONE');
   const [type, setType] = useState<TaskType>('OTHER');
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const handleCreate = async () => {
+    if (savingRef.current) return;
     if (!title.trim()) {
       Alert.alert('Eksik Bilgi', 'Baslik girin.');
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       await adminApi.createTask({
@@ -47,8 +51,9 @@ export function TaskCreateScreen() {
       Alert.alert('Basarili', 'Talep olusturuldu.');
       navigation.goBack();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Talep olusturulamadi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Talep olusturulamadi.'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -56,10 +61,28 @@ export function TaskCreateScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>Geri</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Yeni Talep</Text>
+        <View style={styles.hero}>
+          <TouchableOpacity style={styles.heroBackButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.heroBackText}>Geri</Text>
+          </TouchableOpacity>
+          <Text style={styles.kicker}>Talep Merkezi</Text>
+          <Text style={styles.title}>Yeni Talep</Text>
+          <Text style={styles.subtitle}>Konu, oncelik ve is tipini secerek ekibe takip edilebilir bir is acin.</Text>
+          <View style={styles.heroMetrics}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Durum</Text>
+              <Text style={styles.heroMetricValue}>{status}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Oncelik</Text>
+              <Text style={styles.heroMetricValue}>{priority}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Tur</Text>
+              <Text style={styles.heroMetricValue}>{type}</Text>
+            </View>
+          </View>
+        </View>
 
         <View style={styles.card}>
           <TextInput
@@ -138,12 +161,59 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontFamily: fonts.medium,
-    color: colors.primary,
+    color: colors.primarySoft,
+  },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  heroBackButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
+  heroBackText: {
+    fontFamily: fonts.semibold,
+    color: '#BFDBFE',
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
+  },
+  subtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.md,
+    color: '#DCEAFE',
+    lineHeight: 22,
+  },
+  heroMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  heroMetricLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: '#FFFFFF',
   },
   card: {
     backgroundColor: colors.surface,

@@ -13,13 +13,14 @@ import {
 } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { adminApi } from '../api/admin';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 type CariResult = Record<string, any>;
 
@@ -268,7 +269,7 @@ export function EkstreScreen() {
         Alert.alert('Bilgi', `PDF olusturuldu: ${uri}`);
       }
     } catch (err: any) {
-      Alert.alert('Hata', err?.message || 'PDF olusturulamadi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'PDF olusturulamadi.'));
     }
   };
 
@@ -330,7 +331,7 @@ export function EkstreScreen() {
         Alert.alert('Bilgi', `Excel olusturuldu: ${target}`);
       }
     } catch (err: any) {
-      Alert.alert('Hata', err?.message || 'Excel olusturulamadi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Excel olusturulamadi.'));
     }
   };
 
@@ -342,7 +343,7 @@ export function EkstreScreen() {
       const response = await adminApi.searchCariForEkstre({ searchTerm });
       setSearchResults(response.data || []);
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Cari aramasi basarisiz.');
+      setError(getApiErrorMessage(err, 'Cari aramasi basarisiz.'));
     } finally {
       setSearching(false);
     }
@@ -365,7 +366,7 @@ export function EkstreScreen() {
       const bakiye = Number.isFinite(opening?.bakiye) ? Number(opening?.bakiye) : borc - alacak;
       setOpeningTotals({ borc, alacak, bakiye });
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Cari hareket foyi yuklenemedi.');
+      setError(getApiErrorMessage(err, 'Cari hareket foyi yuklenemedi.'));
     } finally {
       setFoyuLoading(false);
     }
@@ -582,7 +583,7 @@ export function EkstreScreen() {
         }
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>{item?.['Evrak Tipi'] || 'Evrak'}</Text>
+            <Text style={styles.cardTitle} numberOfLines={1}>{item?.['Evrak Tipi'] || 'Evrak'}</Text>
             <Text style={styles.cardMeta}>Tarih: {item?.Tarih || '-'}</Text>
             <Text style={styles.cardMeta}>Belge No: {item?.['Belge No'] || '-'}</Text>
             <Text style={styles.cardMeta}>Odeme Tipi: {item?.['Odeme Tipi'] || '-'}</Text>
@@ -606,17 +607,19 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   header: {
-    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: spacing.md,
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#DDE8FF',
+    lineHeight: 22,
   },
   searchRow: {
     flexDirection: 'row',
@@ -691,7 +694,7 @@ const styles = StyleSheet.create({
   clearLink: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.sm,
-    color: colors.primary,
+    color: colors.primarySoft,
   },
   dateRow: {
     flexDirection: 'row',
@@ -731,7 +734,7 @@ const styles = StyleSheet.create({
   },
   doneButtonText: {
     fontFamily: fonts.semibold,
-    color: colors.primary,
+    color: colors.primarySoft,
     fontSize: fontSizes.sm,
   },
   primaryButton: {

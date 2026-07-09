@@ -645,6 +645,7 @@ export class AdminController {
           OR: [
             { name: { contains: token, mode: 'insensitive' } },
             { mikroCode: { contains: token, mode: 'insensitive' } },
+            { searchText: { contains: normalizeSearchText(token) } },
           ],
         }));
       }
@@ -1245,28 +1246,35 @@ export class AdminController {
       else if (active === 'inactive') where.active = false;
 
       // Sunucu-tarafli arama (tüm kayıtlarda): çok-token AND
-      const custSearchTokens = (typeof search === 'string' ? search : '')
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 8);
-      if (custSearchTokens.length > 0) {
-        where.AND = custSearchTokens.map((tok) => ({
-          OR: [
-            { name: { contains: tok, mode: 'insensitive' } },
-            { email: { contains: tok, mode: 'insensitive' } },
-            { mikroCariCode: { contains: tok, mode: 'insensitive' } },
-            { city: { contains: tok, mode: 'insensitive' } },
-            { district: { contains: tok, mode: 'insensitive' } },
-            { phone: { contains: tok, mode: 'insensitive' } },
-          ],
-        }));
-      }
+      const custSearchTokens = splitSearchTokens(typeof search === 'string' ? search : '')
+        .slice(0, 8)
+        .map((tok) => normalizeSearchText(tok))
+        .filter(Boolean);
+      const hasCustomerSearch = custSearchTokens.length > 0;
+      const matchesCustomerSearch = (customer: any) => {
+        if (!hasCustomerSearch) return true;
+        const haystack = normalizeSearchText([
+          customer.id,
+          customer.name,
+          customer.displayName,
+          customer.mikroName,
+          customer.email,
+          customer.mikroCariCode,
+          customer.city,
+          customer.district,
+          customer.phone,
+          customer.groupCode,
+          customer.sectorCode,
+        ].filter(Boolean).join(' '));
+        return custSearchTokens.every((token) => haystack.includes(token));
+      };
 
       const select: any = {
           id: true,
           email: true,
           name: true,
+          displayName: true,
+          mikroName: true,
           customerType: true,
           mikroCariCode: true,
             invoicedPriceListNo: true,
@@ -1311,12 +1319,31 @@ export class AdminController {
           select,
           orderBy: { createdAt: 'desc' },
         });
-        res.json({ customers });
+        res.json({ customers: hasCustomerSearch ? customers.filter(matchesCustomerSearch) : customers });
         return;
       }
       const custSize = Math.min(Math.max(1, Math.floor(rawCustPageSize)), 200);
       const rawCustPage = Number(page);
       const custPage = Number.isFinite(rawCustPage) && rawCustPage > 0 ? Math.floor(rawCustPage) : 1;
+      if (hasCustomerSearch) {
+        const allScopedCustomers = await prisma.user.findMany({
+          where,
+          select,
+          orderBy: { createdAt: 'desc' },
+        });
+        const filteredCustomers = allScopedCustomers.filter(matchesCustomerSearch);
+        const start = (custPage - 1) * custSize;
+        res.json({
+          customers: filteredCustomers.slice(start, start + custSize),
+          pagination: {
+            total: filteredCustomers.length,
+            page: custPage,
+            pageSize: custSize,
+            totalPages: Math.max(1, Math.ceil(filteredCustomers.length / custSize)),
+          },
+        });
+        return;
+      }
       const [custTotal, customers] = await Promise.all([
         prisma.user.count({ where }),
         prisma.user.findMany({
@@ -2435,6 +2462,20 @@ export class AdminController {
         scope: buildReportRequestContext(req),
       });
       res.status(201).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/field-sales/visit-photo
+   */
+  async uploadFieldSalesVisitPhoto(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Dosya yuklenmedi' });
+      }
+      res.json({ success: true, imageUrl: `/uploads/${req.file.filename}` });
     } catch (error) {
       next(error);
     }

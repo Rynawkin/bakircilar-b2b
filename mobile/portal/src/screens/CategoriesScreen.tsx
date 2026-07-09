@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   SafeAreaView,
@@ -13,6 +13,7 @@ import {
 import { adminApi } from '../api/admin';
 import { CategoryWithPriceRules } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 const CUSTOMER_TYPES = ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'] as const;
 
@@ -21,13 +22,21 @@ export function CategoriesScreen() {
   const [selectedCategory, setSelectedCategory] = useState<CategoryWithPriceRules | null>(null);
   const [customerType, setCustomerType] = useState<string>('BAYI');
   const [profitMargin, setProfitMargin] = useState('');
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const fetchSeqRef = useRef(0);
 
   const fetchCategories = async () => {
+    const requestSeq = ++fetchSeqRef.current;
     try {
       const response = await adminApi.getCategories();
-      setCategories(response.categories || []);
-    } catch (err) {
-      Alert.alert('Hata', 'Kategoriler yuklenemedi.');
+      if (requestSeq === fetchSeqRef.current) {
+        setCategories(response.categories || []);
+      }
+    } catch (err: any) {
+      if (requestSeq === fetchSeqRef.current) {
+        Alert.alert('Hata', getApiErrorMessage(err, 'Kategoriler yuklenemedi.'));
+      }
     }
   };
 
@@ -36,6 +45,7 @@ export function CategoriesScreen() {
   }, []);
 
   const saveRule = async () => {
+    if (savingRef.current) return;
     if (!selectedCategory) {
       Alert.alert('Eksik Bilgi', 'Kategori secin.');
       return;
@@ -44,6 +54,8 @@ export function CategoriesScreen() {
       Alert.alert('Eksik Bilgi', 'Kar marji girin.');
       return;
     }
+    savingRef.current = true;
+    setSaving(true);
     try {
       await adminApi.setCategoryPriceRule({
         categoryId: selectedCategory.id,
@@ -54,15 +66,31 @@ export function CategoriesScreen() {
       setProfitMargin('');
       await fetchCategories();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kayit basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kayit basarisiz.'));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Kategoriler</Text>
-        <Text style={styles.subtitle}>Kategori bazli fiyat kurallari.</Text>
+        <View style={styles.hero}>
+          <Text style={styles.kicker}>Fiyat Kurallari</Text>
+          <Text style={styles.title}>Kategoriler</Text>
+          <Text style={styles.subtitle}>Kategori bazli fiyat kurallari.</Text>
+          <View style={styles.heroMetricRow}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{categories.length}</Text>
+              <Text style={styles.heroMetricLabel}>Kategori</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{categories.reduce((sum, item) => sum + (item.priceRules?.length || 0), 0)}</Text>
+              <Text style={styles.heroMetricLabel}>Kural</Text>
+            </View>
+          </View>
+        </View>
 
         {categories.map((category) => (
           <TouchableOpacity
@@ -70,7 +98,7 @@ export function CategoriesScreen() {
             style={[styles.card, selectedCategory?.id === category.id && styles.cardActive]}
             onPress={() => setSelectedCategory(category)}
           >
-            <Text style={styles.cardTitle}>{category.name}</Text>
+            <Text style={styles.cardTitle} numberOfLines={2}>{category.name}</Text>
             {(category.priceRules || []).map((rule) => (
               <Text key={rule.id} style={styles.cardMeta}>
                 {rule.customerType}: {rule.profitMargin}
@@ -100,8 +128,8 @@ export function CategoriesScreen() {
             value={profitMargin}
             onChangeText={setProfitMargin}
           />
-          <TouchableOpacity style={styles.primaryButton} onPress={saveRule}>
-            <Text style={styles.primaryButtonText}>Kaydet</Text>
+          <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={saveRule} disabled={saving}>
+            <Text style={styles.primaryButtonText}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -118,16 +146,40 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#9EC5FF',
+    textTransform: 'uppercase',
+  },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#DDE8FF',
+    lineHeight: 22,
   },
+  heroMetricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 118,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    padding: spacing.sm,
+  },
+  heroMetricValue: { fontFamily: fonts.bold, fontSize: fontSizes.lg, color: '#FFFFFF' },
+  heroMetricLabel: { marginTop: 2, fontFamily: fonts.medium, fontSize: fontSizes.xs, color: '#DDE8FF' },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
@@ -194,5 +246,8 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontFamily: fonts.semibold,
     color: '#FFFFFF',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 
 import { customerApi } from '../api/customer';
 import { useAuth } from '../context/AuthContext';
@@ -7,8 +7,11 @@ import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 
 export function ProfileScreen() {
   const { user, signOut, refresh } = useAuth();
+  const { width } = useWindowDimensions();
   const [vatPref, setVatPref] = useState(user?.vatDisplayPreference || 'WITH_VAT');
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const isTablet = width >= 820;
 
   useEffect(() => {
     if (user?.vatDisplayPreference) {
@@ -17,20 +20,27 @@ export function ProfileScreen() {
   }, [user?.vatDisplayPreference]);
 
   const updateVatPreference = async (value: 'WITH_VAT' | 'WITHOUT_VAT') => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setVatPref(value);
     setSaving(true);
     try {
       await customerApi.updateSettings({ vatDisplayPreference: value });
       await refresh();
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Profil</Text>
+      <ScrollView contentContainerStyle={[styles.container, isTablet && styles.containerTablet]} showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <Text style={styles.heroKicker}>Hesap</Text>
+          <Text style={styles.heroTitle}>Profil</Text>
+          <Text style={styles.heroSubtitle} numberOfLines={2}>{user?.name || 'B2B musteri hesabi'}</Text>
+        </View>
         <View style={styles.card}>
           <Text style={styles.label}>Unvan</Text>
           <Text style={styles.value}>{user?.name || '-'}</Text>
@@ -76,7 +86,7 @@ export function ProfileScreen() {
         <TouchableOpacity style={styles.button} onPress={signOut}>
           <Text style={styles.buttonText}>Cikis Yap</Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -87,14 +97,46 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   container: {
-    flex: 1,
     padding: spacing.xl,
     gap: spacing.lg,
+    paddingBottom: spacing.xxl,
+  },
+  containerTablet: {
+    maxWidth: 680,
+    alignSelf: 'center',
+    width: '100%',
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
     color: colors.text,
+  },
+  hero: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.xs,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 9 },
+    elevation: 5,
+  },
+  heroKicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xxl,
+    color: '#FFFFFF',
+  },
+  heroSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.sm,
+    color: '#DBEAFE',
   },
   card: {
     backgroundColor: colors.surface,
@@ -117,6 +159,7 @@ const styles = StyleSheet.create({
   },
   segment: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
     padding: 4,
@@ -125,6 +168,7 @@ const styles = StyleSheet.create({
   },
   segmentButton: {
     flex: 1,
+    minWidth: 96,
     paddingVertical: 8,
     borderRadius: radius.sm,
     alignItems: 'center',

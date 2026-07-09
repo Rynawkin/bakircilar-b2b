@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,12 +8,14 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { adminApi } from '../api/admin';
 import { QuoteLineItem } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 const STATUS_OPTIONS = [
   { value: 'OPEN', label: 'Acik' },
@@ -32,6 +34,8 @@ const CLOSE_REASONS = [
 ];
 
 export function QuoteLinesScreen() {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 820;
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_OPTIONS)[number]['value']>('OPEN');
   const [search, setSearch] = useState('');
   const [closeReasonFilter, setCloseReasonFilter] = useState('');
@@ -42,8 +46,26 @@ export function QuoteLinesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const linesRequestSeqRef = useRef(0);
+  const operationBusyRef = useRef<string | null>(null);
+
+  const beginLineOperation = (operationKey: string) => {
+    if (operationBusyRef.current) return false;
+    operationBusyRef.current = operationKey;
+    if (operationKey === 'bulk') setBulkBusy(true);
+    else setBusyId(operationKey);
+    return true;
+  };
+
+  const endLineOperation = () => {
+    operationBusyRef.current = null;
+    setBusyId(null);
+    setBulkBusy(false);
+  };
 
   const fetchLines = async () => {
+    const requestSeq = linesRequestSeqRef.current + 1;
+    linesRequestSeqRef.current = requestSeq;
     setLoading(true);
     setError(null);
     try {
@@ -54,12 +76,18 @@ export function QuoteLinesScreen() {
         limit: 100,
         offset: 0,
       });
-      setLines(response.items || []);
-      setSelectedIds(new Set());
+      if (requestSeq === linesRequestSeqRef.current) {
+        setLines(response.items || []);
+        setSelectedIds(new Set());
+      }
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Teklif kalemleri yuklenemedi.');
+      if (requestSeq === linesRequestSeqRef.current) {
+        setError(getApiErrorMessage(err, 'Teklif kalemleri yuklenemedi.'));
+      }
     } finally {
-      setLoading(false);
+      if (requestSeq === linesRequestSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -80,6 +108,25 @@ export function QuoteLinesScreen() {
     return Array.from(selectedIds).filter((id) => openSet.has(id));
   }, [selectedIds, openIds]);
 
+  const lineCounts = useMemo(() => {
+    return lines.reduce(
+      (acc, line) => {
+        const status = line.status || 'OPEN';
+        acc.total += 1;
+        if (status === 'OPEN') acc.open += 1;
+        else if (status === 'CLOSED') acc.closed += 1;
+        else if (status === 'CONVERTED') acc.converted += 1;
+        return acc;
+      },
+      { total: 0, open: 0, closed: 0, converted: 0 }
+    );
+  }, [lines]);
+
+  const totalLineAmount = useMemo(
+    () => lines.reduce((sum, line) => sum + Number(line.totalPrice || 0), 0),
+    [lines]
+  );
+
   const toggleSelected = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -90,34 +137,37 @@ export function QuoteLinesScreen() {
   };
 
   const closeSingle = async (line: QuoteLineItem) => {
+    if (operationBusyRef.current) return;
     if (!bulkReason) {
       Alert.alert('Bilgi', 'Kapatma nedeni secin.');
       return;
     }
-    setBusyId(line.id);
+    if (!beginLineOperation(line.id)) return;
     try {
       await adminApi.closeQuoteLineItems([{ id: line.id, reason: bulkReason }]);
       await fetchLines();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kalem kapatilamadi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kalem kapatilamadi.'));
     } finally {
-      setBusyId(null);
+      endLineOperation();
     }
   };
 
   const reopenSingle = async (line: QuoteLineItem) => {
-    setBusyId(line.id);
+    if (operationBusyRef.current) return;
+    if (!beginLineOperation(line.id)) return;
     try {
       await adminApi.reopenQuoteLineItems([line.id]);
       await fetchLines();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kalem acilamadi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kalem acilamadi.'));
     } finally {
-      setBusyId(null);
+      endLineOperation();
     }
   };
 
   const closeBulk = async () => {
+    if (operationBusyRef.current) return;
     if (!bulkReason) {
       Alert.alert('Bilgi', 'Kapatma nedeni secin.');
       return;
@@ -126,16 +176,16 @@ export function QuoteLinesScreen() {
       Alert.alert('Bilgi', 'Kapatmak icin acik kalem secin.');
       return;
     }
-    setBulkBusy(true);
+    if (!beginLineOperation('bulk')) return;
     try {
       await adminApi.closeQuoteLineItems(
         selectedOpenIds.map((id) => ({ id, reason: bulkReason }))
       );
       await fetchLines();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Toplu kapatma basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Toplu kapatma basarisiz.'));
     } finally {
-      setBulkBusy(false);
+      endLineOperation();
     }
   };
 
@@ -160,12 +210,34 @@ export function QuoteLinesScreen() {
         <FlatList
           data={lines}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, isTablet && styles.listContentTablet]}
           ListHeaderComponent={
-            <View style={styles.header}>
-              <Text style={styles.title}>Teklif Kalemleri</Text>
-              <Text style={styles.subtitle}>Acik/kapali satirlari mobilde yonetin.</Text>
+            <View style={styles.headerWrap}>
+              <View style={styles.header}>
+                <Text style={styles.kicker}>Teklif Operasyonu</Text>
+                <Text style={styles.title}>Teklif Kalemleri</Text>
+                <Text style={styles.subtitle}>Acik satirlari kapatin, nedenleri standartlastirin ve mobilde hizli temizlik yapin.</Text>
+                <View style={styles.metricRow}>
+                  <View style={styles.metric}>
+                    <Text style={styles.metricLabel}>Gorunen</Text>
+                    <Text style={styles.metricValue}>{lineCounts.total}</Text>
+                  </View>
+                  <View style={styles.metric}>
+                    <Text style={styles.metricLabel}>Acik</Text>
+                    <Text style={[styles.metricValue, lineCounts.open > 0 && styles.metricDanger]}>{lineCounts.open}</Text>
+                  </View>
+                  <View style={styles.metric}>
+                    <Text style={styles.metricLabel}>Kapali</Text>
+                    <Text style={styles.metricValue}>{lineCounts.closed}</Text>
+                  </View>
+                  <View style={styles.metric}>
+                    <Text style={styles.metricLabel}>Tutar</Text>
+                    <Text style={styles.metricValueSmall}>{formatCurrency(totalLineAmount)}</Text>
+                  </View>
+                </View>
+              </View>
 
+              <View style={styles.controlCard}>
               <View style={styles.filterRow}>
                 {STATUS_OPTIONS.map((option) => (
                   <TouchableOpacity
@@ -190,6 +262,12 @@ export function QuoteLinesScreen() {
                 onChangeText={setSearch}
               />
 
+              <View style={styles.selectionInfo}>
+                <Text style={styles.selectionText}>
+                  {selectedOpenIds.length} acik kalem secili. Filtre: {STATUS_OPTIONS.find((option) => option.value === statusFilter)?.label || 'Tum'}
+                </Text>
+              </View>
+
               <View style={styles.reasonRow}>
                 {CLOSE_REASONS.map((reason) => (
                   <TouchableOpacity
@@ -205,9 +283,9 @@ export function QuoteLinesScreen() {
               </View>
 
               <TouchableOpacity
-                style={[styles.primaryButton, (bulkBusy || selectedOpenIds.length === 0) && styles.buttonDisabled]}
+                style={[styles.primaryButton, (bulkBusy || Boolean(busyId) || selectedOpenIds.length === 0) && styles.buttonDisabled]}
                 onPress={closeBulk}
-                disabled={bulkBusy || selectedOpenIds.length === 0}
+                disabled={bulkBusy || Boolean(busyId) || selectedOpenIds.length === 0}
               >
                 <Text style={styles.primaryButtonText}>
                   {bulkBusy ? 'Kapatiliyor...' : `Secilileri Kapat (${selectedOpenIds.length})`}
@@ -215,6 +293,7 @@ export function QuoteLinesScreen() {
               </TouchableOpacity>
 
               {error && <Text style={styles.error}>{error}</Text>}
+              </View>
             </View>
           }
           renderItem={({ item }) => {
@@ -234,8 +313,8 @@ export function QuoteLinesScreen() {
                     {selected && <Text style={styles.checkboxMark}>X</Text>}
                   </TouchableOpacity>
                   <View style={styles.cardTitleWrap}>
-                    <Text style={styles.cardTitle}>{item.productName}</Text>
-                    <Text style={styles.cardMeta}>{item.productCode}</Text>
+                    <Text style={styles.cardTitle} numberOfLines={3}>{item.productName}</Text>
+                    <Text style={styles.cardMeta} numberOfLines={1}>{item.productCode}</Text>
                   </View>
                   <View style={[badgeStyle, statusStyle]}>
                     <Text style={textStyle}>
@@ -243,21 +322,35 @@ export function QuoteLinesScreen() {
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.cardMeta}>Teklif: {item.quote?.quoteNumber || '-'}</Text>
-                <Text style={styles.cardMeta}>
+                <Text style={styles.cardMeta} numberOfLines={1}>Teklif: {item.quote?.quoteNumber || '-'}</Text>
+                <Text style={styles.cardMeta} numberOfLines={2}>
                   Cari: {item.quote?.customer?.displayName || item.quote?.customer?.name || '-'}
                 </Text>
-                <Text style={styles.cardMeta}>Bekleme: {item.waitingDays ?? '-'} gun</Text>
-                <Text style={styles.cardMeta}>
-                  {item.quantity} x {formatCurrency(item.unitPrice)} = {formatCurrency(item.totalPrice)}
-                </Text>
-                {item.closeReason ? <Text style={styles.cardMeta}>Neden: {item.closeReason}</Text> : null}
+                <View style={styles.cardStats}>
+                  <View style={styles.cardStat}>
+                    <Text style={styles.cardStatLabel}>Bekleme</Text>
+                    <Text style={styles.cardStatValue}>{item.waitingDays ?? '-'} gun</Text>
+                  </View>
+                  <View style={styles.cardStat}>
+                    <Text style={styles.cardStatLabel}>Miktar</Text>
+                    <Text style={styles.cardStatValue}>{item.quantity}</Text>
+                  </View>
+                  <View style={styles.cardStat}>
+                    <Text style={styles.cardStatLabel}>Birim</Text>
+                    <Text style={styles.cardStatValue}>{formatCurrency(item.unitPrice)}</Text>
+                  </View>
+                  <View style={styles.cardStat}>
+                    <Text style={styles.cardStatLabel}>Toplam</Text>
+                    <Text style={styles.cardStatValue}>{formatCurrency(item.totalPrice)}</Text>
+                  </View>
+                </View>
+                {item.closeReason ? <Text style={styles.cardMeta} numberOfLines={2}>Neden: {item.closeReason}</Text> : null}
 
                 {isOpen ? (
                   <TouchableOpacity
-                    style={[styles.secondaryButton, busyId === item.id && styles.buttonDisabled]}
+                    style={[styles.secondaryButton, (bulkBusy || Boolean(busyId)) && styles.buttonDisabled]}
                     onPress={() => closeSingle(item)}
-                    disabled={busyId === item.id}
+                    disabled={bulkBusy || Boolean(busyId)}
                   >
                     <Text style={styles.secondaryButtonText}>
                       {busyId === item.id ? 'Kapatiliyor...' : 'Kalemi Kapat'}
@@ -265,9 +358,9 @@ export function QuoteLinesScreen() {
                   </TouchableOpacity>
                 ) : status === 'CLOSED' ? (
                   <TouchableOpacity
-                    style={[styles.secondaryButton, busyId === item.id && styles.buttonDisabled]}
+                    style={[styles.secondaryButton, (bulkBusy || Boolean(busyId)) && styles.buttonDisabled]}
                     onPress={() => reopenSingle(item)}
-                    disabled={busyId === item.id}
+                    disabled={bulkBusy || Boolean(busyId)}
                   >
                     <Text style={styles.secondaryButtonText}>
                       {busyId === item.id ? 'Aciliyor...' : 'Kalemi Ac'}
@@ -302,18 +395,76 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  listContentTablet: {
+    maxWidth: 1180,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  headerWrap: {
+    gap: spacing.md,
+  },
   header: {
-    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: spacing.md,
+  },
+  kicker: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
-    color: colors.textMuted,
+    color: '#DDE8FF',
+    lineHeight: 20,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  metric: {
+    flex: 1,
+    minWidth: 120,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: 3,
+  },
+  metricLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#C9D8F2',
+  },
+  metricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xl,
+    color: '#FFFFFF',
+  },
+  metricValueSmall: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.md,
+    color: '#FFFFFF',
+  },
+  metricDanger: {
+    color: '#FCA5A5',
+  },
+  controlCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
   filterRow: {
     flexDirection: 'row',
@@ -353,6 +504,19 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.sm,
     color: colors.text,
   },
+  selectionInfo: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  selectionText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
   reasonRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -378,7 +542,7 @@ const styles = StyleSheet.create({
   reasonChipTextActive: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.xs,
-    color: colors.primary,
+    color: colors.primarySoft,
   },
   primaryButton: {
     backgroundColor: colors.primary,
@@ -445,6 +609,7 @@ const styles = StyleSheet.create({
   },
   cardTitleWrap: {
     flex: 1,
+    minWidth: 0,
   },
   cardTitle: {
     fontFamily: fonts.semibold,
@@ -456,6 +621,33 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.xs,
     color: colors.textMuted,
   },
+  cardStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  cardStat: {
+    flex: 1,
+    minWidth: 120,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: 2,
+  },
+  cardStatLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  cardStatValue: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.text,
+  },
   badge: {
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
@@ -463,21 +655,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   badgeSuccess: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: colors.successSoft,
     borderColor: '#86EFAC',
   },
   badgeInfo: {
-    backgroundColor: '#DBEAFE',
+    backgroundColor: colors.primaryMuted,
     borderColor: '#93C5FD',
   },
   badgeDanger: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.dangerSoft,
     borderColor: '#FCA5A5',
   },
   badgeTextSuccess: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.xs,
-    color: '#166534',
+    color: colors.success,
   },
   badgeTextInfo: {
     fontFamily: fonts.semibold,
@@ -487,7 +679,7 @@ const styles = StyleSheet.create({
   badgeTextDanger: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.xs,
-    color: '#991B1B',
+    color: colors.danger,
   },
   empty: {
     paddingVertical: spacing.xl,

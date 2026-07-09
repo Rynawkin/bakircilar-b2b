@@ -54,6 +54,21 @@ type LinkedMikroOrderRow = {
   productCode: string;
 };
 
+type UserOrderListOptions = {
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+type PaginatedUserOrders = {
+  orders: any[];
+  paginated: true;
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 const isPriceTypeAllowed = (
   visibility: PriceVisibilityValue | null | undefined,
   priceType: PriceType
@@ -1422,47 +1437,98 @@ class OrderService {
   /**
    * Kullanıcının siparişlerini getir
    */
-  async getUserOrders(userId: string): Promise<any[]> {
-    const orders = await prisma.order.findMany({
-      where: { userId },
-      include: {
-        requestedBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        customerRequest: {
-          select: {
-            id: true,
-            createdAt: true,
-            requestedBy: { select: { id: true, name: true, email: true } },
-          },
-        },
-        sourceQuote: {
-          select: { id: true, quoteNumber: true, createdAt: true },
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                mikroCode: true,
-                imageUrl: true,
-                vatRate: true,
+  async getUserOrders(userId: string, options: UserOrderListOptions = {}): Promise<any[] | PaginatedUserOrders> {
+    const where: any = { userId };
+
+    if (options.status && ['PENDING', 'APPROVED', 'REJECTED'].includes(options.status)) {
+      where.status = options.status;
+    }
+
+    const tokens = String(options.search || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 8);
+    if (tokens.length > 0) {
+      where.AND = tokens.map((tok) => ({
+        OR: [
+          { orderNumber: { contains: tok, mode: 'insensitive' } },
+          { customerOrderNumber: { contains: tok, mode: 'insensitive' } },
+          { adminNote: { contains: tok, mode: 'insensitive' } },
+          { deliveryLocation: { contains: tok, mode: 'insensitive' } },
+          {
+            items: {
+              some: {
+                OR: [
+                  { productName: { contains: tok, mode: 'insensitive' } },
+                  { mikroCode: { contains: tok, mode: 'insensitive' } },
+                  { lineNote: { contains: tok, mode: 'insensitive' } },
+                ],
               },
+            },
+          },
+        ],
+      }));
+    }
+
+    const include = {
+      requestedBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+      customerRequest: {
+        select: {
+          id: true,
+          createdAt: true,
+          requestedBy: { select: { id: true, name: true, email: true } },
+        },
+      },
+      sourceQuote: {
+        select: { id: true, quoteNumber: true, createdAt: true },
+      },
+      items: {
+        include: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              mikroCode: true,
+              imageUrl: true,
+              vatRate: true,
             },
           },
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    };
 
-    return orders;
+    const rawPageSize = Number(options.pageSize);
+    const paginated = Number.isFinite(rawPageSize) && rawPageSize > 0;
+    if (!paginated) {
+      return prisma.order.findMany({
+        where,
+        include,
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    const pageSize = Math.min(Math.max(1, Math.floor(rawPageSize)), 100);
+    const rawPage = Number(options.page);
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+    const [total, orders] = await Promise.all([
+      prisma.order.count({ where }),
+      prisma.order.findMany({
+        where,
+        include,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    return { orders, paginated: true, total, page, pageSize };
   }
 
   /**

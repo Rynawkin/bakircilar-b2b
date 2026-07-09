@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   SafeAreaView,
@@ -13,6 +13,7 @@ import {
 import { adminApi } from '../api/admin';
 import { Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 const CUSTOMER_TYPES = ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'] as const;
 
@@ -22,6 +23,8 @@ export function ProductOverridesScreen() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [customerType, setCustomerType] = useState<string>('BAYI');
   const [profitMargin, setProfitMargin] = useState('');
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -49,6 +52,7 @@ export function ProductOverridesScreen() {
   }, [search]);
 
   const applyOverride = async () => {
+    if (savingRef.current) return;
     if (!selectedProduct) {
       Alert.alert('Eksik Bilgi', 'Urun secin.');
       return;
@@ -57,6 +61,8 @@ export function ProductOverridesScreen() {
       Alert.alert('Eksik Bilgi', 'Kar marji girin.');
       return;
     }
+    savingRef.current = true;
+    setSaving(true);
     try {
       await adminApi.setProductPriceOverride({
         productId: selectedProduct.id,
@@ -66,7 +72,10 @@ export function ProductOverridesScreen() {
       Alert.alert('Basarili', 'Override kaydedildi.');
       setProfitMargin('');
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kayit basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kayit basarisiz.'));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -75,8 +84,25 @@ export function ProductOverridesScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Urun Override</Text>
-        <Text style={styles.subtitle}>Urun bazli kar marji ayari.</Text>
+        <View style={styles.hero}>
+          <Text style={styles.kicker}>Fiyat Kurali</Text>
+          <Text style={styles.title}>Urun Override</Text>
+          <Text style={styles.subtitle}>Urun bazli kar marji ayarini secili musteri tipine gore yapin.</Text>
+          <View style={styles.heroMetrics}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Sonuc</Text>
+              <Text style={styles.heroMetricValue}>{list.length}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Tip</Text>
+              <Text style={styles.heroMetricValue}>{customerType}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Secim</Text>
+              <Text style={styles.heroMetricValue}>{selectedProduct ? 'Hazir' : 'Yok'}</Text>
+            </View>
+          </View>
+        </View>
 
         <TextInput
           style={styles.input}
@@ -135,15 +161,49 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
+  },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#DCEAFE',
+    lineHeight: 22,
+  },
+  heroMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  heroMetricLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.md,
+    color: '#FFFFFF',
   },
   input: {
     backgroundColor: colors.surface,

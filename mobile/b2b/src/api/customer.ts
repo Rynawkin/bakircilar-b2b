@@ -1,18 +1,24 @@
 import {
   Category,
+  Banner,
+  BannerPosition,
   Cart,
   CollectionCard,
   CollectionDetail,
+  ActiveGiftCampaign,
   Notification,
+  NotificationPreference,
   Order,
   OrderRequest,
   Product,
   Quote,
   RecommendationGroup,
+  UnboughtCategory,
 } from '../types';
 import { apiClient } from './client';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getAuthToken } from '../storage/auth';
+import { buildSearchVariants } from '../utils/search';
 
 export type CustomerInvoiceDocument = {
   id: string;
@@ -31,6 +37,27 @@ export type CustomerInvoiceDocument = {
   createdAt?: string;
 };
 
+export type CustomerListPagination = {
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+export type CustomerOrderListParams = {
+  status?: '' | Order['status'];
+  search?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type CustomerQuoteListParams = {
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+};
+
 const safeFileName = (value: string) =>
   String(value || 'fatura')
     .replace(/[\\/:*?"<>|]/g, '-')
@@ -38,17 +65,66 @@ const safeFileName = (value: string) =>
     .slice(0, 80);
 
 export const customerApi = {
+  getBanners: async (position?: BannerPosition) => {
+    const response = await apiClient.get<{ banners: Banner[]; heroIntervalMs?: number }>('/banners', {
+      params: position ? { position } : undefined,
+    });
+    return response.data;
+  },
   getProducts: async (params?: {
     categoryId?: string;
     search?: string;
     warehouse?: string;
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
+    limit?: number;
+    offset?: number;
   }) => {
-    const response = await apiClient.get<{ products: Product[] }>('/products', { params });
-    return response.data;
+    const response = await apiClient.get<{ products: Product[]; total?: number }>('/products', { params });
+    const term = String(params?.search || '').trim();
+    const firstProducts = response.data.products || [];
+    if (term.length < 3 || firstProducts.length >= 5) {
+      return response.data;
+    }
+
+    const variants = buildSearchVariants(term, 5).filter((variant) => variant !== term);
+    if (variants.length === 0) return response.data;
+
+    const byId = new Map<string, Product>();
+    firstProducts.forEach((product) => byId.set(product.id, product));
+
+    for (const variant of variants) {
+      try {
+        const retry = await apiClient.get<{ products: Product[]; total?: number }>('/products', {
+          params: { ...params, search: variant },
+        });
+        (retry.data.products || []).forEach((product) => byId.set(product.id, product));
+      } catch {
+        // Preserve the original successful result if a fallback variant fails.
+      }
+      if (byId.size >= 20) break;
+    }
+
+    return { ...response.data, products: Array.from(byId.values()) };
   },
   getCategories: async () => {
     const response = await apiClient.get<{ categories: Category[] }>('/categories');
+    return response.data;
+  },
+  getUnboughtCategories: async () => {
+    const response = await apiClient.get<{ categories: UnboughtCategory[] }>('/unbought-categories');
+    return response.data;
+  },
+  getUnboughtCategoryProducts: async (params?: {
+    categoryId?: string;
+    sort?: 'bestsellerValue' | 'nameAsc';
+    offset?: number;
+    limit?: number;
+  }) => {
+    const response = await apiClient.get<{
+      products: Product[];
+      totalCount: number;
+      categories: UnboughtCategory[];
+    }>('/unbought-category-products', { params });
     return response.data;
   },
   getWarehouses: async () => {
@@ -74,6 +150,14 @@ export const customerApi = {
   getCartRecommendations: async () => {
     const response = await apiClient.get<{ groups: RecommendationGroup[] }>('/recommendations/cart');
     return response.data;
+  },
+  getActiveGiftCampaign: async () => {
+    const response = await apiClient.get<ActiveGiftCampaign>('/gift-campaign/active');
+    return response.data;
+  },
+  setGiftCampaignSelection: async (data: { campaignId: string | null; productIds: string[] }) => {
+    const response = await apiClient.put('/gift-campaign/cart-selection', data);
+    return response.data as { success: boolean; error?: string };
   },
   getCart: async () => {
     const response = await apiClient.get<Cart>('/cart');
@@ -103,8 +187,16 @@ export const customerApi = {
     const response = await apiClient.post('/order-requests', note ? { note } : undefined);
     return response.data;
   },
-  getOrders: async () => {
-    const response = await apiClient.get<{ orders: Order[] }>('/orders');
+  getOrders: async (params?: CustomerOrderListParams) => {
+    const query = {
+      ...(params?.status ? { status: params.status } : {}),
+      ...(params?.search?.trim() ? { search: params.search.trim() } : {}),
+      ...(params?.page ? { page: params.page } : {}),
+      ...(params?.pageSize ? { pageSize: params.pageSize } : {}),
+    };
+    const response = await apiClient.get<{ orders: Order[]; pagination?: CustomerListPagination }>('/orders', {
+      params: Object.keys(query).length ? query : undefined,
+    });
     return response.data;
   },
   getPendingOrders: async () => {
@@ -131,8 +223,16 @@ export const customerApi = {
     const response = await apiClient.post(`/order-requests/${id}/reject`, note ? { note } : undefined);
     return response.data;
   },
-  getQuotes: async () => {
-    const response = await apiClient.get<{ quotes: Quote[] }>('/quotes');
+  getQuotes: async (params?: CustomerQuoteListParams) => {
+    const query = {
+      ...(params?.status ? { status: params.status } : {}),
+      ...(params?.search?.trim() ? { search: params.search.trim() } : {}),
+      ...(params?.page ? { page: params.page } : {}),
+      ...(params?.pageSize ? { pageSize: params.pageSize } : {}),
+    };
+    const response = await apiClient.get<{ quotes: Quote[]; pagination?: CustomerListPagination }>('/quotes', {
+      params: Object.keys(query).length ? query : undefined,
+    });
     return response.data;
   },
   getQuoteById: async (id: string) => {
@@ -151,9 +251,23 @@ export const customerApi = {
     const response = await apiClient.get<{ notifications: Notification[]; unreadCount: number }>('/notifications');
     return response.data;
   },
+  getNotificationPreferences: async () => {
+    const response = await apiClient.get<{ categories: NotificationPreference[] }>('/notifications/preferences');
+    return response.data;
+  },
+  updateNotificationPreferences: async (preferences: Array<{ category: string; enabled: boolean }>) => {
+    const response = await apiClient.put<{ categories: NotificationPreference[] }>('/notifications/preferences', {
+      preferences,
+    });
+    return response.data;
+  },
   markNotificationsReadAll: async () => {
     const response = await apiClient.post('/notifications/read-all');
     return response.data;
+  },
+  markNotificationsRead: async (ids: string[]) => {
+    const response = await apiClient.post('/notifications/read', { ids });
+    return response.data as { updated: number };
   },
   registerPushToken: async (data: { token: string; platform?: string; appName?: string; deviceName?: string }) => {
     const response = await apiClient.post('/notifications/push/register', data);

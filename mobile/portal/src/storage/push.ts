@@ -1,15 +1,15 @@
-import * as SecureStore from 'expo-secure-store';
+import { deleteStoredValue, getStoredValue, setStoredValue } from './kv';
 
 const PUSH_TOKEN_KEY = 'portal-push-token';
 
 export async function savePushToken(token: string) {
-  await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token);
+  await setStoredValue(PUSH_TOKEN_KEY, token);
 }
 
 export async function getPushToken() {
-  return SecureStore.getItemAsync(PUSH_TOKEN_KEY);
+  return getStoredValue(PUSH_TOKEN_KEY);
 }
 
 export async function clearPushToken() {
-  await SecureStore.deleteItemAsync(PUSH_TOKEN_KEY);
+  await deleteStoredValue(PUSH_TOKEN_KEY);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +18,9 @@ import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Customer, CustomerType, PriceVisibility } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 import { hapticLight, hapticSuccess } from '../utils/haptics';
+import { normalizeSearchText } from '../utils/search';
 
 type MikroCari = {
   code: string;
@@ -48,6 +50,7 @@ const PRICE_VISIBILITY: Array<{ value: PriceVisibility; label: string }> = [
   { value: 'WHITE_ONLY', label: 'Sadece Beyaz' },
   { value: 'BOTH', label: 'Faturali + Beyaz' },
 ];
+const CUSTOMER_PAGE_SIZE = 50;
 
 const getPaymentPlanLabel = (cari?: MikroCari | null) => {
   if (!cari) return '-';
@@ -62,7 +65,12 @@ export function CustomersScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [pagination, setPagination] = useState<{ total: number; page: number; pageSize: number; totalPages: number } | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const customerRequestSeqRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -80,16 +88,47 @@ export function CustomersScreen() {
     priceVisibility: 'INVOICED_ONLY' as PriceVisibility,
   });
 
-  const fetchCustomers = async () => {
-    setLoading(true);
+  const fetchCustomers = async (append = false, searchOverride?: string) => {
+    const requestSeq = ++customerRequestSeqRef.current;
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const response = await adminApi.getCustomers();
-      setCustomers(response.customers || []);
+      const nextPage = append ? (pagination?.page || Math.max(1, Math.ceil(customers.length / CUSTOMER_PAGE_SIZE))) + 1 : 1;
+      const requestSearch = (searchOverride ?? search).trim();
+      const response = await adminApi.getCustomers({
+        search: requestSearch || undefined,
+        page: nextPage,
+        pageSize: CUSTOMER_PAGE_SIZE,
+      });
+      if (requestSeq !== customerRequestSeqRef.current) return;
+      const nextCustomers = response.customers || [];
+      const nextPagination = response.pagination || {
+        total: nextCustomers.length,
+        page: nextPage,
+        pageSize: CUSTOMER_PAGE_SIZE,
+        totalPages: nextCustomers.length >= CUSTOMER_PAGE_SIZE ? nextPage + 1 : nextPage,
+      };
+      setPagination(nextPagination);
+      setHasMore(response.pagination ? nextPagination.page < nextPagination.totalPages : nextCustomers.length >= CUSTOMER_PAGE_SIZE);
+      setCustomers((current) => {
+        if (!append) return nextCustomers;
+        const byId = new Map<string, Customer>();
+        current.forEach((customer) => byId.set(customer.id, customer));
+        nextCustomers.forEach((customer) => byId.set(customer.id, customer));
+        return Array.from(byId.values());
+      });
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Musteriler yuklenemedi.');
+      if (requestSeq !== customerRequestSeqRef.current) return;
+      setError(getApiErrorMessage(err, 'Musteriler yuklenemedi.'));
     } finally {
-      setLoading(false);
+      if (requestSeq === customerRequestSeqRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -103,9 +142,15 @@ export function CustomersScreen() {
   };
 
   useEffect(() => {
-    fetchCustomers();
     fetchCariList();
   }, []);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      fetchCustomers(false, search);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search]);
 
   const resetCreateForm = () => {
     setShowCreate(false);
@@ -125,6 +170,8 @@ export function CustomersScreen() {
     setSelectedCari(cari);
     setFormData((prev) => ({
       ...prev,
+      email: prev.email.trim().length > 0 ? prev.email : cari.code,
+      password: prev.password.trim().length > 0 ? prev.password : `${cari.code}123`,
       mikroCariCode: cari.code,
       name: prev.name.trim().length > 0 ? prev.name : cari.name,
     }));
@@ -133,6 +180,7 @@ export function CustomersScreen() {
   };
 
   const handleCreateCustomer = async () => {
+    if (savingRef.current) return;
     const email = formData.email.trim();
     const name = formData.name.trim();
     const password = formData.password.trim();
@@ -150,6 +198,7 @@ export function CustomersScreen() {
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     try {
       await adminApi.createCustomer({
@@ -163,30 +212,36 @@ export function CustomersScreen() {
       hapticSuccess();
       Alert.alert('Basarili', 'Musteri olusturuldu.');
       resetCreateForm();
-      fetchCustomers();
+      fetchCustomers(false, search);
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Musteri olusturulamadi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Musteri olusturulamadi.'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
-  const filteredCustomers = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return customers;
-    return customers.filter((customer) => {
-      const haystack = `${customer.name} ${customer.mikroCariCode || ''} ${customer.email || ''} ${
-        customer.city || ''
-      } ${customer.district || ''}`.toLowerCase();
-      return haystack.includes(term);
-    });
-  }, [customers, search]);
-
   const filteredCariList = useMemo(() => {
-    const term = cariSearch.trim().toLowerCase();
+    const term = normalizeSearchText(cariSearch);
     if (!term) return cariList;
-    return cariList.filter((cari) => `${cari.code} ${cari.name}`.toLowerCase().includes(term));
+    return cariList.filter((cari) => normalizeSearchText(`${cari.code} ${cari.name}`).includes(term));
   }, [cariList, cariSearch]);
+
+  const customerSummary = useMemo(() => {
+    const registered = customers.filter((customer) => customer.mikroCariCode).length;
+    const withLogin = customers.filter((customer) => customer.email).length;
+    return {
+      total: pagination?.total ?? customers.length,
+      loaded: customers.length,
+      registered,
+      withLogin,
+    };
+  }, [customers, pagination?.total]);
+
+  const loadMoreCustomers = () => {
+    if (loading || loadingMore || !hasMore) return;
+    fetchCustomers(true, search);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -196,25 +251,46 @@ export function CustomersScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredCustomers}
+          data={customers}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={
             <View style={styles.header}>
-              <View style={styles.headerRow}>
-                <View>
-                  <Text style={styles.title}>Musteriler</Text>
-                  <Text style={styles.subtitle}>Cari listesi, detay ve yeni musteri olusturma.</Text>
+              <View style={styles.hero}>
+                <View style={styles.heroTopRow}>
+                  <View style={styles.heroTitleBlock}>
+                    <Text style={styles.heroKicker}>Cari Yonetimi</Text>
+                    <Text style={styles.heroTitle}>Musteriler</Text>
+                    <Text style={styles.heroSubtitle}>Cari listesi, detay ve yeni musteri olusturma akislarini mobilde yonetin.</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.heroButton}
+                    onPress={() => {
+                      setShowCreate((prev) => !prev);
+                      hapticLight();
+                    }}
+                  >
+                    <Text style={styles.heroButtonText}>{showCreate ? 'Vazgec' : '+ Yeni'}</Text>
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  style={styles.primaryButton}
-                  onPress={() => {
-                    setShowCreate((prev) => !prev);
-                    hapticLight();
-                  }}
-                >
-                  <Text style={styles.primaryButtonText}>{showCreate ? 'Vazgec' : '+ Yeni Musteri'}</Text>
-                </TouchableOpacity>
+                <View style={styles.heroMetricRow}>
+                  <View style={styles.heroMetric}>
+                    <Text style={styles.heroMetricValue}>{customerSummary.total}</Text>
+                    <Text style={styles.heroMetricLabel}>Toplam</Text>
+                  </View>
+                  <View style={styles.heroMetric}>
+                    <Text style={styles.heroMetricValue}>{customerSummary.loaded}</Text>
+                    <Text style={styles.heroMetricLabel}>Yuklu</Text>
+                  </View>
+                  <View style={styles.heroMetric}>
+                    <Text style={styles.heroMetricValue}>{customerSummary.registered}</Text>
+                    <Text style={styles.heroMetricLabel}>Mikro</Text>
+                  </View>
+                  <View style={styles.heroMetric}>
+                    <Text style={styles.heroMetricValue}>{customerSummary.withLogin}</Text>
+                    <Text style={styles.heroMetricLabel}>Giris</Text>
+                  </View>
+                </View>
               </View>
 
               <TextInput
@@ -223,6 +299,8 @@ export function CustomersScreen() {
                 placeholderTextColor={colors.textMuted}
                 value={search}
                 onChangeText={setSearch}
+                onSubmitEditing={() => fetchCustomers(false, search)}
+                returnKeyType="search"
               />
               {error && <Text style={styles.error}>{error}</Text>}
 
@@ -328,17 +406,63 @@ export function CustomersScreen() {
               )}
             </View>
           }
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() => navigation.navigate('CustomerDetail', { customerId: item.id })}
-            >
-              <Text style={styles.cardTitle}>{item.name}</Text>
-              {item.mikroCariCode && <Text style={styles.cardMeta}>Kod: {item.mikroCariCode}</Text>}
-              {item.city && <Text style={styles.cardMeta}>Sehir: {item.city}</Text>}
-              {item.district && <Text style={styles.cardMeta}>Ilce: {item.district}</Text>}
-            </TouchableOpacity>
-          )}
+          renderItem={({ item }) => {
+            const initials = String(item.name || '?')
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((part) => part.charAt(0).toUpperCase())
+              .join('');
+            return (
+              <TouchableOpacity
+                style={styles.card}
+                onPress={() => navigation.navigate('CustomerDetail', { customerId: item.id })}
+              >
+                <View style={styles.customerRow}>
+                  <View style={styles.avatar}><Text style={styles.avatarText}>{initials || '?'}</Text></View>
+                  <View style={styles.customerCopy}>
+                    <View style={styles.customerTitleRow}>
+                      <Text style={styles.cardTitle} numberOfLines={2} ellipsizeMode="tail">{item.name}</Text>
+                      {item.customerType ? <Text style={styles.typeBadge}>{item.customerType}</Text> : null}
+                    </View>
+                    <Text style={styles.customerCode} numberOfLines={1} ellipsizeMode="middle">
+                      {item.mikroCariCode || '-'}{item.sectorCode ? ` | ${item.sectorCode}` : ''}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.customerMetrics}>
+                  <View style={styles.customerMetric}>
+                    <Text style={styles.metricLabel}>BAKIYE</Text>
+                    <Text style={[styles.metricValue, Number(item.balance || 0) < 0 && styles.metricDanger]}>
+                      {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }).format(Number(item.balance || 0))}
+                    </Text>
+                  </View>
+                  <View style={styles.customerMetric}>
+                    <Text style={styles.metricLabel}>ODEME PLANI</Text>
+                    <Text style={styles.metricValue} numberOfLines={1}>{item.paymentPlanName || (item.paymentTerm ? `${item.paymentTerm} gun` : '-')}</Text>
+                  </View>
+                </View>
+                <Text style={styles.cardMeta} numberOfLines={1}>
+                  {[item.city, item.district, item.phone].filter(Boolean).join(' | ') || 'Iletisim bilgisi yok'}
+                </Text>
+              </TouchableOpacity>
+            );
+          }}
+          ListFooterComponent={
+            customers.length ? (
+              <View style={styles.footer}>
+                {loadingMore ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : hasMore ? (
+                  <TouchableOpacity style={styles.loadMoreButton} onPress={loadMoreCustomers} disabled={loadingMore}>
+                    <Text style={styles.loadMoreText}>Daha Fazla Yukle</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.endText}>Listenin sonu</Text>
+                )}
+              </View>
+            ) : null
+          }
         />
       )}
 
@@ -364,8 +488,8 @@ export function CustomersScreen() {
               style={styles.modalList}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.modalItem} onPress={() => handleSelectCari(item)}>
-                  <Text style={styles.modalItemTitle}>{item.code}</Text>
-                  <Text style={styles.modalItemMeta}>{item.name}</Text>
+                  <Text style={styles.modalItemTitle} numberOfLines={1} ellipsizeMode="middle">{item.code}</Text>
+                  <Text style={styles.modalItemMeta} numberOfLines={2} ellipsizeMode="tail">{item.name}</Text>
                 </TouchableOpacity>
               )}
             />
@@ -393,21 +517,79 @@ const styles = StyleSheet.create({
   header: {
     gap: spacing.sm,
   },
-  headerRow: {
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  heroTopRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: spacing.sm,
+    justifyContent: 'space-between',
+    gap: spacing.md,
   },
-  title: {
+  heroTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  heroKicker: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  heroTitle: {
     fontFamily: fonts.bold,
-    fontSize: fontSizes.xl,
-    color: colors.text,
+    fontSize: fontSizes.xxl,
+    color: '#FFFFFF',
+    marginTop: spacing.xs,
   },
-  subtitle: {
+  heroSubtitle: {
     fontFamily: fonts.regular,
+    fontSize: fontSizes.sm,
+    lineHeight: fontSizes.sm + 5,
+    color: '#DDE8FF',
+    marginTop: spacing.xs,
+  },
+  heroButton: {
+    flexShrink: 0,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  heroButtonText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: colors.primarySoft,
+  },
+  heroMetricRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    flexBasis: 78,
+    minWidth: 74,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(221,232,255,0.22)',
+    padding: spacing.sm,
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#FFFFFF',
+  },
+  heroMetricLabel: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
   },
   search: {
     backgroundColor: colors.surface,
@@ -420,8 +602,32 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.md,
     color: colors.text,
   },
+  footer: {
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  loadMoreButton: {
+    minWidth: 180,
+    minHeight: 44,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  loadMoreText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: '#FFFFFF',
+  },
+  endText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.sm,
+    color: colors.textMuted,
+  },
   createCard: {
-    backgroundColor: '#EEF3FF',
+    backgroundColor: colors.primaryMuted,
     borderWidth: 1,
     borderColor: '#C7D7F8',
     borderRadius: radius.lg,
@@ -431,7 +637,7 @@ const styles = StyleSheet.create({
   createTitle: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.md,
-    color: colors.primary,
+    color: colors.primarySoft,
   },
   sectionLabel: {
     fontFamily: fonts.medium,
@@ -536,10 +742,24 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: spacing.xs,
   },
+  customerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  avatar: { width: 44, height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.primaryMuted, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontFamily: fonts.bold, fontSize: fontSizes.sm, color: colors.primarySoft },
+  customerCopy: { flex: 1, minWidth: 0 },
+  customerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  typeBadge: { flexShrink: 0, overflow: 'hidden', borderRadius: 5, backgroundColor: colors.primaryMuted, paddingHorizontal: spacing.xs, paddingVertical: 2, fontFamily: fonts.bold, fontSize: 8, color: colors.primarySoft },
+  customerCode: { marginTop: 3, fontFamily: fonts.mono, fontSize: fontSizes.xs, color: colors.textMuted },
+  customerMetrics: { flexDirection: 'row', gap: spacing.xs },
+  customerMetric: { flex: 1, minWidth: 0, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, padding: spacing.sm },
+  metricLabel: { fontFamily: fonts.monoSemibold, fontSize: 8, color: colors.textMuted },
+  metricValue: { marginTop: 3, fontFamily: fonts.monoSemibold, fontSize: fontSizes.xs, color: colors.text },
+  metricDanger: { color: colors.danger },
   cardTitle: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.lg,
+    lineHeight: fontSizes.lg + 5,
     color: colors.text,
   },
   cardMeta: {
@@ -573,7 +793,7 @@ const styles = StyleSheet.create({
   },
   link: {
     fontFamily: fonts.medium,
-    color: colors.primary,
+    color: colors.primarySoft,
     fontSize: fontSizes.sm,
   },
   modalList: {
@@ -595,7 +815,7 @@ const styles = StyleSheet.create({
   modalItemMeta: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.xs,
+    lineHeight: fontSizes.xs + 5,
     color: colors.textMuted,
   },
 });
-

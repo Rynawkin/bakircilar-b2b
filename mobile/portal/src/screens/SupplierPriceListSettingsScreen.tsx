@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,11 +11,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { adminApi } from '../api/admin';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 type Supplier = {
   id: string;
@@ -48,12 +50,15 @@ const parseOptionalNumber = (value: string) => {
 };
 
 export function SupplierPriceListSettingsScreen() {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 820;
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const savingRef = useRef(false);
   const [form, setForm] = useState({
     name: '',
     active: true,
@@ -82,7 +87,7 @@ export function SupplierPriceListSettingsScreen() {
       const response = await adminApi.getSupplierPriceListSuppliers();
       setSuppliers(response.suppliers || []);
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Tedarikciler yuklenemedi.');
+      setError(getApiErrorMessage(err, 'Tedarikciler yuklenemedi.'));
     } finally {
       setLoading(false);
     }
@@ -165,7 +170,23 @@ export function SupplierPriceListSettingsScreen() {
     return values.join('+');
   }, [form.discount1, form.discount2, form.discount3, form.discount4, form.discount5, form.priceIsNet]);
 
+  const supplierStats = useMemo(() => {
+    return suppliers.reduce(
+      (acc, supplier) => {
+        acc.total += 1;
+        if (supplier.active) acc.active += 1;
+        if (supplier.priceIsNet) acc.net += 1;
+        if (supplier.excelCodeHeader || supplier.excelPriceHeader || supplier.pdfPriceIndex !== null && supplier.pdfPriceIndex !== undefined) {
+          acc.mapped += 1;
+        }
+        return acc;
+      },
+      { total: 0, active: 0, net: 0, mapped: 0 }
+    );
+  }, [suppliers]);
+
   const saveSupplier = async () => {
+    if (savingRef.current) return;
     if (!form.name.trim()) {
       Alert.alert('Bilgi', 'Tedarikci adi gerekli.');
       return;
@@ -192,6 +213,7 @@ export function SupplierPriceListSettingsScreen() {
       pdfCodePattern: form.pdfCodePattern.trim() || null,
     };
 
+    savingRef.current = true;
     setSaving(true);
     try {
       if (editingSupplier) {
@@ -202,8 +224,9 @@ export function SupplierPriceListSettingsScreen() {
       closeModal();
       await loadSuppliers();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kayit basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kayit basarisiz.'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -230,11 +253,30 @@ export function SupplierPriceListSettingsScreen() {
         <FlatList
           data={suppliers}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, isTablet && styles.listContentTablet]}
           ListHeaderComponent={
             <View style={styles.header}>
+              <Text style={styles.kicker}>Tedarik Ayarlari</Text>
               <Text style={styles.title}>Tedarikci Iskonto Ayarlari</Text>
               <Text style={styles.subtitle}>Tedarikci bazli iskonto ve dosya eslestirme ayarlari.</Text>
+              <View style={styles.heroStats}>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatLabel}>Toplam</Text>
+                  <Text style={styles.heroStatValue}>{supplierStats.total}</Text>
+                </View>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatLabel}>Aktif</Text>
+                  <Text style={styles.heroStatValue}>{supplierStats.active}</Text>
+                </View>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatLabel}>Net</Text>
+                  <Text style={styles.heroStatValue}>{supplierStats.net}</Text>
+                </View>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatLabel}>Esleme</Text>
+                  <Text style={styles.heroStatValue}>{supplierStats.mapped}</Text>
+                </View>
+              </View>
               <View style={styles.headerActions}>
                 <TouchableOpacity style={styles.secondaryButton} onPress={loadSuppliers}>
                   <Text style={styles.secondaryButtonText}>Yenile</Text>
@@ -249,7 +291,7 @@ export function SupplierPriceListSettingsScreen() {
           renderItem={({ item }) => (
             <View style={styles.card}>
               <View style={styles.cardTop}>
-                <Text style={styles.cardTitle}>{item.name}</Text>
+                <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
                 <View style={[styles.badge, item.active ? styles.badgeActive : styles.badgeInactive]}>
                   <Text style={item.active ? styles.badgeTextActive : styles.badgeTextInactive}>
                     {item.active ? 'Aktif' : 'Pasif'}
@@ -257,8 +299,24 @@ export function SupplierPriceListSettingsScreen() {
                 </View>
               </View>
               <Text style={styles.cardMeta}>Iskonto: {buildSupplierSummary(item)}</Text>
-              <Text style={styles.cardMeta}>Excel Sheet: {item.excelSheetName || '-'}</Text>
-              <Text style={styles.cardMeta}>PDF Fiyat Kolonu: {item.pdfPriceIndex ?? '-'}</Text>
+              <View style={styles.cardStats}>
+                <View style={styles.cardStat}>
+                  <Text style={styles.cardStatLabel}>Fiyat</Text>
+                  <Text style={styles.cardStatValue}>{item.priceIsNet ? 'Net' : 'Iskontolu'}</Text>
+                </View>
+                <View style={styles.cardStat}>
+                  <Text style={styles.cardStatLabel}>KDV</Text>
+                  <Text style={styles.cardStatValue}>{item.priceIncludesVat ? 'Dahil' : 'Haric'}</Text>
+                </View>
+                <View style={styles.cardStat}>
+                  <Text style={styles.cardStatLabel}>Excel</Text>
+                  <Text style={styles.cardStatValue} numberOfLines={1}>{item.excelSheetName || item.excelPriceHeader || '-'}</Text>
+                </View>
+                <View style={styles.cardStat}>
+                  <Text style={styles.cardStatLabel}>PDF</Text>
+                  <Text style={styles.cardStatValue}>{item.pdfPriceIndex ?? '-'}</Text>
+                </View>
+              </View>
               <TouchableOpacity style={styles.secondaryButton} onPress={() => openEdit(item)}>
                 <Text style={styles.secondaryButtonText}>Duzenle</Text>
               </TouchableOpacity>
@@ -274,7 +332,7 @@ export function SupplierPriceListSettingsScreen() {
 
       <Modal visible={modalOpen} transparent animationType="slide">
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
-          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+          <Pressable style={[styles.modalCard, isTablet && styles.modalCardWide]} onPress={(event) => event.stopPropagation()}>
             <Text style={styles.modalTitle}>
               {editingSupplier ? `Tedarikci Duzenle (${discountSummary})` : 'Yeni Tedarikci'}
             </Text>
@@ -457,21 +515,61 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  listContentTablet: {
+    maxWidth: 1180,
+    alignSelf: 'center',
+    width: '100%',
+  },
   header: {
-    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: spacing.md,
+  },
+  kicker: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
-    color: colors.textMuted,
+    color: '#DDE8FF',
+    lineHeight: 20,
+  },
+  heroStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroStat: {
+    flex: 1,
+    minWidth: 118,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: spacing.md,
+    gap: 3,
+  },
+  heroStatLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#C9D8F2',
+  },
+  heroStatValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xl,
+    color: '#FFFFFF',
   },
   headerActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   primaryButton: {
@@ -527,6 +625,33 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.xs,
     color: colors.textMuted,
   },
+  cardStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  cardStat: {
+    flex: 1,
+    minWidth: 120,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: 2,
+  },
+  cardStatLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  cardStatValue: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.text,
+  },
   badge: {
     borderRadius: radius.sm,
     borderWidth: 1,
@@ -534,22 +659,22 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   badgeActive: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: colors.successSoft,
     borderColor: '#86EFAC',
   },
   badgeInactive: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.dangerSoft,
     borderColor: '#FCA5A5',
   },
   badgeTextActive: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.xs,
-    color: '#166534',
+    color: colors.success,
   },
   badgeTextInactive: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.xs,
-    color: '#991B1B',
+    color: colors.danger,
   },
   empty: {
     paddingVertical: spacing.xl,
@@ -571,6 +696,16 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.lg,
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  modalCardWide: {
+    width: 720,
+    maxWidth: '92%',
+    alignSelf: 'center',
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    marginBottom: spacing.xl,
   },
   modalTitle: {
     fontFamily: fonts.bold,
@@ -594,6 +729,7 @@ const styles = StyleSheet.create({
   },
   toggleRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   toggleButton: {
@@ -627,13 +763,16 @@ const styles = StyleSheet.create({
   },
   gridRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   gridInput: {
     flex: 1,
+    minWidth: 140,
   },
   modalActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   buttonDisabled: {

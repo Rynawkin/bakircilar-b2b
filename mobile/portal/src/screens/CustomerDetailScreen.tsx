@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Agreement, Customer, CustomerContact, CustomerSubUser, Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 const CUSTOMER_TYPES = ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'] as const;
 const PRICE_VISIBILITY = ['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH'] as const;
@@ -32,6 +33,7 @@ export function CustomerDetailScreen() {
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const [email, setEmail] = useState('');
   const [customerType, setCustomerType] = useState<string>('BAYI');
@@ -58,10 +60,22 @@ export function CustomerDetailScreen() {
   const [agreementValidFrom, setAgreementValidFrom] = useState('');
   const [agreementValidTo, setAgreementValidTo] = useState('');
 
+  const beginSaving = () => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    return true;
+  };
+
+  const endSaving = () => {
+    savingRef.current = false;
+    setSaving(false);
+  };
+
   const loadCustomer = async () => {
     setLoading(true);
     try {
-      const response = await adminApi.getCustomers();
+      const response = await adminApi.getCustomers({ search: customerId, page: 1, pageSize: 1 });
       const found = response.customers.find((item) => item.id === customerId) || null;
       setCustomer(found);
       if (found) {
@@ -72,8 +86,8 @@ export function CustomerDetailScreen() {
         setWhiteList(found.whitePriceListNo?.toString() || '');
         setActive(found.active !== false);
       }
-    } catch (err) {
-      Alert.alert('Hata', 'Musteri yuklenemedi.');
+    } catch (err: any) {
+      Alert.alert('Hata', getApiErrorMessage(err, 'Musteri yuklenemedi.'));
     } finally {
       setLoading(false);
     }
@@ -89,8 +103,10 @@ export function CustomerDetailScreen() {
       setContacts(contactsRes.contacts || []);
       setSubUsers(subUsersRes.subUsers || []);
       setAgreements(agreementsRes.agreements || []);
-    } catch (err) {
-      console.error('Customer detail load failed', err);
+    } catch {
+      setContacts([]);
+      setSubUsers([]);
+      setAgreements([]);
     }
   };
 
@@ -125,8 +141,9 @@ export function CustomerDetailScreen() {
   }, [productSearch]);
 
   const updateCustomer = async () => {
+    if (savingRef.current) return;
     if (!customer) return;
-    setSaving(true);
+    if (!beginSaving()) return;
     try {
       await adminApi.updateCustomer(customer.id, {
         email: email || undefined,
@@ -139,17 +156,19 @@ export function CustomerDetailScreen() {
       Alert.alert('Basarili', 'Musteri guncellendi.');
       await loadCustomer();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Guncelleme basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Guncelleme basarisiz.'));
     } finally {
-      setSaving(false);
+      endSaving();
     }
   };
 
   const addContact = async () => {
+    if (savingRef.current) return;
     if (!contactName.trim()) {
       Alert.alert('Eksik Bilgi', 'Kontak adi gerekli.');
       return;
     }
+    if (!beginSaving()) return;
     try {
       await adminApi.createCustomerContact(customerId, {
         name: contactName.trim(),
@@ -161,15 +180,19 @@ export function CustomerDetailScreen() {
       setContactPhone('');
       await loadDetails();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Kontak eklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Kontak eklenemedi.'));
+    } finally {
+      endSaving();
     }
   };
 
   const addSubUser = async () => {
+    if (savingRef.current) return;
     if (!subUserName.trim()) {
       Alert.alert('Eksik Bilgi', 'Alt kullanici adi gerekli.');
       return;
     }
+    if (!beginSaving()) return;
     try {
       const response = await adminApi.createCustomerSubUser(customerId, {
         name: subUserName.trim(),
@@ -186,11 +209,14 @@ export function CustomerDetailScreen() {
         Alert.alert('Otomatik Bilgiler', `Kullanici: ${response.credentials.username}\nSifre: ${response.credentials.password}`);
       }
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Alt kullanici eklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Alt kullanici eklenemedi.'));
+    } finally {
+      endSaving();
     }
   };
 
   const addAgreement = async () => {
+    if (savingRef.current) return;
     if (!selectedProduct) {
       Alert.alert('Eksik Bilgi', 'Urun secin.');
       return;
@@ -199,6 +225,7 @@ export function CustomerDetailScreen() {
       Alert.alert('Eksik Bilgi', 'Fiyatlari girin.');
       return;
     }
+    if (!beginSaving()) return;
     try {
       await adminApi.upsertAgreement({
         customerId,
@@ -218,16 +245,21 @@ export function CustomerDetailScreen() {
       setProductSearch('');
       await loadDetails();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Anlasma eklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Anlasma eklenemedi.'));
+    } finally {
+      endSaving();
     }
   };
 
   const deleteAgreement = async (agreementId: string) => {
+    if (!beginSaving()) return;
     try {
       await adminApi.deleteAgreement(agreementId);
       await loadDetails();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Silme basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Silme basarisiz.'));
+    } finally {
+      endSaving();
     }
   };
 
@@ -249,13 +281,43 @@ export function CustomerDetailScreen() {
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Text style={styles.backText}>Geri</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Musteri Detayi</Text>
 
         {customer ? (
           <>
+            <View style={styles.hero}>
+              <View style={styles.heroTopRow}>
+                <Text style={styles.heroKicker}>Cari Yonetimi</Text>
+                <Text style={[styles.heroStatus, active ? styles.heroStatusGood : styles.heroStatusDanger]}>
+                  {active ? 'Aktif' : 'Pasif'}
+                </Text>
+              </View>
+              <Text style={styles.heroTitle} numberOfLines={2}>{customer.name}</Text>
+              <Text style={styles.heroSubtitle} numberOfLines={2} ellipsizeMode="middle">
+                {customer.mikroCariCode || '-'} - {customer.customerType || customerType} - {customer.priceVisibility || priceVisibility}
+              </Text>
+              <View style={styles.heroMetricRow}>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1}>{contacts.length}</Text>
+                  <Text style={styles.heroMetricLabel} numberOfLines={1}>Kontak</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1}>{subUsers.length}</Text>
+                  <Text style={styles.heroMetricLabel} numberOfLines={1}>Alt Kullanici</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1}>{agreements.length}</Text>
+                  <Text style={styles.heroMetricLabel} numberOfLines={1}>Anlasma</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1}>{invoicedList || '-'}</Text>
+                  <Text style={styles.heroMetricLabel} numberOfLines={1}>Fiyat Listesi</Text>
+                </View>
+              </View>
+            </View>
+
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>{customer.name}</Text>
-              <Text style={styles.cardMeta}>Kod: {customer.mikroCariCode || '-'}</Text>
+              <Text style={styles.cardTitle} numberOfLines={2} ellipsizeMode="tail">{customer.name}</Text>
+              <Text style={styles.cardMeta} numberOfLines={1} ellipsizeMode="middle">Kod: {customer.mikroCariCode || '-'}</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Email"
@@ -312,7 +374,7 @@ export function CustomerDetailScreen() {
                   <Text style={active ? styles.segmentTextActive : styles.segmentText}>{active ? 'Aktif' : 'Pasif'}</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity style={styles.primaryButton} onPress={updateCustomer} disabled={saving}>
+              <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={updateCustomer} disabled={saving}>
                 <Text style={styles.primaryButtonText}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</Text>
               </TouchableOpacity>
             </View>
@@ -349,7 +411,7 @@ export function CustomerDetailScreen() {
                 value={contactPhone}
                 onChangeText={setContactPhone}
               />
-              <TouchableOpacity style={styles.secondaryButton} onPress={addContact}>
+              <TouchableOpacity style={[styles.secondaryButton, saving && styles.buttonDisabled]} onPress={addContact} disabled={saving}>
                 <Text style={styles.secondaryButtonText}>Kontak Ekle</Text>
               </TouchableOpacity>
             </View>
@@ -396,7 +458,7 @@ export function CustomerDetailScreen() {
                   {subUserAuto ? 'Otomatik Bilgi' : 'Elle Sifre'}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton} onPress={addSubUser}>
+              <TouchableOpacity style={[styles.secondaryButton, saving && styles.buttonDisabled]} onPress={addSubUser} disabled={saving}>
                 <Text style={styles.secondaryButtonText}>Alt Kullanici Ekle</Text>
               </TouchableOpacity>
             </View>
@@ -424,7 +486,7 @@ export function CustomerDetailScreen() {
                       Bitis: {agreement.validTo.slice(0, 10)}
                     </Text>
                   )}
-                  <TouchableOpacity onPress={() => deleteAgreement(agreement.id)}>
+                  <TouchableOpacity onPress={() => deleteAgreement(agreement.id)} disabled={saving}>
                     <Text style={styles.removeText}>Sil</Text>
                   </TouchableOpacity>
                 </View>
@@ -488,7 +550,7 @@ export function CustomerDetailScreen() {
                 value={agreementValidTo}
                 onChangeText={setAgreementValidTo}
               />
-              <TouchableOpacity style={styles.secondaryButton} onPress={addAgreement}>
+              <TouchableOpacity style={[styles.secondaryButton, saving && styles.buttonDisabled]} onPress={addAgreement} disabled={saving}>
                 <Text style={styles.secondaryButtonText}>Anlasma Ekle</Text>
               </TouchableOpacity>
             </View>
@@ -521,12 +583,77 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontFamily: fonts.medium,
-    color: colors.primary,
+    color: colors.primarySoft,
   },
-  title: {
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  heroKicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#9EC5FF',
+    textTransform: 'uppercase',
+  },
+  heroStatus: {
+    overflow: 'hidden',
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
     fontFamily: fonts.bold,
-    fontSize: fontSizes.xl,
-    color: colors.text,
+    fontSize: fontSizes.xs,
+  },
+  heroStatusGood: {
+    backgroundColor: colors.successSoft,
+    color: colors.success,
+  },
+  heroStatusDanger: {
+    backgroundColor: colors.dangerSoft,
+    color: colors.danger,
+  },
+  heroTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xxl,
+    color: '#FFFFFF',
+    lineHeight: 34,
+  },
+  heroSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.sm,
+    color: '#DCE8FA',
+    lineHeight: 21,
+  },
+  heroMetricRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 118,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    padding: spacing.sm,
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: '#FFFFFF',
+  },
+  heroMetricLabel: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#DCE8FA',
   },
   card: {
     backgroundColor: colors.surface,
@@ -606,6 +733,9 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontFamily: fonts.semibold,
     color: colors.text,
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
   itemCard: {
     backgroundColor: colors.surfaceAlt,

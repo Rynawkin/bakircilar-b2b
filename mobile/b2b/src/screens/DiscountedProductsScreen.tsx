@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -24,17 +25,30 @@ import { Category, Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { trackCustomerActivity } from '../utils/activity';
 import { resolveImageUrl } from '../utils/image';
+import { compareSearchText } from '../utils/search';
 import { getDisplayPrice } from '../utils/vat';
 
 type PriceType = 'INVOICED' | 'WHITE';
+const PRODUCT_PAGE_SIZE = 40;
+
+const getApiErrorMessage = (err: any, fallback: string) => {
+  const candidate = err?.response?.data?.error || err?.response?.data?.message || err?.message;
+  if (typeof candidate === 'string') return candidate;
+  if (candidate && typeof candidate === 'object') return candidate.message || candidate.code || fallback;
+  return fallback;
+};
 
 export function DiscountedProductsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
   const [products, setProducts] = useState<Product[]>([]);
+  const [productTotal, setProductTotal] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [priceType, setPriceType] = useState<PriceType>('INVOICED');
@@ -43,9 +57,13 @@ export function DiscountedProductsScreen() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'price-asc' | 'price-desc' | 'stock-desc' | 'stock-asc'>('name-asc');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [addingProductId, setAddingProductId] = useState<string | null>(null);
+  const addingProductIdRef = useRef<string | null>(null);
+  const productRequestSeqRef = useRef(0);
   const lastSearchRef = useRef('');
 
   const visibility = user?.priceVisibility ?? 'INVOICED_ONLY';
+  const listColumns = width >= 920 ? 3 : width >= 560 ? 2 : 1;
 
   useEffect(() => {
     if (visibility === 'WHITE_ONLY') {
@@ -53,21 +71,44 @@ export function DiscountedProductsScreen() {
     }
   }, [visibility]);
 
-  const fetchProducts = async () => {
-    setLoading(true);
+  const fetchProducts = async (append = false) => {
+    const requestSeq = productRequestSeqRef.current + 1;
+    productRequestSeqRef.current = requestSeq;
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
+      const offset = append ? products.length : 0;
       const response = await customerApi.getProducts({
         search: search || undefined,
         categoryId: selectedCategory || undefined,
         warehouse: selectedWarehouse || undefined,
         mode: 'discounted',
+        limit: PRODUCT_PAGE_SIZE,
+        offset,
       });
-      setProducts(response.products || []);
+      if (requestSeq !== productRequestSeqRef.current) return;
+      const nextProducts = response.products || [];
+      setProductTotal(typeof response.total === 'number' ? response.total : null);
+      setHasMore(nextProducts.length >= PRODUCT_PAGE_SIZE);
+      setProducts((current) => {
+        if (!append) return nextProducts;
+        const byId = new Map<string, Product>();
+        current.forEach((product) => byId.set(product.id, product));
+        nextProducts.forEach((product) => byId.set(product.id, product));
+        return Array.from(byId.values());
+      });
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Indirimli urunler yuklenemedi.');
+      if (requestSeq !== productRequestSeqRef.current) return;
+      setError(getApiErrorMessage(err, 'Indirimli urunler yuklenemedi.'));
     } finally {
-      setLoading(false);
+      if (requestSeq === productRequestSeqRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -79,8 +120,9 @@ export function DiscountedProductsScreen() {
       ]);
       setCategories(categoriesResponse.categories || []);
       setWarehouses(warehousesResponse.warehouses || []);
-    } catch (err) {
-      console.warn('Filtre verileri yuklenemedi.');
+    } catch {
+      setCategories([]);
+      setWarehouses([]);
     }
   };
 
@@ -90,10 +132,15 @@ export function DiscountedProductsScreen() {
 
   useEffect(() => {
     const handler = setTimeout(() => {
-      fetchProducts();
+      fetchProducts(false);
     }, 300);
     return () => clearTimeout(handler);
   }, [search, selectedCategory, selectedWarehouse]);
+
+  const loadMoreProducts = () => {
+    if (loading || loadingMore || !hasMore) return;
+    fetchProducts(true);
+  };
 
   useEffect(() => {
     const term = search.trim();
@@ -145,7 +192,7 @@ export function DiscountedProductsScreen() {
     const list = [...products];
     switch (sortBy) {
       case 'name-desc':
-        return list.sort((a, b) => b.name.localeCompare(a.name));
+        return list.sort((a, b) => compareSearchText(b.name, a.name));
       case 'price-asc':
         return list.sort((a, b) => getSortPrice(a) - getSortPrice(b));
       case 'price-desc':
@@ -155,7 +202,7 @@ export function DiscountedProductsScreen() {
       case 'stock-desc':
         return list.sort((a, b) => getWarehouseTotal(b) - getWarehouseTotal(a));
       default:
-        return list.sort((a, b) => a.name.localeCompare(b.name));
+        return list.sort((a, b) => compareSearchText(a.name, b.name));
     }
   }, [products, sortBy, priceType]);
 
@@ -172,6 +219,7 @@ export function DiscountedProductsScreen() {
   };
 
   const addToCart = async (product: Product) => {
+    if (addingProductIdRef.current) return;
     const quantity = quantities[product.id] || 1;
     try {
       const maxQty = getMaxQuantity(product);
@@ -179,6 +227,8 @@ export function DiscountedProductsScreen() {
         Alert.alert('Stok Yetersiz', 'Bu urun stokta yok.');
         return;
       }
+      addingProductIdRef.current = product.id;
+      setAddingProductId(product.id);
       await customerApi.addToCart({
         productId: product.id,
         quantity,
@@ -194,7 +244,10 @@ export function DiscountedProductsScreen() {
       });
       Alert.alert('Sepete Eklendi', `${product.name} sepete eklendi.`);
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Sepete eklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Sepete eklenemedi.'));
+    } finally {
+      addingProductIdRef.current = null;
+      setAddingProductId(null);
     }
   };
 
@@ -306,15 +359,32 @@ export function DiscountedProductsScreen() {
   const listHeader = useMemo(() => {
     return (
       <View style={styles.header}>
-        <Text style={styles.title}>Indirimli Urunler</Text>
-        <Text style={styles.subtitle}>Fazla stok ve kampanya fiyatlari.</Text>
+        <View style={styles.hero}>
+          <Text style={styles.heroKicker}>Firsatlar</Text>
+          <Text style={styles.heroTitle}>Indirimli Urunler</Text>
+          <Text style={styles.heroSubtitle}>Fazla stok ve kampanya fiyatlarini stok durumuyla birlikte inceleyin.</Text>
+          <View style={styles.heroMetricRow}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{sortedProducts.length}</Text>
+              <Text style={styles.heroMetricLabel}>Urun</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{priceType === 'WHITE' ? 'Beyaz' : 'Faturali'}</Text>
+              <Text style={styles.heroMetricLabel}>Fiyat</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue} numberOfLines={1}>{selectedWarehouse || 'Tum'}</Text>
+              <Text style={styles.heroMetricLabel}>Depo</Text>
+            </View>
+          </View>
+        </View>
         <TextInput
           style={styles.search}
           placeholder="Urun ara..."
           placeholderTextColor={colors.textMuted}
           value={search}
           onChangeText={setSearch}
-          onSubmitEditing={fetchProducts}
+          onSubmitEditing={() => fetchProducts(false)}
           returnKeyType="search"
         />
         <View style={styles.filterRow}>
@@ -327,9 +397,11 @@ export function DiscountedProductsScreen() {
           <TouchableOpacity
             style={styles.clearButton}
             onPress={() => {
+              setSearch('');
               setSelectedCategory('');
               setSelectedWarehouse('');
               setSortBy('name-asc');
+              setProductTotal(null);
             }}
           >
             <Text style={styles.clearButtonText}>Temizle</Text>
@@ -343,6 +415,12 @@ export function DiscountedProductsScreen() {
           <Text style={styles.filterChip}>
             {sortOptions.find((option) => option.id === sortBy)?.label}
           </Text>
+        </View>
+        <View style={styles.resultSummary}>
+          <Text style={styles.resultText} numberOfLines={1}>
+            {productTotal ? `${sortedProducts.length}/${productTotal}` : `${sortedProducts.length}`} sonuc
+          </Text>
+          {search.trim() ? <Text style={styles.resultText} numberOfLines={1} ellipsizeMode="tail">Arama: {search.trim()}</Text> : null}
         </View>
         {visibility === 'BOTH' && (
           <View style={styles.segment}>
@@ -379,7 +457,7 @@ export function DiscountedProductsScreen() {
         {error && <Text style={styles.error}>{error}</Text>}
       </View>
     );
-  }, [search, error, visibility, priceType, selectedCategoryLabel, selectedWarehouse, sortBy]);
+  }, [search, error, visibility, priceType, selectedCategoryLabel, selectedWarehouse, sortBy, sortedProducts.length, productTotal]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -502,13 +580,14 @@ export function DiscountedProductsScreen() {
         </View>
       ) : (
         <FlatList
+          key={`discounted-${listColumns}`}
           data={sortedProducts}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={listHeader}
           ListHeaderComponentStyle={styles.listHeader}
           contentContainerStyle={styles.listContent}
-          numColumns={2}
-          columnWrapperStyle={styles.columnRow}
+          numColumns={listColumns}
+          columnWrapperStyle={listColumns > 1 ? styles.columnRow : undefined}
           renderItem={({ item }) => (
             <View style={styles.columnItem}>
               <TouchableOpacity
@@ -532,13 +611,17 @@ export function DiscountedProductsScreen() {
                   )}
                 </View>
                 <View style={styles.cardHeader}>
-                  <Text style={styles.cardTitle} numberOfLines={2}>
+                  <Text style={styles.cardTitle} numberOfLines={3}>
                     {item.name}
                   </Text>
-                  {item.agreement && <Text style={styles.badge}>Anlasmali</Text>}
+                  <View style={styles.badgeWrap}>
+                    {item.agreement && <Text style={styles.badge} numberOfLines={1}>Anlasmali</Text>}
+                    {item.isBundle && <Text style={styles.bundleBadge} numberOfLines={1}>Paket</Text>}
+                    {item.pricingMode === 'EXCESS' && <Text style={styles.excessBadge} numberOfLines={1}>Fazla Stok</Text>}
+                  </View>
                 </View>
-                <Text style={styles.code}>Kod: {item.mikroCode}</Text>
-                <Text style={styles.code}>
+                <Text style={styles.code} numberOfLines={1} ellipsizeMode="middle">Kod: {item.mikroCode}</Text>
+                <Text style={styles.code} numberOfLines={1}>
                   Fazla Stok: {item.excessStock ?? getWarehouseTotal(item)}
                 </Text>
                 {renderPrices(item)}
@@ -565,18 +648,65 @@ export function DiscountedProductsScreen() {
                     </TouchableOpacity>
                   </View>
                   <TouchableOpacity
-                    style={styles.cartButton}
+                    style={[
+                      styles.cartButton,
+                      (addingProductId !== null || getMaxQuantity(item) <= 0) && styles.cartButtonDisabled,
+                    ]}
+                    disabled={addingProductId !== null || getMaxQuantity(item) <= 0}
                     onPress={(event) => {
                       event.stopPropagation();
                       addToCart(item);
                     }}
                   >
-                    <Text style={styles.cartButtonText}>Sepete Ekle</Text>
+                    <Text style={styles.cartButtonText}>
+                      {addingProductId === item.id
+                        ? 'Ekleniyor...'
+                        : addingProductId
+                          ? 'Bekleyin'
+                          : getMaxQuantity(item) <= 0
+                            ? 'Stok Yok'
+                            : 'Sepete Ekle'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             </View>
           )}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>Indirimli urun bulunamadi</Text>
+              <Text style={styles.emptyText}>
+                Arama metnini, kategori veya depo filtresini degistirerek tekrar deneyin.
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyButton}
+                onPress={() => {
+                  setSearch('');
+                  setSelectedCategory('');
+                  setSelectedWarehouse('');
+                  setSortBy('name-asc');
+                  setProductTotal(null);
+                }}
+              >
+                <Text style={styles.emptyButtonText}>Filtreleri Temizle</Text>
+              </TouchableOpacity>
+            </View>
+          }
+          ListFooterComponent={
+            sortedProducts.length > 0 ? (
+              <View style={styles.listFooter}>
+                {loadingMore ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : hasMore ? (
+                  <TouchableOpacity style={styles.loadMoreButton} onPress={loadMoreProducts}>
+                    <Text style={styles.loadMoreButtonText}>Daha Fazla Yukle</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.footerText}>Listenin sonu</Text>
+                )}
+              </View>
+            ) : null
+          }
         />
       )}
     </SafeAreaView>
@@ -610,15 +740,61 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.sm,
   },
-  title: {
-    fontFamily: fonts.bold,
-    fontSize: fontSizes.xl,
-    color: colors.text,
+  hero: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: '#173D78',
+    shadowColor: '#071B3A',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
-  subtitle: {
+  heroKicker: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  heroTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xxl,
+    color: '#FFFFFF',
+  },
+  heroSubtitle: {
     fontFamily: fonts.regular,
-    fontSize: fontSizes.md,
-    color: colors.textMuted,
+    fontSize: fontSizes.sm,
+    lineHeight: fontSizes.sm + 6,
+    color: '#DDE8FF',
+  },
+  heroMetricRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    minWidth: 86,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: '#FFFFFF',
+  },
+  heroMetricLabel: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
   },
   search: {
     backgroundColor: colors.surface,
@@ -633,11 +809,13 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     alignItems: 'center',
   },
   filterButton: {
     flex: 1,
+    minWidth: 120,
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
     paddingVertical: spacing.sm,
@@ -679,6 +857,7 @@ const styles = StyleSheet.create({
   },
   segment: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -755,6 +934,7 @@ const styles = StyleSheet.create({
   },
   segmentButton: {
     flex: 1,
+    minWidth: 96,
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
     alignItems: 'center',
@@ -776,6 +956,20 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.danger,
   },
+  resultSummary: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  resultText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+  },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
@@ -789,7 +983,9 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
   },
   cardTitle: {
     fontFamily: fonts.semibold,
@@ -803,6 +999,29 @@ const styles = StyleSheet.create({
     color: colors.primary,
     borderWidth: 1,
     borderColor: colors.primary,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  badgeWrap: {
+    alignItems: 'flex-end',
+    gap: 4,
+    maxWidth: 112,
+  },
+  bundleBadge: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#7C2D12',
+    backgroundColor: '#FFEDD5',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  excessBadge: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#166534',
+    backgroundColor: '#DCFCE7',
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
@@ -861,6 +1080,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     alignItems: 'center',
   },
+  cartButtonDisabled: {
+    opacity: 0.55,
+  },
   cartButtonText: {
     fontFamily: fonts.semibold,
     color: '#FFFFFF',
@@ -885,6 +1107,62 @@ const styles = StyleSheet.create({
   imagePlaceholderText: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
+    color: colors.textMuted,
+  },
+  emptyState: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.xl,
+    alignItems: 'center',
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  emptyTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.lg,
+    color: colors.text,
+  },
+  emptyText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.sm,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  emptyButton: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  emptyButtonText: {
+    fontFamily: fonts.semibold,
+    color: '#FFFFFF',
+  },
+  listFooter: {
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+  },
+  loadMoreButton: {
+    minHeight: 44,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadMoreButtonText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.primary,
+  },
+  footerText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
     color: colors.textMuted,
   },
 });

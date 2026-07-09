@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, SafeAreaView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Image, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 import {
@@ -12,7 +12,7 @@ import {
 } from '@expo-google-fonts/sora';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { PushNotificationBridge } from './src/context/PushNotificationBridge';
+import { NotificationProvider } from './src/context/NotificationContext';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RoleMismatchScreen } from './src/screens/RoleMismatchScreen';
 import { AppNavigator } from './src/navigation/AppNavigator';
@@ -26,7 +26,11 @@ function AuthGate() {
   if (bootstrapping) {
     return (
       <SafeAreaView style={styles.loading}>
-        <ActivityIndicator color={colors.primary} />
+        <View style={styles.loadingCard}>
+          <Image source={require('./assets/icon.png')} style={styles.loadingLogo} />
+          <ActivityIndicator color={colors.primary} />
+          <Text style={styles.loadingText}>B2B hazirlaniyor</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -62,7 +66,11 @@ export default function App() {
   if (!fontsLoaded && !fontError) {
     return (
       <SafeAreaView style={styles.loading}>
-        <ActivityIndicator color={colors.primary} />
+        <View style={styles.loadingCard}>
+          <Image source={require('./assets/icon.png')} style={styles.loadingLogo} />
+          <ActivityIndicator color={colors.primary} />
+          <Text style={styles.loadingText}>B2B yukleniyor</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -70,9 +78,10 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <AuthProvider>
-        <PushNotificationBridge />
-        <StatusBar style="dark" />
-        <AuthGate />
+        <NotificationProvider>
+          <StatusBar style="dark" />
+          <AuthGate />
+        </NotificationProvider>
       </AuthProvider>
     </GestureHandlerRootView>
   );
@@ -87,5 +96,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.background,
+  },
+  loadingCard: {
+    minWidth: 190,
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 22,
+    shadowColor: '#0A2A57',
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  loadingLogo: {
+    width: 58,
+    height: 58,
+    resizeMode: 'contain',
+  },
+  loadingText: {
+    fontFamily: 'Sora_600SemiBold',
+    fontSize: 14,
+    color: colors.text,
   },
 });

@@ -127,15 +127,25 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             linkUrl: '/home',
           });
         },
+        localTestNotification: {
+          title: 'Tarayici bildirimleri acildi',
+          body: 'Bu tarayici Bakircilar B2B bildirimlerini alacak.',
+          linkUrl: '/home',
+        },
       });
       if (result.enabled) {
-        toast.success('Tarayici bildirimleri acildi. Test bildirimi gonderildi.');
+        toast.success(
+          result.reason === 'test-failed'
+            ? 'Tarayici bildirimleri acildi. Sunucu test bildirimi sonra tekrar denenebilir.'
+            : 'Tarayici bildirimleri acildi. Test bildirimi gonderildi.'
+        );
       } else {
         toast.error(browserPushReasonLabel(result.reason));
       }
     } catch (error) {
       console.error('Browser push not enabled:', error);
-      toast.error('Tarayici bildirimi acilamadi.');
+      const message = (error as any)?.response?.data?.error || (error as any)?.message || 'Tarayici bildirimi acilamadi.';
+      toast.error(message);
     } finally {
       setPushBusy(false);
     }

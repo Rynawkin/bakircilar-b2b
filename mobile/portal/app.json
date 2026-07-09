@@ -3,14 +3,14 @@
     "name": "Bakircilar Portal",
     "slug": "bakircilar-portal",
     "scheme": "bakircilar-portal",
-    "version": "1.0.0",
-    "orientation": "portrait",
+    "version": "1.1.0",
+    "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#F7FAFF"
+      "backgroundColor": "#071127"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -20,11 +20,21 @@
       "supportsTablet": true
     },
     "android": {
+      "versionCode": 11,
       "package": "com.bakircilar.portal",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#F7FAFF"
-      }
+        "backgroundColor": "#071127"
+      },
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "androidStatusBar": {
+      "backgroundColor": "#071127",
+      "barStyle": "light-content"
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#060E1C",
+      "barStyle": "light-content"
     },
     "plugins": [
       "expo-font",

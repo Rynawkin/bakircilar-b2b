@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,6 +8,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -17,6 +18,7 @@ import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Order, OrderItem } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 type OrderDetailRoute = { params: { orderId: string } };
 
@@ -26,6 +28,8 @@ export function OrderDetailScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
   const route = useRoute() as OrderDetailRoute;
   const { orderId } = route.params;
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 820;
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,13 +38,30 @@ export function OrderDetailScreen() {
   const [note, setNote] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const orderRequestSeqRef = useRef(0);
+  const savingRef = useRef(false);
+
+  const beginSaving = () => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    return true;
+  };
+
+  const endSaving = () => {
+    savingRef.current = false;
+    setSaving(false);
+  };
 
   const fetchOrder = async () => {
+    const requestSeq = orderRequestSeqRef.current + 1;
+    orderRequestSeqRef.current = requestSeq;
     setLoading(true);
     setError(null);
     try {
       const response = await adminApi.getOrderById(orderId);
       const found = (response.order as Order) || null;
+      if (requestSeq !== orderRequestSeqRef.current) return;
       setOrder(found);
       if (found?.items) {
         const nextSelected: Record<string, boolean> = {};
@@ -52,9 +73,13 @@ export function OrderDetailScreen() {
         setSelectedItems(nextSelected);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Siparis yuklenemedi.');
+      if (requestSeq === orderRequestSeqRef.current) {
+        setError(getApiErrorMessage(err, 'Siparis yuklenemedi.'));
+      }
     } finally {
-      setLoading(false);
+      if (requestSeq === orderRequestSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -89,26 +114,28 @@ export function OrderDetailScreen() {
   };
 
   const approveAll = async () => {
+    if (savingRef.current) return;
     if (!order) return;
-    setSaving(true);
+    if (!beginSaving()) return;
     try {
       await adminApi.approveOrder(order.id, note.trim() || undefined);
       Alert.alert('Basarili', 'Siparis onaylandi.');
       await fetchOrder();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Onay basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Onay basarisiz.'));
     } finally {
-      setSaving(false);
+      endSaving();
     }
   };
 
   const approveSelected = async () => {
+    if (savingRef.current) return;
     if (!order) return;
     if (selectedIds.length === 0) {
       Alert.alert('Uyari', 'Onay icin kalem secin.');
       return;
     }
-    setSaving(true);
+    if (!beginSaving()) return;
     try {
       await adminApi.approveOrderItems(order.id, {
         itemIds: selectedIds,
@@ -117,31 +144,33 @@ export function OrderDetailScreen() {
       Alert.alert('Basarili', 'Secili kalemler onaylandi.');
       await fetchOrder();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Onay basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Onay basarisiz.'));
     } finally {
-      setSaving(false);
+      endSaving();
     }
   };
 
   const rejectAll = async () => {
+    if (savingRef.current) return;
     if (!order) return;
     if (!rejectReason.trim()) {
       Alert.alert('Uyari', 'Red nedeni girin.');
       return;
     }
-    setSaving(true);
+    if (!beginSaving()) return;
     try {
       await adminApi.rejectOrder(order.id, rejectReason.trim());
       Alert.alert('Basarili', 'Siparis reddedildi.');
       await fetchOrder();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Red basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Red basarisiz.'));
     } finally {
-      setSaving(false);
+      endSaving();
     }
   };
 
   const rejectSelected = async () => {
+    if (savingRef.current) return;
     if (!order) return;
     if (selectedIds.length === 0) {
       Alert.alert('Uyari', 'Red icin kalem secin.');
@@ -151,7 +180,7 @@ export function OrderDetailScreen() {
       Alert.alert('Uyari', 'Red nedeni girin.');
       return;
     }
-    setSaving(true);
+    if (!beginSaving()) return;
     try {
       await adminApi.rejectOrderItems(order.id, {
         itemIds: selectedIds,
@@ -160,9 +189,9 @@ export function OrderDetailScreen() {
       Alert.alert('Basarili', 'Secili kalemler reddedildi.');
       await fetchOrder();
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Red basarisiz.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Red basarisiz.'));
     } finally {
-      setSaving(false);
+      endSaving();
     }
   };
 
@@ -191,19 +220,36 @@ export function OrderDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>Geri</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.title}>Siparis Detayi</Text>
+      <ScrollView contentContainerStyle={[styles.container, isTablet && styles.containerTablet]}>
+        <View style={styles.hero}>
+          <TouchableOpacity style={styles.heroBackButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.heroBackText}>Geri</Text>
+          </TouchableOpacity>
+          <Text style={styles.kicker}>Siparis Operasyonu</Text>
+          <Text style={styles.title}>Siparis Detayi</Text>
+          <Text style={styles.subtitle} numberOfLines={2}>{order.orderNumber} - {order.user?.name || 'Cari'}</Text>
+          <View style={styles.heroMetrics}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Durum</Text>
+              <Text style={styles.heroMetricValue}>{order.status}</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Toplam</Text>
+              <Text style={styles.heroMetricValue}>{order.totalAmount.toFixed(0)} TL</Text>
+            </View>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Bekleyen</Text>
+              <Text style={styles.heroMetricValue}>{pendingItems.length}</Text>
+            </View>
+          </View>
+        </View>
         {error && <Text style={styles.error}>{error}</Text>}
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{order.orderNumber}</Text>
+          <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="middle">{order.orderNumber}</Text>
           <Text style={styles.cardMeta}>Durum: {order.status}</Text>
-          <Text style={styles.cardMeta}>Cari: {order.user?.name || '-'}</Text>
-          <Text style={styles.cardMeta}>Kod: {order.user?.mikroCariCode || '-'}</Text>
+          <Text style={styles.cardMeta} numberOfLines={2}>Cari: {order.user?.name || '-'}</Text>
+          <Text style={styles.cardMeta} numberOfLines={1} ellipsizeMode="middle">Kod: {order.user?.mikroCariCode || '-'}</Text>
           <Text style={styles.cardMeta}>Tarih: {order.createdAt?.slice?.(0, 10) || '-'}</Text>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Toplam</Text>
@@ -220,16 +266,16 @@ export function OrderDetailScreen() {
           {order.items?.map((item) => (
             <TouchableOpacity key={item.id} style={styles.itemCard} onPress={() => toggleItem(item)}>
               <View style={styles.itemHeader}>
-                <Text style={styles.itemTitle}>{item.product?.name || item.productName}</Text>
+                <Text style={styles.itemTitle} numberOfLines={3}>{item.product?.name || item.productName}</Text>
                 <Text style={styles.itemBadge}>{getItemStatus(item)}</Text>
               </View>
-              <Text style={styles.itemMeta}>Kod: {item.product?.mikroCode || item.mikroCode}</Text>
+              <Text style={styles.itemMeta} numberOfLines={1} ellipsizeMode="middle">Kod: {item.product?.mikroCode || item.mikroCode}</Text>
               <Text style={styles.itemMeta}>Miktar: {item.quantity}</Text>
               <Text style={styles.itemMeta}>Tip: {item.priceType === 'WHITE' ? 'Beyaz' : 'Faturali'}</Text>
               <Text style={styles.itemMeta}>Birim: {item.unitPrice.toFixed(2)} TL</Text>
               <Text style={styles.itemMeta}>Toplam: {item.totalPrice.toFixed(2)} TL</Text>
               {item.rejectionReason && (
-                <Text style={styles.itemMeta}>Red: {item.rejectionReason}</Text>
+                <Text style={styles.itemMeta} numberOfLines={2}>Red: {item.rejectionReason}</Text>
               )}
               {selectedItems[item.id] && getItemStatus(item) === 'PENDING' && (
                 <Text style={styles.selected}>Secildi</Text>
@@ -257,7 +303,7 @@ export function OrderDetailScreen() {
           />
         </View>
 
-        <View style={styles.actions}>
+        <View style={[styles.actions, isTablet && styles.actionsTablet]}>
           <TouchableOpacity style={styles.secondaryButton} onPress={toggleAll}>
             <Text style={styles.secondaryButtonText}>
               {selectedIds.length === pendingItems.length && pendingItems.length > 0
@@ -265,16 +311,16 @@ export function OrderDetailScreen() {
                 : 'Tumunu Sec'}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryButton} onPress={approveAll} disabled={saving}>
+          <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={approveAll} disabled={saving}>
             <Text style={styles.primaryButtonText}>Tumunu Onayla</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryButton} onPress={approveSelected} disabled={saving}>
+          <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={approveSelected} disabled={saving}>
             <Text style={styles.primaryButtonText}>Secili Onayla</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={rejectSelected} disabled={saving}>
+          <TouchableOpacity style={[styles.secondaryButton, saving && styles.buttonDisabled]} onPress={rejectSelected} disabled={saving}>
             <Text style={styles.secondaryButtonText}>Secili Reddet</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={rejectAll} disabled={saving}>
+          <TouchableOpacity style={[styles.secondaryButton, saving && styles.buttonDisabled]} onPress={rejectAll} disabled={saving}>
             <Text style={styles.secondaryButtonText}>Tumunu Reddet</Text>
           </TouchableOpacity>
         </View>
@@ -298,18 +344,70 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  containerTablet: {
+    maxWidth: 1120,
+    alignSelf: 'center',
+    width: '100%',
+  },
   backButton: {
     alignSelf: 'flex-start',
     paddingVertical: spacing.xs,
   },
   backText: {
     fontFamily: fonts.medium,
-    color: colors.primary,
+    color: colors.primarySoft,
+  },
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  heroBackButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
+  heroBackText: {
+    fontFamily: fonts.semibold,
+    color: '#BFDBFE',
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
+  },
+  subtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.md,
+    color: '#DCEAFE',
+    lineHeight: 22,
+  },
+  heroMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  heroMetricLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: '#FFFFFF',
   },
   error: {
     fontFamily: fonts.medium,
@@ -336,6 +434,8 @@ const styles = StyleSheet.create({
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
   },
   totalLabel: {
     fontFamily: fonts.medium,
@@ -364,6 +464,7 @@ const styles = StyleSheet.create({
   itemHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   itemTitle: {
@@ -371,11 +472,12 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.sm,
     color: colors.text,
     flex: 1,
+    minWidth: 0,
   },
   itemBadge: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.xs,
-    color: colors.primary,
+    color: colors.primarySoft,
     backgroundColor: colors.surface,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
@@ -409,7 +511,13 @@ const styles = StyleSheet.create({
   actions: {
     gap: spacing.sm,
   },
+  actionsTablet: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
   primaryButton: {
+    minWidth: 150,
+    flexGrow: 1,
     backgroundColor: colors.primary,
     borderRadius: radius.md,
     paddingVertical: spacing.sm,
@@ -420,6 +528,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   secondaryButton: {
+    minWidth: 150,
+    flexGrow: 1,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
@@ -429,5 +539,8 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontFamily: fonts.semibold,
     color: colors.text,
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
 });

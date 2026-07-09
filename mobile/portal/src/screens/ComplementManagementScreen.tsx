@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,12 +8,16 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { RouteProp, useRoute } from '@react-navigation/native';
 
 import { adminApi } from '../api/admin';
+import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 type ComplementState = {
   mode: 'AUTO' | 'MANUAL';
@@ -35,7 +39,11 @@ type ComplementState = {
 };
 
 export function ComplementManagementScreen() {
-  const [search, setSearch] = useState('');
+  const route = useRoute<RouteProp<PortalStackParamList, 'ComplementManagement'>>();
+  const { width } = useWindowDimensions();
+  const isWide = width >= 860;
+  const productColumns = isWide ? 2 : 1;
+  const [search, setSearch] = useState(route.params?.initialSearch || '');
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -49,8 +57,26 @@ export function ComplementManagementScreen() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
+  const syncingRef = useRef(false);
+  const productSearchSeqRef = useRef(0);
+  const manualSearchSeqRef = useRef(0);
+  const complementsSeqRef = useRef(0);
+  const autoSelectKeyRef = useRef<string | null>(null);
+
+  const summary = useMemo(() => {
+    const autoCount = complements?.auto?.length || 0;
+    const manualCount = manualIds.length;
+    return {
+      result: products.length,
+      autoCount,
+      manualCount,
+      mode,
+    };
+  }, [complements?.auto?.length, manualIds.length, mode, products.length]);
 
   const fetchProducts = async (term: string) => {
+    const requestSeq = ++productSearchSeqRef.current;
     setProductsLoading(true);
     setError(null);
     try {
@@ -59,11 +85,17 @@ export function ComplementManagementScreen() {
         page: 1,
         limit: 50,
       });
-      setProducts(response.products || []);
+      if (requestSeq === productSearchSeqRef.current) {
+        setProducts(response.products || []);
+      }
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Urun listesi alinamadi.');
+      if (requestSeq === productSearchSeqRef.current) {
+        setError(getApiErrorMessage(err, 'Urun listesi alinamadi.'));
+      }
     } finally {
-      setProductsLoading(false);
+      if (requestSeq === productSearchSeqRef.current) {
+        setProductsLoading(false);
+      }
     }
   };
 
@@ -74,34 +106,67 @@ export function ComplementManagementScreen() {
     return () => clearTimeout(handle);
   }, [search]);
 
+  useEffect(() => {
+    const nextSearch = route.params?.initialSearch || '';
+    setSearch(nextSearch);
+  }, [route.params?.initialSearch]);
+
   const loadComplements = async (product: Product) => {
+    const requestSeq = ++complementsSeqRef.current;
     setSelectedProduct(product);
     setLoadingComplements(true);
     setError(null);
     try {
       const response = await adminApi.getProductComplements(product.id);
+      if (requestSeq !== complementsSeqRef.current) return;
       setComplements(response);
       setMode(response.mode || 'AUTO');
       setGroupCode(response.complementGroupCode || '');
       setManualIds((response.manual || []).map((item) => item.productId));
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Tamamlayicilar alinamadi.');
-      setComplements(null);
+      if (requestSeq === complementsSeqRef.current) {
+        setError(getApiErrorMessage(err, 'Tamamlayicilar alinamadi.'));
+        setComplements(null);
+      }
     } finally {
-      setLoadingComplements(false);
+      if (requestSeq === complementsSeqRef.current) {
+        setLoadingComplements(false);
+      }
     }
   };
 
+  useEffect(() => {
+    if (!route.params?.autoSelect || productsLoading || loadingComplements || products.length === 0) return;
+    const target = products[0];
+    const autoSelectKey = `${route.params.initialSearch || ''}|${target.id}`;
+    if (autoSelectKeyRef.current === autoSelectKey || selectedProduct?.id === target.id) return;
+    autoSelectKeyRef.current = autoSelectKey;
+    void loadComplements(target);
+  }, [
+    loadingComplements,
+    products,
+    productsLoading,
+    route.params?.autoSelect,
+    route.params?.initialSearch,
+    selectedProduct?.id,
+  ]);
+
   const fetchManualCandidates = async (term: string) => {
     if (!term.trim()) {
+      manualSearchSeqRef.current += 1;
       setManualCandidates([]);
       return;
     }
+    const requestSeq = ++manualSearchSeqRef.current;
     try {
       const response = await adminApi.getProducts({ search: term.trim(), page: 1, limit: 25 });
-      setManualCandidates((response.products || []).filter((row) => row.id !== selectedProduct?.id));
+      if (requestSeq === manualSearchSeqRef.current) {
+        setManualCandidates((response.products || []).filter((row) => row.id !== selectedProduct?.id));
+      }
     } catch {
-      setManualCandidates([]);
+      if (requestSeq === manualSearchSeqRef.current) {
+        setManualCandidates([]);
+      }
     }
   };
 
@@ -141,7 +206,9 @@ export function ComplementManagementScreen() {
   };
 
   const saveComplements = async () => {
+    if (savingRef.current) return;
     if (!selectedProduct) return;
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -152,13 +219,16 @@ export function ComplementManagementScreen() {
       });
       await loadComplements(selectedProduct);
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Tamamlayici kaydi basarisiz.');
+      setError(getApiErrorMessage(err, 'Tamamlayici kaydi basarisiz.'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
   const runSync = async () => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
     setSyncing(true);
     setError(null);
     try {
@@ -167,8 +237,9 @@ export function ComplementManagementScreen() {
         await loadComplements(selectedProduct);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Tamamlayici senkronu basarisiz.');
+      setError(getApiErrorMessage(err, 'Tamamlayici senkronu basarisiz.'));
     } finally {
+      syncingRef.current = false;
       setSyncing(false);
     }
   };
@@ -177,44 +248,79 @@ export function ComplementManagementScreen() {
     <SafeAreaView style={styles.safeArea}>
       <FlatList
         data={products}
+        key={`complement-products-${productColumns}`}
         keyExtractor={(item) => item.id}
+        numColumns={productColumns}
+        columnWrapperStyle={productColumns > 1 ? styles.columnWrapper : undefined}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          <View style={styles.header}>
-            <Text style={styles.title}>Tamamlayici Urun Yonetimi</Text>
-            <Text style={styles.subtitle}>Otomatik/manuel tamamlayici kurallarini mobilde yonetin.</Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Urun ara..."
-              placeholderTextColor={colors.textMuted}
-              value={search}
-              onChangeText={setSearch}
-            />
-            <View style={styles.actionsRow}>
-              <TouchableOpacity
-                style={[styles.secondaryButton, syncing && styles.buttonDisabled]}
-                onPress={runSync}
-                disabled={syncing}
-              >
-                <Text style={styles.secondaryButtonText}>{syncing ? 'Senkron...' : 'Oto Senkron Calistir'}</Text>
-              </TouchableOpacity>
-            </View>
-            {productsLoading ? (
-              <View style={styles.loadingInline}>
-                <ActivityIndicator color={colors.primary} />
+          <>
+            <View style={styles.hero}>
+              <Text style={styles.heroKicker}>Katalog Motoru</Text>
+              <Text style={styles.heroTitle}>Tamamlayici Urun Yonetimi</Text>
+              <Text style={styles.heroSubtitle}>
+                Otomatik eslesmeleri kontrol edin, kritik urunlere manuel tamamlayici tanimlayin.
+              </Text>
+              <View style={styles.heroMetricRow}>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue}>{summary.result}</Text>
+                  <Text style={styles.heroMetricLabel}>Aday</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue}>{summary.autoCount}</Text>
+                  <Text style={styles.heroMetricLabel}>Oto</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue}>{summary.manualCount}</Text>
+                  <Text style={styles.heroMetricLabel}>Manuel</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue}>{summary.mode}</Text>
+                  <Text style={styles.heroMetricLabel}>Mod</Text>
+                </View>
               </View>
-            ) : null}
-            {error && <Text style={styles.error}>{error}</Text>}
-          </View>
+            </View>
+
+            <View style={styles.controlCard}>
+              <TextInput
+                style={styles.input}
+                placeholder="Urun adi veya stok kodu ara..."
+                placeholderTextColor={colors.textMuted}
+                value={search}
+                onChangeText={setSearch}
+              />
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={[styles.secondaryButton, syncing && styles.buttonDisabled]}
+                  onPress={runSync}
+                  disabled={syncing}
+                >
+                  <Text style={styles.secondaryButtonText}>{syncing ? 'Senkron calisiyor...' : 'Oto Senkron Calistir'}</Text>
+                </TouchableOpacity>
+              </View>
+              {productsLoading ? (
+                <View style={styles.loadingInline}>
+                  <ActivityIndicator color={colors.primary} />
+                  <Text style={styles.loadingText}>Urunler yukleniyor...</Text>
+                </View>
+              ) : null}
+              {error && <Text style={styles.error}>{error}</Text>}
+            </View>
+          </>
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[styles.productCard, selectedProduct?.id === item.id && styles.productCardActive]}
+            style={[
+              styles.productCard,
+              productColumns > 1 && styles.productCardGrid,
+              selectedProduct?.id === item.id && styles.productCardActive,
+              loadingComplements && styles.buttonDisabled,
+            ]}
             onPress={() => loadComplements(item)}
+            disabled={loadingComplements}
           >
-            <Text style={styles.productTitle}>{item.name}</Text>
-            <Text style={styles.productMeta}>Kod: {item.mikroCode}</Text>
+            <Text style={styles.productTitle} numberOfLines={2} ellipsizeMode="tail">{item.name}</Text>
+            <Text style={styles.productMeta} numberOfLines={1} ellipsizeMode="middle">Kod: {item.mikroCode}</Text>
           </TouchableOpacity>
         )}
         ListFooterComponent={
@@ -226,8 +332,8 @@ export function ComplementManagementScreen() {
                 </View>
               ) : complements ? (
                 <>
-                  <Text style={styles.detailTitle}>{selectedProduct.name}</Text>
-                  <Text style={styles.detailMeta}>Kod: {selectedProduct.mikroCode}</Text>
+                  <Text style={styles.detailTitle} numberOfLines={3} ellipsizeMode="tail">{selectedProduct.name}</Text>
+                  <Text style={styles.detailMeta} numberOfLines={1} ellipsizeMode="middle">Kod: {selectedProduct.mikroCode}</Text>
 
                   <View style={styles.modeRow}>
                     <TouchableOpacity
@@ -291,7 +397,7 @@ export function ComplementManagementScreen() {
                           style={styles.candidateItem}
                           onPress={() => addManual(candidate)}
                         >
-                          <Text style={styles.blockLabel}>{candidate.mikroCode} - {candidate.name}</Text>
+                          <Text style={styles.blockLabel} numberOfLines={2} ellipsizeMode="tail">{candidate.mikroCode} - {candidate.name}</Text>
                         </TouchableOpacity>
                       ))}
                       {manualCandidates.length === 0 && (
@@ -326,18 +432,64 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
-  header: {
-    gap: spacing.sm,
+  columnWrapper: {
+    gap: spacing.md,
   },
-  title: {
+  hero: {
+    paddingHorizontal: 1,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  heroKicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#9EC5FF',
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
     fontFamily: fonts.bold,
-    fontSize: fontSizes.xl,
-    color: colors.text,
+    fontSize: fontSizes.xxl,
+    color: '#FFFFFF',
   },
-  subtitle: {
+  heroSubtitle: {
     fontFamily: fonts.regular,
-    fontSize: fontSizes.sm,
-    color: colors.textMuted,
+    fontSize: fontSizes.md,
+    color: '#DDE8FF',
+    lineHeight: 22,
+  },
+  heroMetricRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(221,232,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    padding: spacing.sm,
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: '#FFFFFF',
+  },
+  heroMetricLabel: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
+  },
+  controlCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   input: {
     backgroundColor: colors.surface,
@@ -386,6 +538,12 @@ const styles = StyleSheet.create({
   loadingInline: {
     paddingVertical: spacing.md,
     alignItems: 'center',
+    gap: spacing.xs,
+  },
+  loadingText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
   },
   error: {
     fontFamily: fonts.medium,
@@ -399,9 +557,12 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.xs,
   },
+  productCardGrid: {
+    flex: 1,
+  },
   productCardActive: {
     borderColor: colors.primary,
-    backgroundColor: '#E8EEF8',
+    backgroundColor: colors.surfaceAlt,
   },
   productTitle: {
     fontFamily: fonts.semibold,

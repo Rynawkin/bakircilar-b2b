@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import { getStoredValue, setStoredValue } from './kv';
 
 export type DashboardWidgetKey =
   | 'stats'
@@ -29,7 +29,7 @@ export type DashboardPrefs = {
 const keyForUser = (userId: string) => `portal-dashboard-prefs-${userId}`;
 
 export async function getDashboardPrefs(userId: string): Promise<DashboardPrefs | null> {
-  const raw = await SecureStore.getItemAsync(keyForUser(userId));
+  const raw = await getStoredValue(keyForUser(userId));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as DashboardPrefs;
@@ -39,5 +39,5 @@ export async function getDashboardPrefs(userId: string): Promise<DashboardPrefs 
 }
 
 export async function saveDashboardPrefs(userId: string, prefs: DashboardPrefs) {
-  await SecureStore.setItemAsync(keyForUser(userId), JSON.stringify(prefs));
+  await setStoredValue(keyForUser(userId), JSON.stringify(prefs));
 }

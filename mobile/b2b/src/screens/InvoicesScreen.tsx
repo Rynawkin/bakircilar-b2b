@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,12 +8,15 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
 
 import { customerApi, CustomerInvoiceDocument } from '../api/customer';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
+import { includesSearch } from '../utils/search';
 
 type Pagination = {
   page: number;
@@ -42,6 +45,7 @@ const statusLabel = (status?: string | null) => {
 };
 
 export function InvoicesScreen() {
+  const { width } = useWindowDimensions();
   const [documents, setDocuments] = useState<CustomerInvoiceDocument[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 25, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
@@ -50,8 +54,13 @@ export function InvoicesScreen() {
   const [search, setSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'MATCHED' | 'PARTIAL' | 'NOT_FOUND'>('ALL');
+  const downloadingIdRef = useRef<string | null>(null);
+  const documentsSeqRef = useRef(0);
+  const isWide = width >= 820;
 
   const loadDocuments = async (page = 1) => {
+    const requestSeq = ++documentsSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -62,13 +71,18 @@ export function InvoicesScreen() {
         page,
         limit: pagination.limit,
       });
+      if (requestSeq !== documentsSeqRef.current) return;
       setDocuments(response.documents || []);
       setPagination(response.pagination || { page, limit: pagination.limit, total: 0, totalPages: 1 });
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Faturalar yuklenemedi.');
-      setDocuments([]);
+      if (requestSeq === documentsSeqRef.current) {
+        setError(getApiErrorMessage(err, 'Faturalar yuklenemedi.'));
+        setDocuments([]);
+      }
     } finally {
-      setLoading(false);
+      if (requestSeq === documentsSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -78,6 +92,8 @@ export function InvoicesScreen() {
   }, []);
 
   const shareInvoice = async (document: CustomerInvoiceDocument) => {
+    if (downloadingIdRef.current) return;
+    downloadingIdRef.current = document.id;
     setDownloadingId(document.id);
     try {
       const uri = await customerApi.downloadInvoiceToFile(document);
@@ -91,8 +107,9 @@ export function InvoicesScreen() {
         dialogTitle: `${document.invoiceNo} faturasini ac`,
       });
     } catch (err: any) {
-      Alert.alert('Fatura indirilemedi', err?.response?.data?.error || err?.message || 'PDF dosyasi alinamadi.');
+      Alert.alert('Fatura indirilemedi', getApiErrorMessage(err, 'PDF dosyasi alinamadi.'));
     } finally {
+      downloadingIdRef.current = null;
       setDownloadingId(null);
     }
   };
@@ -100,16 +117,68 @@ export function InvoicesScreen() {
   const canPrev = pagination.page > 1;
   const canNext = pagination.page < pagination.totalPages;
 
+  const filteredDocuments = useMemo(() => {
+    return documents.filter((document) => {
+      const status = String(document.matchStatus || '').toUpperCase();
+      const matchesStatus = statusFilter === 'ALL' || status === statusFilter;
+      const haystack = [
+        document.invoiceNo,
+        document.fileName,
+        document.originalName,
+        document.currency,
+        document.matchStatus,
+        document.matchError,
+        document.issueDate,
+        document.sentAt,
+      ].join(' ');
+      return matchesStatus && includesSearch(haystack, search);
+    });
+  }, [documents, search, statusFilter]);
+
+  const summary = useMemo(() => ({
+    total: pagination.total,
+    pageCount: documents.length,
+    filtered: filteredDocuments.length,
+    amount: filteredDocuments.reduce((sum, document) => sum + Number(document.totalAmount || 0), 0),
+  }), [documents.length, filteredDocuments, pagination.total]);
+
+  const statusOptions: Array<{ key: typeof statusFilter; label: string }> = [
+    { key: 'ALL', label: 'Tum' },
+    { key: 'MATCHED', label: 'Eslesmis' },
+    { key: 'PARTIAL', label: 'Eksik' },
+    { key: 'NOT_FOUND', label: 'Bulunamadi' },
+  ];
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
-        data={documents}
+        key={isWide ? 'invoices-wide' : 'invoices-phone'}
+        data={filteredDocuments}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
+        numColumns={isWide ? 2 : 1}
+        columnWrapperStyle={isWide ? styles.columnWrapper : undefined}
         ListHeaderComponent={
           <View style={styles.header}>
-            <Text style={styles.title}>Faturalarim</Text>
-            <Text style={styles.subtitle}>E-faturalarinizi listeleyin ve PDF olarak acin.</Text>
+            <View style={styles.hero}>
+              <Text style={styles.heroKicker}>E-Fatura Arsivi</Text>
+              <Text style={styles.heroTitle} numberOfLines={1}>Faturalarim</Text>
+              <Text style={styles.heroSubtitle} numberOfLines={2}>Fatura no, tarih ve durum filtresiyle PDF dosyalarina hizli erisin.</Text>
+              <View style={styles.heroMetricRow}>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1}>{summary.total}</Text>
+                  <Text style={styles.heroMetricLabel} numberOfLines={1}>Toplam</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1}>{summary.filtered}</Text>
+                  <Text style={styles.heroMetricLabel} numberOfLines={1}>Filtre</Text>
+                </View>
+                <View style={styles.heroMetric}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1}>{pagination.page}/{pagination.totalPages}</Text>
+                  <Text style={styles.heroMetricLabel} numberOfLines={1}>Sayfa</Text>
+                </View>
+              </View>
+            </View>
             <View style={styles.filterCard}>
               <TextInput
                 style={styles.input}
@@ -140,26 +209,56 @@ export function InvoicesScreen() {
                 <Text style={styles.primaryButtonText}>Faturalari Getir</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryText}>Toplam: {pagination.total}</Text>
-              <Text style={styles.summaryText}>Sayfa: {pagination.page}/{pagination.totalPages}</Text>
+
+            <View style={styles.statusRow}>
+              {statusOptions.map((option) => (
+                <TouchableOpacity
+                  key={option.key}
+                  style={[styles.statusChip, statusFilter === option.key && styles.statusChipActive]}
+                  onPress={() => setStatusFilter(option.key)}
+                >
+                  <Text style={statusFilter === option.key ? styles.statusChipTextActive : styles.statusChipText}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
+
+            <View style={styles.summaryGrid}>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Toplam</Text>
+                <Text style={styles.summaryValue}>{summary.total}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Bu sayfa</Text>
+                <Text style={styles.summaryValue}>{summary.pageCount}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Filtre</Text>
+                <Text style={styles.summaryValue}>{summary.filtered}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Tutar</Text>
+                <Text style={styles.summaryValueSmall}>{formatAmount(summary.amount, 'TRY')}</Text>
+              </View>
+            </View>
+            <Text style={styles.pageMeta}>Sayfa: {pagination.page}/{pagination.totalPages}</Text>
             {error && <Text style={styles.error}>{error}</Text>}
           </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <View style={[styles.card, isWide && styles.gridItem]}>
             <View style={styles.cardTop}>
               <View style={styles.cardTitleBlock}>
-                <Text style={styles.cardTitle}>{item.invoiceNo}</Text>
-                <Text style={styles.cardMeta}>Tarih: {formatDate(item.issueDate || item.sentAt || item.createdAt)}</Text>
+                <Text style={styles.cardTitle} numberOfLines={2} ellipsizeMode="middle">{item.invoiceNo}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>Tarih: {formatDate(item.issueDate || item.sentAt || item.createdAt)}</Text>
               </View>
               <View style={styles.statusBadge}>
                 <Text style={styles.statusText}>{statusLabel(item.matchStatus)}</Text>
               </View>
             </View>
-            <Text style={styles.cardMeta}>Tutar: {formatAmount(item.totalAmount, item.currency)}</Text>
-            <Text style={styles.cardMeta}>Dosya: {item.fileName || item.originalName || '-'}</Text>
+            <Text style={styles.cardMeta} numberOfLines={1}>Tutar: {formatAmount(item.totalAmount, item.currency)}</Text>
+            <Text style={styles.cardMeta} numberOfLines={2} ellipsizeMode="middle">Dosya: {item.fileName || item.originalName || '-'}</Text>
             <TouchableOpacity
               style={[styles.downloadButton, downloadingId === item.id && styles.buttonDisabled]}
               disabled={downloadingId === item.id}
@@ -196,7 +295,7 @@ export function InvoicesScreen() {
             </View>
           ) : (
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>Fatura bulunamadi.</Text>
+              <Text style={styles.emptyText}>Bu filtreye uygun fatura bulunamadi.</Text>
             </View>
           )
         }
@@ -214,18 +313,70 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  columnWrapper: {
+    gap: spacing.md,
+  },
   header: {
     gap: spacing.sm,
   },
-  title: {
-    fontFamily: fonts.bold,
-    fontSize: fontSizes.xl,
-    color: colors.text,
+  hero: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: '#173D78',
+    shadowColor: '#071B3A',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
-  subtitle: {
+  heroKicker: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  heroTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xxl,
+    color: '#FFFFFF',
+    marginTop: spacing.xs,
+  },
+  heroSubtitle: {
     fontFamily: fonts.regular,
+    fontSize: fontSizes.sm,
+    lineHeight: fontSizes.sm + 5,
+    color: '#DDE8FF',
+    marginTop: spacing.xs,
+  },
+  heroMetricRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    flexBasis: 96,
+    minWidth: 92,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(221,232,255,0.22)',
+    padding: spacing.sm,
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#FFFFFF',
+  },
+  heroMetricLabel: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
   },
   filterCard: {
     backgroundColor: colors.surface,
@@ -237,6 +388,7 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   input: {
@@ -262,12 +414,63 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: fontSizes.sm,
   },
-  summaryRow: {
+  statusRow: {
     flexDirection: 'row',
     gap: spacing.sm,
     flexWrap: 'wrap',
   },
-  summaryText: {
+  statusChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  statusChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  statusChipText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.textMuted,
+  },
+  statusChipTextActive: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: '#FFFFFF',
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  summaryCard: {
+    flexGrow: 1,
+    minWidth: 118,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  summaryLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  summaryValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: colors.text,
+  },
+  summaryValueSmall: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  pageMeta: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.sm,
     color: colors.textMuted,
@@ -277,6 +480,7 @@ const styles = StyleSheet.create({
     color: colors.danger,
   },
   card: {
+    flex: 1,
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.lg,
@@ -284,10 +488,14 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.xs,
   },
+  gridItem: {
+    flex: 1,
+  },
   cardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   cardTitleBlock: {
@@ -330,11 +538,13 @@ const styles = StyleSheet.create({
   },
   paginationRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     justifyContent: 'space-between',
   },
   pageButton: {
     flex: 1,
+    minWidth: 120,
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     borderWidth: 1,

@@ -50,6 +50,20 @@ interface CreateQuoteInput {
   vatZeroed?: boolean;
   items: QuoteItemInput[];
 }
+type CustomerQuoteListOptions = {
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+type PaginatedCustomerQuotes = {
+  quotes: any[];
+  paginated: true;
+  total: number;
+  page: number;
+  pageSize: number;
+};
 const DEFAULT_WHATSAPP_TEMPLATE =
   "Merhaba {{customerName}}, teklifiniz hazÄ±r. Teklif No: {{quoteNumber}}. Link: {{quoteLink}}. GeÃ§erlilik: {{validUntil}}.";
 const VALID_POOL_SORTS = new Set([
@@ -2050,13 +2064,67 @@ class QuoteService {
     }
     return { reopenedCount: closedItems.length, mikroReopenCount };
   }
-  async getQuotesForCustomer(customerId: string) {
-    const quotes = await prisma.quote.findMany({
-      where: { customerId },
-      include: { items: { orderBy: { lineOrder: "asc" } } },
-      orderBy: { createdAt: "desc" },
-    });
-    return quotes;
+  async getQuotesForCustomer(
+    customerId: string,
+    options: CustomerQuoteListOptions = {},
+  ): Promise<any[] | PaginatedCustomerQuotes> {
+    const where: any = { customerId };
+    if (options.status) {
+      where.status = options.status;
+    }
+
+    const tokens = String(options.search || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 8);
+    if (tokens.length > 0) {
+      where.AND = tokens.map((tok) => ({
+        OR: [
+          { quoteNumber: { contains: tok, mode: "insensitive" } },
+          { documentNo: { contains: tok, mode: "insensitive" } },
+          { mikroNumber: { contains: tok, mode: "insensitive" } },
+          { note: { contains: tok, mode: "insensitive" } },
+          {
+            items: {
+              some: {
+                OR: [
+                  { productName: { contains: tok, mode: "insensitive" } },
+                  { productCode: { contains: tok, mode: "insensitive" } },
+                  { lineDescription: { contains: tok, mode: "insensitive" } },
+                ],
+              },
+            },
+          },
+        ],
+      }));
+    }
+
+    const rawPageSize = Number(options.pageSize);
+    const paginated = Number.isFinite(rawPageSize) && rawPageSize > 0;
+    if (!paginated) {
+      return prisma.quote.findMany({
+        where,
+        include: { items: { orderBy: { lineOrder: "asc" } } },
+        orderBy: { createdAt: "desc" },
+      });
+    }
+
+    const pageSize = Math.min(Math.max(1, Math.floor(rawPageSize)), 100);
+    const rawPage = Number(options.page);
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+    const [total, quotes] = await Promise.all([
+      prisma.quote.count({ where }),
+      prisma.quote.findMany({
+        where,
+        include: { items: { orderBy: { lineOrder: "asc" } } },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    return { quotes, paginated: true, total, page, pageSize };
   }
   async getQuoteByIdForCustomer(customerId: string, quoteId: string) {
     const quote = await prisma.quote.findFirst({

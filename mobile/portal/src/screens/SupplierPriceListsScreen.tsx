@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,12 +8,14 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 
 import { adminApi } from '../api/admin';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { getApiErrorMessage } from '../utils/errors';
 
 type Supplier = { id: string; name: string };
 type StatusKey = 'matched' | 'unmatched' | 'multiple' | 'suspicious';
@@ -26,6 +28,8 @@ const STATUS_TABS: Array<{ id: StatusKey; label: string }> = [
 ];
 
 export function SupplierPriceListsScreen() {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 820;
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [uploads, setUploads] = useState<any[]>([]);
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
@@ -50,6 +54,7 @@ export function SupplierPriceListsScreen() {
   const [pdfCodePattern, setPdfCodePattern] = useState('');
 
   const [activeStatus, setActiveStatus] = useState<StatusKey>('matched');
+  const uploadingRef = useRef(false);
 
   const resetPreview = () => {
     setPreview(null);
@@ -82,7 +87,7 @@ export function SupplierPriceListsScreen() {
         setActiveUploadId(nextUploads[0].id);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Gecmis yuklemeler alinamadi.');
+      setError(getApiErrorMessage(err, 'Gecmis yuklemeler alinamadi.'));
     } finally {
       setLoading(false);
     }
@@ -156,6 +161,7 @@ export function SupplierPriceListsScreen() {
   };
 
   const fetchPreview = async () => {
+    if (previewLoading) return;
     if (!selectedSupplierId || selectedFiles.length === 0) return;
     setPreviewLoading(true);
     try {
@@ -181,15 +187,17 @@ export function SupplierPriceListsScreen() {
         setPdfCodePattern(response.pdf.codePattern || '');
       }
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Onizleme alinamadi.');
+      setError(getApiErrorMessage(err, 'Onizleme alinamadi.'));
     } finally {
       setPreviewLoading(false);
     }
   };
 
   const uploadFiles = async () => {
+    if (uploadingRef.current) return;
     if (!selectedSupplierId || selectedFiles.length === 0) return;
     if (!preview) return;
+    uploadingRef.current = true;
     setUploading(true);
     try {
       const response = await adminApi.uploadSupplierPriceLists({
@@ -204,8 +212,9 @@ export function SupplierPriceListsScreen() {
         setActiveUploadId(response.uploadId);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Yukleme basarisiz.');
+      setError(getApiErrorMessage(err, 'Yukleme basarisiz.'));
     } finally {
+      uploadingRef.current = false;
       setUploading(false);
     }
   };
@@ -213,6 +222,26 @@ export function SupplierPriceListsScreen() {
   const formatCurrency = (value?: number | null) => {
     if (value === null || value === undefined) return '-';
     return value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const heroStats = useMemo(() => {
+    return {
+      uploads: uploads.length,
+      visibleItems: items.length,
+      selectedFiles: selectedFiles.length,
+      matchedItems: Number(activeUpload?.matchedItems || 0),
+    };
+  }, [activeUpload?.matchedItems, items.length, selectedFiles.length, uploads.length]);
+
+  const statusLabel = STATUS_TABS.find((tab) => tab.id === activeStatus)?.label || 'Satirlar';
+
+  const getDifferenceStyle = (value?: number | null) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return styles.diffNeutral;
+    const absolute = Math.abs(numeric);
+    if (absolute >= 20) return styles.diffDanger;
+    if (absolute >= 10) return styles.diffWarning;
+    return styles.diffSuccess;
   };
 
   return (
@@ -225,11 +254,30 @@ export function SupplierPriceListsScreen() {
         <FlatList
           data={items}
           keyExtractor={(_, index) => `${activeUploadId || 'upload'}-${activeStatus}-${index}`}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, isTablet && styles.listContentTablet]}
           ListHeaderComponent={
             <View style={styles.header}>
+              <Text style={styles.kicker}>Tedarik Operasyonu</Text>
               <Text style={styles.title}>Tedarikci Fiyat Karsilastirma</Text>
               <Text style={styles.subtitle}>Excel/PDF listelerini yukleyip eslesmeleri inceleyin.</Text>
+              <View style={styles.heroStats}>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatLabel}>Yukleme</Text>
+                  <Text style={styles.heroStatValue}>{heroStats.uploads}</Text>
+                </View>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatLabel}>Gorunen</Text>
+                  <Text style={styles.heroStatValue}>{heroStats.visibleItems}</Text>
+                </View>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatLabel}>Eslesen</Text>
+                  <Text style={styles.heroStatValue}>{heroStats.matchedItems}</Text>
+                </View>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatLabel}>Dosya</Text>
+                  <Text style={styles.heroStatValue}>{heroStats.selectedFiles}</Text>
+                </View>
+              </View>
 
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Yeni Liste Yukle</Text>
@@ -395,17 +443,33 @@ export function SupplierPriceListsScreen() {
           }
           renderItem={({ item }) => (
             <View style={styles.itemCard}>
-              <Text style={styles.itemTitle}>{item.supplierName || '-'}</Text>
-              <Text style={styles.itemMeta}>Kod: {item.supplierCode || '-'}</Text>
-              <Text style={styles.itemMeta}>Liste: {formatCurrency(item.sourcePrice)}</Text>
-              <Text style={styles.itemMeta}>Net: {formatCurrency(item.netPrice)}</Text>
-              {item.productCode && <Text style={styles.itemMeta}>B2B Kod: {item.productCode}</Text>}
-              {item.productName && <Text style={styles.itemMeta}>B2B Urun: {item.productName}</Text>}
-              {item.percentDifference !== undefined && (
-                <Text style={styles.itemMeta}>Fark %: {Number(item.percentDifference).toFixed(2)}%</Text>
-              )}
+              <View style={styles.itemTop}>
+                <View style={styles.itemTitleWrap}>
+                  <Text style={styles.itemTitle} numberOfLines={2}>{item.supplierName || '-'}</Text>
+                  <Text style={styles.itemMeta} numberOfLines={1}>Kod: {item.supplierCode || '-'}</Text>
+                </View>
+                <Text style={styles.itemStatus}>{statusLabel}</Text>
+              </View>
+              <View style={styles.priceGrid}>
+                <View style={styles.priceBox}>
+                  <Text style={styles.priceLabel}>Liste</Text>
+                  <Text style={styles.priceValue}>{formatCurrency(item.sourcePrice)}</Text>
+                </View>
+                <View style={styles.priceBox}>
+                  <Text style={styles.priceLabel}>Net</Text>
+                  <Text style={styles.priceValue}>{formatCurrency(item.netPrice)}</Text>
+                </View>
+                <View style={styles.priceBox}>
+                  <Text style={styles.priceLabel}>Fark</Text>
+                  <Text style={[styles.priceValue, getDifferenceStyle(item.percentDifference)]}>
+                    {item.percentDifference !== undefined ? `${Number(item.percentDifference).toFixed(2)}%` : '-'}
+                  </Text>
+                </View>
+              </View>
+              {item.productCode && <Text style={styles.itemMeta} numberOfLines={1}>B2B Kod: {item.productCode}</Text>}
+              {item.productName && <Text style={styles.itemMeta} numberOfLines={2}>B2B Urun: {item.productName}</Text>}
               {Array.isArray(item.matchedProductCodes) && item.matchedProductCodes.length > 0 && (
-                <Text style={styles.itemMeta}>Eslesenler: {item.matchedProductCodes.join(', ')}</Text>
+                <Text style={styles.itemMeta} numberOfLines={2}>Eslesenler: {item.matchedProductCodes.join(', ')}</Text>
               )}
             </View>
           )}
@@ -440,18 +504,57 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
+  listContentTablet: {
+    maxWidth: 1180,
+    alignSelf: 'center',
+    width: '100%',
+  },
   header: {
+    paddingVertical: spacing.xs,
     gap: spacing.md,
+  },
+  kicker: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFD7FF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
-    color: colors.textMuted,
+    color: '#DDE8FF',
+    lineHeight: 20,
+  },
+  heroStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroStat: {
+    flex: 1,
+    minWidth: 118,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: spacing.md,
+    gap: 3,
+  },
+  heroStatLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#C9D8F2',
+  },
+  heroStatValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xl,
+    color: '#FFFFFF',
   },
   card: {
     backgroundColor: colors.surface,
@@ -504,10 +607,12 @@ const styles = StyleSheet.create({
   },
   gridRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   gridInput: {
     flex: 1,
+    minWidth: 140,
   },
   actionRow: {
     flexDirection: 'row',
@@ -572,7 +677,7 @@ const styles = StyleSheet.create({
   },
   uploadCardActive: {
     borderColor: colors.primary,
-    backgroundColor: '#E8EEF8',
+    backgroundColor: colors.surfaceAlt,
   },
   uploadName: {
     fontFamily: fonts.semibold,
@@ -631,15 +736,73 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.xs,
   },
+  itemTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  itemTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
   itemTitle: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.sm,
     color: colors.text,
   },
+  itemStatus: {
+    overflow: 'hidden',
+    borderRadius: 999,
+    backgroundColor: colors.primaryMuted,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.primarySoft,
+  },
   itemMeta: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.xs,
     color: colors.textMuted,
+  },
+  priceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  priceBox: {
+    flex: 1,
+    minWidth: 110,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: 2,
+  },
+  priceLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  priceValue: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.text,
+  },
+  diffSuccess: {
+    color: colors.success,
+  },
+  diffWarning: {
+    color: colors.warning,
+  },
+  diffDanger: {
+    color: colors.danger,
+  },
+  diffNeutral: {
+    color: colors.text,
   },
   empty: {
     paddingVertical: spacing.xl,

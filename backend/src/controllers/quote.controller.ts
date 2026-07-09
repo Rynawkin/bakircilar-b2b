@@ -517,8 +517,26 @@ export class QuoteController {
    */
   async getCustomerQuotes(req: Request, res: Response, next: NextFunction) {
     try {
-      const quotes = await quoteService.getQuotesForCustomer(req.user!.userId);
-      res.json({ quotes });
+      const { status, search, page, pageSize } = req.query;
+      const result = await quoteService.getQuotesForCustomer(req.user!.userId, {
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined,
+        page: page !== undefined ? Number(page) : undefined,
+        pageSize: pageSize !== undefined ? Number(pageSize) : undefined,
+      });
+      if (Array.isArray(result)) {
+        res.json({ quotes: result });
+      } else {
+        res.json({
+          quotes: result.quotes,
+          pagination: {
+            total: result.total,
+            page: result.page,
+            pageSize: result.pageSize,
+            totalPages: Math.max(1, Math.ceil(result.total / result.pageSize)),
+          },
+        });
+      }
     } catch (error) {
       next(error);
     }

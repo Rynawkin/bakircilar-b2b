@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
@@ -27,10 +28,18 @@ type PriceType = 'INVOICED' | 'WHITE';
 
 type ProductDetailRoute = RouteProp<RootStackParamList, 'ProductDetail'>;
 
+const getApiErrorMessage = (err: any, fallback: string) => {
+  const candidate = err?.response?.data?.error || err?.response?.data?.message || err?.message;
+  if (typeof candidate === 'string') return candidate;
+  if (candidate && typeof candidate === 'object') return candidate.message || candidate.code || fallback;
+  return fallback;
+};
+
 export function ProductDetailScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<ProductDetailRoute>();
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
   const [product, setProduct] = useState<Product | null>(null);
   const [recommendations, setRecommendations] = useState<Product[]>([]);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
@@ -39,6 +48,12 @@ export function ProductDetailScreen() {
   const [quantity, setQuantity] = useState(1);
   const [priceType, setPriceType] = useState<PriceType>('INVOICED');
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [addingToCart, setAddingToCart] = useState(false);
+  const [addingRecommendationId, setAddingRecommendationId] = useState<string | null>(null);
+  const addingToCartRef = useRef(false);
+  const addingRecommendationIdRef = useRef<string | null>(null);
+  const isTablet = width >= 840;
+  const recommendationCardWidth = isTablet ? 220 : 185;
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -67,7 +82,7 @@ export function ProductDetailScreen() {
       setProduct(data);
       setActiveImageIndex(0);
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Urun bulunamadi.');
+      setError(getApiErrorMessage(err, 'Urun bulunamadi.'));
     } finally {
       setLoading(false);
     }
@@ -140,13 +155,15 @@ export function ProductDetailScreen() {
   };
 
   const addToCart = async () => {
-    if (!product) return;
+    if (!product || addingToCartRef.current) return;
     try {
       const maxQty = getMaxQuantity(product);
       if (maxQty <= 0) {
         Alert.alert('Stok Yetersiz', 'Bu urun stokta yok.');
         return;
       }
+      addingToCartRef.current = true;
+      setAddingToCart(true);
       await customerApi.addToCart({
         productId: product.id,
         quantity,
@@ -162,12 +179,23 @@ export function ProductDetailScreen() {
       });
       Alert.alert('Sepete Eklendi', `${product.name} sepete eklendi.`);
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Sepete eklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Sepete eklenemedi.'));
+    } finally {
+      addingToCartRef.current = false;
+      setAddingToCart(false);
     }
   };
 
   const addRecommendationToCart = async (item: Product) => {
+    if (addingRecommendationIdRef.current) return;
     try {
+      const maxQty = getMaxQuantity(item);
+      if (maxQty <= 0) {
+        Alert.alert('Stok Yetersiz', 'Bu urun stokta yok.');
+        return;
+      }
+      addingRecommendationIdRef.current = item.id;
+      setAddingRecommendationId(item.id);
       await customerApi.addToCart({
         productId: item.id,
         quantity: 1,
@@ -183,7 +211,10 @@ export function ProductDetailScreen() {
       });
       Alert.alert('Sepete Eklendi', `${item.name} sepete eklendi.`);
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'Sepete eklenemedi.');
+      Alert.alert('Hata', getApiErrorMessage(err, 'Sepete eklenemedi.'));
+    } finally {
+      addingRecommendationIdRef.current = null;
+      setAddingRecommendationId(null);
     }
   };
 
@@ -234,16 +265,33 @@ export function ProductDetailScreen() {
     .filter(Boolean)) as string[];
   const imageUrl = gallery[activeImageIndex] || gallery[0] || null;
   const description = product.description?.trim() || 'Aciklama bulunamadi.';
+  const listPrice = priceType === 'INVOICED' ? product.listPrices?.invoiced : product.listPrices?.white;
+  const activeRawPrice = selectedPrice;
+  const sourceLabel = product.isBundle
+    ? 'Paket fiyati'
+    : product.agreement
+      ? 'Musteri anlasmasi'
+      : isDiscounted
+        ? 'Fazla stok indirimi'
+        : 'Cari fiyat listeniz';
+  const hasListComparison = typeof listPrice === 'number' && listPrice > activeRawPrice;
+  const priceTrustRows = [
+    { label: 'Kaynak', value: sourceLabel },
+    { label: 'Fiyat tipi', value: priceType === 'INVOICED' ? 'Faturali' : 'Beyaz' },
+    { label: 'KDV gosterimi', value: getVatLabel(priceType, user?.vatDisplayPreference) },
+    { label: 'Stok kontrolu', value: `${displayStock} ${product.unit || 'adet'} siparise uygun` },
+  ];
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={[styles.container, isTablet && styles.containerTablet]}>
         <TouchableOpacity style={styles.backLink} onPress={() => navigation.goBack()}>
           <Text style={styles.backText}>Geri Don</Text>
         </TouchableOpacity>
 
-        <View style={styles.card}>
-          <View style={styles.imageWrap}>
+        <View style={[styles.card, isTablet && styles.cardTablet]}>
+          <View style={[styles.mediaColumn, isTablet && styles.mediaColumnTablet]}>
+          <View style={[styles.imageWrap, isTablet && styles.imageWrapTablet]}>
             {imageUrl ? (
               <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="contain" />
             ) : (
@@ -275,10 +323,29 @@ export function ProductDetailScreen() {
               ))}
             </ScrollView>
           )}
-          <Text style={styles.title}>{product.name}</Text>
-          <Text style={styles.meta}>Kod: {product.mikroCode}</Text>
-          {product.category?.name && <Text style={styles.meta}>Kategori: {product.category.name}</Text>}
-          {unitLabel && <Text style={styles.meta}>{unitLabel}</Text>}
+          </View>
+          <View style={styles.detailColumn}>
+          <View style={styles.productHero}>
+            <Text style={styles.kicker}>{sourceLabel}</Text>
+            <Text style={styles.heroTitle} numberOfLines={4} ellipsizeMode="tail">{product.name}</Text>
+            <Text style={styles.heroMeta} numberOfLines={1} ellipsizeMode="middle">Kod: {product.mikroCode}</Text>
+            {product.category?.name && <Text style={styles.heroMeta} numberOfLines={2} ellipsizeMode="tail">Kategori: {product.category.name}</Text>}
+            {unitLabel && <Text style={styles.heroMeta} numberOfLines={2} ellipsizeMode="tail">{unitLabel}</Text>}
+            <View style={styles.heroMetrics}>
+              <View style={styles.heroMetric}>
+                <Text style={styles.heroMetricLabel} numberOfLines={1}>Fiyat</Text>
+                <Text style={styles.heroMetricValue} numberOfLines={1}>{displayPrice.toFixed(2)} TL</Text>
+              </View>
+              <View style={styles.heroMetric}>
+                <Text style={styles.heroMetricLabel} numberOfLines={1}>{stockLabel}</Text>
+                <Text style={styles.heroMetricValue} numberOfLines={1}>{displayStock}</Text>
+              </View>
+              <View style={styles.heroMetric}>
+                <Text style={styles.heroMetricLabel} numberOfLines={1}>Maks.</Text>
+                <Text style={styles.heroMetricValue} numberOfLines={1}>{maxOrderQuantity}</Text>
+              </View>
+            </View>
+          </View>
           <View style={styles.infoBlock}>
             <Text style={styles.infoTitle}>Urun Aciklamasi</Text>
             <Text style={styles.infoText}>{description}</Text>
@@ -301,8 +368,8 @@ export function ProductDetailScreen() {
               {product.bundleContents.map((item, index) => (
                 <View key={`${item.mikroCode}-${index}`} style={styles.bundleLine}>
                   <View style={styles.bundleLineText}>
-                    <Text style={styles.bundleItemName}>{item.name}</Text>
-                    <Text style={styles.bundleItemCode}>{item.mikroCode}</Text>
+                    <Text style={styles.bundleItemName} numberOfLines={2} ellipsizeMode="tail">{item.name}</Text>
+                    <Text style={styles.bundleItemCode} numberOfLines={1} ellipsizeMode="middle">{item.mikroCode}</Text>
                   </View>
                   <Text style={styles.bundleQty}>
                     {item.quantity} {item.unit || 'adet'}
@@ -340,6 +407,32 @@ export function ProductDetailScreen() {
             <Text style={styles.priceValue}>{displayPrice.toFixed(2)} TL</Text>
           </View>
 
+          <View style={styles.trustBox}>
+            <Text style={styles.trustTitle}>Fiyat Guven Karti</Text>
+            {priceTrustRows.map((row) => (
+              <View key={row.label} style={styles.infoLine}>
+                <Text style={styles.infoLineLabel}>{row.label}</Text>
+                <Text style={styles.infoLineValue}>{row.value}</Text>
+              </View>
+            ))}
+            {hasListComparison && (
+              <View style={styles.savingLine}>
+                <Text style={styles.savingLabel}>Liste fiyatina gore avantaj</Text>
+                <Text style={styles.savingValue}>
+                  {getDisplayPrice(listPrice! - activeRawPrice, product.vatRate, priceType, user?.vatDisplayPreference).toFixed(2)} TL
+                </Text>
+              </View>
+            )}
+            {product.agreement && (
+              <Text style={styles.trustNote}>
+                Bu fiyat size tanimli anlasma kosullarindan gelir. Minimum miktar: {product.agreement.minQuantity}.
+              </Text>
+            )}
+            {isDiscounted && !product.agreement && (
+              <Text style={styles.trustNote}>Indirimli fiyat fazla stok miktariyla sinirlidir.</Text>
+            )}
+          </View>
+
           <View style={styles.counterRow}>
             <TouchableOpacity style={styles.counterButton} onPress={() => updateQuantity(-1)}>
               <Text style={styles.counterText}>-</Text>
@@ -356,9 +449,16 @@ export function ProductDetailScreen() {
             <Text style={styles.totalValue}>{displayTotal.toFixed(2)} TL</Text>
           </View>
 
-          <TouchableOpacity style={styles.primaryButton} onPress={addToCart}>
-            <Text style={styles.primaryButtonText}>Sepete Ekle</Text>
+          <TouchableOpacity
+            style={[styles.primaryButton, (addingToCart || maxOrderQuantity <= 0) && styles.buttonDisabled]}
+            disabled={addingToCart || maxOrderQuantity <= 0}
+            onPress={addToCart}
+          >
+            <Text style={styles.primaryButtonText}>
+              {addingToCart ? 'Ekleniyor...' : maxOrderQuantity <= 0 ? 'Stok Yok' : 'Sepete Ekle'}
+            </Text>
           </TouchableOpacity>
+          </View>
         </View>
 
         {recommendationsLoading ? (
@@ -372,7 +472,7 @@ export function ProductDetailScreen() {
               {recommendations.map((item) => (
                 <TouchableOpacity
                   key={item.id}
-                  style={styles.recommendationCard}
+                  style={[styles.recommendationCard, { width: recommendationCardWidth }]}
                   activeOpacity={0.9}
                   onPress={() => navigation.push('ProductDetail', { productId: item.id })}
                 >
@@ -391,35 +491,49 @@ export function ProductDetailScreen() {
                       </View>
                     )}
                   </View>
-                          <Text style={styles.recommendationName} numberOfLines={2}>
-                            {item.name}
-                          </Text>
-                          <Text style={styles.recommendationCode}>{item.mikroCode}</Text>
-                          {(() => {
-                            const recommendationPrice = priceType === 'INVOICED'
-                              ? item.prices.invoiced
-                              : item.prices.white;
-                            return (
-                              <Text style={styles.recommendationPrice}>
-                                {getDisplayPrice(
-                                  recommendationPrice,
-                                  item.vatRate,
-                                  priceType,
-                                  user?.vatDisplayPreference
-                                ).toFixed(2)} TL
-                              </Text>
-                            );
-                          })()}
-                          {item.recommendationNote && (
-                            <Text style={styles.recommendationNote} numberOfLines={2}>
-                              {item.recommendationNote}
-                            </Text>
-                  )}
+                  <View style={styles.recommendationContent}>
+                    <Text style={styles.recommendationName} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.recommendationCode} numberOfLines={1} ellipsizeMode="middle">{item.mikroCode}</Text>
+                    {(() => {
+                      const recommendationPrice = priceType === 'INVOICED'
+                        ? item.prices.invoiced
+                        : item.prices.white;
+                      return (
+                        <Text style={styles.recommendationPrice}>
+                          {getDisplayPrice(
+                            recommendationPrice,
+                            item.vatRate,
+                            priceType,
+                            user?.vatDisplayPreference
+                          ).toFixed(2)} TL
+                        </Text>
+                      );
+                    })()}
+                    {item.recommendationNote && (
+                      <Text style={styles.recommendationNote} numberOfLines={2}>
+                        {item.recommendationNote}
+                      </Text>
+                    )}
+                  </View>
                   <TouchableOpacity
-                    style={styles.recommendationButton}
+                    style={[
+                      styles.recommendationButton,
+                      (addingRecommendationId !== null || getMaxQuantity(item) <= 0) && styles.buttonDisabled,
+                    ]}
+                    disabled={addingRecommendationId !== null || getMaxQuantity(item) <= 0}
                     onPress={() => addRecommendationToCart(item)}
                   >
-                    <Text style={styles.recommendationButtonText}>Sepete Ekle</Text>
+                    <Text style={styles.recommendationButtonText}>
+                      {addingRecommendationId === item.id
+                        ? 'Ekleniyor...'
+                        : addingRecommendationId
+                          ? 'Bekleyin'
+                          : getMaxQuantity(item) <= 0
+                            ? 'Stok Yok'
+                            : 'Sepete Ekle'}
+                    </Text>
                   </TouchableOpacity>
                 </TouchableOpacity>
               ))}
@@ -439,6 +553,12 @@ const styles = StyleSheet.create({
   container: {
     padding: spacing.xl,
     gap: spacing.lg,
+  },
+  containerTablet: {
+    maxWidth: 1180,
+    alignSelf: 'center',
+    width: '100%',
+    paddingBottom: spacing.xxl,
   },
   loading: {
     flex: 1,
@@ -462,12 +582,87 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.sm,
   },
+  cardTablet: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: spacing.lg,
+  },
+  mediaColumn: {
+    gap: spacing.sm,
+  },
+  mediaColumnTablet: {
+    flex: 0.92,
+    minWidth: 320,
+  },
+  detailColumn: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.sm,
+  },
+  productHero: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: '#173D78',
+    shadowColor: '#071B3A',
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  kicker: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xl,
+    color: '#FFFFFF',
+    lineHeight: 29,
+  },
+  heroMeta: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.sm,
+    color: '#DCEAFE',
+  },
+  heroMetrics: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  heroMetric: {
+    flexGrow: 1,
+    minWidth: 92,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(221,232,255,0.18)',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  heroMetricLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: '#BFDBFE',
+  },
+  heroMetricValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: '#FFFFFF',
+  },
   imageWrap: {
     position: 'relative',
     height: 220,
     borderRadius: radius.md,
     overflow: 'hidden',
     backgroundColor: colors.surfaceAlt,
+  },
+  imageWrapTablet: {
+    height: 360,
   },
   image: {
     width: '100%',
@@ -558,6 +753,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   infoLineLabel: {
@@ -603,6 +799,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -636,6 +833,7 @@ const styles = StyleSheet.create({
   },
   segment: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
     padding: spacing.xs,
@@ -643,6 +841,7 @@ const styles = StyleSheet.create({
   },
   segmentButton: {
     flex: 1,
+    minWidth: 96,
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
     alignItems: 'center',
@@ -662,20 +861,66 @@ const styles = StyleSheet.create({
   },
   priceBlock: {
     alignItems: 'flex-start',
+    borderRadius: radius.lg,
+    backgroundColor: colors.primaryDark,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: '#1D4ED8',
   },
   priceLabel: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.sm,
-    color: colors.textMuted,
+    color: '#BFDBFE',
   },
   priceValue: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
+    color: '#FFFFFF',
+  },
+  trustBox: {
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    backgroundColor: '#EFF6FF',
+    gap: spacing.xs,
+  },
+  trustTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.md,
+    color: colors.primary,
+  },
+  trustNote: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+    lineHeight: 18,
+  },
+  savingLine: {
+    borderTopWidth: 1,
+    borderTopColor: '#BFDBFE',
+    paddingTop: spacing.xs,
+    marginTop: spacing.xs,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  savingLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
     color: colors.text,
+  },
+  savingValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xs,
+    color: '#15803D',
+    textAlign: 'right',
   },
   counterRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   counterButton: {
@@ -696,6 +941,7 @@ const styles = StyleSheet.create({
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
     marginTop: spacing.sm,
   },
   totalLabel: {
@@ -712,6 +958,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     alignItems: 'center',
     marginTop: spacing.sm,
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
   primaryButtonText: {
     fontFamily: fonts.semibold,
@@ -740,6 +989,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     padding: spacing.sm,
     gap: spacing.xs,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
   },
   recommendationImageWrap: {
     height: 100,
@@ -765,6 +1019,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: fontSizes.sm,
     color: colors.text,
+  },
+  recommendationContent: {
+    gap: 2,
+    minHeight: 84,
   },
   recommendationCode: {
     fontFamily: fonts.regular,

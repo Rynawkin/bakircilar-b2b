@@ -76,6 +76,33 @@ export interface Product {
 export interface Category {
   id: string;
   name: string;
+  mikroCode?: string | null;
+  imageUrl?: string | null;
+  count?: number;
+}
+
+export interface UnboughtCategory {
+  id: string;
+  name: string;
+  mikroCode?: string | null;
+  imageUrl?: string | null;
+  count?: number;
+}
+
+export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID';
+
+export interface Banner {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+  mobileImageUrl?: string | null;
+  linkUrl?: string | null;
+  productCode?: string | null;
+  buttonText?: string | null;
+  position: BannerPosition;
+  sortOrder?: number;
+  active?: boolean;
 }
 
 export interface CollectionCard {
@@ -136,6 +163,39 @@ export interface Cart {
   total: number;
 }
 
+export interface GiftCampaignGift {
+  id: string;
+  productId: string;
+  name: string;
+  mikroCode: string;
+  imageUrl?: string | null;
+  unit?: string | null;
+  value: number;
+  giftQuantity: number;
+  normalPrice: number;
+}
+
+export interface ActiveGiftCampaign {
+  active: boolean;
+  id?: string;
+  title?: string;
+  subtitle?: string | null;
+  bannerImageUrl?: string | null;
+  mobileBannerImageUrl?: string | null;
+  buttonText?: string | null;
+  threshold?: number;
+  thresholdPriceType?: 'white' | 'invoiced';
+  thresholdVatIncluded?: boolean;
+  qualifyingTotal?: number;
+  qualified?: boolean;
+  remaining?: number;
+  giftPickCount?: number;
+  gifts?: GiftCampaignGift[];
+  selectedGiftProductIds?: string[];
+  validFrom?: string | null;
+  validTo?: string | null;
+}
+
 export interface RecommendationGroup {
   baseProduct: {
     id: string;
@@ -173,11 +233,18 @@ export interface Quote {
 
 export interface Notification {
   id: string;
+  category?: string | null;
   title: string;
   body?: string | null;
   linkUrl?: string | null;
   isRead: boolean;
   createdAt: string;
+}
+
+export interface NotificationPreference {
+  key: string;
+  label: string;
+  enabled: boolean;
 }
 
 export interface Task {

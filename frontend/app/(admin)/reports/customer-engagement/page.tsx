@@ -260,6 +260,31 @@ function ScrollText({
   );
 }
 
+function CellScroll({
+  children,
+  maxHeight = 54,
+  style,
+}: {
+  children: React.ReactNode;
+  maxHeight?: number;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      style={{
+        maxHeight,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        scrollbarWidth: 'thin',
+        paddingRight: 2,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 const tableHeadCell: React.CSSProperties = {
   padding: '9px 12px',
   fontWeight: 600,
@@ -271,20 +296,20 @@ const tableHeadCell: React.CSSProperties = {
 };
 
 const tableCell: React.CSSProperties = {
-  padding: '7px 10px',
+  padding: '6px 10px',
   verticalAlign: 'top',
-  height: 76,
-  maxHeight: 76,
+  height: 68,
+  maxHeight: 68,
   overflow: 'hidden',
   boxSizing: 'border-box',
 };
 
 const compactTextCell: React.CSSProperties = {
-  padding: '7px 10px',
+  padding: '6px 10px',
   verticalAlign: 'top',
   lineHeight: 1.28,
-  height: 76,
-  maxHeight: 76,
+  height: 68,
+  maxHeight: 68,
   overflow: 'hidden',
   boxSizing: 'border-box',
 };
@@ -545,25 +570,32 @@ export default function Page() {
           table-layout: fixed;
         }
         .customer-engagement-table tbody tr {
-          height: 76px;
-          max-height: 76px;
+          height: 68px;
+          max-height: 68px;
         }
         .customer-engagement-table tbody td {
-          height: 76px;
-          max-height: 76px;
+          height: 68px;
+          max-height: 68px;
           overflow: hidden;
           vertical-align: top;
         }
         .customer-engagement-table tbody td > div,
         .customer-engagement-table tbody td > span {
-          max-height: 62px;
+          max-height: 54px;
           overflow-y: auto;
           overflow-x: hidden;
           scrollbar-width: thin;
         }
         .customer-engagement-table tbody td:last-child > div {
-          max-height: 42px;
-          overflow-y: visible;
+          max-height: 54px;
+          overflow-y: auto;
+        }
+        .customer-engagement-table .ce-cell-stack {
+          max-height: 54px;
+          overflow-y: auto;
+          overflow-x: hidden;
+          scrollbar-width: thin;
+          padding-right: 2px;
         }
       `}</style>
       {/* Baslik */}
@@ -747,7 +779,7 @@ export default function Page() {
 
       {/* Tablo */}
       <div style={{ ...cardStyle, marginTop: 14, overflow: 'hidden' }}>
-        <div style={{ overflow: 'auto', maxHeight: 'min(62vh, 720px)', minHeight: 360 }}>
+        <div style={{ overflow: 'auto', maxHeight: 'min(58vh, 620px)', minHeight: 340 }}>
           <table className="customer-engagement-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, minWidth: isAdmin ? 1730 : 1590, tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: 245 }} />
@@ -809,115 +841,127 @@ export default function Page() {
                 </tr>
               ) : (
                 rows.map((r) => (
-                  <tr key={r.customerCode} style={{ borderTop: `1px solid ${ROW_LINE}`, height: 76 }}>
+                  <tr key={r.customerCode} style={{ borderTop: `1px solid ${ROW_LINE}`, height: 68 }}>
                     {/* Cari */}
                     <td style={tableCell}>
-                      <ScrollText maxHeight={34} title={r.customerName} weight={700}>
-                        {r.customerName}
-                      </ScrollText>
-                      <ScrollText maxHeight={30} title={`${r.customerCode}${r.city ? ` - ${r.city}` : ''}${r.phone ? ` - ${r.phone}` : ''}`} color={FAINT} weight={500}>
-                        <span style={{ fontSize: 11.5 }}>
-                          {r.customerCode}
-                          {r.city ? ` · ${r.city}` : ''}
-                          {r.phone ? ` · ${r.phone}` : ''}
-                        </span>
-                      </ScrollText>
+                      <div className="ce-cell-stack">
+                        <ScrollText maxHeight={26} title={r.customerName} weight={700}>
+                          {r.customerName}
+                        </ScrollText>
+                        <ScrollText maxHeight={24} title={`${r.customerCode}${r.city ? ` - ${r.city}` : ''}${r.phone ? ` - ${r.phone}` : ''}`} color={FAINT} weight={500}>
+                          <span style={{ fontSize: 11.5 }}>
+                            {r.customerCode}
+                            {r.city ? ` · ${r.city}` : ''}
+                            {r.phone ? ` · ${r.phone}` : ''}
+                          </span>
+                        </ScrollText>
+                      </div>
                     </td>
 
                     {/* Durum */}
                     <td style={compactTextCell}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
-                        <StatusBadge status={r.status} />
-                        {!r.registered && (
-                          <span style={{ fontSize: 10.5, color: FAINT, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            B2B hesabı yok
-                            <Link href="/customers" style={{ color: PRIMARY, fontWeight: 600, textDecoration: 'underline' }}>
-                              Hesap aç
-                            </Link>
-                          </span>
-                        )}
-                      </div>
+                      <CellScroll>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                          <StatusBadge status={r.status} />
+                          {!r.registered && (
+                            <span style={{ fontSize: 10.5, color: FAINT, display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                              B2B hesabı yok
+                              <Link href="/customers" style={{ color: PRIMARY, fontWeight: 600, textDecoration: 'underline' }}>
+                                Hesap aç
+                              </Link>
+                            </span>
+                          )}
+                        </div>
+                      </CellScroll>
                     </td>
 
                     {/* Saglik */}
                     <td style={compactTextCell}>
-                      <div style={{ color: healthColor(r.healthScore), fontWeight: 800 }}>{r.healthScore ?? 0}/100</div>
-                      <div style={{ marginTop: 4, width: 72, height: 5, borderRadius: 999, background: '#eef1f6', overflow: 'hidden' }}>
-                        <div style={{ width: `${Math.max(0, Math.min(100, r.healthScore ?? 0))}%`, height: '100%', background: healthColor(r.healthScore) }} />
+                      <div className="ce-cell-stack">
+                        <div style={{ color: healthColor(r.healthScore), fontWeight: 800 }}>{r.healthScore ?? 0}/100</div>
+                        <div style={{ marginTop: 4, width: 72, height: 5, borderRadius: 999, background: '#eef1f6', overflow: 'hidden' }}>
+                          <div style={{ width: `${Math.max(0, Math.min(100, r.healthScore ?? 0))}%`, height: '100%', background: healthColor(r.healthScore) }} />
+                        </div>
                       </div>
                     </td>
 
                     {/* Oneri */}
                     <td style={tableCell}>
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          fontSize: 10.5,
-                          fontWeight: 700,
-                          background: PRIORITY_META[r.actionPriority]?.bg || '#eef1f6',
-                          color: PRIORITY_META[r.actionPriority]?.color || MUTED,
-                          border: `1px solid ${PRIORITY_META[r.actionPriority]?.border || LINE}`,
-                        }}
-                      >
-                        {PRIORITY_META[r.actionPriority]?.label || r.actionPriority || '-'}
-                      </span>
-                      <div style={{ marginTop: 4 }}>
-                        <ScrollText maxHeight={28} title={r.suggestedAction || '-'} weight={600}>
-                          <span style={{ fontSize: 11.5 }}>{r.suggestedAction || '-'}</span>
-                        </ScrollText>
-                      </div>
-                      {r.actionReason ? (
-                        <div style={{ marginTop: 2 }}>
-                          <ScrollText maxHeight={28} title={r.actionReason} color={FAINT} weight={500}>
-                            <span style={{ fontSize: 10.5 }}>{r.actionReason}</span>
-                          </ScrollText>
-                        </div>
-                      ) : null}
-                    </td>
-
-                    {/* Kayit */}
-                    <td style={compactTextCell}>
-                      {r.registered ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: EMERALD, fontWeight: 600, fontSize: 11.5 }}>
-                          <CheckCircle2 width={13} height={13} strokeWidth={2.2} />
-                          Kayıtlı
-                        </span>
-                      ) : (
+                      <CellScroll>
                         <span
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: 4,
-                            color: AMBER,
-                            fontWeight: 600,
-                            fontSize: 11.5,
-                            background: '#fffbeb',
-                            border: '1px solid #fde68a',
-                            borderRadius: 6,
-                            padding: '1px 6px',
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            background: PRIORITY_META[r.actionPriority]?.bg || '#eef1f6',
+                            color: PRIORITY_META[r.actionPriority]?.color || MUTED,
+                            border: `1px solid ${PRIORITY_META[r.actionPriority]?.border || LINE}`,
                           }}
                         >
-                          <AlertTriangle width={12} height={12} strokeWidth={2.2} />
-                          Kayıtsız
+                          {PRIORITY_META[r.actionPriority]?.label || r.actionPriority || '-'}
                         </span>
-                      )}
+                        <div style={{ marginTop: 4 }}>
+                          <ScrollText maxHeight={28} title={r.suggestedAction || '-'} weight={600}>
+                            <span style={{ fontSize: 11.5 }}>{r.suggestedAction || '-'}</span>
+                          </ScrollText>
+                        </div>
+                        {r.actionReason ? (
+                          <div style={{ marginTop: 2 }}>
+                            <ScrollText maxHeight={28} title={r.actionReason} color={FAINT} weight={500}>
+                              <span style={{ fontSize: 10.5 }}>{r.actionReason}</span>
+                            </ScrollText>
+                          </div>
+                        ) : null}
+                      </CellScroll>
+                    </td>
+
+                    {/* Kayit */}
+                    <td style={compactTextCell}>
+                      <div className="ce-cell-stack">
+                        {r.registered ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: EMERALD, fontWeight: 600, fontSize: 11.5 }}>
+                            <CheckCircle2 width={13} height={13} strokeWidth={2.2} />
+                            Kayıtlı
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              color: AMBER,
+                              fontWeight: 600,
+                              fontSize: 11.5,
+                              background: '#fffbeb',
+                              border: '1px solid #fde68a',
+                              borderRadius: 6,
+                              padding: '1px 6px',
+                            }}
+                          >
+                            <AlertTriangle width={12} height={12} strokeWidth={2.2} />
+                            Kayıtsız
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Son giris */}
                     <td style={compactTextCell}>
-                      {r.lastLoginAt ? (
-                        <div>
-                          <div style={{ color: INK }}>{safeDate(r.lastLoginAt)}</div>
-                          {r.daysSinceLastLogin !== null && (
-                            <div style={{ fontSize: 11, color: FAINT }}>{daysAgoLabel(r.daysSinceLastLogin)}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <span style={{ color: FAINT }}>Hiç</span>
-                      )}
+                      <div className="ce-cell-stack">
+                        {r.lastLoginAt ? (
+                          <div>
+                            <div style={{ color: INK }}>{safeDate(r.lastLoginAt)}</div>
+                            {r.daysSinceLastLogin !== null && (
+                              <div style={{ fontSize: 11, color: FAINT }}>{daysAgoLabel(r.daysSinceLastLogin)}</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color: FAINT }}>Hiç</span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Siklik */}
@@ -927,16 +971,18 @@ export default function Page() {
 
                     {/* Siparis */}
                     <td style={compactTextCell}>
-                      {r.orderCount > 0 ? (
-                        <div>
-                          <div style={{ color: INK, fontWeight: 600 }}>
-                            {r.orderCount} adet · {formatCurrency(r.orderTotal)}
+                      <div className="ce-cell-stack">
+                        {r.orderCount > 0 ? (
+                          <div>
+                            <div style={{ color: INK, fontWeight: 600 }}>
+                              {r.orderCount} adet · {formatCurrency(r.orderTotal)}
+                            </div>
+                            <div style={{ fontSize: 11, color: FAINT }}>ort {formatCurrency(r.orderAvg)}</div>
                           </div>
-                          <div style={{ fontSize: 11, color: FAINT }}>ort {formatCurrency(r.orderAvg)}</div>
-                        </div>
-                      ) : (
-                        <span style={{ color: FAINT }}>-</span>
-                      )}
+                        ) : (
+                          <span style={{ color: FAINT }}>-</span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Son siparis */}
@@ -958,35 +1004,37 @@ export default function Page() {
 
                     {/* Son hatirlatma */}
                     <td style={tableCell}>
-                      {r.lastContactAt ? (
-                        <ScrollText
-                          maxHeight={42}
-                          title={`${safeDate(r.lastContactAt)}${r.lastContactByName ? ` (${r.lastContactByName})` : ''}`}
-                          color={EMERALD}
-                          weight={600}
-                        >
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              background: '#ecfdf5',
-                              border: '1px solid #a7f3d0',
-                              padding: '2px 8px',
-                              borderRadius: 6,
-                              fontSize: 11,
-                            }}
+                      <CellScroll>
+                        {r.lastContactAt ? (
+                          <ScrollText
+                            maxHeight={42}
+                            title={`${safeDate(r.lastContactAt)}${r.lastContactByName ? ` (${r.lastContactByName})` : ''}`}
+                            color={EMERALD}
+                            weight={600}
                           >
-                            {safeDate(r.lastContactAt)}
-                            {r.lastContactByName ? ` (${r.lastContactByName})` : ''}
-                          </span>
-                        </ScrollText>
-                      ) : (
-                        <span style={{ color: FAINT, fontSize: 11.5 }}>Henüz yok</span>
-                      )}
-                      {r.hasNotes && (
-                        <div style={{ marginTop: 3, fontSize: 10.5, color: PRIMARY, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                          <MessageSquarePlus width={11} height={11} strokeWidth={2} /> not var
-                        </div>
-                      )}
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                background: '#ecfdf5',
+                                border: '1px solid #a7f3d0',
+                                padding: '2px 8px',
+                                borderRadius: 6,
+                                fontSize: 11,
+                              }}
+                            >
+                              {safeDate(r.lastContactAt)}
+                              {r.lastContactByName ? ` (${r.lastContactByName})` : ''}
+                            </span>
+                          </ScrollText>
+                        ) : (
+                          <span style={{ color: FAINT, fontSize: 11.5 }}>Henüz yok</span>
+                        )}
+                        {r.hasNotes && (
+                          <div style={{ marginTop: 3, fontSize: 10.5, color: PRIMARY, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <MessageSquarePlus width={11} height={11} strokeWidth={2} /> not var
+                          </div>
+                        )}
+                      </CellScroll>
                     </td>
 
                     {/* Aksiyon */}

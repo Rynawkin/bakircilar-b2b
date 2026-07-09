@@ -23,21 +23,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [bootstrapping, setBootstrapping] = useState(true);
 
   const bootstrap = async () => {
-    const token = await getAuthToken();
-    const cachedUser = await getAuthUser();
+    try {
+      const token = await getAuthToken();
+      const cachedUser = await getAuthUser();
 
-    if (token && cachedUser) {
-      setUser(cachedUser);
-      try {
+      if (token && cachedUser) {
+        setUser(cachedUser);
         const me = await getMe();
         setUser(me);
         await saveAuth(token, me);
-      } catch {
-        await clearAuth();
-        setUser(null);
       }
+    } catch {
+      await clearAuth().catch(() => undefined);
+      setUser(null);
+    } finally {
+      setBootstrapping(false);
     }
-    setBootstrapping(false);
   };
 
   useEffect(() => {
