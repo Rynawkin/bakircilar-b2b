@@ -18,6 +18,8 @@ $apps = @(
     Source = Join-Path $mobileRoot "portal"
     Link = "C:\b2bp"
     OutputName = "portal-debug.apk"
+    ExpectedPackage = "com.bakircilar.portal"
+    ExpectedRoleMessage = "Bu uygulama personel hesaplari icindir."
   },
   @{
     Key = "b2b"
@@ -25,8 +27,27 @@ $apps = @(
     Source = Join-Path $mobileRoot "b2b"
     Link = "C:\b2bb"
     OutputName = "b2b-debug.apk"
+    ExpectedPackage = "com.bakircilar.b2b"
+    ExpectedRoleMessage = "Bu uygulama musteri hesaplari icindir."
   }
 )
+
+function Assert-AppIdentity {
+  param([hashtable]$Config)
+
+  $appJsonPath = Join-Path $Config.Source "app.json"
+  $roleScreenPath = Join-Path $Config.Source "src\screens\RoleMismatchScreen.tsx"
+  $appJson = Get-Content -Raw -LiteralPath $appJsonPath | ConvertFrom-Json
+  $actualPackage = [string]$appJson.expo.android.package
+  $roleScreen = Get-Content -Raw -LiteralPath $roleScreenPath
+
+  if ($actualPackage -ne $Config.ExpectedPackage) {
+    throw "$($Config.Label) paket kimligi yanlis: $actualPackage (beklenen: $($Config.ExpectedPackage))"
+  }
+  if (-not $roleScreen.Contains($Config.ExpectedRoleMessage)) {
+    throw "$($Config.Label) rol ekrani kimligi dogrulanamadi. Yanlis uygulama bundle'i paketleniyor olabilir."
+  }
+}
 
 function Ensure-Junction {
   param(
@@ -54,6 +75,7 @@ function Build-App {
 
   Write-Host ""
   Write-Host "==> $($Config.Label) Android debug build" -ForegroundColor Cyan
+  Assert-AppIdentity -Config $Config
   Ensure-Junction -Link $Config.Link -Target $Config.Source
 
   Push-Location $Config.Link

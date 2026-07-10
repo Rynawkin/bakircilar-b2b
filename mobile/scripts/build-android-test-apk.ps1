@@ -18,6 +18,8 @@ $apps = @(
     Source = Join-Path $mobileRoot "portal"
     Stage = "C:\b2bapk\portal"
     OutputName = "portal-test.apk"
+    ExpectedPackage = "com.bakircilar.portal"
+    ExpectedRoleMessage = "Bu uygulama personel hesaplari icindir."
   },
   @{
     Key = "b2b"
@@ -25,8 +27,30 @@ $apps = @(
     Source = Join-Path $mobileRoot "b2b"
     Stage = "C:\b2bapk\b2b"
     OutputName = "b2b-test.apk"
+    ExpectedPackage = "com.bakircilar.b2b"
+    ExpectedRoleMessage = "Bu uygulama musteri hesaplari icindir."
   }
 )
+
+function Assert-AppIdentity {
+  param(
+    [hashtable]$Config,
+    [string]$Root
+  )
+
+  $appJsonPath = Join-Path $Root "app.json"
+  $roleScreenPath = Join-Path $Root "src\screens\RoleMismatchScreen.tsx"
+  $appJson = Get-Content -Raw -LiteralPath $appJsonPath | ConvertFrom-Json
+  $actualPackage = [string]$appJson.expo.android.package
+  $roleScreen = Get-Content -Raw -LiteralPath $roleScreenPath
+
+  if ($actualPackage -ne $Config.ExpectedPackage) {
+    throw "$($Config.Label) paket kimligi yanlis: $actualPackage (beklenen: $($Config.ExpectedPackage))"
+  }
+  if (-not $roleScreen.Contains($Config.ExpectedRoleMessage)) {
+    throw "$($Config.Label) rol ekrani kimligi dogrulanamadi. Yanlis uygulama bundle'i paketleniyor olabilir."
+  }
+}
 
 function Sync-Staging {
   param([hashtable]$Config)
@@ -55,6 +79,8 @@ function Sync-Staging {
   if ($LASTEXITCODE -ge 8) {
     throw "$($Config.Label) staging sync basarisiz oldu. Robocopy exit code: $LASTEXITCODE"
   }
+
+  Assert-AppIdentity -Config $Config -Root $Config.Stage
 }
 
 function Build-App {
@@ -66,6 +92,7 @@ function Build-App {
 
   Write-Host ""
   Write-Host "==> $($Config.Label) Android standalone test APK" -ForegroundColor Cyan
+  Assert-AppIdentity -Config $Config -Root $Config.Source
   Sync-Staging -Config $Config
 
   Push-Location $Config.Stage

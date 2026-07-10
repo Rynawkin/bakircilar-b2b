@@ -1,8 +1,19 @@
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 
 export function RoleMismatchScreen({ onSignOut }: { onSignOut: () => void }) {
+  const openStaffPortal = async () => {
+    try {
+      await Linking.openURL('bakircilar-portal://');
+    } catch {
+      Alert.alert(
+        'Bakircilar Portal bulunamadi',
+        'Personel uygulamasini yukleyin veya ana ekrandaki Bakircilar Portal uygulamasini acin.'
+      );
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -16,8 +27,11 @@ export function RoleMismatchScreen({ onSignOut }: { onSignOut: () => void }) {
             <Text style={styles.infoLabel}>Ne yapmaliyim?</Text>
             <Text style={styles.infoText}>Bu oturumu kapatip dogru uygulamadan tekrar giris yapin.</Text>
           </View>
-          <TouchableOpacity style={styles.button} onPress={onSignOut}>
-            <Text style={styles.buttonText}>Cikis Yap</Text>
+          <TouchableOpacity style={styles.button} onPress={openStaffPortal}>
+            <Text style={styles.buttonText}>Bakircilar Portal'i Ac</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={onSignOut}>
+            <Text style={styles.secondaryButtonText}>Bu Oturumu Kapat</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -100,5 +114,17 @@ const styles = StyleSheet.create({
   buttonText: {
     fontFamily: fonts.semibold,
     color: colors.primary,
+  },
+  secondaryButton: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    fontFamily: fonts.semibold,
+    color: '#FFFFFF',
   },
 });
