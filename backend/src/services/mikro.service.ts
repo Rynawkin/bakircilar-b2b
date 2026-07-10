@@ -1512,6 +1512,43 @@ class MikroService {
     return release;
   }
 
+  /**
+   * Siparis yazimlarini dashboard/rapor sorgularinin kullandigi genel havuzdan ayirir.
+   * Genel havuz bir timeout sonrasi resetlenirse devam eden siparis transaction'i
+   * `this.pool = null` yarisi nedeniyle kirilmaz. Process-ici order lock sayesinde
+   * ayni anda en fazla bir izole yazim havuzu acilir.
+   */
+  public createIsolatedOrderWritePool(): sql.ConnectionPool {
+    const pool = new sql.ConnectionPool({
+      ...config.mikro,
+      requestTimeout: Math.min(config.mikro.requestTimeout, 45_000),
+      pool: {
+        max: 1,
+        min: 0,
+        idleTimeoutMillis: 10_000,
+      },
+    });
+    pool.on('error', (error) => {
+      console.error('WARN: Izole Mikro siparis yazim havuzu hatasi:', error);
+    });
+    return pool;
+  }
+
+  public async setSiparislerTriggerEnabled(
+    pool: sql.ConnectionPool,
+    enabled: boolean
+  ): Promise<void> {
+    const request = pool.request();
+    // Trigger DDL'i kilit beklerse tum siparis kuyrugunu 120 sn bloke etmesin.
+    // node-mssql timeout'u connection seviyesinden aldigi icin SQL LOCK_TIMEOUT
+    // kullanilir; izole havuz kapandiginda session ayari da ortadan kalkar.
+    await request.query(`
+      SET LOCK_TIMEOUT 15000;
+      ${enabled ? 'ENABLE' : 'DISABLE'} TRIGGER mye_SIPARISLER_Trigger ON SIPARISLER;
+      SET LOCK_TIMEOUT -1;
+    `);
+  }
+
   async writeOrder(orderData: {
     cariCode: string;
     items: Array<{
@@ -1537,6 +1574,10 @@ class MikroService {
     buyerCode?: string;
   }): Promise<string> {
     await this.connect();
+    const preflightPool = this.pool;
+    if (!preflightPool?.connected) {
+      throw new Error('Mikro ERP siparis on kontrol baglantisi hazir degil');
+    }
 
     const {
       cariCode,
@@ -1594,7 +1635,7 @@ class MikroService {
     let sipFileId: number | null = null;
 
     try {
-      const fileResult = await this.pool!
+      const fileResult = await preflightPool
         .request()
         .input('seri', sql.NVarChar(20), evrakSeri)
         .query(`
@@ -1616,7 +1657,7 @@ class MikroService {
 
     try {
       if (!resolvedPlanNo) {
-        const cariPlanResult = await this.pool!
+        const cariPlanResult = await preflightPool
           .request()
           .input('cariKod', sql.NVarChar(25), cariCode)
           .query(`
@@ -1645,21 +1686,42 @@ class MikroService {
     // 3.2: Trigger devre-disi kritik bolumunu serilestir (es zamanli siparis yazimini onle)
     const releaseOrderLock = await this.#acquireOrderWriteLock();
 
-    // SIPARISLER_OZET trigger'ını geçici olarak devre dışı bırak
-    // Bu trigger duplicate key hatası veriyor ve transaction'ı uncommittable yapıyor
+    // Kritik yazim adimi kendi tek baglantili havuzunda calisir. Genel Mikro
+    // havuzunun rapor timeout'u nedeniyle resetlenmesi bu transaction'i etkilemez.
+    const writePool = this.createIsolatedOrderWritePool();
     try {
-      await this.pool!.request().query('DISABLE TRIGGER mye_SIPARISLER_Trigger ON SIPARISLER');
+      await writePool.connect();
+      await this.setSiparislerTriggerEnabled(writePool, false);
       console.log('✓ SIPARISLER trigger devre dışı bırakıldı');
-    } catch (err) {
-      console.log('⚠️ Trigger devre dışı bırakılamadı:', err);
+    } catch (error: any) {
+      // DISABLE timeout'u sunucuda gec tamamlanmis olabilir. Henuz siparis satiri
+      // yazilmadan once ENABLE'i best-effort calistirip kilidi mutlaka birak.
+      if (writePool.connected) {
+        try {
+          await this.setSiparislerTriggerEnabled(writePool, true);
+        } catch (enableError) {
+          console.error('KRITIK: Siparis yazim hazirligi sonrasi trigger teyit edilemedi:', enableError);
+        }
+      }
+      try {
+        await writePool.close();
+      } catch {
+        // ignore secondary close failure
+      }
+      releaseOrderLock();
+      throw new Error(
+        `Mikro siparis yazim oturumu hazirlanamadi: ${String(error?.message || error)}`
+      );
     }
 
     // Transaction başlat
-    const transaction = this.pool!.transaction();
+    const transaction = writePool.transaction();
+    let transactionStarted = false;
 
     try {
       console.log('🔧 Transaction başlatılıyor...');
       await transaction.begin();
+      transactionStarted = true;
       console.log('✓ Transaction başlatıldı');
 
       // 1. Yeni evrak sıra numarası al (bu seri için)
@@ -2249,7 +2311,13 @@ class MikroService {
       return orderNumber;
     } catch (error) {
       // Transaction rollback
-      await transaction.rollback();
+      if (transactionStarted) {
+        try {
+          await transaction.rollback();
+        } catch (rollbackError) {
+          console.error('WARN: Siparis transaction rollback tamamlanamadi:', rollbackError);
+        }
+      }
 
       // Detaylı hata logu
       console.error('❌ Sipariş yazma hatası - DETAYLI:');
@@ -2267,10 +2335,31 @@ class MikroService {
     } finally {
       // Trigger'ı tekrar enable et (başarılı veya başarısız fark etmez)
       try {
-        await this.pool!.request().query('ENABLE TRIGGER mye_SIPARISLER_Trigger ON SIPARISLER');
+        await this.setSiparislerTriggerEnabled(writePool, true);
         console.log('✓ SIPARISLER trigger tekrar etkinleştirildi');
       } catch (err) {
         console.error('⚠️ Trigger tekrar etkinleştirilemedi:', err);
+        // Ilk oturum timeout/connection hatasi aldiysa yeni ve izole bir
+        // baglantiyla tek kurtarma denemesi yap.
+        const recoveryPool = this.createIsolatedOrderWritePool();
+        try {
+          await recoveryPool.connect();
+          await this.setSiparislerTriggerEnabled(recoveryPool, true);
+          console.log('✓ SIPARISLER trigger kurtarma baglantisiyla etkinleştirildi');
+        } catch (recoveryError) {
+          console.error('KRITIK: SIPARISLER trigger kurtarma denemesi basarisiz:', recoveryError);
+        } finally {
+          try {
+            await recoveryPool.close();
+          } catch {
+            // ignore secondary close failure
+          }
+        }
+      }
+      try {
+        await writePool.close();
+      } catch (closeError) {
+        console.warn('WARN: Izole siparis yazim havuzu kapatilamadi:', closeError);
       }
       // 3.2: Sirali siparis yazimi kilidini birak
       releaseOrderLock();
