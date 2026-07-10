@@ -920,6 +920,7 @@ model Product {
   hotSaleItems            HotSaleTransactionItem[]
   stockAlerts             ProductStockAlert[]
   images                  ProductImage[]
+  salesCatalogItems       SalesCatalogItem[]
 
   // ===== Paket (bundle) alanlari =====
   // Paket = isBundle=true olan gercek Product satiri. mikroCode sentetiktir (B2B-PKT-*),
@@ -3128,6 +3129,95 @@ model Collection {
   updatedAt         DateTime             @updatedAt
 
   @@index([active, sortOrder])
+}
+
+// ==================== CANLI SATIS KATALOGLARI ====================
+// Public linkte yalniz hesaplanmis satis fiyati yayinlanir. Maliyet ve fiyat
+// formulu sadece admin endpointlerinde kalir; Mikro'ya bu modulden yazma yoktur.
+model SalesCatalog {
+  id                       String   @id @default(uuid())
+  name                     String
+  title                    String
+  subtitle                 String?
+  coverImageUrl            String?
+  accentColor              String   @default("#15356b")
+  shareToken               String   @unique
+  status                   String   @default("DRAFT") // DRAFT | PUBLISHED | ARCHIVED
+
+  priceBasis               String   @default("CURRENT_COST") // CURRENT_COST | LAST_ENTRY | MAX_COST | BETWEEN_COSTS | PRICE_LIST
+  adjustmentType           String   @default("MARKUP") // MARKUP | GROSS_MARGIN | LOSS | NONE
+  adjustmentValue          Float    @default(0)
+  betweenPercent           Float    @default(50)
+  priceListNo              Int?
+  vatMode                  String   @default("EXCLUDED") // EXCLUDED | INCLUDED
+  roundingMode             String   @default("NEAREST_1") // NONE | NEAREST_0_50 | NEAREST_1 | NEAREST_5 | END_90 | END_99
+  minimumPriceGuardType    String   @default("NONE") // NONE | CURRENT_COST | MAX_COST
+  minimumPriceGuardPercent Float    @default(0)
+
+  excludeStaleCosts        Boolean  @default(false)
+  minCurrentCostDate       DateTime?
+  hideOutOfStock           Boolean  @default(false)
+  hideMissingImage         Boolean  @default(false)
+  showStockStatus          Boolean  @default(true)
+  showProductCode          Boolean  @default(true)
+  showUnit                 Boolean  @default(true)
+
+  validFrom                DateTime?
+  validTo                  DateTime?
+  publishedAt              DateTime?
+  revision                 Int      @default(1)
+  viewCount                Int      @default(0)
+  pdfDownloadCount         Int      @default(0)
+  lastViewedAt             DateTime?
+
+  createdById              String?
+  createdByName            String?
+  updatedById              String?
+  updatedByName            String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  sections                 SalesCatalogSection[]
+  items                    SalesCatalogItem[]
+
+  @@index([status, updatedAt])
+  @@index([validFrom, validTo])
+  @@index([createdById, createdAt])
+}
+
+model SalesCatalogSection {
+  id           String       @id @default(uuid())
+  catalogId    String
+  catalog      SalesCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  title        String
+  categoryId   String?
+  categoryName String?
+  sortOrder    Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  items        SalesCatalogItem[]
+
+  @@index([catalogId, sortOrder])
+  @@index([categoryId])
+}
+
+model SalesCatalogItem {
+  id         String               @id @default(uuid())
+  catalogId  String
+  catalog    SalesCatalog         @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  sectionId  String?
+  section    SalesCatalogSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  productId  String
+  product    Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sortOrder  Int                  @default(0)
+  fixedPrice Float?
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  @@unique([catalogId, productId])
+  @@index([catalogId, sectionId, sortOrder])
+  @@index([productId])
 }
 
 

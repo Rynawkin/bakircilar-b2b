@@ -30,6 +30,7 @@ import {
 import bannerController from '../controllers/banner.controller';
 import giftCampaignController from '../controllers/gift-campaign.controller';
 import collectionController from '../controllers/collection.controller';
+import salesCatalogController from '../controllers/sales-catalog.controller';
 import { trackStaffApiActivity } from '../middleware/staff-activity.middleware';
 import { invalidateCacheMiddleware } from '../middleware/cache.middleware';
 import { validateBody } from '../middleware/validation.middleware';
@@ -847,5 +848,14 @@ router.get('/collections/:id', requireAdmin, collectionController.getOneAdmin);
 router.post('/collections', requireAdmin, invalidateCacheMiddleware(['collections:*']), collectionController.create);
 router.put('/collections/:id', requireAdmin, invalidateCacheMiddleware(['collections:*']), collectionController.update);
 router.delete('/collections/:id', requireAdmin, invalidateCacheMiddleware(['collections:*']), collectionController.remove);
+
+// Canli satis katalogu: B2B DB + public token gorunumu, Mikro yazimi yok.
+router.get('/sales-catalogs', requirePermission('admin:campaigns'), salesCatalogController.listAdmin);
+router.get('/sales-catalogs/:id', requirePermission('admin:campaigns'), salesCatalogController.getAdmin);
+router.get('/sales-catalogs/:id/preview', requirePermission('admin:campaigns'), salesCatalogController.preview);
+router.post('/sales-catalogs', requirePermission('admin:campaigns'), salesCatalogController.create);
+router.put('/sales-catalogs/:id', requirePermission('admin:campaigns'), salesCatalogController.update);
+router.post('/sales-catalogs/:id/rotate-token', requirePermission('admin:campaigns'), salesCatalogController.rotateToken);
+router.delete('/sales-catalogs/:id', requirePermission('admin:campaigns'), salesCatalogController.remove);
 
 export default router;

@@ -17,6 +17,7 @@ import rolePermissionRoutes from './role-permission.routes';
 import vadeRoutes from './vade.routes';
 import integrationRoutes from './integration.routes';
 import aiAssistantRoutes from './ai-assistant.routes';
+import salesCatalogRoutes from './sales-catalog.routes';
 
 const router = Router();
 
@@ -31,6 +32,7 @@ router.get('/health', (_req, res) => {
 
 // Routes
 router.use('/auth', authRoutes);
+router.use('/sales-catalogs', salesCatalogRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin/reports', reportsRoutes);
 router.use('/admin/vade', vadeRoutes);
