@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { adminApi } from '@/lib/api/admin';
+import { getPriceListVerificationError } from '@/lib/utils/costPriceUpdate';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import { formatDateShort } from '@/lib/utils/format';
 import toast from 'react-hot-toast';
@@ -495,30 +496,28 @@ export function useMaliyetGuncellemeUyarilari() {
 
     setUpdatingCostByCode((prev) => ({ ...prev, [code]: true }));
     try {
+      const updatePriceLists = Boolean(updatePriceListsByCode[code]);
       const result = await adminApi.updateUcarerProductCost({
         productCode: code,
         costP: parsedCostP,
         costT: parsedCostT,
-        updatePriceLists: Boolean(updatePriceListsByCode[code]),
+        updatePriceLists,
       });
+      const verificationError = getPriceListVerificationError(result.data, updatePriceLists);
+      if (verificationError) throw new Error(verificationError);
       const newCostP = Number(result.data?.costP || parsedCostP);
       const newCostT = Number(result.data?.costT || parsedCostT);
       const newCost = Number(result.data?.currentCost || newCostP);
       setCurrentCostByCode((prev) => ({ ...prev, [code]: newCost }));
       setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
       setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
-      const missing = result.data?.missingLists || [];
-      if (Boolean(updatePriceListsByCode[code])) {
-        if (missing.length > 0) {
-          toast.success(`Maliyet guncellendi. Eksik liste satiri: ${missing.join(', ')}`);
-        } else {
-          toast.success('Maliyet ve 10 fiyat listesi guncellendi.');
-        }
+      if (updatePriceLists) {
+        toast.success('Maliyet ve 10 fiyat listesi dogrulanarak guncellendi.');
       } else {
         toast.success('Guncel maliyet guncellendi.');
       }
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
+      toast.error(error?.response?.data?.error || error?.message || 'Maliyet guncellenemedi');
     } finally {
       setUpdatingCostByCode((prev) => ({ ...prev, [code]: false }));
     }

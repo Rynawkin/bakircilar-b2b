@@ -36,6 +36,7 @@ import {
   VadeManagement,
   EInvoiceDocument,
   PriceRuleBrandTemplate,
+  PriceMarginConsistencyReport,
 } from '@/types';
 
 type SupplierPriceListOverrides = {
@@ -3116,6 +3117,30 @@ export const adminApi = {
     return response.data;
   },
 
+  getPriceMarginConsistencyReport: async (params: {
+    search?: string;
+    issueType?: string;
+    category?: string;
+    brand?: string;
+    supplier?: string;
+    listNo?: number;
+    minDifferenceAmount?: number;
+    minDifferencePercent?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    page?: number;
+    limit?: number;
+    refresh?: boolean;
+  } = {}): Promise<{ success: boolean; data: PriceMarginConsistencyReport }> => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      query.set(key, typeof value === 'boolean' ? (value ? '1' : '0') : String(value));
+    });
+    const response = await apiClient.get(`/admin/reports/price-margin-consistency?${query.toString()}`);
+    return response.data;
+  },
+
   getTopProducts: async (params?: {
     startDate?: string;
     endDate?: string;
@@ -4569,8 +4594,16 @@ export const adminApi = {
       costP: number;
       costT: number;
       priceListsUpdated: boolean;
-      updatedLists: Array<{ listNo: number; value: number; affected: number }>;
+      updatedLists: Array<{
+        listNo: number;
+        value: number;
+        actualValue: number;
+        affected: number;
+        verified: boolean;
+      }>;
       missingLists: number[];
+      verificationStatus: 'NOT_REQUESTED' | 'VERIFIED';
+      verifiedListCount: number;
     };
   }> => {
     const response = await apiClient.post('/admin/reports/price-family-costs/update-cost', payload);
@@ -4645,8 +4678,16 @@ export const adminApi = {
       costP: number;
       costT: number;
       priceListsUpdated: boolean;
-      updatedLists: Array<{ listNo: number; value: number; affected: number }>;
+      updatedLists: Array<{
+        listNo: number;
+        value: number;
+        actualValue: number;
+        affected: number;
+        verified: boolean;
+      }>;
       missingLists: number[];
+      verificationStatus: 'NOT_REQUESTED' | 'VERIFIED';
+      verifiedListCount: number;
     };
   }> => {
     const response = await apiClient.post('/admin/reports/ucarer-depo/update-cost', payload);

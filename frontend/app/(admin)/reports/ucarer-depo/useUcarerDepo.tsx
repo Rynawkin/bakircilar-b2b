@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { adminApi } from '@/lib/api/admin';
 import { apiClient } from '@/lib/api/client';
+import { getPriceListVerificationError } from '@/lib/utils/costPriceUpdate';
 import toast from 'react-hot-toast';
 
 /**
@@ -1855,25 +1856,23 @@ export function useUcarerDepo() {
 
     setUpdatingCostByCode((prev) => ({ ...prev, [code]: true }));
     try {
+      const updatePriceLists = isPriceListUpdateChecked(code);
       const result = await adminApi.updateUcarerProductCost({
         productCode: code,
         costP: parsedCostP,
         costT: parsedCostT,
-        updatePriceLists: isPriceListUpdateChecked(code),
+        updatePriceLists,
       });
+      const verificationError = getPriceListVerificationError(result.data, updatePriceLists);
+      if (verificationError) throw new Error(verificationError);
       const newCostP = Number(result.data?.costP || parsedCostP);
       const newCostT = Number(result.data?.costT || parsedCostT);
       const newCost = Number(result.data?.currentCost || newCostP);
       setCurrentCostByCode((prev) => ({ ...prev, [code]: newCost }));
       setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
       setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
-      const missing = result.data?.missingLists || [];
-      if (isPriceListUpdateChecked(code)) {
-        if (missing.length > 0) {
-          toast.success(`Maliyet guncellendi. Eksik liste satiri: ${missing.join(', ')}`);
-        } else {
-          toast.success('Maliyet ve 10 fiyat listesi guncellendi.');
-        }
+      if (updatePriceLists) {
+        toast.success('Maliyet ve 10 fiyat listesi dogrulanarak guncellendi.');
       } else {
         toast.success('Guncel maliyet guncellendi.');
       }

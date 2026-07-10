@@ -980,6 +980,85 @@ export interface ApiError {
   details?: string[];
 }
 
+// ==================== PRICE / MARGIN CONSISTENCY ====================
+
+export type PriceMarginListStatus =
+  | 'OK'
+  | 'MISSING_COST'
+  | 'MISSING_MARGIN'
+  | 'MISSING_PRICE'
+  | 'PRICE_MISMATCH'
+  | 'DUPLICATE_PRICE';
+
+export interface PriceMarginListCheck {
+  listNo: number;
+  costType: 'T' | 'P';
+  marginNo: number;
+  baseCost: number | null;
+  margin: number | null;
+  expectedPrice: number | null;
+  actualPrice: number | null;
+  minPrice: number | null;
+  maxPrice: number | null;
+  priceRowCount: number;
+  differenceAmount: number | null;
+  differencePercent: number | null;
+  status: PriceMarginListStatus;
+}
+
+export interface PriceMarginConsistencyRow {
+  productCode: string;
+  productName: string;
+  categoryCode: string | null;
+  categoryName: string | null;
+  brandCode: string | null;
+  mainSupplierCode: string | null;
+  mainSupplierName: string | null;
+  costP: number | null;
+  costT: number | null;
+  margins: Array<number | null>;
+  listChecks: PriceMarginListCheck[];
+  issueTypes: PriceMarginListStatus[];
+  problemListCount: number;
+  maxDifferenceAmount: number;
+  maxDifferencePercent: number;
+  isCompliant: boolean;
+}
+
+export interface PriceMarginConsistencyReport {
+  rows: PriceMarginConsistencyRow[];
+  summary: {
+    totalProducts: number;
+    compliantProducts: number;
+    problemProducts: number;
+    priceMismatchProducts: number;
+    missingMarginProducts: number;
+    missingPriceProducts: number;
+    missingCostProducts: number;
+    duplicatePriceProducts: number;
+    filteredProducts: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    totalRecords: number;
+    totalPages: number;
+  };
+  options: {
+    categories: string[];
+    brands: string[];
+    suppliers: string[];
+  };
+  metadata: {
+    generatedAt: string;
+    stale: boolean;
+    staleReason: string | null;
+    cacheTtlSeconds: number;
+    tolerance: number;
+    source: 'MIKRO_LIVE';
+  };
+}
+
 // ==================== CAMPAIGN TYPES ====================
 
 export type CampaignType = 'PERCENTAGE' | 'FIXED_AMOUNT' | 'BUY_X_GET_Y';

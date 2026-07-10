@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { adminApi } from '@/lib/api/admin';
 import { formatDateShort } from '@/lib/utils/format';
+import { getPriceListVerificationError } from '@/lib/utils/costPriceUpdate';
 
 /**
  * Fiyat Ailesi Maliyet Kontrolu raporunun TUM is mantigi.
@@ -257,20 +258,18 @@ export function useFiyatAilesiMaliyet() {
 
     setUpdatingCostByCode((prev) => ({ ...prev, [code]: true }));
     try {
+      const updatePriceLists = updatePriceListsByCode[code] !== false;
       const result = await adminApi.updatePriceFamilyProductCost({
         familyId: selectedFamily.id,
         productCode: code,
         costP: parsedCostP,
         costT: parsedCostT,
-        updatePriceLists: updatePriceListsByCode[code] !== false,
+        updatePriceLists,
       });
-      const missing = result.data?.missingLists || [];
-      if (!options?.silent && updatePriceListsByCode[code] !== false) {
-        toast.success(
-          missing.length > 0
-            ? `Maliyet guncellendi. Eksik liste satiri: ${missing.join(', ')}`
-            : 'Maliyet ve 10 fiyat listesi guncellendi.'
-        );
+      const verificationError = getPriceListVerificationError(result.data, updatePriceLists);
+      if (verificationError) throw new Error(verificationError);
+      if (!options?.silent && updatePriceLists) {
+        toast.success('Maliyet ve 10 fiyat listesi dogrulanarak guncellendi.');
       } else if (!options?.silent) {
         toast.success('Guncel maliyet guncellendi.');
       }
@@ -278,7 +277,7 @@ export function useFiyatAilesiMaliyet() {
       if (options?.reload !== false) await loadReport();
       return true;
     } catch (error: any) {
-      if (!options?.silent) toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
+      if (!options?.silent) toast.error(error?.response?.data?.error || error?.message || 'Maliyet guncellenemedi');
       return false;
     } finally {
       setUpdatingCostByCode((prev) => ({ ...prev, [code]: false }));

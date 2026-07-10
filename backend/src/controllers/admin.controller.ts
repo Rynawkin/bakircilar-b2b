@@ -41,6 +41,9 @@ import scheduledJobsService from '../services/scheduled-jobs.service';
 import priceListSuggestionService from '../services/price-list-suggestion.service';
 import auditLogService from '../services/audit-log.service';
 import actionRadarService from '../services/action-radar.service';
+import priceMarginConsistencyService, {
+  PriceMarginIssueFilter,
+} from '../services/price-margin-consistency.service';
 import { cacheService } from '../services/cache.service';
 import MIKRO_TABLES from '../config/mikro-tables';
 import { splitSearchTokens, normalizeSearchText } from '../utils/search';
@@ -5261,6 +5264,54 @@ export class AdminController {
         success: true,
         data,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/price-margin-consistency
+   * Maliyet P/T x Marj_1..5 ile canli Mikro liste 1..10 fiyatlarini karsilastirir.
+   */
+  async getPriceMarginConsistency(req: Request, res: Response, next: NextFunction) {
+    try {
+      const allowedIssueTypes = new Set([
+        'ALL',
+        'PROBLEM',
+        'MISSING_COST',
+        'MISSING_MARGIN',
+        'MISSING_PRICE',
+        'PRICE_MISMATCH',
+        'DUPLICATE_PRICE',
+      ]);
+      const issueTypeRaw = String(req.query.issueType || 'PROBLEM').trim().toUpperCase();
+      const issueType = (allowedIssueTypes.has(issueTypeRaw) ? issueTypeRaw : 'PROBLEM') as PriceMarginIssueFilter;
+      const sortByRaw = String(req.query.sortBy || 'maxDifferenceAmount');
+      const allowedSorts = new Set([
+        'maxDifferenceAmount',
+        'maxDifferencePercent',
+        'problemListCount',
+        'productCode',
+        'productName',
+      ]);
+
+      const data = await priceMarginConsistencyService.getReport({
+        search: String(req.query.search || ''),
+        issueType,
+        category: String(req.query.category || ''),
+        brand: String(req.query.brand || ''),
+        supplier: String(req.query.supplier || ''),
+        listNo: Number(req.query.listNo || 0),
+        minDifferenceAmount: Number(req.query.minDifferenceAmount || 0),
+        minDifferencePercent: Number(req.query.minDifferencePercent || 0),
+        sortBy: (allowedSorts.has(sortByRaw) ? sortByRaw : 'maxDifferenceAmount') as any,
+        sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
+        page: Number(req.query.page || 1),
+        limit: Number(req.query.limit || 50),
+        forceRefresh: req.query.refresh === '1' || req.query.refresh === 'true',
+      });
+
+      res.json({ success: true, data });
     } catch (error) {
       next(error);
     }

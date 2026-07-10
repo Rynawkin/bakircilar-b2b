@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { adminApi } from '@/lib/api/admin';
+import { getPriceListVerificationError } from '@/lib/utils/costPriceUpdate';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 export type SortDirection = 'asc' | 'desc';
@@ -261,12 +262,15 @@ export function useTumUrunlerMaliyetGuncelleme() {
   const executeCostUpdate = async (code: string, costP: number, costT: number) => {
     setUpdatingByCode((prev) => ({ ...prev, [code]: true }));
     try {
+      const updatePriceLists = shouldUpdatePriceLists(code);
       const result = await adminApi.updateUcarerProductCost({
         productCode: code,
         costP,
         costT,
-        updatePriceLists: shouldUpdatePriceLists(code),
+        updatePriceLists,
       });
+      const verificationError = getPriceListVerificationError(result.data, updatePriceLists);
+      if (verificationError) throw new Error(verificationError);
       const nextCost = Number(result?.data?.currentCost ?? costP);
       setCurrentCostOverrideByCode((prev) => ({ ...prev, [code]: nextCost }));
 
@@ -283,10 +287,10 @@ export function useTumUrunlerMaliyetGuncelleme() {
         });
       }
 
-      if (shouldUpdatePriceLists(code)) toast.success('Maliyet ve 10 fiyat listesi guncellendi.');
+      if (updatePriceLists) toast.success('Maliyet ve 10 fiyat listesi dogrulanarak guncellendi.');
       else toast.success('Guncel maliyet guncellendi.');
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Guncelleme basarisiz');
+      toast.error(error?.response?.data?.error || error?.message || 'Guncelleme basarisiz');
     } finally {
       setUpdatingByCode((prev) => ({ ...prev, [code]: false }));
     }

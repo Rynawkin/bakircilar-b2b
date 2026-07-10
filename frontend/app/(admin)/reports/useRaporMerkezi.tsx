@@ -84,6 +84,18 @@ export const reports: ReportCard[] = [
     permission: 'reports:cost-update-all-products',
   },
   {
+    id: 'price-margin-consistency',
+    title: 'Liste Fiyati - Marj Uyum',
+    description: 'Maliyet P/T ve tanimli marjlarla liste 1-10 fiyatlarini canli Mikro verisinde dogrulayin',
+    icon: <CircleDot className="h-5 w-5" />,
+    href: '/reports/price-margin-consistency',
+    category: 'cost',
+    badge: 'Yeni',
+    tags: ['Fiyat', 'Marj', 'Denetim'],
+    highImpact: true,
+    permission: 'reports:cost-update-all-products',
+  },
+  {
     id: 'margin-compliance',
     title: 'Kar Marji Analizi',
     description: 'Urun, kategori, marka ve musteri tipi bazinda kar marji dagilimini inceleyin',

@@ -9242,8 +9242,16 @@ export class ReportsService {
     costP: number;
     costT: number;
     priceListsUpdated: boolean;
-    updatedLists: Array<{ listNo: number; value: number; affected: number }>;
+    updatedLists: Array<{
+      listNo: number;
+      value: number;
+      actualValue: number;
+      affected: number;
+      verified: boolean;
+    }>;
     missingLists: number[];
+    verificationStatus: 'NOT_REQUESTED' | 'VERIFIED';
+    verifiedListCount: number;
   }> {
     const productCode = String(input.productCode || '').trim().toUpperCase();
     const legacyCost = Number(input.cost || 0);
@@ -9282,41 +9290,257 @@ export class ReportsService {
       : null;
     const newCostDate = new Date();
 
-    await mikroService.executeQuery(`
-      UPDATE STOKLAR
-      SET
-        sto_standartmaliyet = ${costP},
-        sto_resim_url = CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10))
-      WHERE sto_kod = '${escapedCode}'
-    `);
+    let priceWriteRows: any[] = [];
+    try {
+      // Maliyet ve fiyatlar tek SQL transaction'inda yazilir. Boylece fiyat
+      // yaziminin herhangi bir adimi basarisizsa maliyet de geri alinir.
+      priceWriteRows = await mikroService.executeQuery(`
+        SET XACT_ABORT ON;
 
-    await mikroService.executeQuery(`
-      DECLARE @uid uniqueidentifier;
-      SELECT @uid = sto_guid FROM STOKLAR WHERE sto_kod='${escapedCode}';
-      IF @uid IS NOT NULL
-      BEGIN
-        IF NOT EXISTS (SELECT 1 FROM STOKLAR_USER WHERE Record_uid=@uid)
-        BEGIN
-          INSERT INTO STOKLAR_USER
-            (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi)
-          VALUES
-            (@uid, GETDATE(), 0, 0, 0, '1', '1', '1', '1', '1', ${costP}, ${costT},
-             CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10)),
-             CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10)),
-             '', 0);
-        END
-        ELSE
-        BEGIN
+        BEGIN TRY
+          BEGIN TRANSACTION;
+
+          DECLARE @productCode nvarchar(50) = N'${escapedCode}';
+          DECLARE @costP decimal(19,6) = ${costP};
+          DECLARE @costT decimal(19,6) = ${costT};
+          DECLARE @updatePriceLists bit = ${updatePriceLists ? 1 : 0};
+          DECLARE @uid uniqueidentifier;
+          DECLARE @hasUserRow bit = 0;
+          DECLARE @todayText nvarchar(20) = CONVERT(nvarchar(10), GETDATE(), 104);
+          DECLARE @margin1 decimal(19,6);
+          DECLARE @margin2 decimal(19,6);
+          DECLARE @margin3 decimal(19,6);
+          DECLARE @margin4 decimal(19,6);
+          DECLARE @margin5 decimal(19,6);
+          DECLARE @expectedPrices TABLE (
+            listNo int NOT NULL PRIMARY KEY,
+            expectedPrice decimal(19,6) NOT NULL
+          );
+
+          SELECT @uid = sto_guid
+          FROM STOKLAR WITH (UPDLOCK, HOLDLOCK)
+          WHERE RTRIM(sto_kod) = @productCode;
+
+          IF @uid IS NULL
+            THROW 51000, 'Stok karti Mikroda bulunamadi.', 1;
+
+          IF EXISTS (
+            SELECT 1
+            FROM STOKLAR_USER WITH (UPDLOCK, HOLDLOCK)
+            WHERE Record_uid = @uid
+          )
+            SET @hasUserRow = 1;
+
+          IF @updatePriceLists = 1 AND @hasUserRow = 0
+            THROW 51001, '10 liste guncellenemedi: stok kartinda Marj_1-Marj_5 kaydi yok.', 1;
+
+          IF @hasUserRow = 0
+          BEGIN
+            INSERT INTO STOKLAR_USER
+              (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi)
+            VALUES
+              (@uid, GETDATE(), 0, 0, 0, '1', '1', '1', '1', '1', @costP, @costT, @todayText, @todayText, '', 0);
+          END
+
+          IF @updatePriceLists = 1
+          BEGIN
+            SELECT
+              @margin1 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_1))), ''), ',', '.')),
+              @margin2 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_2))), ''), ',', '.')),
+              @margin3 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_3))), ''), ',', '.')),
+              @margin4 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_4))), ''), ',', '.')),
+              @margin5 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_5))), ''), ',', '.'))
+            FROM STOKLAR_USER WITH (UPDLOCK, HOLDLOCK)
+            WHERE Record_uid = @uid;
+
+            IF @margin1 IS NULL OR @margin1 <= 0
+              OR @margin2 IS NULL OR @margin2 <= 0
+              OR @margin3 IS NULL OR @margin3 <= 0
+              OR @margin4 IS NULL OR @margin4 <= 0
+              OR @margin5 IS NULL OR @margin5 <= 0
+              THROW 51001, '10 liste guncellenemedi: Marj_1-Marj_5 alanlarinin tumu sifirdan buyuk ve sayisal olmali.', 1;
+
+            INSERT INTO @expectedPrices (listNo, expectedPrice)
+            VALUES
+              (1, ROUND(@costT * @margin1, 6)),
+              (2, ROUND(@costT * @margin2, 6)),
+              (3, ROUND(@costT * @margin3, 6)),
+              (4, ROUND(@costT * @margin4, 6)),
+              (5, ROUND(@costT * @margin5, 6)),
+              (6, ROUND(@costP * @margin1, 6)),
+              (7, ROUND(@costP * @margin2, 6)),
+              (8, ROUND(@costP * @margin3, 6)),
+              (9, ROUND(@costP * @margin4, 6)),
+              (10, ROUND(@costP * @margin5, 6));
+
+            IF (SELECT COUNT(*) FROM @expectedPrices WHERE expectedPrice > 0) <> 10
+              THROW 51001, '10 liste guncellenemedi: hesaplanan fiyatlardan biri gecersiz.', 1;
+          END
+
+          UPDATE STOKLAR
+          SET
+            sto_standartmaliyet = @costP,
+            sto_resim_url = @todayText
+          WHERE sto_guid = @uid;
+
           UPDATE STOKLAR_USER
           SET
-            MaliyetP = ${costP},
-            MaliyetT = ${costT},
-            MaliyetTarihi = CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10)),
-            FiyatDegisimTarihi = CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10))
-          WHERE Record_uid=@uid;
-        END
-      END
-    `);
+            MaliyetP = @costP,
+            MaliyetT = @costT,
+            MaliyetTarihi = @todayText,
+            FiyatDegisimTarihi = @todayText
+          WHERE Record_uid = @uid;
+
+          IF @updatePriceLists = 1
+          BEGIN
+            UPDATE target
+            SET
+              target.sfiyat_fiyati = expected.expectedPrice,
+              target.sfiyat_degisti = 1,
+              target.sfiyat_lastup_user = 1,
+              target.sfiyat_lastup_date = GETDATE()
+            FROM STOK_SATIS_FIYAT_LISTELERI target
+            INNER JOIN @expectedPrices expected
+              ON target.sfiyat_listesirano = expected.listNo
+            WHERE RTRIM(target.sfiyat_stokkod) = @productCode
+              AND target.sfiyat_deposirano = 0
+              AND target.sfiyat_doviz = 0
+              AND target.sfiyat_odemeplan = 0
+              AND target.sfiyat_iptal = 0;
+
+            INSERT INTO STOK_SATIS_FIYAT_LISTELERI
+              (sfiyat_Guid, sfiyat_DBCno, sfiyat_SpecRECno, sfiyat_iptal, sfiyat_fileid, sfiyat_hidden, sfiyat_kilitli, sfiyat_degisti, sfiyat_checksum, sfiyat_create_user, sfiyat_create_date,
+               sfiyat_lastup_user, sfiyat_lastup_date, sfiyat_special1, sfiyat_special2, sfiyat_special3, sfiyat_stokkod, sfiyat_listesirano, sfiyat_deposirano, sfiyat_odemeplan, sfiyat_birim_pntr,
+               sfiyat_fiyati, sfiyat_doviz, sfiyat_iskontokod, sfiyat_deg_nedeni, sfiyat_primyuzdesi, sfiyat_kampanyakod, sfiyat_doviz_kuru)
+            SELECT
+              NEWID(), 0, 0, 0, 0, 0, 0, 1, 0, 1, GETDATE(), 1, GETDATE(), '', '', '', @productCode, expected.listNo, 0, 0, 0,
+              expected.expectedPrice, 0, '', 0, 0, '', 0
+            FROM @expectedPrices expected
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM STOK_SATIS_FIYAT_LISTELERI existing WITH (UPDLOCK, HOLDLOCK)
+              WHERE RTRIM(existing.sfiyat_stokkod) = @productCode
+                AND existing.sfiyat_listesirano = expected.listNo
+                AND existing.sfiyat_deposirano = 0
+                AND existing.sfiyat_doviz = 0
+                AND existing.sfiyat_odemeplan = 0
+                AND existing.sfiyat_iptal = 0
+            );
+
+            IF EXISTS (
+              SELECT 1
+              FROM @expectedPrices expected
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM STOK_SATIS_FIYAT_LISTELERI actual
+                WHERE RTRIM(actual.sfiyat_stokkod) = @productCode
+                  AND actual.sfiyat_listesirano = expected.listNo
+                  AND actual.sfiyat_deposirano = 0
+                  AND actual.sfiyat_doviz = 0
+                  AND actual.sfiyat_odemeplan = 0
+                  AND actual.sfiyat_iptal = 0
+                  AND ABS(CAST(actual.sfiyat_fiyati AS float) - CAST(expected.expectedPrice AS float)) <= 0.005
+              )
+            )
+              THROW 51002, 'Mikro fiyat dogrulamasi basarisiz: 10 listenin tamami yazilamadi.', 1;
+          END
+
+          COMMIT TRANSACTION;
+
+          SELECT
+            expected.listNo,
+            CAST(expected.expectedPrice AS float) AS value,
+            CAST(actual.actualValue AS float) AS actualValue,
+            CAST(1 AS int) AS affected,
+            CAST(CASE WHEN ABS(CAST(actual.actualValue AS float) - CAST(expected.expectedPrice AS float)) <= 0.005 THEN 1 ELSE 0 END AS bit) AS verified
+          FROM @expectedPrices expected
+          OUTER APPLY (
+            SELECT TOP 1 sfiyat_fiyati AS actualValue
+            FROM STOK_SATIS_FIYAT_LISTELERI
+            WHERE RTRIM(sfiyat_stokkod) = @productCode
+              AND sfiyat_listesirano = expected.listNo
+              AND sfiyat_deposirano = 0
+              AND sfiyat_doviz = 0
+              AND sfiyat_odemeplan = 0
+              AND sfiyat_iptal = 0
+            ORDER BY sfiyat_lastup_date DESC, sfiyat_create_date DESC
+          ) actual
+          ORDER BY expected.listNo;
+        END TRY
+        BEGIN CATCH
+          IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+          THROW;
+        END CATCH;
+      `);
+    } catch (error: any) {
+      const message = this.normalizeMikroErrorMessage(
+        error,
+        'Mikro maliyet/fiyat guncellemesi tamamlanamadi.'
+      );
+      const errorNumber = Number(error?.number || error?.originalError?.info?.number || 0);
+      await this.logUcarerOperation({
+        operationType: 'COST_UPDATE_FAILED',
+        title: 'Stok maliyeti/fiyat listesi guncellenemedi',
+        productCode,
+        productName: previousProduct?.name || null,
+        previousValues: {
+          currentCost: previousProduct?.currentCost ?? null,
+          currentCostDate: previousProduct?.currentCostDate || null,
+        },
+        newValues: { costP, costT },
+        metadata: { updatePriceLists, errorNumber, error: message },
+        userId: input.userId || null,
+      });
+
+      if (errorNumber === 51000) {
+        throw new AppError(message, 404, ErrorCode.PRODUCT_NOT_FOUND);
+      }
+      if (errorNumber === 51001) {
+        throw new AppError(message, 400, ErrorCode.INVALID_PROFIT_MARGIN);
+      }
+      if (errorNumber === 51002) {
+        throw new AppError(message, 409, ErrorCode.INVALID_PRICE);
+      }
+      throw new AppError(message, 502, ErrorCode.MIKRO_CONNECTION_ERROR);
+    }
+
+    const updatedLists = priceWriteRows
+      .map((row: any) => ({
+        listNo: Number(row?.listNo || 0),
+        value: Number(row?.value || 0),
+        actualValue: Number(row?.actualValue || 0),
+        affected: Number(row?.affected || 0),
+        verified: Boolean(row?.verified),
+      }))
+      .filter((row) => row.listNo >= 1 && row.listNo <= 10);
+    const verifiedListNos = new Set(
+      updatedLists.filter((row) => row.verified).map((row) => row.listNo)
+    );
+    const missingLists = updatePriceLists
+      ? Array.from({ length: 10 }, (_, idx) => idx + 1).filter((listNo) => !verifiedListNos.has(listNo))
+      : [];
+
+    if (updatePriceLists && (updatedLists.length !== 10 || missingLists.length > 0)) {
+      await this.logUcarerOperation({
+        operationType: 'COST_UPDATE_FAILED',
+        title: 'Mikro fiyat listesi sonucu dogrulanamadi',
+        productCode,
+        productName: previousProduct?.name || null,
+        previousValues: {
+          currentCost: previousProduct?.currentCost ?? null,
+          currentCostDate: previousProduct?.currentCostDate || null,
+        },
+        newValues: { costP, costT },
+        metadata: { updatePriceLists, updatedLists, missingLists },
+        userId: input.userId || null,
+      });
+      throw new AppError(
+        `Mikro fiyat dogrulamasi basarisiz. Dogrulanamayan listeler: ${missingLists.join(', ') || 'bilinmiyor'}`,
+        409,
+        ErrorCode.INVALID_PRICE
+      );
+    }
 
     await prisma.product.updateMany({
       where: { mikroCode: productCode },
@@ -9326,77 +9550,16 @@ export class ReportsService {
       },
     });
 
-    const updatedLists: Array<{ listNo: number; value: number; affected: number }> = [];
-    const missingLists: number[] = [];
-    if (updatePriceLists) {
-      const stockRows = await mikroService.executeQuery(`
-        SELECT
-          u.Marj_1,
-          u.Marj_2,
-          u.Marj_3,
-          u.Marj_4,
-          u.Marj_5
-        FROM STOKLAR s
-        LEFT JOIN STOKLAR_USER u ON s.sto_Guid = u.Record_uid
-        WHERE s.sto_kod = '${escapedCode}'
-      `);
-      const row = stockRows?.[0];
-      const parseMargin = (value: unknown) => {
-        const raw = String(value ?? '').trim().replace(',', '.');
-        const num = Number(raw);
-        return Number.isFinite(num) ? num : 0;
-      };
-      const margins = [
-        parseMargin(row?.Marj_1),
-        parseMargin(row?.Marj_2),
-        parseMargin(row?.Marj_3),
-        parseMargin(row?.Marj_4),
-        parseMargin(row?.Marj_5),
-      ];
-
-      const upsertPriceList = async (listNo: number, value: number) => {
-        if (!Number.isFinite(value) || value <= 0) {
-          return;
-        }
-        const rows = await mikroService.executeQuery(`
-          UPDATE STOK_SATIS_FIYAT_LISTELERI
-          SET sfiyat_fiyati = ${value}
-          WHERE sfiyat_stokkod = '${escapedCode}'
-            AND sfiyat_listesirano = ${listNo};
-          SELECT @@ROWCOUNT AS affected;
-        `);
-        let affected = Number(rows?.[0]?.affected || 0);
-        if (affected <= 0) {
-          await mikroService.executeQuery(`
-            INSERT INTO STOK_SATIS_FIYAT_LISTELERI
-              (sfiyat_Guid, sfiyat_DBCno, sfiyat_SpecRECno, sfiyat_iptal, sfiyat_fileid, sfiyat_hidden, sfiyat_kilitli, sfiyat_degisti, sfiyat_checksum, sfiyat_create_user, sfiyat_create_date,
-               sfiyat_lastup_user, sfiyat_lastup_date, sfiyat_special1, sfiyat_special2, sfiyat_special3, sfiyat_stokkod, sfiyat_listesirano, sfiyat_deposirano, sfiyat_odemeplan, sfiyat_birim_pntr,
-               sfiyat_fiyati, sfiyat_doviz, sfiyat_iskontokod, sfiyat_deg_nedeni, sfiyat_primyuzdesi, sfiyat_kampanyakod, sfiyat_doviz_kuru)
-            VALUES
-              (NEWID(), 0, 0, 0, 0, 0, 0, 0, 0, 1, GETDATE(), 1, GETDATE(), '', '', '', '${escapedCode}', ${listNo}, 0, 0, 0,
-               ${value}, 0, '', 0, 0, '', 0);
-          `);
-          affected = 1;
-        }
-        updatedLists.push({ listNo, value, affected });
-        if (affected <= 0) missingLists.push(listNo);
-      };
-
-      for (let idx = 0; idx < 5; idx += 1) {
-        const margin = margins[idx];
-        await upsertPriceList(6 + idx, costP * margin);
-        await upsertPriceList(1 + idx, costT * margin);
-      }
-    }
-
     const response = {
       productCode,
       currentCost: costP,
       costP,
       costT,
-      priceListsUpdated: updatePriceLists,
+      priceListsUpdated: updatePriceLists && missingLists.length === 0 && updatedLists.length === 10,
       updatedLists,
       missingLists,
+      verificationStatus: updatePriceLists ? 'VERIFIED' as const : 'NOT_REQUESTED' as const,
+      verifiedListCount: verifiedListNos.size,
     };
 
     if (shouldAuditPriceFamily) {
@@ -9438,6 +9601,8 @@ export class ReportsService {
           updatePriceLists,
           updatedLists,
           missingLists,
+          verificationStatus: response.verificationStatus,
+          verifiedListCount: response.verifiedListCount,
         },
         userId: input.userId || null,
       });

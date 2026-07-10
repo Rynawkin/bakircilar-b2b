@@ -803,6 +803,11 @@ router.get('/reports/price-summary-stats', requirePermission('reports:price-hist
 
 // Old Price History endpoint (backward compatibility - Mikro based)
 router.get('/reports/price-history', requirePermission('reports:price-history'), adminController.getPriceHistory);
+router.get(
+  '/reports/price-margin-consistency',
+  requirePermission('reports:cost-update-all-products'),
+  adminController.getPriceMarginConsistency
+);
 
 // Report Exclusions - admin:exclusions VEYA marj raporu yetkisi (rapor ekranindan dislama yonetimi)
 router.get('/exclusions', requireAnyPermission(['admin:exclusions', 'reports:margin-compliance']), adminController.getExclusions);
