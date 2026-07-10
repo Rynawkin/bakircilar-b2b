@@ -21,6 +21,7 @@ import toast from 'react-hot-toast';
 import salesCatalogApi, { SalesCatalogPresentation } from '@/lib/api/salesCatalog';
 import { generateSalesCatalogPdf } from '@/lib/catalogPdf';
 import { formatCurrency } from '@/lib/utils/format';
+import { Logo } from '@/components/ui/Logo';
 
 const formatDate = (value?: string | null) => {
   if (!value) return null;
@@ -134,7 +135,7 @@ export default function PublicSalesCatalogPage() {
     <div className="min-h-screen bg-[#f3f5f8] text-[#14223b]">
       <header className="sticky top-0 z-50 border-b border-[#e1e6ee] bg-white/95 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:px-8">
-          <img src="/logo.png" alt="Bakırcılar" className="h-8 w-auto object-contain" />
+          <Logo layout="horizontal" tone="blue" size="md" />
           <div className="hidden h-7 w-px bg-[#e2e7ef] sm:block" />
           <div className="hidden min-w-0 flex-1 sm:block">
             <div className="truncate text-[13px] font-semibold text-[#14223b]">{data.catalog.title}</div>
@@ -150,19 +151,24 @@ export default function PublicSalesCatalogPage() {
         </div>
       </header>
 
-      <section className="relative min-h-[360px] overflow-hidden bg-[#0b1d3b] sm:min-h-[430px]">
+      <section className="overflow-hidden bg-[#0b1d3b] text-white">
         {data.catalog.coverImageUrl && (
-          <img src={data.catalog.coverImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-55" />
+          <div className="border-b border-white/10 bg-[#07162e]">
+            <div className="relative mx-auto aspect-[7/3] w-full max-w-[1180px] overflow-hidden">
+              <img src={data.catalog.coverImageUrl} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover opacity-20" />
+              <img src={data.catalog.coverImageUrl} alt={`${data.catalog.title} kapak görseli`} className="absolute inset-0 h-full w-full object-contain" />
+              <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#07162e]/45 to-transparent" />
+            </div>
+          </div>
         )}
-        <div className="absolute inset-0 bg-[#0b1d3b]/55" />
-        <div className="relative mx-auto flex min-h-[360px] max-w-[1440px] items-end px-4 pb-10 pt-20 sm:min-h-[430px] sm:px-6 sm:pb-14 lg:px-8">
-          <div className="max-w-3xl text-white">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-white/25 bg-black/15 px-3 py-1.5 text-[11px] font-semibold uppercase">
+        <div className={`mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 ${data.catalog.coverImageUrl ? 'py-8 sm:py-10' : 'py-14 sm:py-20'}`}>
+          <div className="max-w-4xl">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-white/25 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase">
               <FileText className="h-3.5 w-3.5" /> Güncel satış kataloğu
             </div>
-            <h1 className="max-w-3xl text-[34px] font-semibold leading-[1.08] sm:text-[50px]">{data.catalog.title}</h1>
-            {data.catalog.subtitle && <p className="mt-4 max-w-2xl text-[15px] leading-6 text-white/85 sm:text-[17px]">{data.catalog.subtitle}</p>}
-            <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[11.5px] text-white/80">
+            <h1 className="max-w-4xl text-[34px] font-semibold leading-[1.1] text-white sm:text-[46px]">{data.catalog.title}</h1>
+            {data.catalog.subtitle && <p className="mt-4 max-w-3xl text-[15px] leading-6 text-white/82 sm:text-[17px]">{data.catalog.subtitle}</p>}
+            <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[11.5px] text-white/75">
               <span className="inline-flex items-center gap-1.5"><PackageCheck className="h-4 w-4" /> {productCount} ürün</span>
               <span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4" /> {data.sections.length} kategori</span>
               {(validFrom || validTo) && <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4" /> {validFrom || '-'} - {validTo || '-'}</span>}
@@ -238,7 +244,7 @@ export default function PublicSalesCatalogPage() {
       <footer className="bg-[#0b1d3b] text-white">
         <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-4 py-9 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <div>
-            <img src="/logo.png" alt="Bakırcılar" className="h-8 w-auto object-contain brightness-0 invert" />
+            <Logo layout="horizontal" tone="white" size="md" />
             <p className="mt-3 max-w-xl text-[11.5px] leading-5 text-white/65">Bu katalog dinamik olarak hazırlanmıştır. Ürün bulunabilirliği ve fiyatlar sipariş anında teyit edilir.</p>
           </div>
           <div className="text-[11px] leading-5 text-white/65 sm:text-right">
@@ -268,7 +274,7 @@ function CatalogError({ message, onRetry }: { message: string; onRetry: () => vo
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#f3f5f8] px-4">
       <div className="w-full max-w-md rounded-lg border border-[#e2e7ef] bg-white p-7 text-center">
-        <img src="/logo.png" alt="Bakırcılar" className="mx-auto h-9 w-auto" />
+        <Logo layout="horizontal" tone="blue" size="lg" className="justify-center" />
         <AlertCircle className="mx-auto mt-7 h-9 w-9 text-amber-600" />
         <h1 className="mt-3 text-[18px] font-semibold text-[#14223b]">Katalog görüntülenemiyor</h1>
         <p className="mt-2 text-[12.5px] leading-5 text-[#64748b]">{message}</p>

@@ -13,6 +13,7 @@ import { buildCategoryTree, getCategoryPath } from '@/lib/utils/categoryTree';
 import { normalizeSearchText } from '@/lib/utils/search';
 import { browserPushReasonLabel, registerBrowserPush } from '@/lib/webPush';
 import { MobileCategoryPanel } from '@/components/customer/MobileCategoryPanel';
+import { LogoLink } from '@/components/ui/Logo';
 import { Notification, Category, NotificationPreference } from '@/types';
 import {
   Search,
@@ -335,14 +336,12 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
       <div className="border-b border-[var(--line)]">
         <div className="mx-auto flex h-16 w-full max-w-[1900px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:gap-[18px] lg:px-8">
           {/* Logo (sola sabit) */}
-          <Link href="/home" className="flex flex-none items-center gap-2.5">
-            <span className="flex h-10 items-center justify-center rounded-lg bg-primary-600 px-2.5 sm:px-3">
-              <img src="/logo.png" alt="Bakırcılar" className="h-[22px] w-auto object-contain" />
-            </span>
+          <div className="flex flex-none items-center gap-2.5">
+            <LogoLink href="/home" variant="dark" size="md" />
             <span className="mt-0.5 hidden text-[9px] font-medium tracking-[0.17em] text-[var(--ink-3)] xl:block">
               TOPTAN SİPARİŞ PORTALI
             </span>
-          </Link>
+          </div>
 
           {/* Arama (flex:1, min-w-0, ÜST SINIR YOK → sağ küme en sağa yaslanır) */}
           <div className="relative flex h-[42px] min-w-0 flex-1 items-center">

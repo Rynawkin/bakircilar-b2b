@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { adminApi } from '@/lib/api/admin';
 import { apiClient } from '@/lib/api/client';
 import { getPriceListVerificationError } from '@/lib/utils/costPriceUpdate';
+import { BRAND_ASSETS } from '@/lib/brand';
 import toast from 'react-hot-toast';
 
 /**
@@ -3571,16 +3572,16 @@ export function useUcarerDepo() {
     const pageWidth = doc.internal.pageSize.getWidth();
     doc.setFillColor(248, 250, 252);
     doc.rect(0, 0, pageWidth, 26, 'F');
-    const logoData = await loadImageData(resolveImageUrl('/quote-logo.png') || '');
+    const logoData = await loadImageData(resolveImageUrl(BRAND_ASSETS.logos.horizontal.blue) || '');
     if (logoData) {
-      doc.addImage(logoData, getImageFormat(logoData), 12, 4, 44, 18);
+      doc.addImage(logoData, getImageFormat(logoData), 12, 6, 48, 13);
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
-    doc.text(cleanPdfText(title), 60, 11);
+    doc.text(cleanPdfText(title), 64, 11);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(cleanPdfText(subTitle), 60, 17);
+    doc.text(cleanPdfText(subTitle), 64, 17);
     doc.text(cleanPdfText(new Date().toLocaleString('tr-TR')), pageWidth - 12, 17, { align: 'right' });
   };
   const buildLinesBySupplier = () => {

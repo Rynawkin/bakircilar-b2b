@@ -1,4 +1,5 @@
 import type { SalesCatalogPresentation } from '@/lib/api/salesCatalog';
+import { BRAND_ASSETS } from '@/lib/brand';
 
 const mm = (value: number) => value;
 
@@ -50,6 +51,51 @@ const loadImageAsJpeg = async (url: string | null | undefined): Promise<string |
   }
 };
 
+const loadImageAsPng = async (url: string | null | undefined): Promise<string | null> => {
+  if (!url) return null;
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const bitmap = await createImageBitmap(await response.blob());
+    const maxSide = 900;
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL('image/png');
+  } catch {
+    return null;
+  }
+};
+
+const loadCoverAsJpeg = async (url: string | null | undefined): Promise<string | null> => {
+  if (!url) return null;
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const bitmap = await createImageBitmap(await response.blob());
+    const canvas = document.createElement('canvas');
+    canvas.width = 1400;
+    canvas.height = 600;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.fillStyle = '#07162e';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const scale = Math.min(canvas.width / bitmap.width, canvas.height / bitmap.height);
+    const drawWidth = bitmap.width * scale;
+    const drawHeight = bitmap.height * scale;
+    context.drawImage(bitmap, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+    bitmap.close();
+    return canvas.toDataURL('image/jpeg', 0.9);
+  } catch {
+    return null;
+  }
+};
+
 const loadImages = async (urls: string[]) => {
   const unique = Array.from(new Set(urls.filter(Boolean)));
   const result = new Map<string, string | null>();
@@ -75,16 +121,17 @@ const formatDate = (value?: string | null) => {
 };
 
 export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
-  const [{ default: jsPDF }, regular, bold, mono, images] = await Promise.all([
+  const [{ default: jsPDF }, regular, bold, mono, images, cover, logoWhite, mascot] = await Promise.all([
     import('jspdf'),
     loadFont('/fonts/HankenGrotesk-Regular.ttf'),
     loadFont('/fonts/HankenGrotesk-Bold.ttf'),
     loadFont('/fonts/IBMPlexMono-Regular.ttf'),
     loadImages([
-      '/logo.png',
-      data.catalog.coverImageUrl || '',
       ...data.sections.flatMap((section) => section.products.map((product) => product.imageUrl || '')),
     ]),
+    loadCoverAsJpeg(data.catalog.coverImageUrl),
+    loadImageAsPng(BRAND_ASSETS.logos.horizontal.white),
+    loadImageAsPng(BRAND_ASSETS.mascot.pointing),
   ]);
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
@@ -103,55 +150,84 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
   const width = doc.internal.pageSize.getWidth();
   const height = doc.internal.pageSize.getHeight();
 
-  const cover = images.get(data.catalog.coverImageUrl || '');
-  if (cover) {
-    doc.addImage(cover, 'JPEG', 0, 0, width, 118, undefined, 'FAST');
-    doc.setFillColor(11, 29, 59);
-    doc.rect(0, 45, width, 73, 'F');
-  } else {
-    doc.setFillColor(navy);
-    doc.rect(0, 0, width, 118, 'F');
-  }
-  const logo = images.get('/logo.png');
-  if (logo) doc.addImage(logo, 'JPEG', 16, 14, 52, 17, undefined, 'FAST');
+  const drawContainedImage = (
+    image: string,
+    format: 'PNG' | 'JPEG',
+    x: number,
+    y: number,
+    boxWidth: number,
+    boxHeight: number
+  ) => {
+    const properties = doc.getImageProperties(image);
+    const sourceWidth = Number(properties.width) || boxWidth;
+    const sourceHeight = Number(properties.height) || boxHeight;
+    const scale = Math.min(boxWidth / sourceWidth, boxHeight / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    doc.addImage(
+      image,
+      format,
+      x + (boxWidth - drawWidth) / 2,
+      y + (boxHeight - drawHeight) / 2,
+      drawWidth,
+      drawHeight,
+      undefined,
+      'FAST'
+    );
+  };
+
+  doc.setFillColor(7, 22, 46);
+  doc.rect(0, 0, width, 18, 'F');
+  if (logoWhite) drawContainedImage(logoWhite, 'PNG', 16, 3, 55, 12);
   doc.setTextColor('#ffffff');
   doc.setFont('Hanken', 'bold');
-  doc.setFontSize(27);
-  const titleLines = doc.splitTextToSize(data.catalog.title, 174);
-  doc.text(titleLines, 16, 62);
+  doc.setFontSize(8.5);
+  doc.text(`REVIZYON ${data.catalog.revision}`, width - 16, 11, { align: 'right' });
+
+  if (cover) {
+    doc.addImage(cover, 'JPEG', 0, 18, width, 90, undefined, 'FAST');
+  } else {
+    doc.setFillColor(navy);
+    doc.rect(0, 18, width, 90, 'F');
+  }
+
+  doc.setFillColor(11, 29, 59);
+  doc.rect(0, 108, width, 56, 'F');
+  doc.setTextColor('#ffffff');
+  doc.setFont('Hanken', 'bold');
+  doc.setFontSize(23);
+  const titleLines = (doc.splitTextToSize(data.catalog.title, 138) as string[]).slice(0, 2);
+  doc.text(titleLines, 16, 122, { lineHeightFactor: 1.03 });
   if (data.catalog.subtitle) {
     doc.setFont('Hanken', 'normal');
-    doc.setFontSize(12);
-    doc.text(doc.splitTextToSize(data.catalog.subtitle, 170), 16, 82);
+    doc.setFontSize(10.5);
+    const subtitleY = 134 + Math.max(0, titleLines.length - 1) * 8;
+    const subtitleLines = (doc.splitTextToSize(data.catalog.subtitle, 138) as string[]).slice(0, 2);
+    doc.text(subtitleLines, 16, subtitleY, { lineHeightFactor: 1.05 });
   }
-  doc.setFillColor('#ffffff');
-  doc.roundedRect(16, 102, 72, 10, 2, 2, 'F');
-  doc.setTextColor(navy);
-  doc.setFont('Hanken', 'bold');
-  doc.setFontSize(9);
-  doc.text(`REVIZYON ${data.catalog.revision}`, 20, 108.5);
+  if (mascot) drawContainedImage(mascot, 'PNG', width - 48, 110, 34, 51);
 
   doc.setTextColor(ink);
   doc.setFont('Hanken', 'bold');
   doc.setFontSize(12);
-  doc.text('KATEGORILER', 16, 138);
+  doc.text('KATEGORILER', 16, 181);
   doc.setFont('Hanken', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(muted);
-  doc.text('Sayfa numaralari katalog olusturulurken otomatik guncellenir.', 16, 145);
+  doc.text('Sayfa numaralari katalog olusturulurken otomatik guncellenir.', 16, 188);
 
-  const tocY = 157;
+  const tocY = 198;
   data.sections.slice(0, 12).forEach((section, index) => {
     const column = index >= 6 ? 1 : 0;
     const row = index % 6;
     const x = 16 + column * 91;
-    const y = tocY + row * 15;
+    const y = tocY + row * 12;
     doc.setFillColor(column === 0 ? '#f4f7fb' : '#f8fafc');
-    doc.roundedRect(x, y, 84, 11, 2, 2, 'F');
+    doc.roundedRect(x, y, 84, 9.5, 2, 2, 'F');
     doc.setTextColor(ink);
     doc.setFont('Hanken', 'bold');
-    doc.setFontSize(9.5);
-    doc.text(doc.splitTextToSize(section.title, 66)[0], x + 5, y + 7);
+    doc.setFontSize(9);
+    doc.text(doc.splitTextToSize(section.title, 66)[0], x + 5, y + 6.2);
   });
 
   const validFrom = formatDate(data.catalog.validFrom);
@@ -180,7 +256,7 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
       }
       doc.setFillColor(navy);
       doc.rect(0, 0, width, 28, 'F');
-      if (logo) doc.addImage(logo, 'JPEG', 16, 6, 39, 13, undefined, 'FAST');
+      if (logoWhite) drawContainedImage(logoWhite, 'PNG', 16, 5, 42, 14);
       doc.setTextColor('#ffffff');
       doc.setFont('Hanken', 'bold');
       doc.setFontSize(15);
@@ -200,7 +276,7 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
 
         const image = product.imageUrl ? images.get(product.imageUrl) : null;
         if (image) {
-          doc.addImage(image, 'JPEG', x + 4, y + 4, 34, 32, undefined, 'FAST');
+          drawContainedImage(image, 'JPEG', x + 4, y + 4, 34, 32);
         } else {
           doc.setFillColor('#f1f5f9');
           doc.roundedRect(x + 4, y + 4, 34, 32, 1.5, 1.5, 'F');
@@ -253,12 +329,12 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     const column = item.tocIndex >= 6 ? 1 : 0;
     const row = item.tocIndex % 6;
     const x = 16 + column * 91;
-    const y = tocY + row * 15;
+    const y = tocY + row * 12;
     doc.setTextColor(navy);
     doc.setFont('Hanken', 'bold');
     doc.setFontSize(9);
-    doc.text(String(item.page), x + 78, y + 7, { align: 'right' });
-    (doc as any).link(x, y, 84, 11, { pageNumber: item.page });
+    doc.text(String(item.page), x + 78, y + 6.2, { align: 'right' });
+    (doc as any).link(x, y, 84, 9.5, { pageNumber: item.page });
   });
 
   const pageCount = doc.getNumberOfPages();

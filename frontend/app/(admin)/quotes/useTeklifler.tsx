@@ -10,6 +10,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
 import { getApiErrorMessage } from '@/lib/utils/apiError';
+import { BRAND_ASSETS } from '@/lib/brand';
 import * as XLSX from 'xlsx';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
@@ -832,10 +833,11 @@ export function useTeklifler() {
     }
 
     // Gorseller (logo, maskotlar, kalem gorselleri, oneri gorselleri)
-    const [logo, mascotPoint, mascotThumb] = await Promise.all([
-      loadImg('/quote-logo.png'),
-      loadImg('/bakir-point.png'),
-      loadImg('/bakir-thumb.png'),
+    const [logo, logoWhite, mascotPoint, mascotThumb] = await Promise.all([
+      loadImg(BRAND_ASSETS.logos.horizontal.blue),
+      loadImg(BRAND_ASSETS.logos.horizontal.white),
+      loadImg(BRAND_ASSETS.mascot.pointing),
+      loadImg(BRAND_ASSETS.mascot.thumbsUp),
     ]);
     const itemImages: Img[] = await Promise.all(
       items.map((it) => loadImg((it as any).manualImageUrl || (it as any).product?.imageUrl || null))
@@ -917,17 +919,10 @@ export function useTeklifler() {
       doc.setFillColor(r, g, b);
       doc.rect((PAGE_W / segs) * i, 0, PAGE_W / segs + 0.3, mastH, 'F');
     }
-    // beyaz logo cipi
-    if (logo) {
-      const chipH = 16;
-      const logoW = 40;
-      const logoH = (logo.h / logo.w) * logoW;
-      const chipW = logoW + 10;
-      const chipX = MX;
-      const chipY = (mastH - chipH) / 2;
-      setFill(C.white);
-      doc.roundedRect(chipX, chipY, chipW, chipH, 2.5, 2.5, 'F');
-      doc.addImage(logo.data, logo.format, chipX + 5, chipY + (chipH - logoH) / 2, logoW, logoH);
+    if (logoWhite) {
+      const logoW = 46;
+      const logoH = (logoWhite.h / logoWhite.w) * logoW;
+      doc.addImage(logoWhite.data, logoWhite.format, MX, (mastH - logoH) / 2, logoW, logoH);
     }
     font('bold', 17, C.white);
     doc.text('FİYAT TEKLİFİ', PAGE_W - MX, 13, { align: 'right' });

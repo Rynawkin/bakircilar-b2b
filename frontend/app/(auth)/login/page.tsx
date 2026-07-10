@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Button } from '@/components/ui/Button';
+import { Logo } from '@/components/ui/Logo';
 import { validateField, validators } from '@/lib/utils/validation';
 import { Eye, EyeOff } from 'lucide-react';
 
@@ -67,30 +68,8 @@ const LoginForm = () => {
           <div className="bg-white border border-[var(--line)] rounded-2xl p-8 shadow-[0_18px_38px_rgba(20,34,59,0.10)]">
             {/* Logo & Marka */}
             <div className="flex flex-col items-center gap-3 mb-6">
-              <span className="w-12 h-12 rounded-[11px] bg-primary-900 text-white flex items-center justify-center overflow-hidden">
-                <img
-                  src="/logo.png"
-                  alt="Bakırcılar"
-                  className="w-full h-full object-contain p-1"
-                  onError={(e) => {
-                    // logo.png yoksa "B" rozeti goster
-                    const img = e.currentTarget;
-                    img.style.display = 'none';
-                    const parent = img.parentElement;
-                    if (parent && !parent.querySelector('[data-logo-fallback]')) {
-                      const span = document.createElement('span');
-                      span.setAttribute('data-logo-fallback', '');
-                      span.textContent = 'B';
-                      span.className = 'text-[22px] font-semibold';
-                      parent.appendChild(span);
-                    }
-                  }}
-                />
-              </span>
+              <Logo layout="stacked" tone="blue" size="xl" />
               <div className="text-center">
-                <div className="text-[17px] font-semibold tracking-[0.04em] text-[var(--ink-1)]">
-                  BAKIRCILAR
-                </div>
                 <div className="text-[9px] font-medium tracking-[0.17em] text-[var(--ink-3)] mt-1">
                   TOPTAN SİPARİŞ PORTALI
                 </div>

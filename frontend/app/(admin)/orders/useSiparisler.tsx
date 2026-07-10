@@ -7,6 +7,7 @@ import { PendingOrderForAdmin } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
 import { getApiErrorMessage } from '@/lib/utils/apiError';
+import { BRAND_ASSETS } from '@/lib/brand';
 import * as XLSX from 'xlsx';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
@@ -304,7 +305,7 @@ export function useSiparisler() {
       return { width: fittedWidth, height: fittedHeight };
     };
 
-    const logoPath = '/quote-logo.png';
+    const logoPath = BRAND_ASSETS.logos.horizontal.blue;
     const logoUrl = resolveImageUrl(logoPath);
     const logoData = logoUrl ? await loadImageData(logoUrl) : null;
     const logoDimensions = logoData ? await getImageDimensions(logoData) : null;

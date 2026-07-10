@@ -612,11 +612,11 @@ export default function SalesCatalogsPage() {
               <ImageCropUpload
                 value={editor.coverImageUrl}
                 onChange={(url) => setEditor({ ...editor, coverImageUrl: url })}
-                aspect={16 / 7}
-                targetWidth={1600}
-                targetHeight={700}
+                aspect={7 / 3}
+                targetWidth={2100}
+                targetHeight={900}
                 label="Katalog kapak görseli"
-                hint="Web kataloğunda ve PDF kapağında kullanılır. Görsel yoksa kurumsal lacivert zemin gösterilir."
+                hint="7:3 oranında hazırlanır ve web ile PDF'de kırpılmadan gösterilir. Görsel yoksa kurumsal lacivert zemin kullanılır."
               />
             </div>
           </section>

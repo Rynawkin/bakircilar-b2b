@@ -75,10 +75,10 @@ export function ImageCropUpload({ value, onChange, aspect, targetWidth, targetHe
   return (
     <div>
       {label && <div className="mb-1 text-[12px] font-medium text-[#51607a]">{label}</div>}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         {value ? (
-          <div className="relative h-16 w-28 flex-shrink-0 overflow-hidden rounded-lg border border-[#e3e8f0] bg-white">
-            <img src={value} alt="" className="h-full w-full object-cover" />
+          <div className="relative h-20 w-44 flex-shrink-0 overflow-hidden rounded-lg border border-[#e3e8f0] bg-[#f7f9fc]">
+            <img src={value} alt="" className="h-full w-full object-contain" />
             <button
               type="button"
               onClick={() => onChange('')}
@@ -88,7 +88,7 @@ export function ImageCropUpload({ value, onChange, aspect, targetWidth, targetHe
             </button>
           </div>
         ) : (
-          <div className="flex h-16 w-28 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-[#d8e0ec] bg-[#f7f9fc] text-[11px] text-[#9aa6b8]">
+          <div className="flex h-20 w-44 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-[#d8e0ec] bg-[#f7f9fc] text-[11px] text-[#9aa6b8]">
             Görsel yok
           </div>
         )}
