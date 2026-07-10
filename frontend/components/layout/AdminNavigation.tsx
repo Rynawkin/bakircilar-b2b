@@ -49,7 +49,8 @@ import {
   Activity,
   Boxes,
   AlertTriangle,
-  BookOpen
+  BookOpen,
+  CreditCard,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -92,6 +93,7 @@ export const navItems: NavItem[] = [
   { name: 'Musteri Portfoyum', href: '/portfolio', icon: Users, description: 'Musteri portfoyu', permission: 'admin:customers' },
   { name: 'Anlaşmalı Fiyatlar', href: '/customer-agreements', icon: Tag, description: 'Müşteri anlaşmaları', permission: 'admin:agreements' },
   { name: 'Vade Takip', href: '/vade', icon: Clock, description: 'Vade ve alacak takibi', permission: 'admin:vade' },
+  { name: 'Online Tahsilatlar', href: '/payment-operations', icon: CreditCard, description: 'PayByLink ve muhasebe mutabakati', permission: 'admin:vade' },
   { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF arşivi', permission: 'admin:einvoices' },
   { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi', permission: 'admin:products' },
   { name: 'Paketler', href: '/bundles', icon: Boxes, description: 'Paket urun yonetimi', permission: 'admin:products' },

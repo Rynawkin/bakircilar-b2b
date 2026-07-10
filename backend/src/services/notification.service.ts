@@ -30,6 +30,7 @@ export const NOTIFICATION_CATEGORIES = [
   { key: 'PRICE', label: 'Fiyat / Maliyet' },
   { key: 'STOCK', label: 'Stok' },
   { key: 'PACKAGE', label: 'Paketler' },
+  { key: 'PAYMENT', label: 'Odeme / Tahsilat' },
   { key: 'IMAGE', label: 'Gorsel' },
   { key: 'AUDIT', label: 'Audit' },
 ] as const;

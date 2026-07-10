@@ -134,6 +134,22 @@ enum HotSalePaymentType {
   MIXED
 }
 
+enum PaymentAmountType {
+  TOTAL_BALANCE
+  PAST_DUE
+  CUSTOM
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+  REVIEW_REQUIRED
+  CANCELLED
+}
+
 enum HotSaleClosureAction {
   KEEP_ON_VEHICLE
   RETURN_TO_DEPOT
@@ -388,6 +404,9 @@ model User {
   notificationPreferences NotificationPreference[]
   webPushSubscriptions WebPushSubscription[]
   auditLogs          AuditLog[] @relation("AuditLogActor")
+  paymentAttempts    PaymentAttempt[] @relation("PaymentCustomer")
+  paymentRequests    PaymentAttempt[] @relation("PaymentRequester")
+  paymentReconciliations PaymentAttempt[] @relation("PaymentReconciler")
   stockAlerts        ProductStockAlert[]
   vadeBalance        VadeBalance?
   vadeNotes          VadeNote[]       @relation("VadeNoteCustomer")
@@ -726,6 +745,69 @@ model VadeSyncLog {
   @@index([source])
   @@index([status])
   @@index([startedAt])
+}
+
+// Banka-hosted PayByLink odemeleri. Kart verisi B2B'ye hicbir zaman gelmez;
+// banka sonucunun kesinligi server-to-server siparis durum sorgusuyla dogrulanir.
+model PaymentAttempt {
+  id                     String            @id @default(uuid())
+  orderId                String            @unique
+  idempotencyKey         String            @unique
+  customerId             String
+  customer               User              @relation("PaymentCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  requestedById          String
+  requestedBy            User              @relation("PaymentRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  customerCodeSnapshot   String?
+  customerNameSnapshot   String
+  amountType             PaymentAmountType
+  amount                 Decimal           @db.Decimal(18, 2)
+  currency               String            @default("TRY")
+  status                 PaymentStatus     @default(CREATED)
+  provider               String            @default("NESTPAY_ZIRAAT_PAYBYLINK")
+  bankName               String            @default("Ziraat Bankasi")
+  paymentLinkUrl         String?
+  linkExpiresAt          DateTime?
+  totalBalanceSnapshot   Decimal           @db.Decimal(18, 2)
+  pastDueBalanceSnapshot Decimal           @db.Decimal(18, 2)
+  balanceUpdatedAt       DateTime?
+  bankResponse           String?
+  bankReturnCode         String?
+  bankErrorCode          String?
+  bankMessage            String?
+  bankTransactionStatus  String?
+  bankTransactionId      String?
+  bankAuthCode           String?
+  bankHostReference      String?
+  lastVerifiedAt         DateTime?
+  succeededAt            DateTime?
+  failedAt               DateTime?
+  reconciledAt           DateTime?
+  reconciledById         String?
+  reconciledBy           User?             @relation("PaymentReconciler", fields: [reconciledById], references: [id], onDelete: SetNull)
+  reconciliationNote     String?
+  metadata               Json?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  events                 PaymentEvent[]
+
+  @@index([customerId, createdAt])
+  @@index([requestedById, createdAt])
+  @@index([status, createdAt])
+  @@index([reconciledAt, status])
+}
+
+model PaymentEvent {
+  id               String          @id @default(uuid())
+  paymentAttemptId String
+  paymentAttempt   PaymentAttempt  @relation(fields: [paymentAttemptId], references: [id], onDelete: Cascade)
+  type             String
+  source           String
+  status           PaymentStatus?
+  payload          Json?
+  createdAt        DateTime        @default(now())
+
+  @@index([paymentAttemptId, createdAt])
+  @@index([type, createdAt])
 }
 
 // ==================== E-INVOICE DOCUMENTS ====================

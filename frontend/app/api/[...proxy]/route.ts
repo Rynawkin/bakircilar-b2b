@@ -64,17 +64,25 @@ async function proxyRequest(request: NextRequest, method: string) {
       method,
       headers,
       body,
+      // Bank callbacks may return a 303 to the customer payment page. Following
+      // it server-side would leave the browser on /api/... and return HTML as an
+      // API body; preserve the redirect for the browser instead.
+      redirect: 'manual',
     });
 
     // Get response body
     const responseBody = await response.text();
 
     // Forward response
+    const responseHeaders: Record<string, string> = {
+      'Content-Type': response.headers.get('Content-Type') || 'application/json',
+    };
+    const location = response.headers.get('Location');
+    if (location) responseHeaders.Location = location;
+
     return new NextResponse(responseBody, {
       status: response.status,
-      headers: {
-        'Content-Type': response.headers.get('Content-Type') || 'application/json',
-      },
+      headers: responseHeaders,
     });
   } catch (error: any) {
     console.error('[Proxy] Error:', error.message);

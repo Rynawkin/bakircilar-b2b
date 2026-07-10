@@ -19,6 +19,9 @@ import {
   Notification,
   NotificationPreference,
   EInvoiceDocument,
+  PaymentAmountType,
+  PaymentAttempt,
+  PaymentSummary,
 } from '@/types';
 
 export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID';
@@ -471,6 +474,31 @@ export const customerApi = {
 
   markNotificationsReadAll: async (): Promise<{ updated: number }> => {
     const response = await apiClient.post('/notifications/read-all');
+    return response.data;
+  },
+
+  // Ziraat Nestpay PayByLink (kart verisi banka sayfasinda girilir)
+  getPaymentSummary: async (): Promise<PaymentSummary> => {
+    const response = await apiClient.get('/payments/summary');
+    return response.data;
+  },
+
+  getPaymentHistory: async (limit = 25): Promise<{ payments: PaymentAttempt[] }> => {
+    const response = await apiClient.get('/payments/history', { params: { limit } });
+    return response.data;
+  },
+
+  createPayByLink: async (data: {
+    idempotencyKey: string;
+    amountType: PaymentAmountType;
+    customAmount?: number;
+  }): Promise<{ payment: PaymentAttempt }> => {
+    const response = await apiClient.post('/payments/nestpay/create', data);
+    return response.data;
+  },
+
+  getPaymentStatus: async (id: string): Promise<{ payment: PaymentAttempt }> => {
+    const response = await apiClient.get(`/payments/${id}/status`);
     return response.data;
   },
 

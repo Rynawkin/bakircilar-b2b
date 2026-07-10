@@ -226,7 +226,7 @@ export default function CustomerHomePage() {
                 </div>
               )}
               <Link
-                href="/invoices"
+                href="/payments"
                 className="inline-flex items-center gap-2 rounded-[10px] bg-[#b45309] px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#96450a]"
               >
                 <Wallet className="h-4 w-4" />

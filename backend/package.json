@@ -7,6 +7,7 @@
     "dev": "nodemon src/index.ts",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
+    "test:payments": "npm run build && node --test dist/services/nestpay-paybylink.service.test.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",

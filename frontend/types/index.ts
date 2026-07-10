@@ -753,6 +753,79 @@ export interface EInvoiceDocument {
   updatedAt: string;
 }
 
+// ==================== ONLINE PAYMENT TYPES ====================
+
+export type PaymentAmountType = 'TOTAL_BALANCE' | 'PAST_DUE' | 'CUSTOM';
+export type PaymentStatus =
+  | 'CREATED'
+  | 'PENDING'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'EXPIRED'
+  | 'REVIEW_REQUIRED'
+  | 'CANCELLED';
+
+export interface PaymentAttempt {
+  id: string;
+  orderId: string;
+  customerId: string;
+  customerCode?: string | null;
+  customerName: string;
+  amountType: PaymentAmountType;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  provider: string;
+  bankName: string;
+  paymentLinkUrl?: string | null;
+  linkExpiresAt?: string | null;
+  lastVerifiedAt?: string | null;
+  succeededAt?: string | null;
+  failedAt?: string | null;
+  reconciledAt?: string | null;
+  reconciliationNote?: string | null;
+  bankMessage?: string | null;
+  bankReturnCode?: string | null;
+  bankTransactionStatus?: string | null;
+  requestedByName?: string | null;
+  reconciledByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentSummary {
+  customer: { id: string; code?: string | null; name: string };
+  balance: {
+    total: number;
+    pastDue: number;
+    notDue: number;
+    updatedAt: string;
+    referenceDate?: string | null;
+    source: string;
+  };
+  availability: {
+    total: number;
+    pastDue: number;
+    reserved: number;
+    successfulUnreconciled: number;
+  };
+  gateway: {
+    configured: boolean;
+    enabled: boolean;
+    bankName: string;
+    method: 'PAY_BY_LINK';
+    hosted: true;
+  };
+  eligibility: {
+    canCreate: boolean;
+    balanceFresh: boolean;
+    balanceAgeHours: number;
+    maxBalanceAgeHours: number;
+    reason: 'GATEWAY_DISABLED' | 'GATEWAY_NOT_CONFIGURED' | 'BALANCE_STALE' | 'NO_PAYABLE_BALANCE' | null;
+  };
+  limits: { min: number; max: number; currency: 'TRY' };
+}
+
 export interface Notification {
   id: string;
   category?: string;

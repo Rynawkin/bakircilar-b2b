@@ -37,6 +37,8 @@ import {
   EInvoiceDocument,
   PriceRuleBrandTemplate,
   PriceMarginConsistencyReport,
+  PaymentAttempt,
+  PaymentStatus,
 } from '@/types';
 
 type SupplierPriceListOverrides = {
@@ -920,6 +922,33 @@ const appendSupplierPriceListOverrides = (formData: FormData, overrides?: Suppli
 };
 
 export const adminApi = {
+  // Online odeme / manuel muhasebe mutabakati
+  getPaymentOperations: async (params?: {
+    status?: PaymentStatus | '';
+    reconciled?: 'true' | 'false' | '';
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{
+    items: PaymentAttempt[];
+    pagination: PaginationMeta;
+    totals: Array<{ status: PaymentStatus; count: number; amount: number }>;
+    gateway: { configured: boolean; enabled: boolean; bankName: string; method: 'PAY_BY_LINK' };
+  }> => {
+    const response = await apiClient.get('/payments/admin/list', { params });
+    return response.data;
+  },
+
+  reconcilePayment: async (id: string, note?: string): Promise<{ payment: PaymentAttempt }> => {
+    const response = await apiClient.put(`/payments/admin/${id}/reconcile`, { note: note || null });
+    return response.data;
+  },
+
+  verifyPayment: async (id: string): Promise<{ payment: PaymentAttempt }> => {
+    const response = await apiClient.post(`/payments/admin/${id}/verify`);
+    return response.data;
+  },
+
   // Settings
   getSettings: async (): Promise<Settings> => {
     const response = await apiClient.get('/admin/settings');

@@ -22,6 +22,7 @@ import {
   Package,
   Clock,
   FileText,
+  CreditCard,
   ListTodo,
   ClipboardList,
   Tag,
@@ -38,6 +39,7 @@ import {
 
 const ACCOUNT_LINKS = (pendingRequestCount: number, isSubUser: boolean) => [
   { name: 'Siparişlerim', href: '/my-orders', icon: Package },
+  { name: 'Online Ödeme', href: '/payments', icon: CreditCard },
   { name: 'Faturalarım', href: '/invoices', icon: FileText },
   { name: 'Tekliflerim', href: '/my-quotes', icon: FileText },
   ...(!isSubUser

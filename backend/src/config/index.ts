@@ -1,6 +1,31 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 
 dotenv.config();
+
+// Nestpay secrets are deliberately kept outside git. Local development reads the
+// ignored backend/.env.nestpay.local; production may use the stable shared path
+// or an explicit NESTPAY_ENV_FILE without copying secrets into a release.
+const nestpayEnvCandidates = [
+  process.env.NESTPAY_ENV_FILE,
+  path.resolve(process.cwd(), '.env.nestpay.local'),
+  '/var/www/b2b-shared/.env.nestpay.local',
+].filter(Boolean) as string[];
+const nestpayEnvPath = nestpayEnvCandidates.find((candidate) => fs.existsSync(candidate));
+if (nestpayEnvPath) {
+  dotenv.config({ path: nestpayEnvPath, override: false });
+}
+
+const nestpayConfigured = [
+  process.env.NESTPAY_MERCHANT_ID,
+  process.env.NESTPAY_TERMINAL_ID,
+  process.env.NESTPAY_PROD_API_USERNAME,
+  process.env.NESTPAY_PROD_API_PASSWORD,
+  process.env.NESTPAY_OK_URL,
+  process.env.NESTPAY_FAIL_URL,
+  process.env.NESTPAY_CALLBACK_URL,
+].every((value) => Boolean(String(value || '').trim()));
 
 export const config = {
   // Server
@@ -43,6 +68,31 @@ export const config = {
 
   // CORS
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+
+  // Ziraat Nestpay PayByLink. StoreKey/3D form is intentionally unused because
+  // card entry and 3D authentication happen on the bank-hosted payment page.
+  nestpay: {
+    configured: nestpayConfigured,
+    enabled: nestpayConfigured && process.env.NESTPAY_ENABLED !== 'false',
+    apiUrl: process.env.NESTPAY_PROD_API_URL || 'https://sanalpos2.ziraatbank.com.tr/fim/api',
+    merchantId: process.env.NESTPAY_MERCHANT_ID || '',
+    terminalId: process.env.NESTPAY_TERMINAL_ID || '',
+    apiUsername: process.env.NESTPAY_PROD_API_USERNAME || '',
+    apiPassword: process.env.NESTPAY_PROD_API_PASSWORD || '',
+    okUrl: process.env.NESTPAY_OK_URL || '',
+    failUrl: process.env.NESTPAY_FAIL_URL || '',
+    callbackUrl: process.env.NESTPAY_CALLBACK_URL || '',
+    origin: process.env.NESTPAY_ORIGIN || '',
+    merchantIp: process.env.NESTPAY_MERCHANT_IP || '',
+    bankName: process.env.NESTPAY_BANK_NAME || 'Ziraat Bankasi',
+    merchantDisplayName: process.env.NESTPAY_MERCHANT_DISPLAY_NAME || 'Bakircilar',
+    expiryValue: Math.max(1, parseInt(process.env.NESTPAY_LINK_EXPIRY || '1', 10)),
+    expiryUnit: process.env.NESTPAY_LINK_EXPIRY_UNIT || 'D',
+    minAmount: Math.max(0.01, Number(process.env.NESTPAY_MIN_TRANSACTION_AMOUNT || '1')),
+    maxAmount: Math.max(1, Number(process.env.NESTPAY_MAX_TRANSACTION_AMOUNT || '1000000')),
+    maxBalanceAgeHours: Math.max(1, Number(process.env.NESTPAY_MAX_BALANCE_AGE_HOURS || '96')),
+    requestTimeoutMs: Math.max(5000, parseInt(process.env.NESTPAY_REQUEST_TIMEOUT_MS || '30000', 10)),
+  },
 
   // Cron
   enableCron: process.env.ENABLE_CRON === 'true',
