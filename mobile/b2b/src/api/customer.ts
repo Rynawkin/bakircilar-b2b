@@ -5,12 +5,14 @@ import {
   Cart,
   CollectionCard,
   CollectionDetail,
+  CustomerFinancials,
   ActiveGiftCampaign,
   Notification,
   NotificationPreference,
   Order,
   OrderRequest,
   Product,
+  PersonalRecommendations,
   Quote,
   RecommendationGroup,
   UnboughtCategory,
@@ -71,11 +73,17 @@ export const customerApi = {
     });
     return response.data;
   },
+  getFinancials: async () => {
+    const response = await apiClient.get<{ financials: CustomerFinancials | null }>('/financials');
+    return response.data;
+  },
   getProducts: async (params?: {
     categoryId?: string;
     search?: string;
     warehouse?: string;
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
+    sort?: 'bestsellerValue' | 'lastPurchasedDesc' | 'nameAsc';
+    featured?: boolean;
     limit?: number;
     offset?: number;
   }) => {
@@ -149,6 +157,10 @@ export const customerApi = {
   },
   getCartRecommendations: async () => {
     const response = await apiClient.get<{ groups: RecommendationGroup[] }>('/recommendations/cart');
+    return response.data;
+  },
+  getPersonalRecommendations: async () => {
+    const response = await apiClient.get<PersonalRecommendations>('/recommendations/personal');
     return response.data;
   },
   getActiveGiftCampaign: async () => {

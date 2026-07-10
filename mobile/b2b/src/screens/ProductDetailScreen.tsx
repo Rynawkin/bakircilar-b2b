@@ -481,7 +481,7 @@ export function ProductDetailScreen() {
                       <Image
                         source={{ uri: resolveImageUrl(item.imageUrl) as string }}
                         style={styles.recommendationImage}
-                        resizeMode="cover"
+                        resizeMode="contain"
                       />
                     ) : (
                       <View style={styles.recommendationImagePlaceholder}>

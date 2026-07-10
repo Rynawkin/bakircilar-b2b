@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { CustomerAppHeader } from '../components/CustomerAppHeader';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { normalizeSearchText } from '../utils/search';
 
@@ -62,6 +63,7 @@ export function MoreScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <CustomerAppHeader />
       <ScrollView
         contentContainerStyle={[
           styles.container,
@@ -154,34 +156,25 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   hero: {
-    backgroundColor: colors.primaryDark,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: '#173D78',
-    shadowColor: '#071B3A',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    paddingVertical: spacing.md,
   },
   kicker: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.xs,
-    color: '#BFD7FF',
+    color: colors.primary,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xxl,
-    color: '#FFFFFF',
+    color: colors.textStrong,
     marginTop: spacing.xs,
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
-    color: '#DDE8FF',
+    color: colors.textMuted,
     marginTop: spacing.xs,
   },
   searchCard: {

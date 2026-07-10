@@ -3,14 +3,14 @@
     "name": "Bakircilar B2B",
     "slug": "bakircilar-b2b",
     "scheme": "bakircilar-b2b",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#F7FAFF"
+      "backgroundColor": "#081F3B"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -20,11 +20,21 @@
       "supportsTablet": true
     },
     "android": {
+      "versionCode": 12,
       "package": "com.bakircilar.b2b",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#F7FAFF"
-      }
+        "backgroundColor": "#081F3B"
+      },
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "androidStatusBar": {
+      "backgroundColor": "#F2F5F8",
+      "barStyle": "dark-content"
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#FFFFFF",
+      "barStyle": "dark-content"
     },
     "plugins": [
       "expo-font",

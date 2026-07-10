@@ -19,6 +19,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { customerApi } from '../api/customer';
+import { CustomerAppHeader } from '../components/CustomerAppHeader';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Category, Product } from '../types';
@@ -461,6 +462,7 @@ export function DiscountedProductsScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <CustomerAppHeader />
       <Modal visible={filtersOpen} transparent animationType="slide">
         <Pressable style={styles.modalOverlay} onPress={() => setFiltersOpen(false)}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
@@ -600,7 +602,7 @@ export function DiscountedProductsScreen() {
                     <Image
                       source={{ uri: resolveImageUrl(item.imageUrl) as string }}
                       style={styles.image}
-                      resizeMode="cover"
+                      resizeMode="contain"
                     />
                   ) : (
                     <View style={styles.imagePlaceholder}>
@@ -611,7 +613,7 @@ export function DiscountedProductsScreen() {
                   )}
                 </View>
                 <View style={styles.cardHeader}>
-                  <Text style={styles.cardTitle} numberOfLines={3}>
+                  <Text style={styles.cardTitle} numberOfLines={5}>
                     {item.name}
                   </Text>
                   <View style={styles.badgeWrap}>
@@ -741,35 +743,27 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   hero: {
-    backgroundColor: colors.primaryDark,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
+    backgroundColor: colors.background,
+    paddingVertical: spacing.md,
     gap: spacing.md,
-    borderWidth: 1,
-    borderColor: '#173D78',
-    shadowColor: '#071B3A',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
   },
   heroKicker: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.xs,
-    color: '#BFD7FF',
+    color: colors.danger,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   heroTitle: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xxl,
-    color: '#FFFFFF',
+    color: colors.textStrong,
   },
   heroSubtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
     lineHeight: fontSizes.sm + 6,
-    color: '#DDE8FF',
+    color: colors.textMuted,
   },
   heroMetricRow: {
     flexDirection: 'row',
@@ -779,22 +773,22 @@ const styles = StyleSheet.create({
   heroMetric: {
     minWidth: 86,
     borderRadius: radius.md,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
   heroMetricValue: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.lg,
-    color: '#FFFFFF',
+    color: colors.textStrong,
   },
   heroMetricLabel: {
     marginTop: 2,
     fontFamily: fonts.medium,
     fontSize: fontSizes.xs,
-    color: '#BFD7FF',
+    color: colors.textMuted,
   },
   search: {
     backgroundColor: colors.surface,
@@ -1097,6 +1091,7 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#FFFFFF',
   },
   imagePlaceholder: {
     flex: 1,

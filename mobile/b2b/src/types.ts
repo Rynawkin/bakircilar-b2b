@@ -81,6 +81,24 @@ export interface Category {
   count?: number;
 }
 
+export interface CustomerFinancials {
+  totalBalance: number;
+  pastDueBalance: number;
+  pastDueDate?: string | null;
+  notDueBalance: number;
+  notDueDate?: string | null;
+  paymentTermLabel?: string | null;
+  referenceDate?: string | null;
+}
+
+export interface PersonalRecommendations {
+  products: Product[];
+  missingCategories: Array<{
+    category: { id: string; name: string };
+    products: Product[];
+  }>;
+}
+
 export interface UnboughtCategory {
   id: string;
   name: string;

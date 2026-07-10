@@ -1,6 +1,6 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CartScreen } from '../screens/CartScreen';
@@ -9,12 +9,12 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { ProductsScreen } from '../screens/ProductsScreen';
 import { PurchasedProductsScreen } from '../screens/PurchasedProductsScreen';
-import { colors, fonts, radius, spacing } from '../theme';
+import { colors, fonts } from '../theme';
 import { useNotifications } from '../context/NotificationContext';
 
 export type CustomerTabParamList = {
   Home: undefined;
-  Products: undefined;
+  Products: { categoryId?: string; categoryName?: string; search?: string } | undefined;
   DiscountedProducts: undefined;
   PurchasedProducts: undefined;
   Cart: undefined;
@@ -38,38 +38,39 @@ export function CustomerTabs() {
           backgroundColor: '#FFFFFF',
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 68 + bottomInset,
-          paddingTop: 6,
+          height: 64 + bottomInset,
+          paddingTop: 5,
           paddingBottom: bottomInset,
-          paddingHorizontal: spacing.xs,
-          shadowColor: '#071B3A',
-          shadowOpacity: 0.08,
-          shadowRadius: 10,
+          paddingHorizontal: 2,
+          shadowColor: colors.primaryDark,
+          shadowOpacity: 0.07,
+          shadowRadius: 8,
           shadowOffset: { width: 0, height: -2 },
-          elevation: 10,
+          elevation: 8,
         },
         tabBarItemStyle: {
-          borderRadius: radius.lg,
-          marginHorizontal: 1,
+          minWidth: 0,
+          paddingHorizontal: 0,
         },
         tabBarLabelStyle: {
-          fontFamily: fonts.medium,
-          fontSize: 10,
-          lineHeight: 13,
+          fontFamily: fonts.semibold,
+          fontSize: 9,
+          lineHeight: 11,
         },
         tabBarIcon: ({ color, size, focused }) => {
-          const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
-            Home: 'home',
-            Products: 'grid',
-            DiscountedProducts: 'pricetag',
-            PurchasedProducts: 'bag-check',
-            Cart: 'cart',
-            More: 'ellipsis-horizontal-circle',
+          const iconMap: Record<string, { active: keyof typeof Ionicons.glyphMap; idle: keyof typeof Ionicons.glyphMap }> = {
+            Home: { active: 'home', idle: 'home-outline' },
+            Products: { active: 'grid', idle: 'grid-outline' },
+            DiscountedProducts: { active: 'pricetag', idle: 'pricetag-outline' },
+            PurchasedProducts: { active: 'bag-check', idle: 'bag-check-outline' },
+            Cart: { active: 'cart', idle: 'cart-outline' },
+            More: { active: 'ellipsis-horizontal-circle', idle: 'ellipsis-horizontal-circle-outline' },
           };
-          const iconName = iconMap[route.name] || 'ellipse';
+          const iconName = iconMap[route.name] || { active: 'ellipse', idle: 'ellipse-outline' };
           return (
-            <View style={focused ? { backgroundColor: colors.primaryMuted, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 } : null}>
-              <Ionicons name={iconName} size={Math.max(20, size - 1)} color={color} />
+            <View style={styles.iconShell}>
+              <View style={[styles.activeLine, !focused && styles.activeLineHidden]} />
+              <Ionicons name={focused ? iconName.active : iconName.idle} size={Math.max(19, size - 2)} color={color} />
             </View>
           );
         },
@@ -99,3 +100,22 @@ export function CustomerTabs() {
     </Tab.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  iconShell: {
+    width: 38,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+  },
+  activeLine: {
+    width: 18,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: colors.primary,
+  },
+  activeLineHidden: {
+    opacity: 0,
+  },
+});

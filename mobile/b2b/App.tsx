@@ -3,13 +3,7 @@ import { useEffect } from 'react';
 import { ActivityIndicator, Image, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
-import {
-  Sora_400Regular,
-  Sora_500Medium,
-  Sora_600SemiBold,
-  Sora_700Bold,
-  useFonts,
-} from '@expo-google-fonts/sora';
+import { useFonts } from 'expo-font';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { NotificationProvider } from './src/context/NotificationContext';
@@ -44,10 +38,12 @@ function AuthGate() {
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
-    Sora_400Regular,
-    Sora_500Medium,
-    Sora_600SemiBold,
-    Sora_700Bold,
+    HankenGrotesk_400Regular: require('./assets/HankenGrotesk-Regular.ttf'),
+    HankenGrotesk_500Medium: require('./assets/HankenGrotesk-Regular.ttf'),
+    HankenGrotesk_600SemiBold: require('./assets/HankenGrotesk-Bold.ttf'),
+    HankenGrotesk_700Bold: require('./assets/HankenGrotesk-Bold.ttf'),
+    HankenGrotesk_800ExtraBold: require('./assets/HankenGrotesk-Bold.ttf'),
+    IBMPlexMono_500Medium: require('./assets/IBMPlexMono-Regular.ttf'),
   });
 
   useEffect(() => {
@@ -79,7 +75,7 @@ export default function App() {
     <GestureHandlerRootView style={styles.root}>
       <AuthProvider>
         <NotificationProvider>
-          <StatusBar style="dark" />
+          <StatusBar style="dark" backgroundColor={colors.background} />
           <AuthGate />
         </NotificationProvider>
       </AuthProvider>
@@ -102,7 +98,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     backgroundColor: colors.surface,
-    borderRadius: 20,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     padding: 22,
@@ -118,7 +114,7 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
   loadingText: {
-    fontFamily: 'Sora_600SemiBold',
+    fontFamily: 'HankenGrotesk_600SemiBold',
     fontSize: 14,
     color: colors.text,
   },

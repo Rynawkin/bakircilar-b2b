@@ -17,6 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { customerApi } from '../api/customer';
+import { CustomerAppHeader } from '../components/CustomerAppHeader';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { ActiveGiftCampaign, CartItem, GiftCampaignGift, Product, RecommendationGroup } from '../types';
@@ -417,7 +418,7 @@ export function CartScreen() {
           <Image
             source={{ uri: resolveImageUrl(giftCampaign.mobileBannerImageUrl || giftCampaign.bannerImageUrl) as string }}
             style={styles.giftBanner}
-            resizeMode="cover"
+            resizeMode="contain"
           />
         ) : null}
         <View style={styles.giftHeader}>
@@ -453,7 +454,7 @@ export function CartScreen() {
                   >
                     <View style={styles.giftImageWrap}>
                       {resolveImageUrl(gift.imageUrl) ? (
-                        <Image source={{ uri: resolveImageUrl(gift.imageUrl) as string }} style={styles.giftImage} resizeMode="cover" />
+                        <Image source={{ uri: resolveImageUrl(gift.imageUrl) as string }} style={styles.giftImage} resizeMode="contain" />
                       ) : (
                         <View style={styles.giftImagePlaceholder}>
                           <Text style={styles.recommendationPlaceholderText}>
@@ -486,6 +487,7 @@ export function CartScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <CustomerAppHeader cartCount={items.length} />
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.primary} />
@@ -541,7 +543,7 @@ export function CartScreen() {
               <View style={styles.cartItemHeader}>
                 <View style={styles.cartImageWrap}>
                   {resolveImageUrl(item.product.imageUrl) ? (
-                    <Image source={{ uri: resolveImageUrl(item.product.imageUrl) as string }} style={styles.cartImage} resizeMode="cover" />
+                    <Image source={{ uri: resolveImageUrl(item.product.imageUrl) as string }} style={styles.cartImage} resizeMode="contain" />
                   ) : (
                     <View style={styles.cartImagePlaceholder}>
                       <Text style={styles.cartImagePlaceholderText}>{item.product.name?.trim()?.charAt(0)?.toUpperCase() || '?'}</Text>
@@ -549,7 +551,7 @@ export function CartScreen() {
                   )}
                 </View>
                 <View style={styles.cartItemInfo}>
-                  <Text style={styles.cardTitle} numberOfLines={3} ellipsizeMode="tail">{item.product.name}</Text>
+                  <Text style={styles.cardTitle} numberOfLines={5} ellipsizeMode="tail">{item.product.name}</Text>
                   <Text style={styles.cardMeta} numberOfLines={1} ellipsizeMode="middle">Kod: {item.product.mikroCode}</Text>
                   <View style={styles.priceBadge}>
                     <Text style={styles.priceBadgeText} numberOfLines={1}>{item.priceType === 'INVOICED' ? 'Faturali fiyat' : 'Beyaz fiyat'}</Text>
@@ -649,7 +651,7 @@ export function CartScreen() {
                             <Image
                               source={{ uri: resolveImageUrl(product.imageUrl) as string }}
                               style={styles.recommendationImage}
-                              resizeMode="cover"
+                              resizeMode="contain"
                             />
                           ) : (
                             <View style={styles.recommendationImagePlaceholder}>
@@ -802,31 +804,25 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   hero: {
-    backgroundColor: colors.primaryDark,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
+    backgroundColor: colors.background,
+    paddingVertical: spacing.md,
     gap: spacing.sm,
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 5,
   },
   heroKicker: {
     fontFamily: fonts.semibold,
     fontSize: fontSizes.xs,
-    color: '#BFDBFE',
+    color: colors.primary,
     textTransform: 'uppercase',
   },
   heroTitle: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xxl,
-    color: '#FFFFFF',
+    color: colors.textStrong,
   },
   heroSubtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
-    color: '#DBEAFE',
+    color: colors.textMuted,
     lineHeight: 20,
   },
   heroMetricRow: {
@@ -839,20 +835,20 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     minWidth: 92,
     borderRadius: radius.md,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: colors.border,
     padding: spacing.sm,
   },
   heroMetricValue: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.md,
-    color: '#FFFFFF',
+    color: colors.textStrong,
   },
   heroMetricLabel: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.xs,
-    color: '#BFDBFE',
+    color: colors.textMuted,
   },
   title: {
     fontFamily: fonts.bold,
