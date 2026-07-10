@@ -13,6 +13,7 @@ const PRICE_BASIS_VALUES = new Set([
 ]);
 const ADJUSTMENT_VALUES = new Set(['MARKUP', 'GROSS_MARGIN', 'LOSS', 'NONE']);
 const VAT_VALUES = new Set(['EXCLUDED', 'INCLUDED']);
+const DISPLAY_DENSITY_VALUES = new Set(['STANDARD', 'COMPACT']);
 const ROUNDING_VALUES = new Set([
   'NONE',
   'NEAREST_0_50',
@@ -73,6 +74,7 @@ export type SalesCatalogInput = {
   showStockStatus?: boolean;
   showProductCode?: boolean;
   showUnit?: boolean;
+  displayDensity?: string;
   validFrom?: string | null;
   validTo?: string | null;
   sections?: CatalogSectionInput[];
@@ -255,6 +257,9 @@ class SalesCatalogService {
     if (input.showStockStatus !== undefined) data.showStockStatus = Boolean(input.showStockStatus);
     if (input.showProductCode !== undefined) data.showProductCode = Boolean(input.showProductCode);
     if (input.showUnit !== undefined) data.showUnit = Boolean(input.showUnit);
+    if (input.displayDensity !== undefined) {
+      data.displayDensity = normalizeEnum(input.displayDensity, DISPLAY_DENSITY_VALUES, 'STANDARD');
+    }
     if (input.validFrom !== undefined) data.validFrom = optionalDate(input.validFrom);
     if (input.validTo !== undefined) data.validTo = optionalDate(input.validTo, true);
     return data;
@@ -680,6 +685,7 @@ class SalesCatalogService {
       showStockStatus: catalog.showStockStatus,
       showProductCode: catalog.showProductCode,
       showUnit: catalog.showUnit,
+      displayDensity: catalog.displayDensity,
       generatedAt: new Date(),
     };
     if (!includeAdmin) return { catalog: publicMeta, sections };
@@ -735,6 +741,7 @@ class SalesCatalogService {
       showStockStatus: catalog.showStockStatus,
       showProductCode: catalog.showProductCode,
       showUnit: catalog.showUnit,
+      displayDensity: catalog.displayDensity,
       validFrom: catalog.validFrom,
       validTo: catalog.validTo,
       publishedAt: catalog.publishedAt,

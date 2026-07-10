@@ -242,14 +242,19 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
   doc.text(data.catalog.vatMode === 'INCLUDED' ? 'Fiyatlara KDV dahildir.' : 'Fiyatlara KDV dahil degildir.', 16, height - 12);
 
   const sectionPages: Array<{ title: string; page: number; tocIndex: number }> = [];
-  const cardWidth = 86;
-  const cardHeight = 82;
-  const xPositions = [16, 108];
-  const yPositions = [42, 128, 214];
+  const compact = data.catalog.displayDensity === 'COMPACT';
+  const productsPerPage = compact ? 12 : 6;
+  const columnCount = compact ? 3 : 2;
+  const cardWidth = compact ? (width - 32) / 3 : 86;
+  const cardHeight = compact ? 56 : 82;
+  const xPositions = compact
+    ? [12, 12 + cardWidth + 4, 12 + (cardWidth + 4) * 2]
+    : [16, 108];
+  const yPositions = compact ? [42, 100, 158, 216] : [42, 128, 214];
 
   for (let sectionIndex = 0; sectionIndex < data.sections.length; sectionIndex += 1) {
     const section = data.sections[sectionIndex];
-    for (let start = 0; start < section.products.length; start += 6) {
+    for (let start = 0; start < section.products.length; start += productsPerPage) {
       doc.addPage();
       if (start === 0) {
         sectionPages.push({ title: section.title, page: doc.getNumberOfPages(), tocIndex: sectionIndex });
@@ -264,17 +269,77 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
       doc.setTextColor(muted);
       doc.setFont('Hanken', 'normal');
       doc.setFontSize(8.5);
-      doc.text(`${start + 1}-${Math.min(start + 6, section.products.length)} / ${section.products.length} urun`, 16, 35);
+      doc.text(`${start + 1}-${Math.min(start + productsPerPage, section.products.length)} / ${section.products.length} urun`, 16, 35);
 
-      const pageProducts = section.products.slice(start, start + 6);
+      const pageProducts = section.products.slice(start, start + productsPerPage);
       pageProducts.forEach((product, cardIndex) => {
-        const x = xPositions[cardIndex % 2];
-        const y = yPositions[Math.floor(cardIndex / 2)];
+        const x = xPositions[cardIndex % columnCount];
+        const y = yPositions[Math.floor(cardIndex / columnCount)];
         doc.setDrawColor(line);
         doc.setFillColor('#ffffff');
         doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'FD');
 
         const image = product.imageUrl ? images.get(product.imageUrl) : null;
+        if (compact) {
+          if (image) {
+            drawContainedImage(image, 'JPEG', x + 3, y + 3, 22, 20);
+          } else {
+            doc.setFillColor('#f1f5f9');
+            doc.roundedRect(x + 3, y + 3, 22, 20, 1.5, 1.5, 'F');
+            doc.setTextColor('#94a3b8');
+            doc.setFont('Hanken', 'normal');
+            doc.setFontSize(6.2);
+            doc.text('Gorsel yok', x + 14, y + 13.7, { align: 'center' });
+          }
+
+          doc.setTextColor(ink);
+          doc.setFont('Hanken', 'bold');
+          doc.setFontSize(7.6);
+          const compactNameLines = (doc.splitTextToSize(product.name, cardWidth - 31) as string[]).slice(0, 3);
+          doc.text(compactNameLines, x + 28, y + 7, { lineHeightFactor: 1.02 });
+          if (data.catalog.showProductCode) {
+            doc.setFont('PlexMono', 'normal');
+            doc.setFontSize(6.2);
+            doc.setTextColor(muted);
+            const codeWidth = cardWidth - 31;
+            const measuredCodeWidth = doc.getTextWidth(product.productCode);
+            if (measuredCodeWidth > codeWidth) {
+              doc.setFontSize(Math.max(4.8, 6.2 * (codeWidth / measuredCodeWidth)));
+            }
+            doc.text(product.productCode, x + 28, y + 23);
+          }
+
+          doc.setDrawColor(line);
+          doc.line(x + 3, y + 27, x + cardWidth - 3, y + 27);
+          doc.setTextColor(navy);
+          doc.setFont('Hanken', 'bold');
+          doc.setFontSize(10.5);
+          const priceLabel = formatMoney(product.salePrice);
+          const priceWidth = doc.getTextWidth(priceLabel);
+          if (priceWidth > cardWidth - 6) {
+            doc.setFontSize(Math.max(7.2, 10.5 * ((cardWidth - 6) / priceWidth)));
+          }
+          doc.text(priceLabel, x + 3, y + 37);
+          doc.setTextColor(muted);
+          doc.setFont('Hanken', 'normal');
+          doc.setFontSize(6.5);
+          if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 3, y + 44);
+          if (data.catalog.showStockStatus && product.stockStatus) {
+            const inStock = product.stockStatus === 'IN_STOCK';
+            doc.setFillColor(inStock ? '#ecfdf5' : '#fff7ed');
+            doc.roundedRect(x + 3, y + 47.5, 22, 6.5, 1.3, 1.3, 'F');
+            doc.setTextColor(inStock ? '#047857' : '#c2410c');
+            doc.setFont('Hanken', 'bold');
+            doc.setFontSize(6.1);
+            doc.text(inStock ? 'STOKTA' : 'STOKTA YOK', x + 14, y + 51.8, { align: 'center' });
+          }
+          doc.setTextColor(muted);
+          doc.setFont('Hanken', 'normal');
+          doc.setFontSize(6);
+          doc.text(data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV haric', x + cardWidth - 3, y + 51.8, { align: 'right' });
+          return;
+        }
+
         if (image) {
           drawContainedImage(image, 'JPEG', x + 4, y + 4, 34, 32);
         } else {

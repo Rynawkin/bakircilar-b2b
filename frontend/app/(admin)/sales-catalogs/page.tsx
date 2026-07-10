@@ -34,6 +34,7 @@ import salesCatalogApi, {
   SalesCatalogAdmin,
   SalesCatalogAdminSection,
   SalesCatalogAdjustment,
+  SalesCatalogDisplayDensity,
   SalesCatalogGuard,
   SalesCatalogInput,
   SalesCatalogPresentation,
@@ -86,6 +87,7 @@ type EditorState = {
   showStockStatus: boolean;
   showProductCode: boolean;
   showUnit: boolean;
+  displayDensity: SalesCatalogDisplayDensity;
   validFrom: string;
   validTo: string;
   shareToken?: string;
@@ -120,6 +122,7 @@ const emptyEditor = (): EditorState => ({
   showStockStatus: true,
   showProductCode: true,
   showUnit: true,
+  displayDensity: 'STANDARD',
   validFrom: '',
   validTo: '',
   sections: [],
@@ -149,6 +152,7 @@ const fromCatalog = (catalog: SalesCatalogAdmin): EditorState => ({
   showStockStatus: catalog.showStockStatus,
   showProductCode: catalog.showProductCode,
   showUnit: catalog.showUnit,
+  displayDensity: catalog.displayDensity || 'STANDARD',
   validFrom: isoDate(catalog.validFrom),
   validTo: isoDate(catalog.validTo),
   shareToken: catalog.shareToken,
@@ -233,6 +237,7 @@ function toPayload(editor: EditorState, status: SalesCatalogStatus): SalesCatalo
     showStockStatus: editor.showStockStatus,
     showProductCode: editor.showProductCode,
     showUnit: editor.showUnit,
+    displayDensity: editor.displayDensity,
     validFrom: editor.validFrom || null,
     validTo: editor.validTo || null,
     sections: editor.sections.map((section, sectionIndex) => ({
@@ -594,6 +599,25 @@ export default function SalesCatalogsPage() {
                   <label className={label}>Alt başlık</label>
                   <input className={field} value={editor.subtitle} onChange={(event) => setEditor({ ...editor, subtitle: event.target.value })} placeholder="İşletmenize özel güncel ürün ve fiyat seçkisi" />
                 </div>
+                <div className="sm:col-span-2">
+                  <label className={label}>Katalog görünüm yoğunluğu</label>
+                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-[#d8e0ec] bg-[#f4f6fa] p-1">
+                    {([
+                      { value: 'STANDARD', title: 'Standart', detail: 'Daha büyük ürün kartları' },
+                      { value: 'COMPACT', title: 'Kompakt', detail: 'Daha çok ürün, daha az boşluk' },
+                    ] as Array<{ value: SalesCatalogDisplayDensity; title: string; detail: string }>).map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setEditor({ ...editor, displayDensity: option.value })}
+                        className={`min-w-0 rounded-md px-3 py-2 text-left transition-colors ${editor.displayDensity === option.value ? 'bg-white text-[#15356b] shadow-sm ring-1 ring-[#cdd8e8]' : 'text-[#64748b] hover:bg-white/60'}`}
+                      >
+                        <span className="block text-[12.5px] font-semibold">{option.title}</span>
+                        <span className="mt-0.5 block text-[10.5px] leading-4 text-[#8b97ac]">{option.detail}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div>
                   <label className={label}>Vurgu rengi</label>
                   <div className="flex gap-2">
@@ -869,7 +893,7 @@ export default function SalesCatalogsPage() {
                         <div className="mt-0.5 max-w-[280px] truncate text-[11px] text-[#8b97ac]">{catalog.title}</div>
                       </td>
                       <td className="px-4 py-3"><span className={`inline-flex rounded-md px-2 py-1 text-[10.5px] font-semibold ring-1 ring-inset ${statusClass[catalog.status]}`}>{statusLabel[catalog.status]}</span></td>
-                      <td className="px-4 py-3 text-[#51607a]">{catalog.itemCount || 0} ürün · {catalog.sectionCount || 0} kategori</td>
+                      <td className="px-4 py-3 text-[#51607a]">{catalog.itemCount || 0} ürün · {catalog.sectionCount || 0} kategori<div className="text-[10.5px] text-[#8b97ac]">{catalog.displayDensity === 'COMPACT' ? 'Kompakt görünüm' : 'Standart görünüm'}</div></td>
                       <td className="px-4 py-3 text-[#51607a]">{PRICE_BASIS.find((option) => option.value === catalog.priceBasis)?.label}<div className="text-[10.5px] text-[#8b97ac]">Revizyon {catalog.revision}</div></td>
                       <td className="px-4 py-3 text-[#51607a]">{catalog.viewCount || 0} görüntüleme<div className="text-[10.5px] text-[#8b97ac]">{catalog.pdfDownloadCount || 0} PDF</div></td>
                       <td className="px-4 py-3 text-[#51607a]">{new Date(catalog.updatedAt).toLocaleDateString('tr-TR')}<div className="text-[10.5px] text-[#8b97ac]">{catalog.updatedByName || catalog.createdByName || '-'}</div></td>

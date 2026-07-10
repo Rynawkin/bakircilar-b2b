@@ -6,6 +6,7 @@ export type SalesCatalogAdjustment = 'MARKUP' | 'GROSS_MARGIN' | 'LOSS' | 'NONE'
 export type SalesCatalogVatMode = 'EXCLUDED' | 'INCLUDED';
 export type SalesCatalogRounding = 'NONE' | 'NEAREST_0_50' | 'NEAREST_1' | 'NEAREST_5' | 'END_90' | 'END_99';
 export type SalesCatalogGuard = 'NONE' | 'CURRENT_COST' | 'MAX_COST';
+export type SalesCatalogDisplayDensity = 'STANDARD' | 'COMPACT';
 
 export interface SalesCatalogProductRef {
   id: string;
@@ -55,6 +56,7 @@ export interface SalesCatalogInput {
   showStockStatus?: boolean;
   showProductCode?: boolean;
   showUnit?: boolean;
+  displayDensity?: SalesCatalogDisplayDensity;
   validFrom?: string | null;
   validTo?: string | null;
   sections?: SalesCatalogSectionInput[];
@@ -103,6 +105,7 @@ export interface SalesCatalogAdmin {
   showStockStatus: boolean;
   showProductCode: boolean;
   showUnit: boolean;
+  displayDensity: SalesCatalogDisplayDensity;
   validFrom?: string | null;
   validTo?: string | null;
   publishedAt?: string | null;
@@ -170,6 +173,7 @@ export interface SalesCatalogPresentation {
     showStockStatus: boolean;
     showProductCode: boolean;
     showUnit: boolean;
+    displayDensity: SalesCatalogDisplayDensity;
     generatedAt: string;
     priceBasis?: SalesCatalogPriceBasis;
     adjustmentType?: SalesCatalogAdjustment;

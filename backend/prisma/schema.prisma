@@ -3161,6 +3161,7 @@ model SalesCatalog {
   showStockStatus          Boolean  @default(true)
   showProductCode          Boolean  @default(true)
   showUnit                 Boolean  @default(true)
+  displayDensity           String   @default("STANDARD") // STANDARD | COMPACT
 
   validFrom                DateTime?
   validTo                  DateTime?

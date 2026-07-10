@@ -130,6 +130,7 @@ export default function PublicSalesCatalogPage() {
   const validTo = formatDate(data.catalog.validTo);
   const generatedAt = new Date(data.catalog.generatedAt).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' });
   const accent = data.catalog.accentColor || '#15356b';
+  const compact = data.catalog.displayDensity === 'COMPACT';
 
   return (
     <div className="min-h-screen bg-[#f3f5f8] text-[#14223b]">
@@ -154,21 +155,21 @@ export default function PublicSalesCatalogPage() {
       <section className="overflow-hidden bg-[#0b1d3b] text-white">
         {data.catalog.coverImageUrl && (
           <div className="border-b border-white/10 bg-[#07162e]">
-            <div className="relative mx-auto aspect-[7/3] w-full max-w-[1180px] overflow-hidden">
+            <div className={`relative mx-auto aspect-[7/3] w-full overflow-hidden ${compact ? 'max-w-[980px]' : 'max-w-[1180px]'}`}>
               <img src={data.catalog.coverImageUrl} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover opacity-20" />
               <img src={data.catalog.coverImageUrl} alt={`${data.catalog.title} kapak görseli`} className="absolute inset-0 h-full w-full object-contain" />
               <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#07162e]/45 to-transparent" />
             </div>
           </div>
         )}
-        <div className={`mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 ${data.catalog.coverImageUrl ? 'py-8 sm:py-10' : 'py-14 sm:py-20'}`}>
+        <div className={`mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 ${data.catalog.coverImageUrl ? (compact ? 'py-5 sm:py-6' : 'py-8 sm:py-10') : (compact ? 'py-9 sm:py-12' : 'py-14 sm:py-20')}`}>
           <div className="max-w-4xl">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-white/25 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase">
+            <div className={`${compact ? 'mb-3' : 'mb-4'} inline-flex items-center gap-2 rounded-md border border-white/25 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase`}>
               <FileText className="h-3.5 w-3.5" /> Güncel satış kataloğu
             </div>
-            <h1 className="max-w-4xl text-[34px] font-semibold leading-[1.1] text-white sm:text-[46px]">{data.catalog.title}</h1>
-            {data.catalog.subtitle && <p className="mt-4 max-w-3xl text-[15px] leading-6 text-white/82 sm:text-[17px]">{data.catalog.subtitle}</p>}
-            <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[11.5px] text-white/75">
+            <h1 className={`max-w-4xl font-semibold leading-[1.1] text-white ${compact ? 'text-[30px] sm:text-[40px]' : 'text-[34px] sm:text-[46px]'}`}>{data.catalog.title}</h1>
+            {data.catalog.subtitle && <p className={`max-w-3xl leading-6 text-white/82 ${compact ? 'mt-3 text-[14px] sm:text-[15px]' : 'mt-4 text-[15px] sm:text-[17px]'}`}>{data.catalog.subtitle}</p>}
+            <div className={`${compact ? 'mt-4' : 'mt-6'} flex flex-wrap gap-x-5 gap-y-2 text-[11.5px] text-white/75`}>
               <span className="inline-flex items-center gap-1.5"><PackageCheck className="h-4 w-4" /> {productCount} ürün</span>
               <span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4" /> {data.sections.length} kategori</span>
               {(validFrom || validTo) && <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4" /> {validFrom || '-'} - {validTo || '-'}</span>}
@@ -178,7 +179,7 @@ export default function PublicSalesCatalogPage() {
       </section>
 
       <nav className="sticky top-16 z-40 border-b border-[#dfe5ed] bg-white shadow-[0_5px_18px_rgba(20,34,59,0.06)]">
-        <div className="mx-auto flex max-w-[1440px] gap-1 overflow-x-auto px-4 py-2 sm:px-6 lg:px-8">
+        <div className={`mx-auto flex max-w-[1440px] gap-1 overflow-x-auto px-4 sm:px-6 lg:px-8 ${compact ? 'py-1.5' : 'py-2'}`}>
           {data.sections.map((section) => (
             <button key={section.id} onClick={() => scrollToSection(section.id)} className={`h-9 flex-none rounded-lg px-3 text-[12px] font-semibold transition-colors ${activeSection === section.id ? 'text-white' : 'text-[#51607a] hover:bg-[#f4f6fa]'}`} style={activeSection === section.id ? { backgroundColor: accent } : undefined}>
               {section.title} <span className={activeSection === section.id ? 'text-white/70' : 'text-[#9aa6b8]'}>{section.products.length}</span>
@@ -195,41 +196,41 @@ export default function PublicSalesCatalogPage() {
             ref={(element) => { sectionRefs.current[section.id] = element; }}
             className={`scroll-mt-32 border-b border-[#e0e5ed] ${sectionIndex % 2 === 0 ? 'bg-[#f3f5f8]' : 'bg-white'}`}
           >
-            <div className="mx-auto max-w-[1440px] px-4 py-9 sm:px-6 sm:py-12 lg:px-8">
-              <div className="mb-5 flex items-end justify-between gap-4">
+            <div className={`mx-auto px-4 sm:px-6 lg:px-8 ${compact ? 'max-w-[1600px] py-5 sm:py-7' : 'max-w-[1440px] py-9 sm:py-12'}`}>
+              <div className={`${compact ? 'mb-3' : 'mb-5'} flex items-end justify-between gap-4`}>
                 <div>
                   <div className="mb-2 h-1 w-10 rounded-full" style={{ backgroundColor: accent }} />
-                  <h2 className="text-[24px] font-semibold text-[#14223b] sm:text-[28px]">{section.title}</h2>
+                  <h2 className={`font-semibold text-[#14223b] ${compact ? 'text-[20px] sm:text-[22px]' : 'text-[24px] sm:text-[28px]'}`}>{section.title}</h2>
                   <p className="mt-1 text-[12px] text-[#8b97ac]">{section.products.length} ürün · fiyatlar katalog açılışında güncellendi</p>
                 </div>
-                <span className="hidden text-[42px] font-semibold text-[#e3e8ef] sm:block">{String(sectionIndex + 1).padStart(2, '0')}</span>
+                <span className={`hidden font-semibold text-[#e3e8ef] sm:block ${compact ? 'text-[34px]' : 'text-[42px]'}`}>{String(sectionIndex + 1).padStart(2, '0')}</span>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className={compact ? 'grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}>
                 {section.products.map((product) => (
                   <article key={product.id} className="group overflow-hidden rounded-lg border border-[#dfe5ed] bg-white transition-shadow hover:shadow-[0_12px_28px_rgba(20,34,59,0.09)]">
-                    <div className="relative aspect-[4/3] overflow-hidden border-b border-[#edf0f5] bg-white p-4">
+                    <div className={`relative overflow-hidden border-b border-[#edf0f5] bg-white ${compact ? 'aspect-[5/3] p-2.5' : 'aspect-[4/3] p-4'}`}>
                       {product.imageUrl ? (
                         <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.03]" loading="lazy" />
                       ) : (
                         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[#f7f9fc] text-[#9aa6b8]"><ImageOff className="h-7 w-7" /><span className="text-[11px]">Görsel hazırlanıyor</span></div>
                       )}
                       {data.catalog.showStockStatus && product.stockStatus && (
-                        <span className={`absolute left-3 top-3 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold ring-1 ring-inset ${product.stockStatus === 'IN_STOCK' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-amber-200'}`}>
+                        <span className={`absolute inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold ring-1 ring-inset ${compact ? 'left-2 top-2' : 'left-3 top-3'} ${product.stockStatus === 'IN_STOCK' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-amber-200'}`}>
                           {product.stockStatus === 'IN_STOCK' ? <CheckCircle2 className="h-3 w-3" /> : <PackageX className="h-3 w-3" />}
                           {product.stockStatus === 'IN_STOCK' ? 'Stokta' : 'Stokta yok'}
                         </span>
                       )}
                     </div>
-                    <div className="p-4">
-                      <div className="min-h-[44px] text-[14px] font-semibold leading-[1.45] text-[#14223b]">{product.name}</div>
-                      <div className="mt-2 flex min-h-[18px] flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-[#8b97ac]">
+                    <div className={compact ? 'p-3' : 'p-4'}>
+                      <div className={`font-semibold text-[#14223b] ${compact ? 'min-h-[38px] text-[13px] leading-5' : 'min-h-[44px] text-[14px] leading-[1.45]'}`}>{product.name}</div>
+                      <div className={`${compact ? 'mt-1.5' : 'mt-2'} flex min-h-[18px] flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-[#8b97ac]`}>
                         {data.catalog.showProductCode && <span className="font-mono">{product.productCode}</span>}
                         {data.catalog.showUnit && product.unit && <span>{product.unit}</span>}
                         {product.brandCode && <span>{product.brandCode}</span>}
                       </div>
-                      <div className="mt-4 border-t border-[#edf0f5] pt-3">
+                      <div className={`${compact ? 'mt-2 border-t pt-2' : 'mt-4 border-t pt-3'} border-[#edf0f5]`}>
                         <div className="text-[10.5px] font-medium uppercase text-[#8b97ac]">Satış fiyatı</div>
-                        <div className="mt-0.5 text-[24px] font-semibold tabular-nums" style={{ color: accent }}>{formatCurrency(product.salePrice)}</div>
+                        <div className={`mt-0.5 font-semibold tabular-nums ${compact ? 'text-[20px]' : 'text-[24px]'}`} style={{ color: accent }}>{formatCurrency(product.salePrice)}</div>
                         <div className="mt-1 text-[10.5px] text-[#8b97ac]">{data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV hariç'}{data.catalog.showUnit && product.unit ? ` · ${product.unit} başına` : ''}</div>
                       </div>
                     </div>
@@ -242,7 +243,7 @@ export default function PublicSalesCatalogPage() {
       </main>
 
       <footer className="bg-[#0b1d3b] text-white">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-4 py-9 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+        <div className={`mx-auto flex max-w-[1440px] flex-col px-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8 ${compact ? 'gap-3 py-5' : 'gap-5 py-9'}`}>
           <div>
             <Logo layout="horizontal" tone="white" size="md" />
             <p className="mt-3 max-w-xl text-[11.5px] leading-5 text-white/65">Bu katalog dinamik olarak hazırlanmıştır. Ürün bulunabilirliği ve fiyatlar sipariş anında teyit edilir.</p>
