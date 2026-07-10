@@ -22,6 +22,7 @@ import {
   formatMoney,
   formatPercent,
   getVisibleChecks,
+  operationalCostType,
   usePriceMarginConsistency,
   type IssueFilter,
 } from './usePriceMarginConsistency';
@@ -281,8 +282,8 @@ export default function PriceMarginConsistencyNew() {
                   <th className="min-w-[280px] px-3 py-3">Urun</th>
                   <th className="min-w-[180px] px-3 py-3">Kategori / Marka</th>
                   <th className="min-w-[220px] px-3 py-3">Ana Saglayici</th>
-                  <th className="px-3 py-3 text-right">Maliyet P</th>
                   <th className="px-3 py-3 text-right">Maliyet T</th>
+                  <th className="px-3 py-3 text-right">Maliyet P</th>
                   <th className="min-w-[230px] px-3 py-3">Sorun</th>
                   <th className="px-3 py-3 text-right">Liste</th>
                   <th className="px-3 py-3 text-right">Maks. Fark</th>
@@ -370,7 +371,7 @@ export default function PriceMarginConsistencyNew() {
                                 {checks.map((check) => (
                                   <tr key={check.listNo} className="border-t border-slate-100">
                                     <td className="px-3 py-2 font-semibold">Liste {check.listNo}</td>
-                                    <td className="px-3 py-2 text-slate-600">Maliyet {check.costType} / Marj {check.marginNo}</td>
+                                    <td className="px-3 py-2 text-slate-600">Maliyet {operationalCostType(check.costType)} / Marj {check.marginNo}</td>
                                     <td className="px-3 py-2 text-right tabular-nums">{formatMoney(check.baseCost)}</td>
                                     <td className="px-3 py-2 text-right tabular-nums">{check.margin === null ? '-' : check.margin.toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</td>
                                     <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(check.expectedPrice)}</td>

@@ -57,6 +57,11 @@ export const formatPercent = (value: number | null | undefined) =>
     ? '-'
     : `${Number(value).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 
+// Operasyon ekranlarindaki adlandirma Mikro kolon adlarinin tersidir:
+// Mikro MaliyetP ekranda T, Mikro MaliyetT ise ekranda P olarak gosterilir.
+export const operationalCostType = (costType: 'T' | 'P'): 'T' | 'P' =>
+  costType === 'P' ? 'T' : 'P';
+
 export const canRepairRow = (row: PriceMarginConsistencyRow) =>
   Number(row.costP || 0) > 0 &&
   Number(row.costT || 0) > 0 &&
@@ -283,10 +288,10 @@ export function usePriceMarginConsistency() {
           'Kategori': row.categoryName || row.categoryCode || '',
           'Marka': row.brandCode || '',
           'Ana Saglayici': [row.mainSupplierCode, row.mainSupplierName].filter(Boolean).join(' - '),
-          'Maliyet P': row.costP,
-          'Maliyet T': row.costT,
+          'Maliyet T': row.costP,
+          'Maliyet P': row.costT,
           'Liste': check.listNo,
-          'Maliyet Tipi': check.costType,
+          'Maliyet Tipi': operationalCostType(check.costType),
           'Marj No': check.marginNo,
           'Marj': check.margin,
           'Beklenen Fiyat': check.expectedPrice,

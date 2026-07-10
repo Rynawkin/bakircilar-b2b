@@ -76,7 +76,10 @@ const parseNullableNumber = (value: unknown): number | null => {
 
 const round6 = (value: number) => Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
 
-const normalizeCode = (value: unknown) => String(value || '').trim().toUpperCase();
+const normalizeCode = (value: unknown) => {
+  const scalarValue = Array.isArray(value) ? value[0] : value;
+  return String(scalarValue || '').trim().toUpperCase();
+};
 
 class PriceMarginConsistencyService {
   private snapshot: Snapshot | null = null;
@@ -94,8 +97,20 @@ class PriceMarginConsistencyService {
       .join(',\n          ');
   }
 
+  private buildPriceSelectionColumns() {
+    return Array.from({ length: 10 }, (_, index) => index + 1)
+      .flatMap((listNo) => [
+        `p.price${listNo}`,
+        `p.minPrice${listNo}`,
+        `p.maxPrice${listNo}`,
+        `p.priceCount${listNo}`,
+      ])
+      .join(',\n        ');
+  }
+
   private async loadFreshSnapshot(): Promise<Snapshot> {
     const priceColumns = this.buildPriceAggregationColumns();
+    const priceSelectionColumns = this.buildPriceSelectionColumns();
     const mikroRowsPromise = mikroService.executeQuery(`
       WITH PriceRows AS (
         SELECT
@@ -122,7 +137,7 @@ class PriceMarginConsistencyService {
         u.Marj_3 AS margin3,
         u.Marj_4 AS margin4,
         u.Marj_5 AS margin5,
-        p.*
+        ${priceSelectionColumns}
       FROM STOKLAR s WITH (NOLOCK)
       LEFT JOIN STOKLAR_USER u WITH (NOLOCK) ON s.sto_guid = u.Record_uid
       LEFT JOIN PriceRows p ON p.productCode = s.sto_kod
