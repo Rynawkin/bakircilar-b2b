@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { adminApi } from '@/lib/api/admin';
 import { getPriceListVerificationError } from '@/lib/utils/costPriceUpdate';
@@ -98,9 +99,10 @@ export const toDate = (value: unknown) => {
  * DEGISTIRILMEDEN buraya tasinmistir.
  */
 export function useTumUrunlerMaliyetGuncelleme() {
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [page, setPage] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const [rows, setRows] = useState<any[]>([]);

@@ -445,6 +445,63 @@ export default function AyarlarNew() {
                 </p>
               </div>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-[11px] mt-[14px] pt-[14px] border-t border-[#edf0f5]">
+              <div>
+                <label className={LABEL}>Dusuk Marj Esigi (%)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  className={FIELD}
+                  value={settings.marginAlertLowThreshold ?? 5}
+                  onChange={(e) => setSettings({ ...settings, marginAlertLowThreshold: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label className={LABEL}>Yuksek Marj Esigi (%)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  className={FIELD}
+                  value={settings.marginAlertHighThreshold ?? 70}
+                  onChange={(e) => setSettings({ ...settings, marginAlertHighThreshold: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label className={LABEL}>Mailde En Kotu Satir</label>
+                <input
+                  type="number"
+                  min={5}
+                  max={100}
+                  className={FIELD}
+                  value={settings.marginEmailWorstLimit ?? 15}
+                  onChange={(e) => setSettings({ ...settings, marginEmailWorstLimit: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label className={LABEL}>Eskalasyon (Is Gunu)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  className={FIELD}
+                  value={settings.marginViolationEscalationBusinessDays ?? 3}
+                  onChange={(e) => setSettings({ ...settings, marginViolationEscalationBusinessDays: Number(e.target.value) })}
+                />
+              </div>
+              <label className="flex items-center gap-[9px] text-[12px] text-[#14223b] cursor-pointer self-end min-h-[38px]">
+                <input
+                  type="checkbox"
+                  className="w-[16px] h-[16px] accent-[#15356b]"
+                  checked={settings.marginPersonalEmailEnabled ?? false}
+                  onChange={(e) => setSettings({ ...settings, marginPersonalEmailEnabled: e.target.checked })}
+                />
+                Saticiya Kisisel Ozet
+              </label>
+            </div>
+            <p className="text-[11px] text-[#8b97ac] mt-[8px] m-0 leading-[1.5]">
+              Bu esikler panel, Excel ve e-posta raporunda ayni kullanilir. Kisisel ozetler sadece ilgili sektorlerin saticilarina gider.
+            </p>
           </div>
 
           {/* Tek kaydet butonu */}

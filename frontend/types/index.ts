@@ -873,6 +873,11 @@ export interface Settings {
   marginReportEmailSubject?: string;
   marginReportEmailColumns?: string[];
   marginReportIncludedSectorCodes?: string[];
+  marginAlertLowThreshold?: number;
+  marginAlertHighThreshold?: number;
+  marginEmailWorstLimit?: number;
+  marginPersonalEmailEnabled?: boolean;
+  marginViolationEscalationBusinessDays?: number;
 }
 
 // ==================== CUSTOMER TYPES ====================

@@ -102,6 +102,126 @@ export interface BundleInputPayload {
   items: Array<{ productId: string; quantity: number; useDiscountedPrice: boolean }>;
 }
 
+// Marj ihlali aksiyon merkezi
+export type MarginViolationStatus =
+  | 'OPEN'
+  | 'IN_REVIEW'
+  | 'RESOLVED'
+  | 'REOPENED'
+  | 'ADMIN_CLOSED'
+  | 'INVALIDATED';
+export type MarginViolationBasisType = 'CURRENT' | 'ENTRY';
+export type MarginViolationResolutionType = 'FIXED' | 'APPROVED' | 'DATA_ERROR' | 'EXCLUDED' | 'OTHER';
+
+export interface MarginViolationBasis {
+  id: string;
+  basis: MarginViolationBasisType;
+  violationType: 'NEGATIVE' | 'LOW' | 'HIGH';
+  unitCost: number | null;
+  profit: number | null;
+  margin: number | null;
+  sourceMargin: number | null;
+  dataAvailable: boolean;
+  missingReason: string | null;
+}
+
+export interface MarginViolationAssignee {
+  id: string;
+  userId: string;
+  userName: string | null;
+  notifiedAt: string | null;
+}
+
+export interface MarginViolationNote {
+  id: string;
+  authorId: string | null;
+  authorName: string | null;
+  body: string;
+  isSystem: boolean;
+  createdAt: string;
+}
+
+export interface MarginViolationExclusionProposal {
+  id: string;
+  type: 'BRAND' | 'PRODUCT_CODE' | 'PRODUCT_NAME';
+  value: string;
+  label: string | null;
+  note: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  proposedByName: string | null;
+  decidedByName: string | null;
+  decisionNote: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface MarginViolation {
+  id: string;
+  reportDate: string;
+  rowKey: string;
+  documentNo: string | null;
+  documentType: string | null;
+  customerCode: string | null;
+  customerName: string | null;
+  productCode: string;
+  productName: string | null;
+  quantity: number | null;
+  unit: string | null;
+  quantityLabel: string | null;
+  unitPrice: number | null;
+  revenueNet: number | null;
+  revenueGross: number | null;
+  sectorCode: string | null;
+  status: MarginViolationStatus;
+  claimedById: string | null;
+  claimedByName: string | null;
+  claimedAt: string | null;
+  resolutionType: MarginViolationResolutionType | null;
+  resolutionNote: string | null;
+  resolvedByName: string | null;
+  resolvedAt: string | null;
+  escalatedAt: string | null;
+  invalidatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  repeatCount: number;
+  isRecurring: boolean;
+  bases: MarginViolationBasis[];
+  assignees: MarginViolationAssignee[];
+  notes: MarginViolationNote[];
+  exclusionProposals: MarginViolationExclusionProposal[];
+  availableActions: {
+    canClaim: boolean;
+    canAddNote: boolean;
+    canResolve: boolean;
+    canReopen: boolean;
+    canAdminClose: boolean;
+    canProposeExclusion: boolean;
+    canDecideExclusion: boolean;
+    canOpenPriceVerification: boolean;
+  };
+}
+
+export interface MarginViolationDashboard {
+  open: number;
+  inReview: number;
+  resolved: number;
+  unassigned: number;
+  escalated: number;
+  pendingExclusionProposals: number;
+  totalOpen: number;
+}
+
+export interface MarginViolationScorecardRow {
+  userId: string;
+  userName: string;
+  total: number;
+  open: number;
+  resolved: number;
+  avgResolutionHours: number | null;
+  recurringProductCount: number;
+}
+
 // Cari aktivite / temas raporu
 export type EngagementStatus = 'KAYITSIZ' | 'HIC_GIRMEMIS' | 'AKTIF' | 'YAVASLIYOR' | 'KAYIP_RISKI';
 export type EngagementActionPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -2905,6 +3025,9 @@ export const adminApi = {
     customerType?: string;
     category?: string;
     status?: string;
+    sector?: string;
+    group?: string;
+    search?: string;
     page?: number;
     limit?: number;
     sortBy?: string;
@@ -2932,6 +3055,8 @@ export const adminApi = {
           avgMargin: number;
           negativeLines: number;
           negativeDocuments: number;
+          entryNegativeLines: number;
+          entryNegativeDocuments: number;
         };
         salesSummary: {
           totalRecords: number;
@@ -2942,6 +3067,8 @@ export const adminApi = {
           avgMargin: number;
           negativeLines: number;
           negativeDocuments: number;
+          entryNegativeLines: number;
+          entryNegativeDocuments: number;
         };
         salespersonSummary: Array<{
           sectorCode: string;
@@ -2954,6 +3081,8 @@ export const adminApi = {
             avgMargin: number;
             negativeLines: number;
             negativeDocuments: number;
+            entryNegativeLines: number;
+            entryNegativeDocuments: number;
           };
           salesSummary: {
             totalRecords: number;
@@ -2964,6 +3093,8 @@ export const adminApi = {
             avgMargin: number;
             negativeLines: number;
             negativeDocuments: number;
+            entryNegativeLines: number;
+            entryNegativeDocuments: number;
           };
         }>;
       };
@@ -2975,6 +3106,7 @@ export const adminApi = {
         startDate: string;
         endDate: string;
         includeCompleted: number;
+        thresholds?: { low: number; high: number };
       };
     };
   }> => {
@@ -2985,12 +3117,119 @@ export const adminApi = {
     if (params.customerType) queryParams.append('customerType', params.customerType);
     if (params.category) queryParams.append('category', params.category);
     if (params.status) queryParams.append('status', params.status);
+    if (params.sector) queryParams.append('sector', params.sector);
+    if (params.group) queryParams.append('group', params.group);
+    if (params.search) queryParams.append('search', params.search);
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.limit) queryParams.append('limit', params.limit.toString());
     if (params.sortBy) queryParams.append('sortBy', params.sortBy);
     if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
 
     const response = await apiClient.get(`/admin/reports/margin-compliance?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  exportMarginComplianceReport: async (params: {
+    startDate?: string;
+    endDate?: string;
+    customerType?: string;
+    category?: string;
+    status?: string;
+    sector?: string;
+    group?: string;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<Blob> => {
+    const response = await apiClient.get('/admin/reports/margin-compliance/export', {
+      params,
+      responseType: 'blob',
+    });
+    return response.data as Blob;
+  },
+
+  getMarginViolations: async (params: {
+    page?: number;
+    limit?: number;
+    status?: MarginViolationStatus | 'ALL';
+    search?: string;
+    assignee?: string;
+    from?: string;
+    to?: string;
+    unassigned?: boolean;
+    recurringOnly?: boolean;
+    proposal?: 'pending';
+  } = {}): Promise<{
+    items: MarginViolation[];
+    pagination: PaginationMeta & { limit: number };
+    summary: Partial<Record<MarginViolationStatus, number>>;
+    scope: { canManage: boolean };
+  }> => {
+    const response = await apiClient.get('/admin/margin-violations', { params });
+    return response.data;
+  },
+
+  getMarginViolationDashboard: async (): Promise<MarginViolationDashboard> => {
+    const response = await apiClient.get('/admin/margin-violations/dashboard');
+    return response.data;
+  },
+
+  getMarginViolationScorecard: async (): Promise<{ rows: MarginViolationScorecardRow[] }> => {
+    const response = await apiClient.get('/admin/margin-violations/scorecard');
+    return response.data;
+  },
+
+  claimMarginViolation: async (id: string): Promise<MarginViolation> => {
+    const response = await apiClient.post(`/admin/margin-violations/${id}/claim`);
+    return response.data;
+  },
+
+  addMarginViolationNote: async (id: string, body: string): Promise<MarginViolationNote> => {
+    const response = await apiClient.post(`/admin/margin-violations/${id}/notes`, { body });
+    return response.data;
+  },
+
+  resolveMarginViolation: async (
+    id: string,
+    payload: { resolutionType: MarginViolationResolutionType; note: string }
+  ): Promise<MarginViolation> => {
+    const response = await apiClient.post(`/admin/margin-violations/${id}/resolve`, payload);
+    return response.data;
+  },
+
+  reopenMarginViolation: async (id: string, note: string): Promise<MarginViolation> => {
+    const response = await apiClient.post(`/admin/margin-violations/${id}/reopen`, { note });
+    return response.data;
+  },
+
+  adminCloseMarginViolation: async (id: string, note: string): Promise<MarginViolation> => {
+    const response = await apiClient.post(`/admin/margin-violations/${id}/admin-close`, { note });
+    return response.data;
+  },
+
+  proposeMarginViolationExclusion: async (
+    id: string,
+    payload: { type: 'BRAND' | 'PRODUCT_CODE' | 'PRODUCT_NAME'; value: string; label?: string; note: string }
+  ): Promise<MarginViolationExclusionProposal> => {
+    const response = await apiClient.post(`/admin/margin-violations/${id}/exclusion-proposals`, payload);
+    return response.data;
+  },
+
+  decideMarginViolationExclusion: async (
+    proposalId: string,
+    payload: { approve: boolean; note: string }
+  ): Promise<MarginViolationExclusionProposal> => {
+    const response = await apiClient.post(`/admin/margin-violations/proposals/${proposalId}/decision`, payload);
+    return response.data;
+  },
+
+  openMarginViolationPriceVerification: async (id: string, note?: string): Promise<any> => {
+    const response = await apiClient.post(`/admin/margin-violations/${id}/price-verification`, { note });
+    return response.data;
+  },
+
+  generateMarginViolations: async (dates: string[]): Promise<any> => {
+    const response = await apiClient.post('/admin/margin-violations/generate', { dates });
     return response.data;
   },
 

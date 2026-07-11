@@ -289,6 +289,40 @@ enum ReportSyncStatus {
   FAILED
 }
 
+enum MarginViolationStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REOPENED
+  ADMIN_CLOSED
+  INVALIDATED
+}
+
+enum MarginViolationBasisType {
+  CURRENT
+  ENTRY
+}
+
+enum MarginViolationType {
+  NEGATIVE
+  LOW
+  HIGH
+}
+
+enum MarginViolationResolutionType {
+  FIXED
+  APPROVED
+  DATA_ERROR
+  EXCLUDED
+  OTHER
+}
+
+enum MarginExclusionProposalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum EInvoiceMatchStatus {
   MATCHED
   PARTIAL
@@ -437,6 +471,12 @@ model User {
   quoteHistories     QuoteHistory[] @relation("QuoteHistoryActor")
   activityEvents     CustomerActivityEvent[] @relation("CustomerActivityUser")
   activityCustomerEvents CustomerActivityEvent[] @relation("CustomerActivityCustomer")
+  marginViolationAssignments MarginViolationAssignee[] @relation("MarginViolationAssigneeUser")
+  marginViolationsClaimed MarginViolation[] @relation("MarginViolationClaimedBy")
+  marginViolationsResolved MarginViolation[] @relation("MarginViolationResolvedBy")
+  marginViolationNotes MarginViolationNote[] @relation("MarginViolationNoteAuthor")
+  marginExclusionProposalsMade MarginViolationExclusionProposal[] @relation("MarginExclusionProposalProposer")
+  marginExclusionProposalsDecided MarginViolationExclusionProposal[] @relation("MarginExclusionProposalDecider")
   @@index([email])
   @@index([role])
   @@index([mikroCariCode])
@@ -633,6 +673,11 @@ model Settings {
   marginReportEmailSubject  String                  @default("Kar Marji Raporu")
   marginReportEmailColumns  String[]                @default([])
   marginReportIncludedSectorCodes String[]          @default([])
+  marginAlertLowThreshold   Float                   @default(5)
+  marginAlertHighThreshold  Float                   @default(70)
+  marginEmailWorstLimit     Int                     @default(15)
+  marginPersonalEmailEnabled Boolean                @default(false)
+  marginViolationEscalationBusinessDays Int         @default(3)
 
   // Yapiskan iskonto cozumu: son satis fiyati, satis anindaki liste konumuna
   // endekslenir (PriceChange snapshot'lariyla). false = eski davranis (ham son fiyat).
@@ -2025,6 +2070,7 @@ model MarginComplianceReportDay {
   status       ReportSyncStatus @default(SUCCESS)
   rowCount     Int              @default(0)
   errorMessage String?
+  quality      Json?
   syncedAt     DateTime         @default(now())
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
@@ -2036,18 +2082,149 @@ model MarginComplianceReportDay {
 model MarginComplianceReportRow {
   id           String   @id @default(uuid())
   reportDate   DateTime
+  rowKey       String?
   sectorCode   String?
   groupCode    String?
   avgMargin    Float?
   totalRevenue Float?
+  revenueNet   Float?
+  revenueGross Float?
   totalProfit  Float?
+  currentMarkup Float?
+  entryMargin  Float?
+  entrySourceMargin Float?
   data         Json
   createdAt    DateTime @default(now())
 
+  @@unique([reportDate, rowKey])
   @@index([reportDate])
   @@index([sectorCode])
   @@index([groupCode])
   @@index([avgMargin])
+}
+
+model MarginViolation {
+  id                   String                  @id @default(uuid())
+  reportDate           DateTime
+  rowKey               String
+  fingerprint          String
+  documentNo           String?
+  documentType         String?
+  customerCode         String?
+  customerName         String?
+  productCode          String
+  productName          String?
+  quantity             Float?
+  unit                 String?
+  quantityLabel        String?
+  unitPrice            Float?
+  revenueNet           Float?
+  revenueGross         Float?
+  sectorCode           String?
+  snapshot             Json
+  status               MarginViolationStatus @default(OPEN)
+  claimedById          String?
+  claimedBy            User?                   @relation("MarginViolationClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  claimedByName        String?
+  claimedAt            DateTime?
+  resolutionType       MarginViolationResolutionType?
+  resolvedById         String?
+  resolvedBy           User?                   @relation("MarginViolationResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedByName       String?
+  resolvedAt           DateTime?
+  firstNotifiedAt      DateTime?
+  escalatedAt          DateTime?
+  lastSeenAt           DateTime                @default(now())
+  invalidatedAt        DateTime?
+  priceVerificationRequestId String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  bases                MarginViolationBasis[]
+  assignees            MarginViolationAssignee[]
+  notes                MarginViolationNote[]
+  exclusionProposals   MarginViolationExclusionProposal[]
+
+  @@unique([reportDate, rowKey])
+  @@index([status, reportDate])
+  @@index([sectorCode, status])
+  @@index([productCode, reportDate])
+  @@index([fingerprint, reportDate])
+  @@index([claimedById, status])
+}
+
+model MarginViolationBasis {
+  id                   String                   @id @default(uuid())
+  violationId          String
+  violation            MarginViolation          @relation(fields: [violationId], references: [id], onDelete: Cascade)
+  basis                MarginViolationBasisType
+  violationType        MarginViolationType
+  unitCost             Float?
+  profit               Float?
+  margin               Float?
+  sourceMargin         Float?
+  dataAvailable        Boolean                  @default(true)
+  missingReason        String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  @@unique([violationId, basis])
+  @@index([basis, violationType])
+}
+
+model MarginViolationAssignee {
+  id                   String          @id @default(uuid())
+  violationId          String
+  violation            MarginViolation @relation(fields: [violationId], references: [id], onDelete: Cascade)
+  userId               String
+  user                 User            @relation("MarginViolationAssigneeUser", fields: [userId], references: [id], onDelete: Cascade)
+  userName             String?
+  notifiedAt           DateTime?
+  createdAt            DateTime        @default(now())
+
+  @@unique([violationId, userId])
+  @@index([userId, createdAt])
+}
+
+model MarginViolationNote {
+  id                   String          @id @default(uuid())
+  violationId          String
+  violation            MarginViolation @relation(fields: [violationId], references: [id], onDelete: Cascade)
+  authorId             String?
+  author               User?           @relation("MarginViolationNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  authorName           String?
+  body                 String
+  isSystem             Boolean         @default(false)
+  createdAt            DateTime        @default(now())
+
+  @@index([violationId, createdAt])
+  @@index([authorId])
+}
+
+model MarginViolationExclusionProposal {
+  id                   String                         @id @default(uuid())
+  violationId          String
+  violation            MarginViolation                @relation(fields: [violationId], references: [id], onDelete: Cascade)
+  type                 MarginExclusionType             @default(PRODUCT_CODE)
+  value                String
+  label                String?
+  note                 String
+  status               MarginExclusionProposalStatus  @default(PENDING)
+  proposedById         String?
+  proposedBy           User?                           @relation("MarginExclusionProposalProposer", fields: [proposedById], references: [id], onDelete: SetNull)
+  proposedByName       String?
+  decidedById          String?
+  decidedBy            User?                           @relation("MarginExclusionProposalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedByName        String?
+  decisionNote         String?
+  decidedAt            DateTime?
+  marginExclusionId    String?
+  createdAt            DateTime                       @default(now())
+  updatedAt            DateTime                       @updatedAt
+
+  @@index([status, createdAt])
+  @@index([violationId])
+  @@index([proposedById])
 }
 
 // Marj raporu kullanici bazli dislama kurallari (rapor sayfasindan yonetilir).

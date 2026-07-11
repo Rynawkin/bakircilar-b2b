@@ -114,6 +114,7 @@ export const navItems: NavItem[] = [
     description: 'Raporlar ve analizler',
     permission: [
       'reports:margin-compliance',
+      'reports:margin-violations',
       'reports:price-history',
       'reports:pending-orders',
       'reports:cost-update-alerts',
@@ -135,6 +136,7 @@ export const navItems: NavItem[] = [
   { name: 'Aile Yönetimi', href: '/reports/family-management', icon: LayoutGrid, description: 'Stok ailesi oneri, kume ve aykiri denetimi', permission: 'reports:ucarer-depo' },
   { name: 'Borc-Mal Takasi', href: '/reports/barter-radar', icon: HandCoins, description: 'Vadesi gecmis cari x ihtiyac', permission: 'reports:ucarer-depo' },
   { name: 'Yapiskan Iskonto', href: '/reports/sticky-discounts', icon: Percent, description: 'Eriyen son-satis fiyatlari', permission: 'reports:margin-compliance' },
+  { name: 'Marj Ihlalleri', href: '/margin-violations', icon: AlertTriangle, description: 'Maliyet alti satis aksiyonlari', permission: 'reports:margin-violations' },
   { name: 'Cari Aktivite', href: '/reports/customer-engagement', icon: Activity, description: 'Cari giris, siparis ve temas takibi', permission: 'reports:customer-engagement' },
   { name: 'Aksiyon Radari', href: '/reports/action-radar', icon: AlertTriangle, description: 'Teklif, sepet, katalog ve anomali sinyalleri', permission: ['admin:quotes', 'reports:customer-carts', 'reports:complement-missing', 'admin:products', 'admin:field-sales', 'reports:ucarer-depo'] },
 ];

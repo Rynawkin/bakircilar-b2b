@@ -412,6 +412,25 @@ export class AdminController {
         ],
       });
 
+      const lowThreshold = Number(data.marginAlertLowThreshold ?? settings?.marginAlertLowThreshold ?? 5);
+      const highThreshold = Number(data.marginAlertHighThreshold ?? settings?.marginAlertHighThreshold ?? 70);
+      const worstLimit = Number(data.marginEmailWorstLimit ?? settings?.marginEmailWorstLimit ?? 15);
+      const escalationDays = Number(
+        data.marginViolationEscalationBusinessDays ?? settings?.marginViolationEscalationBusinessDays ?? 3
+      );
+      if (!Number.isFinite(lowThreshold) || lowThreshold < 0 || lowThreshold > 100) {
+        return res.status(400).json({ error: 'Dusuk marj esigi 0 ile 100 arasinda olmali.' });
+      }
+      if (!Number.isFinite(highThreshold) || highThreshold <= lowThreshold || highThreshold > 500) {
+        return res.status(400).json({ error: 'Yuksek marj esigi dusuk esikten buyuk ve en fazla 500 olmali.' });
+      }
+      if (!Number.isInteger(worstLimit) || worstLimit < 5 || worstLimit > 100) {
+        return res.status(400).json({ error: 'Mail satir limiti 5 ile 100 arasinda tam sayi olmali.' });
+      }
+      if (!Number.isInteger(escalationDays) || escalationDays < 1 || escalationDays > 30) {
+        return res.status(400).json({ error: 'Eskalasyon suresi 1 ile 30 is gunu arasinda olmali.' });
+      }
+
       if (!settings) {
         // Yoksa oluştur
         settings = await prisma.settings.create({
@@ -4154,7 +4173,7 @@ export class AdminController {
    */
   async getMarginComplianceReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const { startDate, endDate, includeCompleted, customerType, category, status, page, limit, sortBy, sortOrder } = req.query;
+      const { startDate, endDate, includeCompleted, customerType, category, sector, group, search, status, page, limit, sortBy, sortOrder } = req.query;
 
       const data = await reportsService.getMarginComplianceReport({
         startDate: startDate as string,
@@ -4162,6 +4181,9 @@ export class AdminController {
         includeCompleted: includeCompleted ? parseInt(includeCompleted as string) : undefined,
         customerType: customerType as string,
         category: category as string,
+        sector: sector as string,
+        group: group as string,
+        search: search as string,
         status: status as string,
         page: page ? parseInt(page as string) : undefined,
         limit: limit ? parseInt(limit as string) : undefined,
@@ -4197,6 +4219,9 @@ export class AdminController {
       if (!result.success) {
         return res.status(500).json({ success: false, error: result.error || 'Rapor cekilemedi' });
       }
+
+      const marginViolationService = require('../services/margin-violation.service').default;
+      await marginViolationService.generateForDates([parsedDate]);
 
       res.json({ success: true, data: result });
     } catch (error) {
@@ -5264,6 +5289,27 @@ export class AdminController {
         success: true,
         data,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async exportMarginComplianceReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { buffer, fileName } = await reportsService.exportMarginComplianceReport({
+        startDate: req.query.startDate as string,
+        endDate: req.query.endDate as string,
+        sector: req.query.sector as string,
+        group: req.query.group as string,
+        search: req.query.search as string,
+        status: req.query.status as string,
+        sortBy: req.query.sortBy as string,
+        sortOrder: req.query.sortOrder as 'asc' | 'desc',
+        columnIds: typeof req.query.columns === 'string' ? req.query.columns.split(',').filter(Boolean) : [],
+      });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.send(buffer);
     } catch (error) {
       next(error);
     }

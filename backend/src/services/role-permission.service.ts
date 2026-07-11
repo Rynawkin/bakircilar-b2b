@@ -16,6 +16,7 @@ export const AVAILABLE_PERMISSIONS = {
 
   // Report Pages
   'reports:margin-compliance': 'Marj Uyumsuzluk Raporu',
+  'reports:margin-violations': 'Marj Ihlali Aksiyon Merkezi',
   'reports:price-history': 'Fiyat Degisim Raporu',
   'reports:pending-orders': 'Bekleyen Siparisler',
   'reports:cost-update-alerts': 'Maliyet Guncelleme Uyarilari',
@@ -78,6 +79,7 @@ export const PERMISSION_DESCRIPTIONS = {
 
   // Report Pages
   'reports:margin-compliance': 'Marj uyumsuzluk raporuna erisim izni verir',
+  'reports:margin-violations': 'Kendi sektorundeki maliyet alti satis ihlallerini inceleme ve kapatma izni verir',
   'reports:price-history': 'Fiyat degisim gecmisi raporuna erisim izni verir',
   'reports:pending-orders': 'Bekleyen siparisler raporuna erisim izni verir',
   'reports:cost-update-alerts': 'Maliyet guncelleme uyarilari raporuna erisim izni verir',
@@ -288,6 +290,7 @@ class RolePermissionService {
         'reports:customer-carts',
         'reports:customer-recovery',
         'reports:customer-engagement',
+        'reports:margin-violations',
         'reports:staff-activity',
         'reports:ucarer-depo',
         'reports:ucarer-minmax',

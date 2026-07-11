@@ -17,6 +17,7 @@ import tenderCostController from '../controllers/tender-cost.controller';
 import productComplementController from '../controllers/product-complement.controller';
 import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
 import auditLogController from '../controllers/audit-log.controller';
+import marginViolationController from '../controllers/margin-violation.controller';
 import productDimensionsController from '../controllers/product-dimensions.controller';
 import stockCreateController from '../controllers/stock-create.controller';
 import hotSaleController from '../controllers/hot-sale.controller';
@@ -679,6 +680,20 @@ router.get('/reports/cost-update-alerts', requirePermission('reports:cost-update
 // İndirimli fiyatı son giriş maliyetinin altında kalan ürünler (hatalı/eski güncel maliyet tespiti)
 router.get('/reports/discount-below-entry-cost', requirePermission('reports:cost-update-alerts'), adminController.getDiscountBelowEntryCostReport);
 router.get('/reports/margin-compliance', requirePermission('reports:margin-compliance'), adminController.getMarginComplianceReport);
+router.get('/reports/margin-compliance/export', requirePermission('reports:margin-compliance'), adminController.exportMarginComplianceReport);
+router.get('/margin-violations', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.list(req, res, next));
+router.get('/margin-violations/dashboard', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.dashboard(req, res, next));
+router.get('/margin-violations/scorecard', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.scorecard(req, res, next));
+router.post('/margin-violations/generate', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.generate(req, res, next));
+router.post('/margin-violations/escalations/run', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.runEscalations(req, res, next));
+router.post('/margin-violations/proposals/:proposalId/decision', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.decideExclusion(req, res, next));
+router.post('/margin-violations/:id/claim', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.claim(req, res, next));
+router.post('/margin-violations/:id/notes', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.addNote(req, res, next));
+router.post('/margin-violations/:id/resolve', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.resolve(req, res, next));
+router.post('/margin-violations/:id/reopen', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.reopen(req, res, next));
+router.post('/margin-violations/:id/admin-close', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.adminClose(req, res, next));
+router.post('/margin-violations/:id/exclusion-proposals', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.proposeExclusion(req, res, next));
+router.post('/margin-violations/:id/price-verification', requirePermission('reports:margin-violations'), (req, res, next) => marginViolationController.openPriceVerification(req, res, next));
 router.post('/reports/margin-compliance/sync', requirePermission('reports:margin-compliance'), adminController.syncMarginComplianceReport);
 router.post('/reports/margin-compliance/email', requirePermission('reports:margin-compliance'), adminController.sendMarginComplianceReportEmail);
 // Marj raporu dislama kurallari (marka / stok kodu / stok adi) - rapor sayfasindan yonetilir

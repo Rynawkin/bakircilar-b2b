@@ -27,6 +27,7 @@ import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { EkstreModal } from '@/components/admin/EkstreModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useDashboard, DashboardFilterPeriod } from './useDashboard';
+import { MarginViolationBanner } from '@/components/admin/MarginViolationBanner';
 
 const CARD =
   'bg-white border border-[#e7ebf2] rounded-xl';
@@ -192,6 +193,8 @@ export default function DashboardNew() {
               )}
             </div>
           </div>
+
+          <MarginViolationBanner />
 
           {/* Stats */}
           {stats && (

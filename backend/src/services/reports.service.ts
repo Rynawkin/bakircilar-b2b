@@ -15,7 +15,7 @@ import priceListService from './price-list.service';
 import pricingService from './pricing.service';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 
 interface CostUpdateAlert {
@@ -800,16 +800,44 @@ const getYesterdayInTimeZone = (timeZone: string): Date => {
 };
 
 let marginDefaultSectorCodesCache: { codes: string[]; fetchedAt: number } | null = null;
+let marginSectorScopeState: { source: 'SETTINGS' | 'MIKRO' | 'STALE_CACHE'; warning: string | null } = {
+  source: 'MIKRO',
+  warning: null,
+};
+
+const stableJsonStringify = (value: unknown): string => {
+  if (value === null || value === undefined) return JSON.stringify(value ?? null);
+  if (Array.isArray(value)) return `[${value.map(stableJsonStringify).join(',')}]`;
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+};
+
+const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
+
+const attachDeterministicRowKeys = <T extends { data: Record<string, any> }>(rows: T[]): Array<T & { rowKey: string }> => {
+  const occurrences = new Map<string, number>();
+  return rows.map((row) => {
+    const baseHash = sha256(stableJsonStringify(row.data));
+    const occurrence = (occurrences.get(baseHash) || 0) + 1;
+    occurrences.set(baseHash, occurrence);
+    return { ...row, rowKey: `${baseHash}:${occurrence}` };
+  });
+};
+const DEFAULT_MARGIN_THRESHOLDS: MarginThresholds = { low: 5, high: 70, worstLimit: 15 };
 
 // Marj raporu kullanici bazli dislama servisi (marka / stok kodu / stok adi).
 // Ust import blogu yerine require: marj bolgesi disina dokunmamak icin
 // (ayni kalip mikroFactory icin de kullaniliyor).
 const getMarginExclusionService = () => require('./margin-exclusion.service').default;
 
-const toNumber = (value: unknown): number => {
+const parseNumberOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null;
   if (typeof value === 'string') {
     const trimmed = value.trim();
-    if (!trimmed) return 0;
+    if (!trimmed) return null;
 
     let normalized = trimmed.replace(/\s+/g, '');
     if (normalized.includes(',') && normalized.includes('.')) {
@@ -823,16 +851,17 @@ const toNumber = (value: unknown): number => {
     }
 
     const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : 0;
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   const num = Number(value);
-  return Number.isFinite(num) ? num : 0;
+  return Number.isFinite(num) ? num : null;
 };
 
+const toNumber = (value: unknown): number => parseNumberOrNull(value) ?? 0;
+
 const hasNumericValue = (value: unknown): boolean => {
-  if (value === null || value === undefined || value === '') return false;
-  return Number.isFinite(toNumber(value));
+  return parseNumberOrNull(value) !== null;
 };
 
 const areSameMoney = (left: number, right: number): boolean => {
@@ -987,7 +1016,7 @@ const pickCurrentUnitRevenueBasis = (data: Record<string, any>): number => {
 
 // GUNCEL maliyet tabanina gore kar hesabi. Son giris tabani ayridir:
 // Mikro'nun kendi SO-... kolonlarindan okunur (pickEntryProfit / pickEntryMargin).
-const calculateCurrentProfit = (data: Record<string, any>): { unitProfit: number; totalProfit: number; margin: number; costBasis: number; revenueBasis: number; totalCost: number } => {
+const calculateCurrentProfit = (data: Record<string, any>): { unitProfit: number; totalProfit: number; margin: number; markup: number; costBasis: number; revenueBasis: number; totalCost: number } => {
   const quantity = pickQuantity(data);
   const costBasis = pickCurrentCostBasis(data);
   const revenueBasis = pickCurrentRevenueBasis(data);
@@ -995,8 +1024,11 @@ const calculateCurrentProfit = (data: Record<string, any>): { unitProfit: number
   const unitProfit = unitRevenue - costBasis;
   const totalProfit = revenueBasis - costBasis * quantity;
   const totalCost = costBasis * quantity;
-  const margin = totalCost > 0 ? (totalProfit / totalCost) * 100 : revenueBasis > 0 ? (totalProfit / revenueBasis) * 100 : 0;
-  return { unitProfit, totalProfit, margin, costBasis, revenueBasis, totalCost };
+  // Yonetim raporundaki tek marj tanimi: kar / ciro. Kar / maliyet ayrica
+  // "maliyet uzerine kar" (markup) olarak tutulur; alarm esigi olarak kullanilmaz.
+  const margin = revenueBasis > 0 ? (totalProfit / revenueBasis) * 100 : 0;
+  const markup = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+  return { unitProfit, totalProfit, margin, markup, costBasis, revenueBasis, totalCost };
 };
 
 const pickTotalProfit = (row: Record<string, any>): number => {
@@ -1099,40 +1131,47 @@ const pickAvgMargin = (data: Record<string, any>): number => {
   return calculateCurrentProfit(data).margin;
 };
 
-const pickEntryProfit = (data: Record<string, any>): number => {
+const pickEntryProfitValue = (data: Record<string, any>): number | null => {
   const resolved = resolveDataValueByCandidates(
     data,
     ['SÃ–-ToplamKar', 'SO-ToplamKar', 'SÃƒâ€“-ToplamKar'],
     'sotoplamkar'
   );
   if (resolved !== null && resolved !== undefined) {
-    return toNumber(resolved);
+    return parseNumberOrNull(resolved);
   }
   const direct = pickValueByKeys(data, ['SÃ–-ToplamKar', 'SÃƒâ€“-ToplamKar']);
   if (direct !== null && direct !== undefined) {
-    return toNumber(direct);
+    return parseNumberOrNull(direct);
   }
   const fallback = findValueByNormalizedToken(data, 'sotoplamkar');
-  return toNumber(fallback);
+  return parseNumberOrNull(fallback);
 };
+
+const pickEntryProfit = (data: Record<string, any>): number => pickEntryProfitValue(data) ?? 0;
 
 const pickCurrentCost = (data: Record<string, any>): number => {
   // Guncel maliyet, satirin KDV duzlemine cevrilmis hali.
   return pickCurrentCostBasis(data);
 };
 
-const pickEntryMargin = (data: Record<string, any>, revenue?: number): number => {
+const pickEntrySourceMargin = (data: Record<string, any>): number | null => {
   const resolved = resolveDataValueByCandidates(
     data,
     ['SÃ–-KarYuzde', 'SO-KarYuzde', 'SÃƒâ€“-KarYuzde', 'SÃ–-KarYÃ¼zde'],
     'sokaryuzde'
   );
   if (resolved !== null && resolved !== undefined) {
-    return toNumber(resolved);
+    return parseNumberOrNull(resolved);
   }
 
+  return null;
+};
+
+const pickEntryMargin = (data: Record<string, any>, revenue?: number): number => {
   const safeRevenue = Number.isFinite(revenue) ? Number(revenue) : pickRevenue(data);
-  const entryProfit = pickEntryProfit(data);
+  const entryProfit = pickEntryProfitValue(data);
+  if (entryProfit === null) return 0;
   return safeRevenue > 0 ? (entryProfit / safeRevenue) * 100 : 0;
 };
 
@@ -1217,22 +1256,15 @@ const pickUnit = (data: Record<string, any>): string => {
   return direct ? String(direct) : '';
 };
 
-const pickRevenue = (data: Record<string, any>): number => {
-  const resolved = resolveDataValueByCandidates(
-    data,
-    ['Tutar', 'TutarKDV', 'Tutar KDV', 'Tutar KDVli'],
-    'tutar'
-  );
-  if (resolved !== null && resolved !== undefined) {
-    return toNumber(resolved);
-  }
-  const direct = pickValueByKeys(data, ['Tutar']);
-  if (direct !== null && direct !== undefined) {
-    return toNumber(direct);
-  }
-  const fallback = pickValueByKeys(data, ['TutarKDV', 'Tutar KDV', 'Tutar KDVli']);
-  return toNumber(fallback);
-};
+const pickRevenueNet = (data: Record<string, any>): number =>
+  toNumber(resolveDataValueByCandidates(data, ['Tutar'], 'tutar'));
+
+const pickRevenueGross = (data: Record<string, any>): number =>
+  toNumber(resolveDataValueByCandidates(data, ['TutarKDV', 'Tutar KDV', 'Tutar KDVli'], 'tutarkdv'));
+
+// Tum rapor, mail ve alarm hesaplari ayni ekonomik gelir bazini kullanir.
+// Ham net/brut tutarlar ayri kolonlarda saklanir; beyaz satis KDV duzlemi korunur.
+const pickRevenue = (data: Record<string, any>): number => pickCurrentRevenueBasis(data);
 
 // Mikro '01.01.1900' gibi placeholder tarihler gonderebiliyor; bunlari gecersiz say.
 const MARGIN_MIN_VALID_YEAR = 1990;
@@ -1316,15 +1348,17 @@ const pickUnitPrice = (data: Record<string, any>): number => {
 };
 
 const buildMarginAlertRow = (
-  row: { avgMargin?: number | null; data?: unknown }
+  row: { avgMargin?: number | null; data?: unknown; sectorCode?: string | null }
 ): MarginAlertRow => {
   const data = getRowData(row);
   const computed = calculateCurrentProfit(data);
   const revenue = pickRevenue(data);
   const profit = computed.totalProfit;
   const entryProfit = pickEntryProfit(data);
+  const entryProfitValue = pickEntryProfitValue(data);
   const avgMargin = computed.margin;
   const entryMargin = pickEntryMargin(data, revenue);
+  const entrySourceMargin = pickEntrySourceMargin(data);
   const quantity = pickQuantity(data);
   const unit = pickUnit(data);
   // Birim fiyat, marj hesabinda kullanilan gelir bazi ile ayni KDV duzleminde gosterilir.
@@ -1333,6 +1367,7 @@ const buildMarginAlertRow = (
   return {
     documentNo: resolveDocumentKey(data) || '',
     documentType: pickDocumentType(data),
+    customerCode: pickCustomerCode(data),
     customerName: pickCustomerName(data),
     productCode: pickStockCode(data),
     productName: pickStockName(data),
@@ -1343,10 +1378,17 @@ const buildMarginAlertRow = (
     unitCost: computed.costBasis,
     unitCostEntry: pickEntryUnitCostBasis(data),
     revenue,
+    revenueNet: pickRevenueNet(data),
+    revenueGross: pickRevenueGross(data),
     profit,
     entryProfit,
     avgMargin,
+    currentMarkup: computed.markup,
     entryMargin,
+    entrySourceMargin,
+    currentDataAvailable: computed.costBasis > 0 && computed.revenueBasis > 0,
+    entryDataAvailable: entryProfitValue !== null && pickEntryUnitCostBasis(data) > 0 && revenue > 0,
+    sectorCode: resolveSectorCode(row, data),
   };
 };
 
@@ -1382,22 +1424,29 @@ const sortAlertRows = (
 };
 
 const buildAlertSet = (
-  rows: Array<{ avgMargin?: number | null; data?: unknown }>,
-  field: 'avgMargin' | 'entryMargin'
+  rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>,
+  field: 'avgMargin' | 'entryMargin',
+  thresholds: MarginThresholds
 ): MarginAlertSet => {
   const negative: MarginAlertRow[] = [];
   const low: MarginAlertRow[] = [];
   const high: MarginAlertRow[] = [];
+  const missing: MarginAlertRow[] = [];
 
   rows.forEach((row) => {
     const alertRow = buildMarginAlertRow(row);
+    const available = field === 'entryMargin' ? alertRow.entryDataAvailable : alertRow.currentDataAvailable;
+    if (!available) {
+      missing.push(alertRow);
+      return;
+    }
     const marginValue = Number.isFinite(alertRow[field]) ? alertRow[field] : 0;
     if (marginValue < 0) {
       negative.push(alertRow);
-    } else if (marginValue < 5) {
+    } else if (marginValue < thresholds.low) {
       low.push(alertRow);
     }
-    if (marginValue > 70) {
+    if (marginValue > thresholds.high) {
       high.push(alertRow);
     }
   });
@@ -1406,14 +1455,15 @@ const buildAlertSet = (
   sortAlertRows(low, 'asc', field);
   sortAlertRows(high, 'desc', field);
 
-  return { negative, low, high };
+  return { negative, low, high, missing };
 };
 
 const buildAlertSummary = (
-  rows: Array<{ avgMargin?: number | null; data?: unknown }>
+  rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>,
+  thresholds: MarginThresholds
 ): MarginAlertSummary => ({
-  current: buildAlertSet(rows, 'avgMargin'),
-  entry: buildAlertSet(rows, 'entryMargin'),
+  current: buildAlertSet(rows, 'avgMargin', thresholds),
+  entry: buildAlertSet(rows, 'entryMargin', thresholds),
 });
 
 const aggregateRows = (
@@ -1473,7 +1523,7 @@ const buildTopBottom = (
 ): MarginTopBottom => {
   const aggregates = aggregateRows(rows, keyResolver, nameResolver);
   const top = [...aggregates].sort((a, b) => b.profit - a.profit).slice(0, limit);
-  const bottom = [...aggregates].sort((a, b) => a.avgMargin - b.avgMargin).slice(0, limit);
+  const bottom = [...aggregates].filter((entry) => entry.profit < 0).sort((a, b) => a.profit - b.profit).slice(0, limit);
   return { top, bottom };
 };
 
@@ -1520,7 +1570,7 @@ const filterMarginRowsBySectorCodes = <
 
   const allowed = new Set(
     includedSectorCodes
-      .map((code) => String(code || '').trim())
+      .map((code) => String(code || '').trim().toLocaleUpperCase('tr-TR'))
       .filter(Boolean)
   );
 
@@ -1529,7 +1579,7 @@ const filterMarginRowsBySectorCodes = <
   return rows.filter((row) => {
     const data = getRowData(row);
     const sectorCode = resolveSectorCode(row, data);
-    return allowed.has(sectorCode);
+    return allowed.has(sectorCode.toLocaleUpperCase('tr-TR'));
   });
 };
 
@@ -1543,14 +1593,17 @@ const DEFAULT_MARGIN_REPORT_EMAIL_COLUMNS = [
   'stockName',
   'quantity',
   'unitPrice',
-  'totalAmount',
+  'revenueNet',
+  'revenueGross',
   'avgCost',
   'unitProfit',
   'totalProfit',
   'margin',
+  'currentMarkup',
   'entryUnitCost',
   'entryProfit',
   'entryMargin',
+  'entrySourceMargin',
 ];
 
 const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data: Record<string, any>) => unknown }> = {
@@ -1575,7 +1628,7 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     resolve: (data) => resolveDataValueByCandidates(data, ['Stok Kodu'], 'stokkodu'),
   },
   stockName: {
-    label: 'ÃƒÅ“rÃƒÂ¼n AdÃ„Â±',
+    label: 'Ürün Adı',
     resolve: (data) => resolveDataValueByCandidates(data, ['Stok Ã„Â°smi', 'Stok Ãƒâ€Ã‚Â°smi', 'Stok Ismi', 'Stok Ä°smi'], 'stokismi'),
   },
   quantity: {
@@ -1587,12 +1640,20 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     },
   },
   unitPrice: {
-    label: 'Birim SatÃ„Â±Ã…Å¸',
-    resolve: (data) => resolveDataValueByCandidates(data, ['BirimSatÃ„Â±Ã…Å¸KDV', 'BirimSatÃƒâ€Ã‚Â±Ãƒâ€¦Ã…Â¾KDV', 'BirimSatisKDV', 'BirimSatÄ±ÅŸKDV'], 'birimsatiskdv'),
+    label: 'Birim Satış',
+    resolve: (data) => pickCurrentUnitRevenueBasis(data),
   },
   totalAmount: {
-    label: 'Tutar (KDV)',
-    resolve: (data) => resolveDataValueByCandidates(data, ['TutarKDV'], 'tutarkdv'),
+    label: 'Ciro (Hesap Bazı)',
+    resolve: (data) => pickRevenue(data),
+  },
+  revenueNet: {
+    label: 'Ciro (KDV Hariç)',
+    resolve: (data) => pickRevenueNet(data),
+  },
+  revenueGross: {
+    label: 'Ciro (KDV Dahil)',
+    resolve: (data) => pickRevenueGross(data),
   },
   avgCost: {
     label: 'Guncel Maliyet (KDV Duzlemine Gore)',
@@ -1607,8 +1668,12 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     resolve: (data) => pickTotalProfit(data),
   },
   margin: {
-    label: 'Kar % (Guncel)',
+    label: 'Kâr / Ciro % (Güncel)',
     resolve: (data) => pickAvgMargin(data),
+  },
+  currentMarkup: {
+    label: 'Kâr / Maliyet % (Bilgi)',
+    resolve: (data) => calculateCurrentProfit(data).markup,
   },
   entryUnitCost: {
     label: 'Birim Maliyet (Son Giris)',
@@ -1619,8 +1684,12 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     resolve: (data) => pickEntryProfit(data),
   },
   entryMargin: {
-    label: 'Kar % (Son Giris)',
+    label: 'Kâr / Ciro % (Son Giriş)',
     resolve: (data) => pickEntryMargin(data),
+  },
+  entrySourceMargin: {
+    label: 'Mikro SÖ % (Bilgi)',
+    resolve: (data) => pickEntrySourceMargin(data),
   },
   TeklifAdetKar: {
     label: 'TeklifAdetKar (Hesaplanan)',
@@ -1673,6 +1742,16 @@ type MarginSummaryBucket = {
   avgMargin: number;
   negativeLines: number;
   negativeDocuments: number;
+  entryNegativeLines: number;
+  entryNegativeDocuments: number;
+  currentDataMissingLines: number;
+  entryDataMissingLines: number;
+};
+
+type MarginThresholds = {
+  low: number;
+  high: number;
+  worstLimit: number;
 };
 
 type MarginComplianceSummary = {
@@ -1698,6 +1777,7 @@ type MarginComplianceSummary = {
 type MarginAlertRow = {
   documentNo: string;
   documentType: string;
+  customerCode: string;
   customerName: string;
   productCode: string;
   productName: string;
@@ -1708,16 +1788,24 @@ type MarginAlertRow = {
   unitCost: number;
   unitCostEntry: number;
   revenue: number;
+  revenueNet: number;
+  revenueGross: number;
   profit: number;
   entryProfit: number;
   avgMargin: number;
+  currentMarkup: number;
   entryMargin: number;
+  entrySourceMargin: number | null;
+  currentDataAvailable: boolean;
+  entryDataAvailable: boolean;
+  sectorCode: string;
 };
 
 type MarginAlertSet = {
   negative: MarginAlertRow[];
   low: MarginAlertRow[];
   high: MarginAlertRow[];
+  missing: MarginAlertRow[];
 };
 
 type MarginAlertSummary = {
@@ -1764,12 +1852,28 @@ type MarginSevenDaySummary = {
   overall: MarginSummaryBucket;
   orders: MarginSummaryBucket;
   sales: MarginSummaryBucket;
+  days: Array<{
+    date: Date;
+    status: 'SUCCESS' | 'FAILED' | 'MISSING';
+    overall: MarginSummaryBucket | null;
+    quality: Record<string, any> | null;
+  }>;
 };
 
 type MarginComplianceEmailSummary = MarginComplianceSummary & {
   alerts: MarginAlertGroups;
   topBottom: MarginTopBottomSummary;
   sevenDaySummary: MarginSevenDaySummary;
+  thresholds: MarginThresholds;
+  previousDay: {
+    status: 'SUCCESS' | 'FAILED' | 'MISSING';
+    summary: MarginComplianceSummary | null;
+  };
+  dayQuality: Record<string, any> | null;
+  priorDayRefreshQuality: Record<string, any> | null;
+  salespersonNamesBySector: Record<string, string[]>;
+  violationStatsBySector: Record<string, { open: number; resolvedOnReportDate: number }>;
+  productRepeatCounts: Record<string, number>;
   // Rapor sayfasindan yonetilen aktif marka/urun dislama kurali sayisi (dipnot icin).
   activeExclusionCount: number;
 };
@@ -1818,46 +1922,60 @@ const buildMarginSummaryBucket = (
   options: { useTypePrefix?: boolean } = {}
 ): MarginSummaryBucket => {
   const useTypePrefix = options.useTypePrefix === true;
-  const docMap = new Map<string, { profit: number; revenue: number }>();
+  const docMap = new Map<string, { profit: number; entryProfit: number; revenue: number }>();
   let totalRevenue = 0;
   let totalCost = 0;
   let totalProfit = 0;
   let entryProfit = 0;
   let negativeLines = 0;
+  let entryNegativeLines = 0;
+  let currentDataMissingLines = 0;
+  let entryDataMissingLines = 0;
 
   rows.forEach((row) => {
     const data = getRowData(row);
     const revenue = pickRevenue(data);
     const computed = calculateCurrentProfit(data);
     const profit = computed.totalProfit;
-    const entryProfitValue = pickEntryProfit(data);
+    const entryProfitRaw = pickEntryProfitValue(data);
+    const entryProfitValue = entryProfitRaw ?? 0;
     totalRevenue += revenue;
     totalCost += computed.totalCost;
     totalProfit += profit;
     entryProfit += entryProfitValue;
-    if (profit < 0) {
+    const currentDataAvailable = computed.costBasis > 0 && computed.revenueBasis > 0;
+    const entryDataAvailable = entryProfitRaw !== null && pickEntryUnitCostBasis(data) > 0 && revenue > 0;
+    if (!currentDataAvailable) currentDataMissingLines += 1;
+    if (!entryDataAvailable) entryDataMissingLines += 1;
+    if (currentDataAvailable && profit < 0) {
       negativeLines += 1;
+    }
+    if (entryDataAvailable && entryProfitValue < 0) {
+      entryNegativeLines += 1;
     }
 
     const docKey = resolveDocumentKey(data);
     if (docKey) {
       const prefix = useTypePrefix ? `${resolveReportType(data)}:` : '';
       const key = `${prefix}${docKey}`;
-      const entry = docMap.get(key) || { profit: 0, revenue: 0 };
+      const entry = docMap.get(key) || { profit: 0, entryProfit: 0, revenue: 0 };
       entry.profit += profit;
+      entry.entryProfit += entryProfitValue;
       entry.revenue += revenue;
       docMap.set(key, entry);
     }
   });
 
   let negativeDocuments = 0;
+  let entryNegativeDocuments = 0;
   for (const entry of docMap.values()) {
     if (entry.profit < 0) {
       negativeDocuments += 1;
     }
+    if (entry.entryProfit < 0) entryNegativeDocuments += 1;
   }
 
-  // Agregat marj tanimi: kar / ciro. (Satir rozetleri kar/maliyet ile hesaplanir.)
+  // Agregat ve satir marji ayni tanimi kullanir: kar / ciro.
   const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   return {
@@ -1870,11 +1988,16 @@ const buildMarginSummaryBucket = (
     avgMargin,
     negativeLines,
     negativeDocuments,
+    entryNegativeLines,
+    entryNegativeDocuments,
+    currentDataMissingLines,
+    entryDataMissingLines,
   };
 };
 
 const buildMarginComplianceSummary = (
-  rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>
+  rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>,
+  thresholds: MarginThresholds
 ): MarginComplianceSummary => {
   const orderRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }> = [];
   const salesRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }> = [];
@@ -1888,11 +2011,11 @@ const buildMarginComplianceSummary = (
     const data = getRowData(row);
     const marginValue = pickAvgMargin(data);
 
-    if (marginValue > 30) {
+    if (marginValue > thresholds.high) {
       highMarginCount += 1;
     } else if (marginValue < 0) {
       negativeMarginCount += 1;
-    } else if (marginValue < 10) {
+    } else if (marginValue < thresholds.low) {
       lowMarginCount += 1;
     }
 
@@ -1940,6 +2063,15 @@ const buildMarginComplianceSummary = (
     salesSummary,
     salespersonSummary,
   };
+};
+
+export const marginReportTestUtils = {
+  parseNumberOrNull,
+  hasNumericValue,
+  calculateCurrentProfit,
+  pickEntryMargin,
+  pickEntrySourceMargin,
+  attachDeterministicRowKeys,
 };
 
 export class ReportsService {
@@ -2329,11 +2461,23 @@ export class ReportsService {
         codes,
         fetchedAt: now,
       };
+      marginSectorScopeState = { source: 'MIKRO', warning: null };
 
       return codes;
     } catch (error) {
       console.error('Margin report default sector codes could not be loaded:', error);
-      return [];
+      if (marginDefaultSectorCodesCache?.codes?.length) {
+        marginSectorScopeState = {
+          source: 'STALE_CACHE',
+          warning: 'Sektor listesi Mikrodan yenilenemedi; son basarili liste kullanildi.',
+        };
+        return marginDefaultSectorCodesCache.codes;
+      }
+      throw new AppError(
+        'Marj raporu sektor filtresi uygulanamadi; rapor filtresiz uretilmedi.',
+        503,
+        ErrorCode.REPORT_DATA_NOT_READY
+      );
     }
   }
 
@@ -2355,10 +2499,37 @@ export class ReportsService {
       : [];
 
     if (savedCodes.length > 0) {
+      marginSectorScopeState = { source: 'SETTINGS', warning: null };
       return Array.from(new Set(savedCodes));
     }
 
     return this.getDefaultMarginIncludedSectorCodes();
+  }
+
+  async getMarginRuntimeSettings(): Promise<MarginThresholds & {
+    personalEmailEnabled: boolean;
+    escalationBusinessDays: number;
+  }> {
+    const settings = await prisma.settings.findFirst({
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        marginAlertLowThreshold: true,
+        marginAlertHighThreshold: true,
+        marginEmailWorstLimit: true,
+        marginPersonalEmailEnabled: true,
+        marginViolationEscalationBusinessDays: true,
+      },
+    });
+    const low = Number(settings?.marginAlertLowThreshold ?? DEFAULT_MARGIN_THRESHOLDS.low);
+    const high = Number(settings?.marginAlertHighThreshold ?? DEFAULT_MARGIN_THRESHOLDS.high);
+    const normalizedLow = Number.isFinite(low) ? Math.max(0, low) : DEFAULT_MARGIN_THRESHOLDS.low;
+    return {
+      low: normalizedLow,
+      high: Number.isFinite(high) ? Math.max(normalizedLow + 0.01, high) : DEFAULT_MARGIN_THRESHOLDS.high,
+      worstLimit: Math.max(1, Math.min(100, Number(settings?.marginEmailWorstLimit) || DEFAULT_MARGIN_THRESHOLDS.worstLimit)),
+      personalEmailEnabled: settings?.marginPersonalEmailEnabled === true,
+      escalationBusinessDays: Math.max(1, Math.min(30, Number(settings?.marginViolationEscalationBusinessDays) || 3)),
+    };
   }
 
   /**
@@ -2378,6 +2549,9 @@ export class ReportsService {
     includeCompleted?: number; // 1 = tamamlananlari da dahil et, 0 = sadece bekleyenler
     customerType?: string;
     category?: string;
+    sector?: string;
+    group?: string;
+    search?: string;
     status?: string; // HIGH (>30%), LOW (<10%), NEGATIVE (<0%), OK (10-30%)
     page?: number;
     limit?: number;
@@ -2390,6 +2564,9 @@ export class ReportsService {
       includeCompleted = 1,
       customerType,
       category,
+      sector,
+      group,
+      search,
       status,
       page = 1,
       limit = 100,
@@ -2425,12 +2602,14 @@ export class ReportsService {
       reportDate: { gte: reportStart, lte: reportEnd },
     };
 
-    if (customerType) {
-      where.sectorCode = { contains: customerType };
+    const sectorFilter = String(sector || customerType || '').trim();
+    const groupFilter = String(group || category || '').trim();
+    if (sectorFilter) {
+      where.sectorCode = { contains: sectorFilter, mode: 'insensitive' };
     }
 
-    if (category) {
-      where.groupCode = { contains: category };
+    if (groupFilter) {
+      where.groupCode = { contains: groupFilter, mode: 'insensitive' };
     }
 
     const sortField =
@@ -2472,16 +2651,32 @@ export class ReportsService {
       kept: typeof sectorScopedRows;
       excludedCount: number;
     } = await getMarginExclusionService().applyToMarginRows(sectorScopedRows, pickStockCode, pickStockName);
+    const thresholds = await this.getMarginRuntimeSettings();
+    const searchTokens = buildSearchTokens(search || '');
     const filteredRows = sectorFilteredRows.filter((row) => {
+      if (searchTokens.length > 0) {
+        const data = getRowData(row);
+        const haystack = normalizeSearchText([
+          pickStockCode(data),
+          pickStockName(data),
+          pickCustomerCode(data),
+          pickCustomerName(data),
+          resolveDocumentKey(data),
+          pickDocumentType(data),
+          resolveSectorCode(row, data),
+          row.sectorCode,
+        ].filter(Boolean).join(' '));
+        if (!matchesSearchTokens(haystack, searchTokens)) return false;
+      }
       if (!status) return true;
       const marginValue = pickAvgMargin(getRowData(row));
-      if (status === 'HIGH') return marginValue > 30;
-      if (status === 'LOW') return marginValue >= 0 && marginValue < 10;
+      if (status === 'HIGH') return marginValue > thresholds.high;
+      if (status === 'LOW') return marginValue >= 0 && marginValue < thresholds.low;
       if (status === 'NEGATIVE') return marginValue < 0;
-      if (status === 'OK') return marginValue >= 10 && marginValue <= 30;
+      if (status === 'OK') return marginValue >= thresholds.low && marginValue <= thresholds.high;
       return true;
     });
-    const summary = buildMarginComplianceSummary(filteredRows);
+    const summary = buildMarginComplianceSummary(filteredRows, thresholds);
     const totalRecords = summary.totalRecords;
 
     const sortedRows = filteredRows.slice().sort((a, b) => {
@@ -2519,104 +2714,254 @@ export class ReportsService {
         startDate: formatDateCompact(reportStart),
         endDate: formatDateCompact(reportEnd),
         includeCompleted,
+        thresholds: { low: thresholds.low, high: thresholds.high },
       },
     };
   }
 
-  async syncMarginComplianceReportForDate(reportDate: Date, options: {
+  async syncMarginComplianceReportForDates(reportDates: Date[], options: {
     includeCompleted?: number;
-  } = {}): Promise<{ success: boolean; rowCount: number; reportDate: string; error?: string }> {
-    const includeCompleted = options.includeCompleted ?? 1;
-    const reportDateKey = formatDateKey(reportDate);
-    const rangeStart = formatDateCompact(reportDate);
-    const rangeEnd = formatDateCompact(endOfMonthUtc(reportDate));
+  } = {}): Promise<{
+    success: boolean;
+    rowCount: number;
+    reportDate: string;
+    results: Array<{ reportDate: string; rowCount: number; lateAddedCount: number; lateRemovedCount: number }>;
+    error?: string;
+  }> {
+    const normalizedDates: Date[] = Array.from(new Map(
+      reportDates.map((date) => [
+        formatDateKey(date),
+        new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())),
+      ])
+    ).values()).sort((a, b) => a.getTime() - b.getTime());
+    if (!normalizedDates.length) {
+      return { success: true, rowCount: 0, reportDate: '', results: [] };
+    }
 
+    const includeCompleted = options.includeCompleted ?? 1;
+    const firstDate = normalizedDates[0];
+    const lastDate = normalizedDates[normalizedDates.length - 1];
+    const reportDateKeys = new Set(normalizedDates.map(formatDateKey));
+    const rangeStart = formatDateCompact(firstDate);
+    const rangeEnd = formatDateCompact(lastDate);
     const mikroFactory = require('./mikroFactory.service').default;
-    await mikroFactory.connect();
+    const queryStartedAt = Date.now();
 
     try {
+      await mikroFactory.connect();
       const query = `
         SELECT *
         FROM dbo.fn_KomisyonFaturasiHareketYonetimi('${rangeStart}', '${rangeEnd}', ${includeCompleted})
         ORDER BY [msg_S_0089], [msg_S_0001]
       `;
-
       const result = await mikroFactory.executeQuery(query);
       const sanitizedRows = result.map((row: any) => JSON.parse(JSON.stringify(row)));
-      const dailyRows = sanitizedRows.filter((row: any) => {
+      const parsedRows: Array<{ row: Record<string, any>; dateKey: string }> = [];
+      let invalidDateCount = 0;
+      sanitizedRows.forEach((row: Record<string, any>) => {
         const rowDate = pickMarginRowDate(row);
-        return rowDate ? isSameUtcDate(rowDate, reportDate) : false;
-      });
-      const filteredRows = dailyRows.filter((row: any) => !shouldExcludeMarginRow(row));
-      const rowData = filteredRows.map((row: any) => ({
-        reportDate,
-        sectorCode: typeof row.SektorKodu === 'string' ? row.SektorKodu : null,
-        groupCode: typeof row.GrupKodu === 'string' ? row.GrupKodu : null,
-        avgMargin: pickAvgMargin(row),
-        totalRevenue: toNumber(row.TutarKDV),
-        totalProfit: pickTotalProfit(row),
-        data: row,
-      }));
-
-      await prisma.marginComplianceReportRow.deleteMany({ where: { reportDate } });
-
-      const chunkSize = 1000;
-      for (let i = 0; i < rowData.length; i += chunkSize) {
-        const chunk = rowData.slice(i, i + chunkSize);
-        if (chunk.length > 0) {
-          await prisma.marginComplianceReportRow.createMany({ data: chunk });
+        if (!rowDate) {
+          invalidDateCount += 1;
+          return;
         }
-      }
-
-      await prisma.marginComplianceReportDay.upsert({
-        where: { reportDate },
-        create: {
-          reportDate,
-          status: 'SUCCESS',
-          rowCount: rowData.length,
-          syncedAt: new Date(),
-        },
-        update: {
-          status: 'SUCCESS',
-          rowCount: rowData.length,
-          errorMessage: null,
-          syncedAt: new Date(),
-        },
+        const dateKey = formatDateKey(rowDate);
+        if (reportDateKeys.has(dateKey)) parsedRows.push({ row, dateKey });
       });
 
-      await mikroFactory.disconnect();
+      const existingDays = await prisma.marginComplianceReportDay.findMany({
+        where: { reportDate: { in: normalizedDates } },
+        select: { reportDate: true, status: true },
+      });
+      const existingSuccessfulDates = new Set(
+        existingDays.filter((day) => day.status === 'SUCCESS').map((day) => formatDateKey(day.reportDate))
+      );
+      const existingRows = await prisma.marginComplianceReportRow.findMany({
+        where: { reportDate: { in: normalizedDates } },
+        select: { reportDate: true, rowKey: true, data: true },
+      });
+      const existingKeysByDate = new Map<string, Set<string>>();
+      normalizedDates.forEach((date) => existingKeysByDate.set(formatDateKey(date), new Set()));
+      const legacyByDate = new Map<string, Array<{ data: Record<string, any> }>>();
+      existingRows.forEach((row) => {
+        const dateKey = formatDateKey(row.reportDate);
+        if (row.rowKey) existingKeysByDate.get(dateKey)?.add(row.rowKey);
+        else {
+          const list = legacyByDate.get(dateKey) || [];
+          list.push({ data: getRowData(row) });
+          legacyByDate.set(dateKey, list);
+        }
+      });
+      legacyByDate.forEach((rows, dateKey) => {
+        attachDeterministicRowKeys(rows).forEach((row) => existingKeysByDate.get(dateKey)?.add(row.rowKey));
+      });
 
+      await this.getResolvedMarginIncludedSectorCodes();
+      const queryDurationMs = Date.now() - queryStartedAt;
+      const preparedByDate = new Map<string, {
+        reportDate: Date;
+        rows: any[];
+        quality: Record<string, any>;
+        lateAddedCount: number;
+        lateRemovedCount: number;
+      }>();
+
+      normalizedDates.forEach((reportDate) => {
+        const dateKey = formatDateKey(reportDate);
+        const dailyRows = parsedRows.filter((entry) => entry.dateKey === dateKey).map((entry) => entry.row);
+        const includedRows = dailyRows.filter((row) => !shouldExcludeMarginRow(row));
+        const excludedCount = dailyRows.length - includedRows.length;
+        const preparedRows = attachDeterministicRowKeys(includedRows.map((row) => {
+          const computed = calculateCurrentProfit(row);
+          return {
+            reportDate,
+            sectorCode: typeof row.SektorKodu === 'string' ? row.SektorKodu.trim() : null,
+            groupCode: typeof row.GrupKodu === 'string' ? row.GrupKodu.trim() : null,
+            avgMargin: computed.margin,
+            totalRevenue: computed.revenueBasis,
+            revenueNet: pickRevenueNet(row),
+            revenueGross: pickRevenueGross(row),
+            totalProfit: computed.totalProfit,
+            currentMarkup: computed.markup,
+            entryMargin: pickEntryMargin(row, computed.revenueBasis),
+            entrySourceMargin: pickEntrySourceMargin(row),
+            data: row,
+          };
+        }));
+
+        const oldKeys = existingKeysByDate.get(dateKey) || new Set<string>();
+        const newKeys = new Set(preparedRows.map((row) => row.rowKey));
+        const isResync = existingSuccessfulDates.has(dateKey);
+        const lateAdded = isResync ? preparedRows.filter((row) => !oldKeys.has(row.rowKey)) : [];
+        const lateRemovedCount = isResync ? Array.from(oldKeys).filter((key) => !newKeys.has(key)).length : 0;
+        const missingEntrySourceMarginCount = includedRows.filter((row) => pickEntrySourceMargin(row) === null).length;
+        const missingEntryDataCount = includedRows.filter((row) => pickEntryProfitValue(row) === null || pickEntryUnitCostBasis(row) <= 0).length;
+        const missingCurrentCostCount = includedRows.filter((row) => pickCurrentCostBasis(row) <= 0).length;
+        const grossFallbackCount = includedRows.filter((row) => !hasNumericValue(resolveDataValueByCandidates(row, ['Tutar'], 'tutar')) && pickRevenueGross(row) > 0).length;
+        const quality = {
+          sourceRangeRowCount: sanitizedRows.length,
+          matchedDateRowCount: dailyRows.length,
+          persistedRowCount: preparedRows.length,
+          excludedCount,
+          invalidDateCount,
+          missingEntrySourceMarginCount,
+          missingEntryDataCount,
+          missingCurrentCostCount,
+          grossFallbackCount,
+          sectorFilterSource: marginSectorScopeState.source,
+          sectorFilterWarning: marginSectorScopeState.warning,
+          queryDurationMs,
+          lateAddedCount: lateAdded.length,
+          lateRemovedCount,
+          lateAddedItems: lateAdded.slice(0, 25).map((entry) => ({
+            productCode: pickStockCode(entry.data),
+            productName: pickStockName(entry.data),
+            customerName: pickCustomerName(entry.data),
+            documentNo: resolveDocumentKey(entry.data),
+          })),
+        };
+        preparedByDate.set(dateKey, {
+          reportDate,
+          rows: preparedRows,
+          quality,
+          lateAddedCount: lateAdded.length,
+          lateRemovedCount,
+        });
+      });
+
+      await prisma.$transaction(async (tx) => {
+        for (const prepared of preparedByDate.values()) {
+          await tx.marginComplianceReportRow.deleteMany({ where: { reportDate: prepared.reportDate } });
+          for (let i = 0; i < prepared.rows.length; i += 1000) {
+            const chunk = prepared.rows.slice(i, i + 1000);
+            if (chunk.length) await tx.marginComplianceReportRow.createMany({ data: chunk });
+          }
+          await tx.marginComplianceReportDay.upsert({
+            where: { reportDate: prepared.reportDate },
+            create: {
+              reportDate: prepared.reportDate,
+              status: 'SUCCESS',
+              rowCount: prepared.rows.length,
+              quality: prepared.quality as Prisma.InputJsonValue,
+              syncedAt: new Date(),
+            },
+            update: {
+              status: 'SUCCESS',
+              rowCount: prepared.rows.length,
+              quality: prepared.quality as Prisma.InputJsonValue,
+              errorMessage: null,
+              syncedAt: new Date(),
+            },
+          });
+        }
+      });
+
+      const results = Array.from(preparedByDate.values()).map((prepared) => ({
+        reportDate: formatDateKey(prepared.reportDate),
+        rowCount: prepared.rows.length,
+        lateAddedCount: prepared.lateAddedCount,
+        lateRemovedCount: prepared.lateRemovedCount,
+      }));
       return {
         success: true,
-        rowCount: rowData.length,
-        reportDate: reportDateKey,
+        rowCount: results.reduce((sum, item) => sum + item.rowCount, 0),
+        reportDate: formatDateKey(lastDate),
+        results,
       };
     } catch (error: any) {
-      await mikroFactory.disconnect();
-      await prisma.marginComplianceReportDay.upsert({
-        where: { reportDate },
-        create: {
-          reportDate,
-          status: 'FAILED',
-          rowCount: 0,
-          errorMessage: error?.message || 'Unknown error',
-          syncedAt: new Date(),
-        },
-        update: {
-          status: 'FAILED',
-          rowCount: 0,
-          errorMessage: error?.message || 'Unknown error',
-          syncedAt: new Date(),
-        },
+      const message = error?.message || 'Unknown error';
+      const existingDays = await prisma.marginComplianceReportDay.findMany({
+        where: { reportDate: { in: normalizedDates } },
+        select: { reportDate: true, status: true, quality: true },
       });
-
+      const existingByDate = new Map(existingDays.map((day) => [formatDateKey(day.reportDate), day]));
+      await prisma.$transaction(async (tx) => {
+        for (const reportDate of normalizedDates) {
+          const existing = existingByDate.get(formatDateKey(reportDate));
+          if (existing?.status === 'SUCCESS') {
+            const previousQuality = existing.quality && typeof existing.quality === 'object'
+              ? existing.quality as Record<string, any>
+              : {};
+            await tx.marginComplianceReportDay.update({
+              where: { reportDate },
+              data: {
+                quality: {
+                  ...previousQuality,
+                  lastRefreshFailedAt: new Date().toISOString(),
+                  lastRefreshError: message,
+                } as Prisma.InputJsonValue,
+              },
+            });
+            continue;
+          }
+          await tx.marginComplianceReportDay.upsert({
+            where: { reportDate },
+            create: { reportDate, status: 'FAILED', rowCount: 0, errorMessage: message, syncedAt: new Date() },
+            update: { status: 'FAILED', errorMessage: message, syncedAt: new Date() },
+          });
+        }
+      });
       return {
         success: false,
         rowCount: 0,
-        reportDate: reportDateKey,
-        error: error?.message || 'Unknown error',
+        reportDate: formatDateKey(lastDate),
+        results: [],
+        error: message,
       };
+    } finally {
+      await mikroFactory.disconnect().catch(() => undefined);
     }
+  }
+
+  async syncMarginComplianceReportForDate(reportDate: Date, options: {
+    includeCompleted?: number;
+  } = {}): Promise<{ success: boolean; rowCount: number; reportDate: string; error?: string }> {
+    const result = await this.syncMarginComplianceReportForDates([reportDate], options);
+    return {
+      success: result.success,
+      rowCount: result.results[0]?.rowCount || result.rowCount,
+      reportDate: result.reportDate,
+      error: result.error,
+    };
   }
 
   async backfillMarginComplianceReport(days: number, options: {
@@ -2679,9 +3024,15 @@ export class ReportsService {
 
   private async buildMarginSevenDaySummary(reportDate: Date, includedSectorCodes: string[] = []): Promise<MarginSevenDaySummary> {
     const startDate = addDaysUtc(reportDate, -6);
+    const dayRows = await prisma.marginComplianceReportDay.findMany({
+      where: { reportDate: { gte: startDate, lte: reportDate } },
+      select: { reportDate: true, status: true, quality: true },
+    });
+    const dayByKey = new Map(dayRows.map((day) => [formatDateKey(day.reportDate), day]));
+    const successfulDates = dayRows.filter((day) => day.status === 'SUCCESS').map((day) => day.reportDate);
     const rows = await prisma.marginComplianceReportRow.findMany({
       where: {
-        reportDate: { gte: startDate, lte: reportDate },
+        reportDate: { in: successfulDates },
       },
     });
     const baseRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
@@ -2690,6 +3041,28 @@ export class ReportsService {
       await getMarginExclusionService().applyToMarginRows(baseRows, pickStockCode, pickStockName);
     const filteredRows = filterMarginRowsBySectorCodes(userFilteredRows, includedSectorCodes);
     const { orderRows, salesRows } = splitRowsByType(filteredRows);
+    const filteredByDate = new Map<string, typeof filteredRows>();
+    filteredRows.forEach((row) => {
+      const key = formatDateKey((row as any).reportDate);
+      const list = filteredByDate.get(key) || [];
+      list.push(row);
+      filteredByDate.set(key, list);
+    });
+    const days = listUtcDates(startDate, reportDate).map((date) => {
+      const key = formatDateKey(date);
+      const day = dayByKey.get(key);
+      const status: 'SUCCESS' | 'FAILED' | 'MISSING' = day?.status === 'SUCCESS'
+        ? 'SUCCESS'
+        : day?.status === 'FAILED'
+          ? 'FAILED'
+          : 'MISSING';
+      return {
+        date,
+        status,
+        overall: status === 'SUCCESS' ? buildMarginSummaryBucket(filteredByDate.get(key) || [], { useTypePrefix: true }) : null,
+        quality: day?.quality && typeof day.quality === 'object' ? day.quality as Record<string, any> : null,
+      };
+    });
 
     return {
       startDate,
@@ -2697,12 +3070,124 @@ export class ReportsService {
       overall: buildMarginSummaryBucket(filteredRows, { useTypePrefix: true }),
       orders: buildMarginSummaryBucket(orderRows),
       sales: buildMarginSummaryBucket(salesRows),
+      days,
     };
+  }
+
+  async getMarginViolationCandidatesForDate(reportDate: Date) {
+    const rows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate } });
+    const rowsWithKeys = attachDeterministicRowKeys(rows.map((row) => ({
+      ...row,
+      persistedRowKey: row.rowKey,
+      data: getRowData(row),
+    }))).map((row) => ({ ...row, rowKey: row.persistedRowKey || row.rowKey }));
+    const baseRows = rowsWithKeys.filter((row) => !shouldExcludeMarginRow(row.data));
+    const marginExclusionService = getMarginExclusionService();
+    const { kept: userFilteredRows } = await marginExclusionService.applyToMarginRows(baseRows, pickStockCode, pickStockName);
+    const includedSectorCodes = await this.getResolvedMarginIncludedSectorCodes();
+    const filteredRows = filterMarginRowsBySectorCodes(userFilteredRows, includedSectorCodes);
+
+    return filteredRows.flatMap((row) => {
+      const alert = buildMarginAlertRow(row);
+      const bases: Array<{
+        basis: 'CURRENT' | 'ENTRY';
+        violationType: 'NEGATIVE';
+        unitCost: number;
+        profit: number;
+        margin: number;
+        sourceMargin: number | null;
+        dataAvailable: boolean;
+        missingReason: string | null;
+      }> = [];
+      if (alert.currentDataAvailable && alert.profit < 0) {
+        bases.push({
+          basis: 'CURRENT',
+          violationType: 'NEGATIVE',
+          unitCost: alert.unitCost,
+          profit: alert.profit,
+          margin: alert.avgMargin,
+          sourceMargin: alert.currentMarkup,
+          dataAvailable: true,
+          missingReason: null,
+        });
+      }
+      if (alert.entryDataAvailable && alert.entryProfit < 0) {
+        bases.push({
+          basis: 'ENTRY',
+          violationType: 'NEGATIVE',
+          unitCost: alert.unitCostEntry,
+          profit: alert.entryProfit,
+          margin: alert.entryMargin,
+          sourceMargin: alert.entrySourceMargin,
+          dataAvailable: true,
+          missingReason: null,
+        });
+      }
+      if (!bases.length) return [];
+
+      const fingerprint = sha256(stableJsonStringify({
+        productCode: alert.productCode.trim().toLocaleUpperCase('tr-TR'),
+        customerCode: alert.customerCode.trim().toLocaleUpperCase('tr-TR'),
+        documentType: alert.documentType.trim().toLocaleUpperCase('tr-TR'),
+      }));
+      return [{
+        reportDate,
+        rowKey: (row as any).rowKey,
+        fingerprint,
+        documentNo: alert.documentNo || null,
+        documentType: alert.documentType || null,
+        customerCode: alert.customerCode || null,
+        customerName: alert.customerName || null,
+        productCode: alert.productCode,
+        productName: alert.productName || null,
+        quantity: alert.quantity,
+        unit: alert.unit || null,
+        quantityLabel: alert.quantityLabel || null,
+        unitPrice: alert.unitPrice,
+        revenueNet: alert.revenueNet,
+        revenueGross: alert.revenueGross,
+        sectorCode: alert.sectorCode || null,
+        snapshot: row.data,
+        bases,
+      }];
+    });
+  }
+
+  async exportMarginComplianceReport(options: {
+    startDate?: string;
+    endDate?: string;
+    sector?: string;
+    group?: string;
+    search?: string;
+    status?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    columnIds?: string[];
+  }) {
+    const report = await this.getMarginComplianceReport({
+      ...options,
+      page: 1,
+      limit: 100000,
+    });
+    const resolvedIds = options.columnIds?.length ? options.columnIds : DEFAULT_MARGIN_REPORT_EMAIL_COLUMNS;
+    const columns = resolveMarginReportColumns(resolvedIds);
+    const sheetRows = [
+      columns.map((column) => column.label),
+      ...report.data.map((data: Record<string, any>) => columns.map((column) => formatExportValue(column.resolve(data)) ?? '')),
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kar Marji Analizi');
+    const buffer = Buffer.from(XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }));
+    const start = String(options.startDate || '').replace(/[^0-9]/g, '') || 'rapor';
+    const end = String(options.endDate || '').replace(/[^0-9]/g, '') || start;
+    return { buffer, fileName: `kar-marji-analizi-${start}-${end}.xlsx` };
   }
 
 
 
   async buildMarginComplianceEmailPayload(reportDate: Date, columnIds: string[] = []) {
+    const thresholds = await this.getMarginRuntimeSettings();
     const rows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate } });
     const baseRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
     // Kullanici bazli dislama kurallari: ozet, alert, top/bottom ve XLSX satirlarina uygulanir.
@@ -2712,19 +3197,100 @@ export class ReportsService {
     const activeExclusionCount: number = await marginExclusionService.getActiveExclusionCount();
     const includedSectorCodes = await this.getResolvedMarginIncludedSectorCodes();
     const filteredRows = filterMarginRowsBySectorCodes(userFilteredRows, includedSectorCodes);
-    const summary = buildMarginComplianceSummary(filteredRows);
+    const summary = buildMarginComplianceSummary(filteredRows, thresholds);
     const { orderRows, salesRows } = splitRowsByType(filteredRows);
     const alerts: MarginAlertGroups = {
-      order: buildAlertSummary(orderRows),
-      sales: buildAlertSummary(salesRows),
+      order: buildAlertSummary(orderRows, thresholds),
+      sales: buildAlertSummary(salesRows, thresholds),
     };
     const topBottom = this.buildMarginTopBottomSummary(orderRows, salesRows);
     const sevenDaySummary = await this.buildMarginSevenDaySummary(reportDate, includedSectorCodes);
+    const previousDate = addDaysUtc(reportDate, -1);
+    const nextReportDate = addDaysUtc(reportDate, 1);
+    const [dayRecord, previousDayRecord, salesReps, openViolations, resolvedViolations] = await Promise.all([
+      prisma.marginComplianceReportDay.findUnique({ where: { reportDate }, select: { quality: true } }),
+      prisma.marginComplianceReportDay.findUnique({ where: { reportDate: previousDate }, select: { status: true, quality: true } }),
+      prisma.user.findMany({
+        where: { role: 'SALES_REP', active: true },
+        select: { id: true, name: true, displayName: true, mikroName: true, assignedSectorCodes: true },
+      }),
+      prisma.marginViolation.findMany({
+        where: { status: { in: ['OPEN', 'IN_REVIEW', 'REOPENED'] } },
+        select: { sectorCode: true },
+      }),
+      prisma.marginViolation.findMany({
+        where: { resolvedAt: { gte: reportDate, lt: nextReportDate } },
+        select: { sectorCode: true },
+      }),
+    ]);
+
+    let previousSummary: MarginComplianceSummary | null = null;
+    if (previousDayRecord?.status === 'SUCCESS') {
+      const previousRows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate: previousDate } });
+      const previousBaseRows = previousRows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+      const { kept: previousUserRows } = await marginExclusionService.applyToMarginRows(previousBaseRows, pickStockCode, pickStockName);
+      previousSummary = buildMarginComplianceSummary(
+        filterMarginRowsBySectorCodes(previousUserRows, includedSectorCodes),
+        thresholds
+      );
+    }
+
+    const salespersonNamesBySector: Record<string, string[]> = {};
+    salesReps.forEach((rep) => {
+      const name = rep.displayName || rep.mikroName || rep.name;
+      (rep.assignedSectorCodes || []).forEach((code) => {
+        const normalized = String(code || '').trim().toLocaleUpperCase('tr-TR');
+        if (!normalized) return;
+        salespersonNamesBySector[normalized] = Array.from(new Set([...(salespersonNamesBySector[normalized] || []), name])).sort((a, b) => a.localeCompare(b, 'tr'));
+      });
+    });
+
+    const violationStatsBySector: Record<string, { open: number; resolvedOnReportDate: number }> = {};
+    const countViolation = (sectorCode: string | null, key: 'open' | 'resolvedOnReportDate') => {
+      const normalized = String(sectorCode || 'ATANMAMIS').trim().toLocaleUpperCase('tr-TR') || 'ATANMAMIS';
+      const current = violationStatsBySector[normalized] || { open: 0, resolvedOnReportDate: 0 };
+      current[key] += 1;
+      violationStatsBySector[normalized] = current;
+    };
+    openViolations.forEach((row) => countViolation(row.sectorCode, 'open'));
+    resolvedViolations.forEach((row) => countViolation(row.sectorCode, 'resolvedOnReportDate'));
+
+    const repeatStart = addDaysUtc(reportDate, -6);
+    const repeatRows = await prisma.marginViolation.findMany({
+      where: {
+        reportDate: { gte: repeatStart, lte: reportDate },
+        status: { not: 'INVALIDATED' },
+      },
+      select: { reportDate: true, productCode: true },
+    });
+    const repeatDatesByProduct = new Map<string, Set<string>>();
+    repeatRows.forEach((row) => {
+      const code = row.productCode.trim().toLocaleUpperCase('tr-TR');
+      if (!code) return;
+      const dates = repeatDatesByProduct.get(code) || new Set<string>();
+      dates.add(formatDateKey(row.reportDate));
+      repeatDatesByProduct.set(code, dates);
+    });
+    const productRepeatCounts = Object.fromEntries(
+      Array.from(repeatDatesByProduct.entries()).map(([code, dates]) => [code, dates.size])
+    );
     const emailSummary: MarginComplianceEmailSummary = {
       ...summary,
       alerts,
       topBottom,
       sevenDaySummary,
+      thresholds,
+      previousDay: {
+        status: previousDayRecord?.status === 'SUCCESS' ? 'SUCCESS' : previousDayRecord?.status === 'FAILED' ? 'FAILED' : 'MISSING',
+        summary: previousSummary,
+      },
+      dayQuality: dayRecord?.quality && typeof dayRecord.quality === 'object' ? dayRecord.quality as Record<string, any> : null,
+      priorDayRefreshQuality: previousDayRecord?.quality && typeof previousDayRecord.quality === 'object'
+        ? previousDayRecord.quality as Record<string, any>
+        : null,
+      salespersonNamesBySector,
+      violationStatsBySector,
+      productRepeatCounts,
       activeExclusionCount,
     };
 

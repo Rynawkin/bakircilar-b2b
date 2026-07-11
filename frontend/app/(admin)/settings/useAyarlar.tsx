@@ -141,6 +141,11 @@ export function useAyarlar() {
         marginReportEmailEnabled: data.marginReportEmailEnabled ?? false,
         marginReportEmailRecipients: recipients,
         marginReportEmailSubject: data.marginReportEmailSubject || 'Kar Marji Raporu',
+        marginAlertLowThreshold: data.marginAlertLowThreshold ?? 5,
+        marginAlertHighThreshold: data.marginAlertHighThreshold ?? 70,
+        marginEmailWorstLimit: data.marginEmailWorstLimit ?? 15,
+        marginPersonalEmailEnabled: data.marginPersonalEmailEnabled ?? false,
+        marginViolationEscalationBusinessDays: data.marginViolationEscalationBusinessDays ?? 3,
       });
       setMarginRecipientsInput(recipients.join(', '));
     } finally {

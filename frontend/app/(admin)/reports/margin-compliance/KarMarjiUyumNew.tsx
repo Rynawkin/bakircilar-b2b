@@ -149,6 +149,10 @@ export default function KarMarjiUyumNew() {
     setSearchQuery,
     statusFilter,
     setStatusFilter,
+    sectorFilter,
+    setSectorFilter,
+    groupFilter,
+    setGroupFilter,
     sortOrder,
     setSortOrder,
     page,
@@ -193,6 +197,7 @@ export default function KarMarjiUyumNew() {
     filteredData,
     fetchData,
     handleSearch,
+    handleSectorSummaryClick,
     toggleColumn,
     toggleIncludedSectorCode,
     handleResyncReport,
@@ -381,6 +386,10 @@ export default function KarMarjiUyumNew() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link href="/margin-violations" style={{ ...headBtn, textDecoration: 'none', color: PRIMARY }}>
+            <AlertCircle size={15} strokeWidth={2} />
+            Marj Aksiyon Merkezi
+          </Link>
           <button type="button" onClick={exportToExcel} style={headBtn}>
             <Download size={15} strokeWidth={2} />
             Excel İndir
@@ -478,7 +487,7 @@ export default function KarMarjiUyumNew() {
               <div style={{ padding: 24, fontSize: 12.5, color: MUTED }}>Kayıt bulunamadı.</div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse', fontSize: 11.5 }}>
+                <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse', fontSize: 11.5 }}>
                   <thead>
                     <tr style={{ background: TABLE_HEAD_BG }}>
                       <th
@@ -498,7 +507,7 @@ export default function KarMarjiUyumNew() {
                         Satış Personeli
                       </th>
                       <th
-                        colSpan={5}
+                        colSpan={6}
                         style={{
                           textAlign: 'center',
                           padding: '10px 12px',
@@ -514,7 +523,7 @@ export default function KarMarjiUyumNew() {
                         Sipariş
                       </th>
                       <th
-                        colSpan={5}
+                        colSpan={6}
                         style={{
                           textAlign: 'center',
                           padding: '10px 12px',
@@ -531,7 +540,7 @@ export default function KarMarjiUyumNew() {
                       </th>
                     </tr>
                     <tr style={{ background: TABLE_HEAD_BG }}>
-                      {['Ciro', 'Kâr (Güncel)', 'Kâr % (Güncel)', 'Zararlı Evrak', 'Zararlı Satır'].map((h, i) => (
+                      {['Ciro', 'Kâr (Güncel)', 'Kâr % (Güncel)', 'Güncel Zarar', 'SÖ Zarar', 'Zararlı Evrak'].map((h, i) => (
                         <th
                           key={`o-${h}`}
                           style={{
@@ -549,7 +558,7 @@ export default function KarMarjiUyumNew() {
                           {h}
                         </th>
                       ))}
-                      {['Ciro', 'Kâr (Güncel)', 'Kâr % (Güncel)', 'Zararlı Evrak', 'Zararlı Satır'].map((h, i) => (
+                      {['Ciro', 'Kâr (Güncel)', 'Kâr % (Güncel)', 'Güncel Zarar', 'SÖ Zarar', 'Zararlı Evrak'].map((h, i) => (
                         <th
                           key={`s-${h}`}
                           style={{
@@ -571,7 +580,12 @@ export default function KarMarjiUyumNew() {
                   </thead>
                   <tbody>
                     {summary.salespersonSummary.map((entry) => (
-                      <tr key={entry.sectorCode} style={{ borderTop: `1px solid ${ROW_LINE}` }}>
+                      <tr
+                        key={entry.sectorCode}
+                        onClick={() => handleSectorSummaryClick(entry.sectorCode)}
+                        title="Bu sektoru detay tablosunda filtrele"
+                        style={{ borderTop: `1px solid ${ROW_LINE}`, cursor: 'pointer' }}
+                      >
                         <td style={{ padding: '9px 12px', fontWeight: 600, color: INK, whiteSpace: 'nowrap' }}>
                           {entry.sectorCode}
                         </td>
@@ -585,10 +599,13 @@ export default function KarMarjiUyumNew() {
                           {formatPercent(entry.orderSummary.avgMargin)}
                         </td>
                         <td style={{ padding: '9px 12px', textAlign: 'right', color: INK }}>
-                          {formatCount(entry.orderSummary.negativeDocuments)}
+                          {formatCount(entry.orderSummary.negativeLines)}
                         </td>
                         <td style={{ padding: '9px 12px', textAlign: 'right', color: INK }}>
-                          {formatCount(entry.orderSummary.negativeLines)}
+                          {formatCount(entry.orderSummary.entryNegativeLines)}
+                        </td>
+                        <td style={{ padding: '9px 12px', textAlign: 'right', color: INK }}>
+                          {formatCount(entry.orderSummary.negativeDocuments)}
                         </td>
                         <td style={{ padding: '9px 12px', textAlign: 'right', color: INK, borderLeft: `1px solid ${ROW_LINE}` }}>
                           {formatCurrency(entry.salesSummary.totalRevenue)}
@@ -600,10 +617,13 @@ export default function KarMarjiUyumNew() {
                           {formatPercent(entry.salesSummary.avgMargin)}
                         </td>
                         <td style={{ padding: '9px 12px', textAlign: 'right', color: INK }}>
-                          {formatCount(entry.salesSummary.negativeDocuments)}
+                          {formatCount(entry.salesSummary.negativeLines)}
                         </td>
                         <td style={{ padding: '9px 12px', textAlign: 'right', color: INK }}>
-                          {formatCount(entry.salesSummary.negativeLines)}
+                          {formatCount(entry.salesSummary.entryNegativeLines)}
+                        </td>
+                        <td style={{ padding: '9px 12px', textAlign: 'right', color: INK }}>
+                          {formatCount(entry.salesSummary.negativeDocuments)}
                         </td>
                       </tr>
                     ))}
@@ -619,7 +639,7 @@ export default function KarMarjiUyumNew() {
       <div style={{ ...cardStyle, padding: 16, marginBottom: 18 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: INK, marginBottom: 12 }}>Filtreler</div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
           <div>
             <label style={labelStyle}>Başlangıç Tarihi</label>
             <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={inputStyle} />
@@ -638,11 +658,31 @@ export default function KarMarjiUyumNew() {
               style={{ ...inputStyle, cursor: 'pointer' }}
             >
               <option value="">Tümü</option>
-              <option value="HIGH">Yüksek Kar (&gt;30%)</option>
-              <option value="OK">Normal Kar (10-30%)</option>
-              <option value="LOW">Düşük Kar (&lt;10%)</option>
+              <option value="HIGH">Yüksek Kar (&gt;{metadata?.thresholds?.high ?? 70}%)</option>
+              <option value="OK">Normal Kar ({metadata?.thresholds?.low ?? 5}-{metadata?.thresholds?.high ?? 70}%)</option>
+              <option value="LOW">Düşük Kar (&lt;{metadata?.thresholds?.low ?? 5}%)</option>
               <option value="NEGATIVE">Zarar (&lt;0%)</option>
             </select>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Sektör</label>
+            <input
+              value={sectorFilter}
+              onChange={(e) => setSectorFilter(e.target.value)}
+              placeholder="Sektör kodu"
+              style={inputStyle}
+            />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Grup</label>
+            <input
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value)}
+              placeholder="Grup kodu"
+              style={inputStyle}
+            />
           </div>
 
           <div>

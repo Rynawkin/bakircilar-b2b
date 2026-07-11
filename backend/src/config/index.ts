@@ -108,6 +108,7 @@ export const config = {
   vadeSyncAutoDisabled: process.env.VADE_SYNC_AUTO_DISABLED !== 'false',
   vadeReminderCronSchedule: process.env.VADE_REMINDER_CRON_SCHEDULE || '0 * * * *',
   marginReportCronSchedule: process.env.MARGIN_REPORT_CRON_SCHEDULE || '0 3 * * *',
+  marginViolationEscalationCronSchedule: process.env.MARGIN_VIOLATION_ESCALATION_CRON_SCHEDULE || '0 9 * * *',
   customerRecoveryHistoricalCronSchedule: process.env.CUSTOMER_RECOVERY_HISTORICAL_CRON_SCHEDULE || '0 6 * * *',
   productComplementCronSchedule: process.env.PRODUCT_COMPLEMENT_CRON_SCHEDULE || '30 2 * * *',
   productPopularityCronSchedule: process.env.PRODUCT_POPULARITY_CRON_SCHEDULE || '0 4 * * 1',

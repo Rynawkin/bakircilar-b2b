@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { adminApi } from '@/lib/api/admin';
-import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import toast from 'react-hot-toast';
 // 13.3: xlsx statik degil; export aninda dinamik import edilir.
 
@@ -63,6 +63,8 @@ export interface SummaryBucket {
   avgMargin: number;
   negativeLines: number;
   negativeDocuments: number;
+  entryNegativeLines: number;
+  entryNegativeDocuments: number;
 }
 
 export interface Summary {
@@ -90,6 +92,7 @@ export interface Metadata {
   startDate: string;
   endDate: string;
   includeCompleted: number;
+  thresholds?: { low: number; high: number };
 }
 
 // ==================== Rapor Dislamalari (marka / urun) ====================
@@ -173,16 +176,18 @@ const DEFAULT_COLUMN_IDS: ColumnId[] = [
   'unitProfit',
   'totalProfit',
   'margin',
+  'currentMarkup',
   'entryUnitCost',
   'entryProfit',
   'entryMargin',
+  'entrySourceMargin',
 ];
 
 // Yeni eklenen Son Giris baz kolonlari: kayitli kolon secimi olan kullanicilarda
 // bir defaya mahsus otomatik gorunur yapilir (asagidaki migration bayragi ile).
 // Kolon id'leri backend e-posta XLSX kolon anahtarlariyla (BASE_MARGIN_REPORT_COLUMNS) ayni olmali;
 // 'Mail excel kolonlarini kaydet' bu id'leri Settings.marginReportEmailColumns'a aynen yazar.
-const ENTRY_COLUMN_IDS: ColumnId[] = ['entryUnitCost', 'entryProfit', 'entryMargin'];
+const ENTRY_COLUMN_IDS: ColumnId[] = ['entryUnitCost', 'entryProfit', 'entryMargin', 'entrySourceMargin'];
 
 const BASE_DATA_KEYS = new Set([
   'Evrak No',
@@ -364,10 +369,14 @@ const getCurrentTotalProfit = (row: MarginAnalysisRow) =>
   getCurrentRevenueBasis(row) - getCurrentCostBasis(row) * getRowNumber(row, ['Miktar'], 'miktar');
 
 const getCurrentMarginPercent = (row: MarginAnalysisRow) => {
-  const totalCost = getCurrentCostBasis(row) * getRowNumber(row, ['Miktar'], 'miktar');
   const profit = getCurrentTotalProfit(row);
   const revenue = getCurrentRevenueBasis(row);
-  return totalCost > 0 ? (profit / totalCost) * 100 : revenue > 0 ? (profit / revenue) * 100 : 0;
+  return revenue > 0 ? (profit / revenue) * 100 : 0;
+};
+
+const getCurrentMarkupPercent = (row: MarginAnalysisRow) => {
+  const totalCost = getCurrentCostBasis(row) * getRowNumber(row, ['Miktar'], 'miktar');
+  return totalCost > 0 ? (getCurrentTotalProfit(row) / totalCost) * 100 : 0;
 };
 
 // Son giris (SÖ) toplam kar: Mikro'nun ham SÖ-ToplamKar kolonundan okunur
@@ -375,17 +384,24 @@ const getCurrentMarginPercent = (row: MarginAnalysisRow) => {
 const getEntryTotalProfit = (row: MarginAnalysisRow) =>
   getRowNumber(row, ['SÖ-ToplamKar', 'SO-ToplamKar', 'SÃ–-ToplamKar', 'SÃƒâ€“-ToplamKar'], 'sotoplamkar');
 
-// Son giris kar yuzdesi: SÖ-KarYuzde kolonu varsa onu kullanir; yoksa
-// backend pickEntryMargin gibi entryProfit / ciro (Tutar) * 100 hesaplar.
 const getEntryMarginPercent = (row: MarginAnalysisRow) => {
+  const revenue = getCurrentRevenueBasis(row);
+  return revenue > 0 ? (getEntryTotalProfit(row) / revenue) * 100 : 0;
+};
+
+// Mikro'nun ham SÖ yüzdesi karar metriği değil, kaynak bilgisidir.
+const getEntrySourceMarginPercent = (row: MarginAnalysisRow): number | null => {
   const raw = getRowValue(row, ['SÖ-KarYuzde', 'SO-KarYuzde', 'SÖ-KarYüzde', 'SÃ–-KarYuzde', 'SÃƒâ€“-KarYuzde'], 'sokaryuzde');
   if (raw !== null && raw !== undefined && raw !== '') {
     const parsed = typeof raw === 'string' ? Number(raw.replace(/\./g, '').replace(',', '.')) : Number(raw);
     if (Number.isFinite(parsed)) return parsed;
   }
-  const revenue = getRowNumber(row, ['Tutar'], 'tutar');
-  return revenue > 0 ? (getEntryTotalProfit(row) / revenue) * 100 : 0;
+  return null;
 };
+
+const hasEntryMarginData = (row: MarginAnalysisRow) =>
+  getCurrentRevenueBasis(row) > 0 &&
+  (getEntryUnitCostBasis(row) > 0 || getEntryTotalProfit(row) !== 0 || getEntrySourceMarginPercent(row) !== null);
 
 const getDefaultDateValue = () => {
   const date = new Date();
@@ -401,12 +417,17 @@ export {
   getCurrentUnitProfit,
   getCurrentTotalProfit,
   getCurrentMarginPercent,
+  getCurrentMarkupPercent,
   getEntryUnitCostBasis,
   getEntryTotalProfit,
   getEntryMarginPercent,
+  getEntrySourceMarginPercent,
+  hasEntryMarginData,
 };
 
 export function useKarMarjiUyum() {
+  const searchParams = useSearchParams();
+  const initialDate = searchParams.get('date') || getDefaultDateValue();
   const [data, setData] = useState<MarginAnalysisRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [metadata, setMetadata] = useState<Metadata | null>(null);
@@ -414,10 +435,12 @@ export function useKarMarjiUyum() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [startDate, setStartDate] = useState(() => getDefaultDateValue());
-  const [endDate, setEndDate] = useState(() => getDefaultDateValue());
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [startDate, setStartDate] = useState(initialDate);
+  const [endDate, setEndDate] = useState(initialDate);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
+  const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || '');
+  const [sectorFilter, setSectorFilter] = useState(searchParams.get('sector') || '');
+  const [groupFilter, setGroupFilter] = useState(searchParams.get('group') || '');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -459,7 +482,7 @@ export function useKarMarjiUyum() {
 
   const isSingleDate = startDate === endDate;
 
-  const fetchData = async () => {
+  const loadReport = async (overrides: { page?: number; sector?: string; group?: string; search?: string } = {}) => {
     setLoading(true);
     setError(null);
 
@@ -468,11 +491,14 @@ export function useKarMarjiUyum() {
         startDate: startDate.replace(/-/g, ''),
         endDate: endDate.replace(/-/g, ''),
         includeCompleted: 1,
-        page,
+        page: overrides.page ?? page,
         limit: 100,
         sortBy: 'OrtalamaKarYuzde',
         sortOrder: sortOrder,
         status: statusFilter || undefined,
+        sector: (overrides.sector ?? sectorFilter) || undefined,
+        group: (overrides.group ?? groupFilter) || undefined,
+        search: (overrides.search ?? searchQuery).trim() || undefined,
       });
 
       if (result.success) {
@@ -494,6 +520,8 @@ export function useKarMarjiUyum() {
       setLoading(false);
     }
   };
+
+  const fetchData = async () => loadReport();
 
   useEffect(() => {
     fetchData();
@@ -599,7 +627,12 @@ export function useKarMarjiUyum() {
 
   const handleSearch = () => {
     setPage(1);
-    fetchData();
+    loadReport({ page: 1 });
+  };
+  const handleSectorSummaryClick = (sectorCode: string) => {
+    setSectorFilter(sectorCode);
+    setPage(1);
+    loadReport({ page: 1, sector: sectorCode });
   };
   const toggleColumn = (columnId: ColumnId) => {
     setVisibleColumns((prev) => {
@@ -919,11 +952,13 @@ export function useKarMarjiUyum() {
   );
 
   const getMarginBadge = (margin: number) => {
+    const low = metadata?.thresholds?.low ?? 5;
+    const high = metadata?.thresholds?.high ?? 70;
     if (margin < 0) {
       return <Badge variant="destructive">Zarar: {formatPercent(margin)}</Badge>;
-    } else if (margin < 10) {
+    } else if (margin < low) {
       return <Badge variant="destructive">DÃ¼ÅŸÃ¼k: {formatPercent(margin)}</Badge>;
-    } else if (margin <= 30) {
+    } else if (margin <= high) {
       return <Badge variant="default">Normal: {formatPercent(margin)}</Badge>;
     } else {
       return <Badge variant="success">YÃ¼ksek: {formatPercent(margin)}</Badge>;
@@ -1036,6 +1071,14 @@ export function useKarMarjiUyum() {
       exportValue: (row: MarginAnalysisRow) => getCurrentMarginPercent(row),
     },
     {
+      id: 'currentMarkup',
+      label: 'Markup % (Kar/Maliyet)',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row: MarginAnalysisRow) => formatPercent(getCurrentMarkupPercent(row)),
+      exportValue: (row: MarginAnalysisRow) => getCurrentMarkupPercent(row),
+    },
+    {
       id: 'entryUnitCost',
       label: 'Birim Maliyet (Son Giriş)',
       headerClassName: 'text-right whitespace-nowrap',
@@ -1058,6 +1101,18 @@ export function useKarMarjiUyum() {
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => getMarginBadge(getEntryMarginPercent(row)),
       exportValue: (row: MarginAnalysisRow) => getEntryMarginPercent(row),
+    },
+    {
+      id: 'entrySourceMargin',
+      label: 'Mikro SÖ Kar % (Kaynak)',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row: MarginAnalysisRow) => {
+        const source = getEntrySourceMarginPercent(row);
+        if (source !== null) return formatPercent(source);
+        return hasEntryMarginData(row) ? 'Yok - hesaplanan marj kullanildi' : 'Veri yok';
+      },
+      exportValue: (row: MarginAnalysisRow) => getEntrySourceMarginPercent(row),
     },
   ];
 
@@ -1158,40 +1213,32 @@ export function useKarMarjiUyum() {
   const visibleColumnDefs = columnDefs.filter((column) => visibleColumns.includes(column.id));
 
   const exportToExcel = async () => {
-    if (filteredData.length === 0) {
-      toast.error('DÄ±ÅŸa aktarÄ±lacak veri yok');
-      return;
-    }
-
-    const exportRows = filteredData.map((row) => {
-      const record: Record<string, string | number | null> = {};
-      visibleColumnDefs.forEach((column) => {
-        record[column.label] = column.exportValue(row);
+    try {
+      const blob = await adminApi.exportMarginComplianceReport({
+        startDate: startDate.replace(/-/g, ''),
+        endDate: endDate.replace(/-/g, ''),
+        status: statusFilter || undefined,
+        sector: sectorFilter || undefined,
+        group: groupFilter || undefined,
+        search: searchQuery.trim() || undefined,
+        sortBy: 'OrtalamaKarYuzde',
+        sortOrder,
       });
-      return record;
-    });
-
-    // 13.3: xlsx sadece burada (export aninda) dinamik yuklenir.
-    const XLSX = await import('xlsx');
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kar MarjÄ± Analizi');
-    XLSX.writeFile(workbook, `kar-marji-analizi-${startDate}-${endDate}.xlsx`);
-    toast.success('Excel dosyasÄ± indirildi');
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = `kar-marji-analizi-${startDate}-${endDate}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+      toast.success('Tum filtreli veri Excel olarak indirildi');
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Excel olusturulamadi');
+    }
   };
 
-  // Search filtering
-  const filteredData = Array.isArray(data) ? data.filter((row) => {
-    const tokens = buildSearchTokens(searchQuery);
-    if (tokens.length === 0) return true;
-    const haystack = normalizeSearchText([
-      row['Stok Kodu'],
-      row['Stok Ä°smi'],
-      row['Evrak No'],
-      row['Cari Ä°smi'],
-    ].filter(Boolean).join(' '));
-    return matchesSearchTokens(haystack, tokens);
-  }) : [];
+  const filteredData = Array.isArray(data) ? data : [];
 
   return {
     // raw state
@@ -1209,6 +1256,10 @@ export function useKarMarjiUyum() {
     setSearchQuery,
     statusFilter,
     setStatusFilter,
+    sectorFilter,
+    setSectorFilter,
+    groupFilter,
+    setGroupFilter,
     sortOrder,
     setSortOrder,
     page,
@@ -1267,6 +1318,7 @@ export function useKarMarjiUyum() {
     // handlers
     fetchData,
     handleSearch,
+    handleSectorSummaryClick,
     toggleColumn,
     toggleIncludedSectorCode,
     fetchExclusions,

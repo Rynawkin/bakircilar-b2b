@@ -7,6 +7,10 @@ type NotificationPayload = {
   title: string;
   body?: string | null;
   linkUrl?: string | null;
+  channels?: {
+    web?: boolean;
+    mobile?: boolean;
+  };
 };
 
 type NotificationListQuery = {
@@ -33,6 +37,7 @@ export const NOTIFICATION_CATEGORIES = [
   { key: 'PAYMENT', label: 'Odeme / Tahsilat' },
   { key: 'IMAGE', label: 'Gorsel' },
   { key: 'AUDIT', label: 'Audit' },
+  { key: 'MARGIN', label: 'Marj Ihlalleri' },
 ] as const;
 
 const normalizeCategory = (value?: string | null) => {
@@ -184,16 +189,20 @@ class NotificationService {
     });
     enabledIds.forEach((userId) => this.clearListCache(userId));
 
-    try {
-      await webPushService.sendToUsers(enabledIds, payload);
-    } catch (error) {
-      console.error('Web push notification dispatch failed', { error });
+    if (payload.channels?.web !== false) {
+      try {
+        await webPushService.sendToUsers(enabledIds, payload);
+      } catch (error) {
+        console.error('Web push notification dispatch failed', { error });
+      }
     }
 
-    try {
-      await mobilePushService.sendToUsers(enabledIds, payload);
-    } catch (error) {
-      console.error('Mobile push notification dispatch failed', { error });
+    if (payload.channels?.mobile !== false) {
+      try {
+        await mobilePushService.sendToUsers(enabledIds, payload);
+      } catch (error) {
+        console.error('Mobile push notification dispatch failed', { error });
+      }
     }
   }
 }

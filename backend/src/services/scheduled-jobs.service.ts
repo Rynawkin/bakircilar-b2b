@@ -38,6 +38,7 @@ import customerActivityService from './customer-activity.service';
 import orderTrackingService from './order-tracking.service';
 import eInvoiceService from './einvoice.service';
 import emailService from './email.service';
+import marginViolationService from './margin-violation.service';
 
 export type JobKey =
   | 'stockSync'
@@ -46,6 +47,7 @@ export type JobKey =
   | 'vadeSync'
   | 'vadeReminders'
   | 'marginReport'
+  | 'marginViolationEscalation'
   | 'customerRecoveryCache'
   | 'productComplement'
   | 'productPopularity'
@@ -231,12 +233,24 @@ class ScheduledJobsService {
         editable: true,
         handler: async () => {
           const reportDate = getYesterdayInTimeZone(this.timezone);
-          const syncResult = await reportsService.syncMarginComplianceReportForDate(reportDate);
+          const previousDate = new Date(reportDate);
+          previousDate.setUTCDate(previousDate.getUTCDate() - 1);
+          const syncResult = await reportsService.syncMarginComplianceReportForDates([previousDate, reportDate]);
           if (!syncResult.success) {
             console.error('Margin compliance report sync failed:', syncResult.error);
+            const failureSettings = await prisma.settings.findFirst({ orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }] });
+            if (failureSettings?.marginReportEmailEnabled && failureSettings.marginReportEmailRecipients.length > 0) {
+              await emailService.sendMarginComplianceFailureAlert({
+                recipients: failureSettings.marginReportEmailRecipients,
+                reportDate,
+                error: syncResult.error || 'Marj raporu senkronu basarisiz',
+              });
+            }
             throw new Error(syncResult.error || 'Marj raporu senkronu basarisiz');
           }
           console.log(`Margin compliance report synced: ${syncResult.rowCount} rows for ${syncResult.reportDate}`);
+          const violationResult = await marginViolationService.generateForDates([previousDate, reportDate]);
+          console.log('Margin violations refreshed:', violationResult);
 
           const settings = await prisma.settings.findFirst({
             orderBy: [
@@ -262,6 +276,20 @@ class ScheduledJobsService {
             subject: settings?.marginReportEmailSubject || undefined,
             attachment: emailPayload.attachment,
           });
+          if (settings?.marginPersonalEmailEnabled) {
+            await emailService.sendMarginViolationPersonalDigests(reportDate);
+          }
+        },
+      },
+      {
+        key: 'marginViolationEscalation',
+        name: 'Marj Ihlali Eskalasyonu',
+        description: 'Is gunu esigini asan acik marj ihlallerini personele ve yonetime bildirir.',
+        defaultSchedule: config.marginViolationEscalationCronSchedule,
+        editable: true,
+        handler: async () => {
+          const result = await marginViolationService.processEscalations();
+          if (result.escalated > 0) console.log('Margin violations escalated:', result.escalated);
         },
       },
       {

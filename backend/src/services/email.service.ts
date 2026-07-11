@@ -91,11 +91,16 @@ type MarginSummaryBucket = {
   avgMargin: number;
   negativeLines: number;
   negativeDocuments: number;
+  entryNegativeLines: number;
+  entryNegativeDocuments: number;
+  currentDataMissingLines: number;
+  entryDataMissingLines: number;
 };
 
 type MarginAlertRow = {
   documentNo: string;
   documentType: string;
+  customerCode: string;
   customerName: string;
   productCode: string;
   productName: string;
@@ -106,16 +111,24 @@ type MarginAlertRow = {
   unitCost: number;
   unitCostEntry: number;
   revenue: number;
+  revenueNet: number;
+  revenueGross: number;
   profit: number;
   entryProfit: number;
   avgMargin: number;
+  currentMarkup: number;
   entryMargin: number;
+  entrySourceMargin: number | null;
+  currentDataAvailable: boolean;
+  entryDataAvailable: boolean;
+  sectorCode: string;
 };
 
 type MarginAlertSet = {
   negative: MarginAlertRow[];
   low: MarginAlertRow[];
   high: MarginAlertRow[];
+  missing: MarginAlertRow[];
 };
 
 type MarginAlertSummary = {
@@ -162,6 +175,12 @@ type MarginSevenDaySummary = {
   overall: MarginSummaryBucket;
   orders: MarginSummaryBucket;
   sales: MarginSummaryBucket;
+  days: Array<{
+    date: Date;
+    status: 'SUCCESS' | 'FAILED' | 'MISSING';
+    overall: MarginSummaryBucket | null;
+    quality: Record<string, any> | null;
+  }>;
 };
 
 type MarginComplianceEmailSummary = {
@@ -185,8 +204,23 @@ type MarginComplianceEmailSummary = {
   alerts: MarginAlertGroups;
   topBottom: MarginTopBottomSummary;
   sevenDaySummary: MarginSevenDaySummary;
+  thresholds: { low: number; high: number; worstLimit: number };
+  previousDay: { status: 'SUCCESS' | 'FAILED' | 'MISSING'; summary: any | null };
+  dayQuality: Record<string, any> | null;
+  priorDayRefreshQuality: Record<string, any> | null;
+  salespersonNamesBySector: Record<string, string[]>;
+  violationStatsBySector: Record<string, { open: number; resolvedOnReportDate: number }>;
+  productRepeatCounts: Record<string, number>;
   // Rapor sayfasindan yonetilen aktif marka/urun dislama kurali sayisi.
   activeExclusionCount?: number;
+};
+
+type MarginReportEmailParams = {
+  recipients: string[];
+  reportDate: Date;
+  summary: MarginComplianceEmailSummary;
+  subject?: string;
+  attachment?: { name: string; content: string };
 };
 
 class EmailService {
@@ -1094,16 +1128,237 @@ class EmailService {
     return customerMap;
   }
 
-  async sendMarginComplianceReportSummary(params: {
-    recipients: string[];
-    reportDate: Date;
-    summary: MarginComplianceEmailSummary;
-    subject?: string;
-    attachment?: {
-      name: string;
-      content: string;
+  async sendMarginComplianceReportSummary(params: MarginReportEmailParams): Promise<void> {
+    const recipients = (params.recipients || []).map((email) => String(email || '').trim()).filter(Boolean);
+    if (!recipients.length) return;
+
+    const summary = params.summary;
+    const thresholds = summary.thresholds || { low: 5, high: 70, worstLimit: 15 };
+    const formatMoney = (value: number, digits = 0) => new Intl.NumberFormat('tr-TR', {
+      style: 'currency', currency: 'TRY', minimumFractionDigits: digits, maximumFractionDigits: digits,
+    }).format(Number(value) || 0);
+    const formatPercent = (value: number) => `%${new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(value) || 0)}`;
+    const formatCount = (value: number) => new Intl.NumberFormat('tr-TR').format(Number(value) || 0);
+    const formatDate = (date: Date) => new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }).format(new Date(date));
+    const formatShortDate = (date: Date) => new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(new Date(date));
+    const frontendUrl = (process.env.FRONTEND_URL || 'https://www.bakircilarkampanya.com').replace(/\/$/, '');
+    const panelUrl = `${frontendUrl}/reports/margin-compliance`;
+    const actionUrl = `${frontendUrl}/margin-violations`;
+    const logoUrl = `${frontendUrl}/brand/bakircilar-v2-white.png`;
+    const font = 'font-family:Arial,Helvetica,sans-serif;';
+
+    type TaggedRow = MarginAlertRow & { source: string };
+    const tag = (rows: MarginAlertRow[], source: string): TaggedRow[] => (rows || []).map((row) => ({ ...row, source }));
+    const currentNegative = [...tag(summary.alerts.sales.current.negative, 'Satış'), ...tag(summary.alerts.order.current.negative, 'Sipariş')].sort((a, b) => a.profit - b.profit);
+    const entryNegative = [...tag(summary.alerts.sales.entry.negative, 'Satış'), ...tag(summary.alerts.order.entry.negative, 'Sipariş')].sort((a, b) => a.entryProfit - b.entryProfit);
+    const lowRows = [...tag(summary.alerts.sales.current.low, 'Satış'), ...tag(summary.alerts.order.current.low, 'Sipariş')];
+    const highRows = [...tag(summary.alerts.sales.current.high, 'Satış'), ...tag(summary.alerts.order.current.high, 'Sipariş')].sort((a, b) => b.avgMargin - a.avgMargin);
+    const missingEntryRows = [...tag(summary.alerts.sales.entry.missing, 'Satış'), ...tag(summary.alerts.order.entry.missing, 'Sipariş')];
+    const currentLoss = Math.abs(currentNegative.reduce((sum, row) => sum + Math.min(0, row.profit), 0));
+    const entryLoss = Math.abs(entryNegative.reduce((sum, row) => sum + Math.min(0, row.entryProfit), 0));
+    const cleanDay = currentNegative.length === 0 && entryNegative.length === 0;
+    const lossShare = summary.totalProfit !== 0 ? currentLoss / Math.abs(summary.totalProfit) * 100 : null;
+    const rowIdentity = (row: MarginAlertRow) => [row.documentNo, row.productCode, row.customerCode, row.quantity].join('|');
+    const entryIds = new Set(entryNegative.map(rowIdentity));
+    const intersectionCount = currentNegative.filter((row) => entryIds.has(rowIdentity(row))).length;
+    const reportMargin = summary.salesSummary.avgMargin;
+    const baseSubject = String(params.subject || 'Kar Marji Raporu').trim();
+    const subjectState = cleanDay
+      ? 'Temiz gun - iki tabanda da maliyet alti yok'
+      : `Guncel ${formatCount(currentNegative.length)} / ${formatMoney(currentLoss)} | Son Giris ${formatCount(entryNegative.length)} / ${formatMoney(entryLoss)}`;
+    const subject = `${baseSubject} ${formatShortDate(params.reportDate)} | ${subjectState} | Marj ${formatPercent(reportMargin)}`;
+    const preheader = cleanDay
+      ? `${formatDate(params.reportDate)} temiz gun. Gunluk marj ${formatPercent(reportMargin)}.`
+      : `${currentNegative.length} guncel, ${entryNegative.length} son giris maliyet alti satir. Aksiyon merkezini acin.`;
+
+    const delta = (current: number, previous: number | null | undefined, money = false) => {
+      if (previous === null || previous === undefined || !Number.isFinite(previous)) return '<span style="color:#94a3b8;">Önceki gün verisi yok</span>';
+      if (previous === 0) return '<span style="color:#64748b;">Önceki gün 0</span>';
+      const pct = ((current - previous) / Math.abs(previous)) * 100;
+      const good = money ? current >= previous : current <= previous;
+      const color = good ? '#15803d' : '#b91c1c';
+      return `<span style="color:${color};">${pct >= 0 ? '▲' : '▼'} ${formatPercent(Math.abs(pct))}</span>`;
     };
-  }): Promise<void> {
+    const previousSales = summary.previousDay.summary?.salesSummary || null;
+    const previousSummary = summary.previousDay.summary;
+    const previousCurrentNegative = previousSummary
+      ? Number(previousSummary.orderSummary?.negativeLines || 0) + Number(previousSummary.salesSummary?.negativeLines || 0)
+      : null;
+    const previousEntryNegative = previousSummary
+      ? Number(previousSummary.orderSummary?.entryNegativeLines || 0) + Number(previousSummary.salesSummary?.entryNegativeLines || 0)
+      : null;
+
+    const repLabel = (sectorCode: string) => {
+      const normalized = String(sectorCode || '').trim().toLocaleUpperCase('tr-TR');
+      const names = summary.salespersonNamesBySector?.[normalized] || [];
+      return names.length ? `${sectorCode || 'TANIMSIZ'} - ${names.join(', ')}` : `${sectorCode || 'TANIMSIZ'} (atanmamış)`;
+    };
+    const linkForRow = (row: MarginAlertRow, status = 'NEGATIVE') => `${panelUrl}?date=${encodeURIComponent(params.reportDate.toISOString().slice(0, 10))}&search=${encodeURIComponent(row.productCode)}&status=${status}`;
+    const repeatBadge = (row: MarginAlertRow) => {
+      const count = summary.productRepeatCounts?.[String(row.productCode || '').trim().toLocaleUpperCase('tr-TR')] || 0;
+      return count > 1 ? `<span style="display:inline-block;margin-top:4px;padding:2px 6px;border-radius:4px;background:#fee2e2;color:#991b1b;font-size:10px;">Son 7 günde ${count} gün tekrar</span>` : '';
+    };
+    const alertTable = (rows: TaggedRow[], basis: 'CURRENT' | 'ENTRY', totalCount: number) => {
+      if (!rows.length) return '<div style="padding:10px 0;color:#15803d;font-size:13px;">Bu tabanda maliyet altı satır yok.</div>';
+      const shown = rows.slice(0, thresholds.worstLimit);
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="responsive-table" style="border-collapse:collapse;font-size:11px;">
+        <thead><tr style="background:#f8fafc;color:#64748b;"><th align="left" style="padding:8px 6px;">Ürün / Müşteri</th><th align="left" style="padding:8px 6px;">Sorumlu</th><th align="left" style="padding:8px 6px;">Evrak</th><th align="right" style="padding:8px 6px;">Miktar</th><th align="right" style="padding:8px 6px;">Satış / Maliyet</th><th align="right" style="padding:8px 6px;">Zarar / Marj</th></tr></thead>
+        <tbody>${shown.map((row) => {
+          const cost = basis === 'CURRENT' ? row.unitCost : row.unitCostEntry;
+          const profit = basis === 'CURRENT' ? row.profit : row.entryProfit;
+          const margin = basis === 'CURRENT' ? row.avgMargin : row.entryMargin;
+          const otherText = basis === 'CURRENT'
+            ? `Son giriş: ${formatMoney(row.entryProfit)} / ${formatPercent(row.entryMargin)}`
+            : `Güncel: ${formatMoney(row.profit)} / ${formatPercent(row.avgMargin)}`;
+          return `<tr style="background:#fff;border-bottom:1px solid #e2e8f0;">
+            <td style="padding:9px 6px;"><a href="${linkForRow(row)}" style="color:#15356b;font-weight:700;text-decoration:none;">${escapeHtml(row.productCode)} - ${escapeHtml(row.productName || '-')}</a><div style="color:#64748b;margin-top:2px;">${escapeHtml(row.customerName || '-')}</div>${repeatBadge(row)}</td>
+            <td style="padding:9px 6px;color:#334155;">${escapeHtml(repLabel(row.sectorCode))}</td>
+            <td style="padding:9px 6px;color:#334155;">${escapeHtml(row.source)}<div style="color:#64748b;">${escapeHtml(row.documentNo || '-')}</div></td>
+            <td align="right" style="padding:9px 6px;white-space:nowrap;">${escapeHtml(row.quantityLabel || '-')}</td>
+            <td align="right" style="padding:9px 6px;white-space:nowrap;">${formatMoney(row.unitPrice, 2)}<div style="color:#64748b;">Maliyet ${formatMoney(cost, 2)}</div></td>
+            <td align="right" style="padding:9px 6px;color:#b91c1c;font-weight:700;white-space:nowrap;">${formatMoney(profit, 2)} / ${formatPercent(margin)}<div style="font-weight:400;color:#64748b;">${otherText}</div></td>
+          </tr>`;
+        }).join('')}</tbody></table>${totalCount > shown.length ? `<div style="padding-top:7px;color:#64748b;font-size:11px;">${totalCount} satırın ilk ${shown.length} kaydı gösteriliyor. Tam liste Excel ekinde.</div>` : ''}`;
+    };
+
+    const aggregateLoss = (rows: TaggedRow[], key: (row: TaggedRow) => string, name: (row: TaggedRow) => string) => {
+      const map = new Map<string, { name: string; loss: number; count: number }>();
+      rows.forEach((row) => {
+        const id = key(row);
+        if (!id) return;
+        const current = map.get(id) || { name: name(row) || id, loss: 0, count: 0 };
+        current.loss += Math.abs(Math.min(row.profit, 0));
+        current.count += 1;
+        map.set(id, current);
+      });
+      return Array.from(map.values()).sort((a, b) => b.loss - a.loss).slice(0, 5);
+    };
+    const topLossProducts = aggregateLoss(currentNegative, (row) => row.productCode, (row) => `${row.productCode} - ${row.productName}`);
+    const topLossCustomers = aggregateLoss(currentNegative, (row) => row.customerCode || row.customerName, (row) => row.customerName);
+    const lossList = (title: string, rows: Array<{ name: string; loss: number; count: number }>) => `<td class="stack-cell" width="50%" valign="top" style="padding:6px;"><div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;"><div style="font-weight:700;color:#17233d;margin-bottom:8px;">${title}</div>${rows.length ? rows.map((row) => `<div style="padding:6px 0;border-top:1px solid #f1f5f9;"><strong>${escapeHtml(row.name)}</strong><span style="float:right;color:#b91c1c;">${formatMoney(row.loss)} · ${row.count} satır</span></div>`).join('') : '<span style="color:#64748b;">Kayıt yok</span>'}</div></td>`;
+
+    const trendRows = summary.sevenDaySummary.days.map((day) => {
+      if (day.status !== 'SUCCESS' || !day.overall) return `<tr><td style="padding:7px;border-bottom:1px solid #e2e8f0;">${formatDate(day.date)}</td><td colspan="4" style="padding:7px;color:#b45309;border-bottom:1px solid #e2e8f0;">${day.status === 'FAILED' ? 'Veri alınamadı' : 'Veri yok'}</td></tr>`;
+      return `<tr><td style="padding:7px;border-bottom:1px solid #e2e8f0;">${formatDate(day.date)}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;">${formatMoney(day.overall.totalRevenue)}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;">${formatMoney(day.overall.totalProfit)}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;">${formatPercent(day.overall.avgMargin)}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;color:${day.overall.negativeLines ? '#b91c1c' : '#15803d'};font-weight:700;">${day.overall.negativeLines}</td></tr>`;
+    }).join('');
+
+    const currentBySector = new Map<string, number>();
+    const entryBySector = new Map<string, number>();
+    currentNegative.forEach((row) => {
+      const key = String(row.sectorCode || '').trim();
+      currentBySector.set(key, (currentBySector.get(key) || 0) + 1);
+    });
+    entryNegative.forEach((row) => {
+      const key = String(row.sectorCode || '').trim();
+      entryBySector.set(key, (entryBySector.get(key) || 0) + 1);
+    });
+    const salespersonRows = summary.salespersonSummary.map((entry) => {
+      const normalizedSector = String(entry.sectorCode || '').trim().toLocaleUpperCase('tr-TR');
+      const violationStats = summary.violationStatsBySector?.[normalizedSector] || { open: 0, resolvedOnReportDate: 0 };
+      return `<tr><td style="padding:7px;border-bottom:1px solid #e2e8f0;font-weight:700;">${escapeHtml(repLabel(entry.sectorCode))}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;">${formatMoney(entry.salesSummary.totalRevenue)}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;">${formatMoney(entry.salesSummary.totalProfit)} / ${formatPercent(entry.salesSummary.avgMargin)}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;">${formatMoney(entry.salesSummary.entryProfit)}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;color:#b91c1c;font-weight:700;">${currentBySector.get(entry.sectorCode) || 0}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;color:#b91c1c;font-weight:700;">${entryBySector.get(entry.sectorCode) || 0}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;font-weight:700;">${violationStats.open}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;color:#15803d;font-weight:700;">${violationStats.resolvedOnReportDate}</td></tr>`;
+    }).join('');
+
+    const quality = summary.dayQuality || {};
+    const qualityItems: string[] = [];
+    if (Number(quality.invalidDateCount) > 0) qualityItems.push(`${quality.invalidDateCount} satır tarih hatası nedeniyle elendi`);
+    if (Number(quality.missingEntryDataCount) > 0) qualityItems.push(`${quality.missingEntryDataCount} satırda son giriş maliyet/kâr verisi eksik`);
+    if (Number(quality.missingEntrySourceMarginCount) > 0) qualityItems.push(`${quality.missingEntrySourceMarginCount} satırda Mikro SÖ yüzdesi yok; ortak kâr/ciro hesabı kullanıldı`);
+    if (Number(quality.missingCurrentCostCount) > 0) qualityItems.push(`${quality.missingCurrentCostCount} satırda güncel maliyet eksik`);
+    if (Number(quality.grossFallbackCount) > 0) qualityItems.push(`${quality.grossFallbackCount} satırda net ciro yok; brüt tutar fallback kullanıldı`);
+    if (quality.sectorFilterWarning) qualityItems.push(String(quality.sectorFilterWarning));
+    const qualityBox = qualityItems.length ? `<div style="margin:14px 24px;padding:12px 14px;background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;color:#92400e;"><strong>Veri Kalitesi</strong><ul style="margin:6px 0 0 18px;padding:0;">${qualityItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : '';
+    const priorRefreshQuality = summary.priorDayRefreshQuality || {};
+    const lateItems = Array.isArray(priorRefreshQuality.lateAddedItems) ? priorRefreshQuality.lateAddedItems : [];
+    const lateSection = Number(priorRefreshQuality.lateAddedCount) > 0 ? `<div style="margin:14px 24px;padding:12px 14px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;color:#1e3a8a;"><strong>Önceki rapora sonradan eklenenler: ${priorRefreshQuality.lateAddedCount}</strong>${lateItems.slice(0, 10).map((item: any) => `<div style="margin-top:5px;">${escapeHtml(item.productCode)} - ${escapeHtml(item.productName)} · ${escapeHtml(item.documentNo || '-')}</div>`).join('')}</div>` : '';
+
+    const statusBand = cleanDay
+      ? `<div style="margin:18px 24px;padding:16px;background:#ecfdf5;border-left:5px solid #16a34a;color:#065f46;"><strong>Temiz gün</strong> — iki maliyet tabanında da maliyet altı satır yok.</div>`
+      : `<div style="margin:18px 24px;padding:16px;background:#fef2f2;border-left:5px solid #dc2626;color:#7f1d1d;"><strong>Aksiyon gerekli:</strong> Güncel tabanda ${currentNegative.length} satır, ${formatMoney(currentLoss)} kayıp${lossShare === null ? '' : `; rapordaki toplam kârın ${formatPercent(lossShare)}'i`}. Son giriş tabanında ${entryNegative.length} satır, ${formatMoney(entryLoss)} kayıp. <strong>İki taban kesişimi: ${intersectionCount} satır.</strong></div>`;
+    const card = (label: string, value: string, sub: string) => `<td class="stack-cell" width="50%" valign="top" style="padding:6px;"><div style="border:1px solid #e2e8f0;border-radius:8px;padding:13px;background:#fff;"><div style="font-size:10px;color:#64748b;text-transform:uppercase;font-weight:700;">${label}</div><div style="font-size:20px;font-weight:800;color:#17233d;margin-top:5px;">${value}</div><div style="font-size:11px;color:#64748b;margin-top:5px;">${sub}</div></div></td>`;
+    const cards = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:0 18px;"><tr>${card('Satış Cirosu', formatMoney(summary.salesSummary.totalRevenue), delta(summary.salesSummary.totalRevenue, previousSales?.totalRevenue, true))}${card('Güncel Kâr / Marj', `${formatMoney(summary.salesSummary.totalProfit)} · ${formatPercent(summary.salesSummary.avgMargin)}`, `${delta(summary.salesSummary.totalProfit, previousSales?.totalProfit, true)} · Marj ${delta(summary.salesSummary.avgMargin, previousSales?.avgMargin, true)}`)}</tr><tr>${card('Son Giriş Kârı', formatMoney(summary.salesSummary.entryProfit), previousSales ? delta(summary.salesSummary.entryProfit, previousSales.entryProfit, true) : 'Önceki gün verisi yok')}${card('Maliyet Altı', `Güncel ${currentNegative.length} · SÖ ${entryNegative.length}`, `Güncel ${delta(currentNegative.length, previousCurrentNegative)} · SÖ ${delta(entryNegative.length, previousEntryNegative)} · ${intersectionCount} ortak`)}</tr></table>`;
+
+    const detailedSections = cleanDay ? '' : `
+      <div class="section"><h2>Güncel Maliyet Tabanı</h2>${alertTable(currentNegative, 'CURRENT', currentNegative.length)}</div>
+      <div class="section"><h2>Son Giriş Maliyet Tabanı</h2>${alertTable(entryNegative, 'ENTRY', entryNegative.length)}</div>
+      <div class="section"><div style="padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;color:#9a3412;"><strong>${formatPercent(thresholds.low)} altı marj:</strong> ${lowRows.length} satır, ${formatMoney(lowRows.reduce((sum, row) => sum + row.revenue, 0))} ciro, ${formatMoney(lowRows.reduce((sum, row) => sum + row.profit, 0))} kâr. ${missingEntryRows.length ? `${missingEntryRows.length} satırda son giriş tabanı eksik.` : ''}</div></div>
+      <div class="section"><h2>En Çok Zarar Ettirenler (Güncel Maliyet)</h2><table role="presentation" width="100%"><tr>${lossList('5 Ürün', topLossProducts)}${lossList('5 Müşteri', topLossCustomers)}</tr></table></div>
+      <div class="section"><h2>Şüpheli Yüksek Marjlar (${formatPercent(thresholds.high)} üzeri)</h2>${highRows.length ? highRows.slice(0, 5).map((row) => `<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;"><a href="${frontendUrl}/reports/cost-update-all-products?search=${encodeURIComponent(row.productCode)}" style="color:#15356b;font-weight:700;">${escapeHtml(row.productCode)} - ${escapeHtml(row.productName)}</a><span style="float:right;color:#15803d;">${formatPercent(row.avgMargin)}</span></div>`).join('') : '<div style="color:#64748b;">Kayıt yok.</div>'}</div>
+      <div class="section"><h2>Personel Özeti</h2><table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="responsive-table"><thead><tr style="background:#f8fafc;"><th align="left" style="padding:7px;">Personel / Sektör</th><th align="right" style="padding:7px;">Ciro</th><th align="right" style="padding:7px;">Güncel Kâr / Marj</th><th align="right" style="padding:7px;">SÖ Kâr</th><th align="right" style="padding:7px;">Güncel Zarar</th><th align="right" style="padding:7px;">SÖ Zarar</th><th align="right" style="padding:7px;">Açık İhlal</th><th align="right" style="padding:7px;">Dün Kapatılan</th></tr></thead><tbody>${salespersonRows}</tbody></table></div>`;
+    const trendSection = `<div class="section"><h2>Son 7 Gün</h2><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><thead><tr style="background:#f8fafc;"><th align="left" style="padding:7px;">Tarih</th><th align="right" style="padding:7px;">Ciro</th><th align="right" style="padding:7px;">Kâr</th><th align="right" style="padding:7px;">Marj</th><th align="right" style="padding:7px;">Zararlı</th></tr></thead><tbody>${trendRows}</tbody></table></div>`;
+
+    const attachmentLine = params.attachment ? `<div style="padding:10px 24px;color:#475569;font-size:12px;">Ekte: <strong>${escapeHtml(params.attachment.name)}</strong> — tüm satırlar, iki maliyet tabanının ayrı kolonlarıyla.</div>` : '';
+    const htmlContent = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${escapeHtml(subject)}</title><style>@media(max-width:620px){.stack-cell{display:block!important;width:100%!important}.section{padding:14px 10px!important}.responsive-table{font-size:9px!important}.responsive-table th,.responsive-table td{padding:5px 3px!important}}@media(prefers-color-scheme:dark){.mail-shell{background:#ffffff!important;color:#0f172a!important}.section{background:#ffffff!important}}</style></head><body style="margin:0;background:#e9eef5;${font}"><div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(preheader)}</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:20px 6px;"><table role="presentation" width="760" cellpadding="0" cellspacing="0" class="mail-shell" style="max-width:760px;width:100%;background:#fff;border:1px solid #dbe3ef;border-radius:10px;overflow:hidden;color:#0f172a;"><tr><td style="background:#14223b;padding:18px 24px;"><img src="${logoUrl}" width="185" alt="Bakırcılar" style="display:block;max-width:185px;height:auto;"><div style="color:#cbd5e1;font-size:12px;margin-top:8px;">Kâr Marjı Günlük Yönetici Özeti · ${formatDate(params.reportDate)}</div></td></tr><tr><td>${statusBand}${cards}${qualityBox}${lateSection}${detailedSections}${trendSection}${attachmentLine}<div style="padding:12px 24px 20px;"><a href="${actionUrl}" style="display:inline-block;background:#15356b;color:#fff;text-decoration:none;padding:11px 16px;border-radius:6px;font-weight:700;">Marj İhlali Aksiyon Merkezini Aç</a><a href="${panelUrl}" style="display:inline-block;margin-left:8px;color:#15356b;text-decoration:none;padding:10px 4px;font-weight:700;">Tüm raporu incele</a><div style="margin-top:14px;color:#64748b;font-size:11px;line-height:1.5;">Marj tüm ekranlarda kâr/ciro olarak hesaplanır. Güncel maliyet ve son giriş maliyeti ayrı tutulur. Mikro SÖ yüzdesi yalnız bilgi alanıdır. Eşikler: düşük &lt; ${formatPercent(thresholds.low)}, yüksek &gt; ${formatPercent(thresholds.high)}.</div></div></td></tr></table><div style="font-size:10px;color:#94a3b8;margin-top:8px;">Bakırcılar B2B otomatik raporu</div></td></tr></table></body></html>`;
+    const textContent = [
+      `KAR MARJI GUNLUK RAPORU - ${formatDate(params.reportDate)}`,
+      cleanDay ? 'Temiz gun: iki tabanda da maliyet alti satir yok.' : `Guncel taban: ${currentNegative.length} satir, ${formatMoney(currentLoss)} kayip. Son giris: ${entryNegative.length} satir, ${formatMoney(entryLoss)} kayip.`,
+      `Gunluk satis cirosu: ${formatMoney(summary.salesSummary.totalRevenue)}`,
+      `Gunluk kar/marj: ${formatMoney(summary.salesSummary.totalProfit)} / ${formatPercent(summary.salesSummary.avgMargin)}`,
+      `Iki taban kesisimi: ${intersectionCount} satir.`,
+      `Aksiyon merkezi: ${actionUrl}`,
+      params.attachment ? `Ek: ${params.attachment.name}` : '',
+    ].filter(Boolean).join('\n');
+
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    sendSmtpEmail.sender = { email: this.senderEmail, name: this.senderName };
+    sendSmtpEmail.to = recipients.map((email) => ({ email }));
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = htmlContent;
+    sendSmtpEmail.textContent = textContent;
+    sendSmtpEmail.headers = { 'Content-Type': 'text/html; charset=UTF-8' };
+    if (params.attachment) sendSmtpEmail.attachment = [params.attachment];
+    await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+  }
+
+  async sendMarginComplianceFailureAlert(params: { recipients: string[]; reportDate: Date; error: string }) {
+    const recipients = params.recipients.map((email) => String(email || '').trim()).filter(Boolean);
+    if (!recipients.length) return;
+    const date = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'long', timeZone: 'UTC' }).format(params.reportDate);
+    const message = `Marj raporu ${date} verisi alınamadı. Normal/sıfır değerli rapor gönderilmedi. Hata: ${params.error}`;
+    const mail = new brevo.SendSmtpEmail();
+    mail.sender = { email: this.senderEmail, name: this.senderName };
+    mail.to = recipients.map((email) => ({ email }));
+    mail.subject = `Marj Raporu VERI HATASI - ${date}`;
+    mail.htmlContent = `<div style="font-family:Arial;padding:20px;background:#fef2f2;border-left:5px solid #dc2626;color:#7f1d1d;"><h2>Bugünkü veri alınamadı</h2><p>${escapeHtml(message)}</p><p>Sıfırlarla dolu normal rapor özellikle gönderilmedi.</p></div>`;
+    mail.textContent = message;
+    await this.apiInstance.sendTransacEmail(mail);
+  }
+
+  async sendMarginViolationPersonalDigests(reportDate: Date) {
+    const assignments = await prisma.marginViolationAssignee.findMany({
+      where: { violation: { reportDate, status: { in: ['OPEN', 'IN_REVIEW', 'REOPENED'] } }, user: { email: { not: null }, active: true } },
+      include: { user: { select: { email: true, name: true, displayName: true, mikroName: true } }, violation: { include: { bases: true } } },
+    });
+    const byUser = new Map<string, typeof assignments>();
+    assignments.forEach((assignment) => {
+      const list = byUser.get(assignment.userId) || [];
+      list.push(assignment);
+      byUser.set(assignment.userId, list);
+    });
+    const frontendUrl = (process.env.FRONTEND_URL || 'https://www.bakircilarkampanya.com').replace(/\/$/, '');
+    for (const rows of byUser.values()) {
+      const user = rows[0]?.user;
+      if (!user?.email) continue;
+      const name = user.displayName || user.mikroName || user.name;
+      const bodyRows = rows.slice(0, 20).map(({ violation }) => `<tr><td style="padding:7px;border-bottom:1px solid #e2e8f0;">${escapeHtml(violation.productCode)} - ${escapeHtml(violation.productName || '')}</td><td style="padding:7px;border-bottom:1px solid #e2e8f0;">${escapeHtml(violation.customerName || '-')}</td><td align="right" style="padding:7px;border-bottom:1px solid #e2e8f0;color:#b91c1c;">${violation.bases.map((basis) => `${basis.basis}: ${Number(basis.profit || 0).toLocaleString('tr-TR')} TL`).join('<br>')}</td></tr>`).join('');
+      const link = `${frontendUrl}/margin-violations?assignee=me&status=OPEN`;
+      const mail = new brevo.SendSmtpEmail();
+      mail.sender = { email: this.senderEmail, name: this.senderName };
+      mail.to = [{ email: user.email, name }];
+      mail.subject = `${rows.length} açık marj ihlalin var`;
+      mail.htmlContent = `<div style="font-family:Arial;max-width:680px;margin:auto;"><h2>${escapeHtml(name)}, açık marj ihlallerin</h2><table width="100%" cellspacing="0" cellpadding="0"><thead><tr><th align="left">Ürün</th><th align="left">Müşteri</th><th align="right">Zarar</th></tr></thead><tbody>${bodyRows}</tbody></table><p><a href="${link}" style="background:#15356b;color:#fff;padding:10px 14px;text-decoration:none;border-radius:6px;">İhlalleri incele</a></p></div>`;
+      mail.textContent = `${name}, ${rows.length} açık marj ihlalin var. ${link}`;
+      try {
+        await this.apiInstance.sendTransacEmail(mail);
+      } catch (error) {
+        console.error('Margin violation personal digest could not be sent', {
+          userId: rows[0]?.userId,
+          error: error instanceof Error ? error.message : 'Unknown email error',
+        });
+      }
+    }
+  }
+
+  private async sendMarginComplianceReportSummaryLegacy(params: MarginReportEmailParams): Promise<void> {
     const recipients = (params.recipients || [])
       .map((email) => (typeof email === 'string' ? email.trim() : ''))
       .filter(Boolean);
