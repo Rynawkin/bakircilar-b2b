@@ -1337,7 +1337,13 @@ export class CustomerController {
         } catch (error) {
           console.error('Purchased last sales fallback failed', { customerId: customer.id, error });
         }
-      } else if (shouldUseLastPrices && customer.mikroCariCode) {
+      }
+
+      // Purchased modu hem karttaki "Son alis" gecmisini hem de fiyat tabani icin
+      // Mikro son satisini birlikte kullanir. Bu sorgu `else if` olursa ana sayfadaki
+      // "Sik Aldiklariniz" urunlerinde lastSalesMap bos kalir ve fazla-stok indirimi
+      // son satis fiyatinin altinda gosterilebilir.
+      if (shouldUseLastPrices && customer.mikroCariCode) {
         try {
           const sales = await withTimeout(
             mikroService.getCustomerSalesMovements(
