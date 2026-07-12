@@ -131,84 +131,92 @@ export default function PublicSalesCatalogPage() {
   const generatedAt = new Date(data.catalog.generatedAt).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' });
   const accent = data.catalog.accentColor || '#15356b';
   const compact = data.catalog.displayDensity === 'COMPACT';
+  const featuredSections = data.sections.slice(0, 4);
 
   return (
-    <div className="min-h-screen bg-[#f3f5f8] text-[#14223b]">
-      <header className="sticky top-0 z-50 border-b border-[#e1e6ee] bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:px-8">
-          <Logo layout="horizontal" tone="blue" size="md" />
-          <div className="hidden h-7 w-px bg-[#e2e7ef] sm:block" />
-          <div className="hidden min-w-0 flex-1 sm:block">
-            <div className="truncate text-[13px] font-semibold text-[#14223b]">{data.catalog.title}</div>
-            <div className="text-[10.5px] text-[#8b97ac]">Revizyon {data.catalog.revision} · {productCount} ürün</div>
+    <div className="min-h-screen bg-[#e9edf3] text-[#0f1c33]">
+      <div className="mx-auto min-h-screen w-full max-w-[1440px] bg-[#f4f6f9] shadow-[0_0_60px_rgba(11,29,59,0.08)]">
+        <header className="bg-[#0b1d3b] text-white">
+          <div className="flex min-h-8 items-center justify-between gap-4 border-b border-white/[0.07] bg-[#081426] px-4 py-2 sm:px-6 lg:px-8">
+            <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-[#6f8fbf]">
+              Bakırcılar B2B <span className="hidden sm:inline">· {data.catalog.name || data.catalog.title}</span>
+            </div>
+            <div className="flex-none font-mono text-[10px] tracking-[0.04em] text-white/55">
+              REV {String(data.catalog.revision).padStart(2, '0')} · {data.catalog.vatMode === 'INCLUDED' ? 'KDV DAHİL' : 'KDV HARİÇ'}
+            </div>
           </div>
-          <div className="ml-auto flex items-center gap-1.5">
-            <button onClick={share} title="Paylaş" aria-label="Kataloğu paylaş" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#d8e0ec] bg-white text-[#51607a] hover:bg-[#f4f6fa]"><Share2 className="h-4 w-4" /></button>
-            <button onClick={shareWhatsApp} className="hidden h-9 items-center gap-1.5 rounded-lg border border-emerald-200 px-3 text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50 sm:inline-flex"><Send className="h-4 w-4" /> WhatsApp</button>
-            <button onClick={downloadPdf} disabled={pdfLoading || productCount === 0} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[12px] font-semibold text-white disabled:opacity-50" style={{ backgroundColor: accent }}>
-              {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} <span className="hidden sm:inline">PDF indir</span><span className="sm:hidden">PDF</span>
-            </button>
-          </div>
-        </div>
-      </header>
 
-      <section className="overflow-hidden bg-[#0b1d3b] text-white">
-        {data.catalog.coverImageUrl && (
-          <div className="border-b border-white/10 bg-[#07162e]">
-            <div className={`relative mx-auto aspect-[7/3] w-full overflow-hidden ${compact ? 'max-w-[980px]' : 'max-w-[1180px]'}`}>
-              <img src={data.catalog.coverImageUrl} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover opacity-20" />
-              <img src={data.catalog.coverImageUrl} alt={`${data.catalog.title} kapak görseli`} className="absolute inset-0 h-full w-full object-contain" />
-              <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#07162e]/45 to-transparent" />
+          <div className="flex min-h-[62px] items-center gap-3 border-b border-white/[0.08] px-4 sm:px-6 lg:px-8">
+            <Logo layout="horizontal" tone="white" size="md" />
+            <div className="hidden h-6 w-px bg-white/15 sm:block" />
+            <div className="hidden min-w-0 flex-1 sm:block">
+              <div className="truncate text-[13px] font-semibold text-white">{data.catalog.title}</div>
+              <div className="font-mono text-[10.5px] text-white/50">{productCount} ürün · {data.sections.length} kategori</div>
+            </div>
+            <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+              <button onClick={share} title="Paylaş" aria-label="Kataloğu paylaş" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 text-white/85 transition-colors hover:bg-white/10 sm:w-auto sm:gap-1.5 sm:px-3">
+                <Share2 className="h-4 w-4" /><span className="hidden text-[12px] font-semibold sm:inline">Paylaş</span>
+              </button>
+              <button onClick={shareWhatsApp} title="WhatsApp ile paylaş" aria-label="Kataloğu WhatsApp ile paylaş" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-300/40 text-emerald-200 transition-colors hover:bg-emerald-300/10 sm:w-auto sm:gap-1.5 sm:px-3">
+                <Send className="h-4 w-4" /><span className="hidden text-[12px] font-semibold sm:inline">WhatsApp</span>
+              </button>
+              <button onClick={downloadPdf} disabled={pdfLoading || productCount === 0} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[12px] font-semibold text-white disabled:opacity-50" style={{ backgroundColor: accent }}>
+                {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} <span className="hidden sm:inline">PDF indir</span><span className="sm:hidden">PDF</span>
+              </button>
             </div>
           </div>
-        )}
-        <div className={`mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 ${data.catalog.coverImageUrl ? (compact ? 'py-5 sm:py-6' : 'py-8 sm:py-10') : (compact ? 'py-9 sm:py-12' : 'py-14 sm:py-20')}`}>
-          <div className="max-w-4xl">
-            <div className={`${compact ? 'mb-3' : 'mb-4'} inline-flex items-center gap-2 rounded-md border border-white/25 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase`}>
-              <FileText className="h-3.5 w-3.5" /> Güncel satış kataloğu
-            </div>
-            <h1 className={`max-w-4xl font-semibold leading-[1.1] text-white ${compact ? 'text-[30px] sm:text-[40px]' : 'text-[34px] sm:text-[46px]'}`}>{data.catalog.title}</h1>
-            {data.catalog.subtitle && <p className={`max-w-3xl leading-6 text-white/82 ${compact ? 'mt-3 text-[14px] sm:text-[15px]' : 'mt-4 text-[15px] sm:text-[17px]'}`}>{data.catalog.subtitle}</p>}
-            <div className={`${compact ? 'mt-4' : 'mt-6'} flex flex-wrap gap-x-5 gap-y-2 text-[11.5px] text-white/75`}>
-              <span className="inline-flex items-center gap-1.5"><PackageCheck className="h-4 w-4" /> {productCount} ürün</span>
-              <span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4" /> {data.sections.length} kategori</span>
-              {(validFrom || validTo) && <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4" /> {validFrom || '-'} - {validTo || '-'}</span>}
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <nav className="sticky top-16 z-40 border-b border-[#dfe5ed] bg-white shadow-[0_5px_18px_rgba(20,34,59,0.06)]">
-        <div className={`mx-auto flex max-w-[1440px] gap-1 overflow-x-auto px-4 sm:px-6 lg:px-8 ${compact ? 'py-1.5' : 'py-2'}`}>
+          <section className={`relative isolate flex overflow-hidden ${compact ? 'min-h-[250px] sm:min-h-[285px]' : 'min-h-[330px] sm:min-h-[390px]'}`}>
+            {data.catalog.coverImageUrl && (
+              <img src={data.catalog.coverImageUrl} alt={`${data.catalog.title} kapak görseli`} className="absolute inset-0 -z-20 h-full w-full object-cover object-center" />
+            )}
+            <div className="absolute inset-0 -z-10 bg-[linear-gradient(100deg,#0b1d3b_0%,rgba(11,29,59,0.97)_34%,rgba(11,29,59,0.72)_62%,rgba(11,29,59,0.25)_100%)] max-sm:bg-[linear-gradient(100deg,#0b1d3b_0%,rgba(11,29,59,0.93)_74%,rgba(11,29,59,0.62)_100%)]" />
+            <div className={`flex w-full max-w-[720px] flex-col justify-center px-4 sm:px-8 lg:px-10 ${compact ? 'py-8' : 'py-11 sm:py-14'}`}>
+              <div className="mb-4 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9cc3ef] sm:mb-5">
+                <span className="h-px w-8 bg-[#7fb0e8]" /> Güncel satış kataloğu
+              </div>
+              <h1 className={`font-bold leading-[1.1] text-white [text-shadow:0_2px_14px_rgba(0,0,0,0.35)] ${compact ? 'text-[28px] sm:text-[36px]' : 'text-[32px] sm:text-[44px]'}`}>{data.catalog.title}</h1>
+              {data.catalog.subtitle && <p className="mt-4 max-w-[560px] text-[15px] leading-6 text-white/90 [text-shadow:0_1px_8px_rgba(0,0,0,0.35)] sm:text-[16px]">{data.catalog.subtitle}</p>}
+              <div className={`${compact ? 'mt-5' : 'mt-7'} flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/80`}>
+                <span><strong className="text-white">{productCount}</strong> ürün</span>
+                <span className="h-3 w-px bg-white/30" />
+                <span><strong className="text-white">{data.sections.length}</strong> kategori</span>
+                <span className="h-3 w-px bg-white/30" />
+                <span>{data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV hariç'}</span>
+                {(validFrom || validTo) && <><span className="hidden h-3 w-px bg-white/30 sm:block" /><span className="inline-flex items-center gap-1.5 normal-case tracking-normal"><CalendarDays className="h-3.5 w-3.5" /> {validFrom || '-'} - {validTo || '-'}</span></>}
+              </div>
+            </div>
+          </section>
+        </header>
+
+        <nav className="sticky top-0 z-40 border-b border-[#e4e9f1] bg-white shadow-[0_5px_18px_rgba(11,29,59,0.06)]">
+          <div className={`flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-6 lg:px-8 ${compact ? 'py-1.5' : 'py-2'}`}>
           {data.sections.map((section) => (
-            <button key={section.id} onClick={() => scrollToSection(section.id)} className={`h-9 flex-none rounded-lg px-3 text-[12px] font-semibold transition-colors ${activeSection === section.id ? 'text-white' : 'text-[#51607a] hover:bg-[#f4f6fa]'}`} style={activeSection === section.id ? { backgroundColor: accent } : undefined}>
+            <button key={section.id} onClick={() => scrollToSection(section.id)} className={`h-[34px] flex-none rounded-lg px-3 text-[12px] font-semibold transition-colors ${activeSection === section.id ? 'text-white' : 'text-[#51607a] hover:bg-[#eef2f7] hover:text-[#0f1c33]'}`} style={activeSection === section.id ? { backgroundColor: accent } : undefined}>
               {section.title} <span className={activeSection === section.id ? 'text-white/70' : 'text-[#9aa6b8]'}>{section.products.length}</span>
             </button>
           ))}
-        </div>
-      </nav>
+          </div>
+        </nav>
 
-      <main>
-        {data.sections.map((section, sectionIndex) => (
-          <section
-            key={section.id}
-            id={`catalog-section-${section.id}`}
-            ref={(element) => { sectionRefs.current[section.id] = element; }}
-            className={`scroll-mt-32 border-b border-[#e0e5ed] ${sectionIndex % 2 === 0 ? 'bg-[#f3f5f8]' : 'bg-white'}`}
-          >
-            <div className={`mx-auto px-4 sm:px-6 lg:px-8 ${compact ? 'max-w-[1600px] py-5 sm:py-7' : 'max-w-[1440px] py-9 sm:py-12'}`}>
-              <div className={`${compact ? 'mb-3' : 'mb-5'} flex items-end justify-between gap-4`}>
-                <div>
-                  <div className="mb-2 h-1 w-10 rounded-full" style={{ backgroundColor: accent }} />
-                  <h2 className={`font-semibold text-[#14223b] ${compact ? 'text-[20px] sm:text-[22px]' : 'text-[24px] sm:text-[28px]'}`}>{section.title}</h2>
-                  <p className="mt-1 text-[12px] text-[#8b97ac]">{section.products.length} ürün · fiyatlar katalog açılışında güncellendi</p>
+        <main>
+          {data.sections.map((section, sectionIndex) => (
+            <section
+              key={section.id}
+              id={`catalog-section-${section.id}`}
+              ref={(element) => { sectionRefs.current[section.id] = element; }}
+              className="scroll-mt-14 border-b border-[#dde4ee]"
+            >
+              <div className={`px-4 sm:px-6 lg:px-8 ${compact ? 'py-5 sm:py-7' : 'py-8 sm:py-10'}`}>
+                <div className={`${compact ? 'mb-3 pb-3' : 'mb-5 pb-4'} flex items-center gap-3 border-b border-[#dde4ee]`}>
+                  <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-[#0b1d3b] text-[13px] font-extrabold text-white">{String(sectionIndex + 1).padStart(2, '0')}</span>
+                  <h2 className={`min-w-0 flex-1 font-bold text-[#0f1c33] ${compact ? 'text-[20px]' : 'text-[22px] sm:text-[24px]'}`}>{section.title}</h2>
+                  <span className="flex-none text-[12px] text-[#8b97ac]">{section.products.length} ürün</span>
                 </div>
-                <span className={`hidden font-semibold text-[#e3e8ef] sm:block ${compact ? 'text-[34px]' : 'text-[42px]'}`}>{String(sectionIndex + 1).padStart(2, '0')}</span>
-              </div>
-              <div className={compact ? 'grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}>
+                <div className={compact ? 'grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 xl:gap-[18px]'}>
                 {section.products.map((product) => (
-                  <article key={product.id} className="group overflow-hidden rounded-lg border border-[#dfe5ed] bg-white transition-shadow hover:shadow-[0_12px_28px_rgba(20,34,59,0.09)]">
-                    <div className={`relative overflow-hidden border-b border-[#edf0f5] bg-white ${compact ? 'aspect-[5/3] p-2.5' : 'aspect-[4/3] p-4'}`}>
+                  <article key={product.id} className="group overflow-hidden rounded-lg border border-[#e6ebf2] bg-white shadow-[0_1px_2px_rgba(11,29,59,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(11,29,59,0.12)]">
+                    <div className={`relative flex items-center justify-center overflow-hidden border-b border-[#eef2f7] bg-white ${compact ? 'aspect-[5/3] p-2.5' : 'aspect-[4/3] p-3.5'}`}>
                       {product.imageUrl ? (
                         <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.03]" loading="lazy" />
                       ) : (
@@ -221,42 +229,55 @@ export default function PublicSalesCatalogPage() {
                         </span>
                       )}
                     </div>
-                    <div className={compact ? 'p-3' : 'p-4'}>
-                      <div className={`font-semibold text-[#14223b] ${compact ? 'min-h-[38px] text-[13px] leading-5' : 'min-h-[44px] text-[14px] leading-[1.45]'}`}>{product.name}</div>
-                      <div className={`${compact ? 'mt-1.5' : 'mt-2'} flex min-h-[18px] flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-[#8b97ac]`}>
+                    <div className={compact ? 'p-3' : 'p-[15px]'}>
+                      <div className={`break-words font-semibold text-[#0f1c33] ${compact ? 'min-h-[40px] text-[13px] leading-5' : 'min-h-[40px] text-[14px] leading-[1.4]'}`}>{product.name}</div>
+                      <div className={`${compact ? 'mt-1.5' : 'mt-2'} flex min-h-[18px] flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-[#8b97ac]`}>
                         {data.catalog.showProductCode && <span className="font-mono">{product.productCode}</span>}
                         {data.catalog.showUnit && product.unit && <span>{product.unit}</span>}
                         {product.brandCode && <span>{product.brandCode}</span>}
                       </div>
-                      <div className={`${compact ? 'mt-2 border-t pt-2' : 'mt-4 border-t pt-3'} border-[#edf0f5]`}>
-                        <div className="text-[10.5px] font-medium uppercase text-[#8b97ac]">Satış fiyatı</div>
-                        <div className={`mt-0.5 font-semibold tabular-nums ${compact ? 'text-[20px]' : 'text-[24px]'}`} style={{ color: accent }}>{formatCurrency(product.salePrice)}</div>
-                        <div className="mt-1 text-[10.5px] text-[#8b97ac]">{data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV hariç'}{data.catalog.showUnit && product.unit ? ` · ${product.unit} başına` : ''}</div>
+                      <div className={`${compact ? 'mt-2 pt-2' : 'mt-3 pt-3'} flex items-end justify-between gap-3 border-t border-[#edf1f6]`}>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#93a2b8]">Satış fiyatı</div>
+                          <div className={`mt-0.5 font-extrabold tabular-nums text-[#0b1d3b] ${compact ? 'text-[20px]' : 'text-[24px]'}`}>{formatCurrency(product.salePrice)}</div>
+                        </div>
+                        <div className="pb-0.5 text-right text-[10px] leading-4 text-[#9aa6b8]">{data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV hariç'}{data.catalog.showUnit && product.unit ? <><br />{product.unit} başına</> : null}</div>
                       </div>
                     </div>
                   </article>
                 ))}
+                </div>
               </div>
+            </section>
+          ))}
+        </main>
+
+        <footer className="bg-[#0b1d3b] px-4 text-white sm:px-6 lg:px-8">
+          <div className={`${compact ? 'py-5' : 'py-8'} grid gap-7 border-b border-white/10 sm:grid-cols-[minmax(0,1.5fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)]`}>
+            <div>
+              <Logo layout="horizontal" tone="white" size="md" />
+              <p className="mt-3 max-w-md text-[12px] leading-5 text-white/60">Bu katalog dinamik olarak hazırlanmıştır. Ürün bulunabilirliği ve fiyatlar sipariş anında teyit edilir.</p>
             </div>
-          </section>
-        ))}
-      </main>
-
-      <footer className="bg-[#0b1d3b] text-white">
-        <div className={`mx-auto flex max-w-[1440px] flex-col px-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8 ${compact ? 'gap-3 py-5' : 'gap-5 py-9'}`}>
-          <div>
-            <Logo layout="horizontal" tone="white" size="md" />
-            <p className="mt-3 max-w-xl text-[11.5px] leading-5 text-white/65">Bu katalog dinamik olarak hazırlanmıştır. Ürün bulunabilirliği ve fiyatlar sipariş anında teyit edilir.</p>
+            {featuredSections.length > 0 && (
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8fb4e6]">Öne çıkan kategoriler</div>
+                <div className="mt-2 text-[12px] leading-6 text-white/70">{featuredSections.map((section) => <div key={section.id}>{section.title}</div>)}</div>
+              </div>
+            )}
+            <div className="text-[11px] leading-5 text-white/65">
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#8fb4e6]">Katalog</div>
+              <div>Revizyon {String(data.catalog.revision).padStart(2, '0')}</div>
+              <div>Son hesaplama: {generatedAt}</div>
+              <div>{data.catalog.vatMode === 'INCLUDED' ? 'Fiyatlara KDV dahildir.' : 'Fiyatlara KDV dahil değildir.'}</div>
+            </div>
           </div>
-          <div className="text-[11px] leading-5 text-white/65 sm:text-right">
-            <div>Revizyon {data.catalog.revision}</div>
-            <div>Son hesaplama: {generatedAt}</div>
-            <div>{data.catalog.vatMode === 'INCLUDED' ? 'Fiyatlara KDV dahildir.' : 'Fiyatlara KDV dahil değildir.'}</div>
+          <div className="bg-[#081426] py-3 font-mono text-[10px] tracking-[0.05em] text-white/40">
+            © {new Date().getFullYear()} BAKIRCILAR B2B · SAKARYA
           </div>
-        </div>
-      </footer>
+        </footer>
 
-      <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} title="Yukarı dön" aria-label="Sayfanın başına dön" className="fixed bottom-5 right-5 z-30 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#d8e0ec] bg-white text-[#51607a] shadow-lg hover:bg-[#f4f6fa]"><ArrowUp className="h-4 w-4" /></button>
+        <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} title="Yukarı dön" aria-label="Sayfanın başına dön" className="fixed bottom-5 right-5 z-30 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#d8e0ec] bg-white text-[#51607a] shadow-lg hover:bg-[#f4f6fa]"><ArrowUp className="h-4 w-4" /></button>
+      </div>
     </div>
   );
 }

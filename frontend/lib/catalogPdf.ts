@@ -85,10 +85,17 @@ const loadCoverAsJpeg = async (url: string | null | undefined): Promise<string |
     if (!context) return null;
     context.fillStyle = '#07162e';
     context.fillRect(0, 0, canvas.width, canvas.height);
-    const scale = Math.min(canvas.width / bitmap.width, canvas.height / bitmap.height);
+    const scale = Math.max(canvas.width / bitmap.width, canvas.height / bitmap.height);
     const drawWidth = bitmap.width * scale;
     const drawHeight = bitmap.height * scale;
     context.drawImage(bitmap, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+    const overlay = context.createLinearGradient(0, 0, canvas.width, 0);
+    overlay.addColorStop(0, 'rgba(11,29,59,0.99)');
+    overlay.addColorStop(0.34, 'rgba(11,29,59,0.96)');
+    overlay.addColorStop(0.62, 'rgba(11,29,59,0.68)');
+    overlay.addColorStop(1, 'rgba(11,29,59,0.18)');
+    context.fillStyle = overlay;
+    context.fillRect(0, 0, canvas.width, canvas.height);
     bitmap.close();
     return canvas.toDataURL('image/jpeg', 0.9);
   } catch {
@@ -176,50 +183,91 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     );
   };
 
-  doc.setFillColor(7, 22, 46);
-  doc.rect(0, 0, width, 18, 'F');
-  if (logoWhite) drawContainedImage(logoWhite, 'PNG', 16, 3, 55, 12);
-  doc.setTextColor('#ffffff');
-  doc.setFont('Hanken', 'bold');
-  doc.setFontSize(8.5);
-  doc.text(`REVIZYON ${data.catalog.revision}`, width - 16, 11, { align: 'right' });
+  const validFrom = formatDate(data.catalog.validFrom);
+  const validTo = formatDate(data.catalog.validTo);
+  const productCount = data.sections.reduce((sum, section) => sum + section.products.length, 0);
 
-  if (cover) {
-    doc.addImage(cover, 'JPEG', 0, 18, width, 90, undefined, 'FAST');
-  } else {
-    doc.setFillColor(navy);
-    doc.rect(0, 18, width, 90, 'F');
-  }
+  doc.setFillColor(8, 20, 38);
+  doc.rect(0, 0, width, 8, 'F');
+  doc.setTextColor('#6f8fbf');
+  doc.setFont('Hanken', 'bold');
+  doc.setFontSize(6.5);
+  doc.text('BAKIRCILAR B2B  /  GUNCEL SATIS KATALOGU', 16, 5.2);
+  doc.setTextColor('#a8b3c4');
+  doc.setFont('PlexMono', 'normal');
+  doc.text(
+    `REV ${String(data.catalog.revision).padStart(2, '0')}  /  ${data.catalog.vatMode === 'INCLUDED' ? 'KDV DAHIL' : 'KDV HARIC'}`,
+    width - 16,
+    5.2,
+    { align: 'right' }
+  );
 
   doc.setFillColor(11, 29, 59);
-  doc.rect(0, 108, width, 56, 'F');
+  doc.rect(0, 8, width, 18, 'F');
+  if (logoWhite) drawContainedImage(logoWhite, 'PNG', 16, 10, 48, 13);
   doc.setTextColor('#ffffff');
   doc.setFont('Hanken', 'bold');
-  doc.setFontSize(23);
-  const titleLines = (doc.splitTextToSize(data.catalog.title, 138) as string[]).slice(0, 2);
-  doc.text(titleLines, 16, 122, { lineHeightFactor: 1.03 });
+  doc.setFontSize(8);
+  const headerTitle = (doc.splitTextToSize(data.catalog.title, 112) as string[])[0] || data.catalog.title;
+  doc.text(headerTitle, 72, 18.5);
+
+  if (cover) {
+    doc.addImage(cover, 'JPEG', 0, 26, width, 112, undefined, 'FAST');
+  } else {
+    doc.setFillColor(11, 29, 59);
+    doc.rect(0, 26, width, 112, 'F');
+  }
+
+  doc.setTextColor('#9cc3ef');
+  doc.setFont('Hanken', 'bold');
+  doc.setFontSize(7.5);
+  doc.text('GUNCEL SATIS KATALOGU', 16, 47);
+  doc.setDrawColor('#7fb0e8');
+  doc.setLineWidth(0.5);
+  doc.line(16, 51, 30, 51);
+
+  doc.setTextColor('#ffffff');
+  doc.setFont('Hanken', 'bold');
+  doc.setFontSize(22);
+  const titleLines = (doc.splitTextToSize(data.catalog.title, 132) as string[]).slice(0, 3);
+  doc.text(titleLines, 16, 65, { lineHeightFactor: 1.04 });
   if (data.catalog.subtitle) {
     doc.setFont('Hanken', 'normal');
     doc.setFontSize(10.5);
-    const subtitleY = 134 + Math.max(0, titleLines.length - 1) * 8;
-    const subtitleLines = (doc.splitTextToSize(data.catalog.subtitle, 138) as string[]).slice(0, 2);
-    doc.text(subtitleLines, 16, subtitleY, { lineHeightFactor: 1.05 });
+    const subtitleY = 76 + Math.max(0, titleLines.length - 1) * 8;
+    const subtitleLines = (doc.splitTextToSize(data.catalog.subtitle, 126) as string[]).slice(0, 2);
+    doc.text(subtitleLines, 16, subtitleY, { lineHeightFactor: 1.15 });
   }
-  if (mascot) drawContainedImage(mascot, 'PNG', width - 48, 110, 34, 51);
+
+  doc.setFont('Hanken', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor('#ffffff');
+  doc.text(`${productCount} URUN`, 16, 124);
+  doc.setTextColor('#9cc3ef');
+  doc.text('/', 42, 124);
+  doc.setTextColor('#ffffff');
+  doc.text(`${data.sections.length} KATEGORI`, 48, 124);
+  doc.setTextColor('#9cc3ef');
+  doc.text('/', 80, 124);
+  doc.setTextColor('#ffffff');
+  doc.text(data.catalog.vatMode === 'INCLUDED' ? 'KDV DAHIL' : 'KDV HARIC', 86, 124);
+  if (mascot) drawContainedImage(mascot, 'PNG', width - 42, 92, 27, 42);
 
   doc.setTextColor(ink);
   doc.setFont('Hanken', 'bold');
   doc.setFontSize(12);
-  doc.text('KATEGORILER', 16, 181);
+  doc.text('KATEGORILER', 16, 156);
   doc.setFont('Hanken', 'normal');
-  doc.setFontSize(10);
+  doc.setFontSize(8.5);
   doc.setTextColor(muted);
-  doc.text('Sayfa numaralari katalog olusturulurken otomatik guncellenir.', 16, 188);
+  doc.text('Kategori adina tiklayarak ilgili sayfaya gecebilirsiniz.', 16, 163);
 
-  const tocY = 198;
-  data.sections.slice(0, 12).forEach((section, index) => {
-    const column = index >= 6 ? 1 : 0;
-    const row = index % 6;
+  const tocY = 171;
+  const tocSections = data.sections.slice(0, 12);
+  const tocRows = Math.max(1, Math.ceil(tocSections.length / (tocSections.length > 1 ? 2 : 1)));
+  tocSections.forEach((section, index) => {
+    const column = Math.floor(index / tocRows);
+    const row = index % tocRows;
     const x = 16 + column * 91;
     const y = tocY + row * 12;
     doc.setFillColor(column === 0 ? '#f4f7fb' : '#f8fafc');
@@ -230,8 +278,6 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     doc.text(doc.splitTextToSize(section.title, 66)[0], x + 5, y + 6.2);
   });
 
-  const validFrom = formatDate(data.catalog.validFrom);
-  const validTo = formatDate(data.catalog.validTo);
   doc.setTextColor(muted);
   doc.setFont('Hanken', 'normal');
   doc.setFontSize(8.5);
@@ -243,156 +289,214 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
 
   const sectionPages: Array<{ title: string; page: number; tocIndex: number }> = [];
   const compact = data.catalog.displayDensity === 'COMPACT';
-  const productsPerPage = compact ? 12 : 6;
   const columnCount = compact ? 3 : 2;
-  const cardWidth = compact ? (width - 32) / 3 : 86;
-  const cardHeight = compact ? 56 : 82;
-  const xPositions = compact
-    ? [12, 12 + cardWidth + 4, 12 + (cardWidth + 4) * 2]
-    : [16, 108];
-  const yPositions = compact ? [42, 100, 158, 216] : [42, 128, 214];
+  const horizontalMargin = 12;
+  const columnGap = compact ? 4 : 6;
+  const rowGap = compact ? 3.5 : 4;
+  const cardWidth = (width - horizontalMargin * 2 - columnGap * (columnCount - 1)) / columnCount;
+  const cardHeight = compact ? 51 : 72;
+  const headingHeight = compact ? 9 : 11;
+  const contentTop = 32;
+  const contentBottom = height - 12;
+  let cursorY = contentTop;
+  let contentPageOpen = false;
+
+  const addContentPage = () => {
+    doc.addPage();
+    contentPageOpen = true;
+    cursorY = contentTop;
+    doc.setFillColor(11, 29, 59);
+    doc.rect(0, 0, width, 24, 'F');
+    if (logoWhite) drawContainedImage(logoWhite, 'PNG', 12, 4.5, 40, 14);
+    doc.setTextColor('#ffffff');
+    doc.setFont('Hanken', 'bold');
+    doc.setFontSize(8.2);
+    const pageTitle = (doc.splitTextToSize(data.catalog.title, 112) as string[])[0] || data.catalog.title;
+    doc.text(pageTitle, width - 12, 10.5, { align: 'right' });
+    doc.setTextColor('#9cc3ef');
+    doc.setFont('PlexMono', 'normal');
+    doc.setFontSize(6.2);
+    doc.text(`REV ${String(data.catalog.revision).padStart(2, '0')}  /  ${data.catalog.vatMode === 'INCLUDED' ? 'KDV DAHIL' : 'KDV HARIC'}`, width - 12, 17, { align: 'right' });
+  };
+
+  const drawCategoryHeading = (
+    section: SalesCatalogPresentation['sections'][number],
+    sectionIndex: number,
+    continuation = false
+  ) => {
+    const badgeSize = compact ? 7 : 8.5;
+    doc.setFillColor(11, 29, 59);
+    doc.roundedRect(horizontalMargin, cursorY, badgeSize, badgeSize, 1.5, 1.5, 'F');
+    doc.setTextColor('#ffffff');
+    doc.setFont('Hanken', 'bold');
+    doc.setFontSize(compact ? 6.5 : 7.5);
+    doc.text(String(sectionIndex + 1).padStart(2, '0'), horizontalMargin + badgeSize / 2, cursorY + badgeSize * 0.66, { align: 'center' });
+
+    doc.setTextColor(ink);
+    doc.setFont('Hanken', 'bold');
+    doc.setFontSize(compact ? 9.2 : 11);
+    const headingLabel = continuation ? `${section.title} (devam)` : section.title;
+    const headingWidth = width - horizontalMargin * 2 - badgeSize - 35;
+    const headingLine = (doc.splitTextToSize(headingLabel, headingWidth) as string[])[0] || headingLabel;
+    doc.text(headingLine, horizontalMargin + badgeSize + 4, cursorY + badgeSize * 0.64);
+
+    doc.setTextColor(muted);
+    doc.setFont('Hanken', 'normal');
+    doc.setFontSize(compact ? 6.5 : 7.2);
+    doc.text(`${section.products.length} urun`, width - horizontalMargin, cursorY + badgeSize * 0.64, { align: 'right' });
+    doc.setDrawColor('#dde4ee');
+    doc.setLineWidth(0.25);
+    doc.line(horizontalMargin, cursorY + headingHeight, width - horizontalMargin, cursorY + headingHeight);
+    cursorY += headingHeight + (compact ? 2.5 : 3.5);
+  };
+
+  const drawProductCard = (
+    product: SalesCatalogPresentation['sections'][number]['products'][number],
+    x: number,
+    y: number
+  ) => {
+    doc.setDrawColor(line);
+    doc.setFillColor('#ffffff');
+    doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'FD');
+    const image = product.imageUrl ? images.get(product.imageUrl) : null;
+
+    if (compact) {
+      if (image) {
+        drawContainedImage(image, 'JPEG', x + 3, y + 3, 21, 18.5);
+      } else {
+        doc.setFillColor('#f1f5f9');
+        doc.roundedRect(x + 3, y + 3, 21, 18.5, 1.5, 1.5, 'F');
+        doc.setTextColor('#94a3b8');
+        doc.setFont('Hanken', 'normal');
+        doc.setFontSize(6);
+        doc.text('Gorsel yok', x + 13.5, y + 12.8, { align: 'center' });
+      }
+
+      doc.setTextColor(ink);
+      doc.setFont('Hanken', 'bold');
+      doc.setFontSize(7.3);
+      const nameLines = (doc.splitTextToSize(product.name, cardWidth - 30) as string[]).slice(0, 3);
+      doc.text(nameLines, x + 27, y + 6.2, { lineHeightFactor: 1.02 });
+      if (data.catalog.showProductCode) {
+        doc.setFont('PlexMono', 'normal');
+        doc.setFontSize(5.9);
+        doc.setTextColor(muted);
+        const codeWidth = cardWidth - 30;
+        const measuredCodeWidth = doc.getTextWidth(product.productCode);
+        if (measuredCodeWidth > codeWidth) doc.setFontSize(Math.max(4.6, 5.9 * (codeWidth / measuredCodeWidth)));
+        doc.text(product.productCode, x + 27, y + 21.5);
+      }
+
+      doc.setDrawColor(line);
+      doc.line(x + 3, y + 25, x + cardWidth - 3, y + 25);
+      doc.setTextColor(navy);
+      doc.setFont('Hanken', 'bold');
+      doc.setFontSize(10.2);
+      const priceLabel = formatMoney(product.salePrice);
+      const priceWidth = doc.getTextWidth(priceLabel);
+      if (priceWidth > cardWidth - 6) doc.setFontSize(Math.max(7, 10.2 * ((cardWidth - 6) / priceWidth)));
+      doc.text(priceLabel, x + 3, y + 34.5);
+      doc.setTextColor(muted);
+      doc.setFont('Hanken', 'normal');
+      doc.setFontSize(6.2);
+      if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 3, y + 40.5);
+      if (data.catalog.showStockStatus && product.stockStatus) {
+        const inStock = product.stockStatus === 'IN_STOCK';
+        doc.setFillColor(inStock ? '#ecfdf5' : '#fff7ed');
+        doc.roundedRect(x + 3, y + 43, 22, 5.5, 1.2, 1.2, 'F');
+        doc.setTextColor(inStock ? '#047857' : '#c2410c');
+        doc.setFont('Hanken', 'bold');
+        doc.setFontSize(5.7);
+        doc.text(inStock ? 'STOKTA' : 'STOKTA YOK', x + 14, y + 46.8, { align: 'center' });
+      }
+      doc.setTextColor(muted);
+      doc.setFont('Hanken', 'normal');
+      doc.setFontSize(5.8);
+      doc.text(data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV haric', x + cardWidth - 3, y + 46.8, { align: 'right' });
+      return;
+    }
+
+    if (image) {
+      drawContainedImage(image, 'JPEG', x + 4, y + 4, 32, 28);
+    } else {
+      doc.setFillColor('#f1f5f9');
+      doc.roundedRect(x + 4, y + 4, 32, 28, 1.5, 1.5, 'F');
+      doc.setTextColor('#94a3b8');
+      doc.setFont('Hanken', 'normal');
+      doc.setFontSize(7.2);
+      doc.text('Gorsel yok', x + 20, y + 19, { align: 'center' });
+    }
+
+    doc.setTextColor(ink);
+    doc.setFont('Hanken', 'bold');
+    doc.setFontSize(9);
+    const nameLines = (doc.splitTextToSize(product.name, cardWidth - 44) as string[]).slice(0, 3);
+    doc.text(nameLines, x + 40, y + 8, { lineHeightFactor: 1.05 });
+    if (data.catalog.showProductCode) {
+      doc.setFont('PlexMono', 'normal');
+      doc.setFontSize(7.1);
+      doc.setTextColor(muted);
+      doc.text(product.productCode, x + 40, y + 28);
+    }
+
+    doc.setDrawColor(line);
+    doc.line(x + 4, y + 36, x + cardWidth - 4, y + 36);
+    doc.setTextColor('#93a2b8');
+    doc.setFont('Hanken', 'bold');
+    doc.setFontSize(6.2);
+    doc.text('SATIS FIYATI', x + 4, y + 42);
+    doc.setTextColor(navy);
+    doc.setFontSize(14.2);
+    const priceLabel = formatMoney(product.salePrice);
+    const priceWidth = doc.getTextWidth(priceLabel);
+    if (priceWidth > cardWidth - 8) doc.setFontSize(Math.max(10, 14.2 * ((cardWidth - 8) / priceWidth)));
+    doc.text(priceLabel, x + 4, y + 53.5);
+    doc.setTextColor(muted);
+    doc.setFont('Hanken', 'normal');
+    doc.setFontSize(7.3);
+    if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 4, y + 61);
+    if (data.catalog.showStockStatus && product.stockStatus) {
+      const inStock = product.stockStatus === 'IN_STOCK';
+      doc.setFillColor(inStock ? '#ecfdf5' : '#fff7ed');
+      doc.roundedRect(x + 4, y + 64, 27, 6, 1.4, 1.4, 'F');
+      doc.setTextColor(inStock ? '#047857' : '#c2410c');
+      doc.setFont('Hanken', 'bold');
+      doc.setFontSize(6.5);
+      doc.text(inStock ? 'STOKTA' : 'STOKTA YOK', x + 17.5, y + 68, { align: 'center' });
+    }
+    doc.setTextColor(muted);
+    doc.setFont('Hanken', 'normal');
+    doc.setFontSize(6.5);
+    doc.text(data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV haric', x + cardWidth - 4, y + 68, { align: 'right' });
+  };
 
   for (let sectionIndex = 0; sectionIndex < data.sections.length; sectionIndex += 1) {
     const section = data.sections[sectionIndex];
-    for (let start = 0; start < section.products.length; start += productsPerPage) {
-      doc.addPage();
-      if (start === 0) {
-        sectionPages.push({ title: section.title, page: doc.getNumberOfPages(), tocIndex: sectionIndex });
+    const minimumSectionSpace = headingHeight + (compact ? 2.5 : 3.5) + cardHeight;
+    if (!contentPageOpen || cursorY + minimumSectionSpace > contentBottom) addContentPage();
+
+    sectionPages.push({ title: section.title, page: doc.getNumberOfPages(), tocIndex: sectionIndex });
+    drawCategoryHeading(section, sectionIndex);
+
+    for (let start = 0; start < section.products.length; start += columnCount) {
+      if (cursorY + cardHeight > contentBottom) {
+        addContentPage();
+        drawCategoryHeading(section, sectionIndex, true);
       }
-      doc.setFillColor(navy);
-      doc.rect(0, 0, width, 28, 'F');
-      if (logoWhite) drawContainedImage(logoWhite, 'PNG', 16, 5, 42, 14);
-      doc.setTextColor('#ffffff');
-      doc.setFont('Hanken', 'bold');
-      doc.setFontSize(15);
-      doc.text(section.title, 194, 16, { align: 'right' });
-      doc.setTextColor(muted);
-      doc.setFont('Hanken', 'normal');
-      doc.setFontSize(8.5);
-      doc.text(`${start + 1}-${Math.min(start + productsPerPage, section.products.length)} / ${section.products.length} urun`, 16, 35);
-
-      const pageProducts = section.products.slice(start, start + productsPerPage);
-      pageProducts.forEach((product, cardIndex) => {
-        const x = xPositions[cardIndex % columnCount];
-        const y = yPositions[Math.floor(cardIndex / columnCount)];
-        doc.setDrawColor(line);
-        doc.setFillColor('#ffffff');
-        doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'FD');
-
-        const image = product.imageUrl ? images.get(product.imageUrl) : null;
-        if (compact) {
-          if (image) {
-            drawContainedImage(image, 'JPEG', x + 3, y + 3, 22, 20);
-          } else {
-            doc.setFillColor('#f1f5f9');
-            doc.roundedRect(x + 3, y + 3, 22, 20, 1.5, 1.5, 'F');
-            doc.setTextColor('#94a3b8');
-            doc.setFont('Hanken', 'normal');
-            doc.setFontSize(6.2);
-            doc.text('Gorsel yok', x + 14, y + 13.7, { align: 'center' });
-          }
-
-          doc.setTextColor(ink);
-          doc.setFont('Hanken', 'bold');
-          doc.setFontSize(7.6);
-          const compactNameLines = (doc.splitTextToSize(product.name, cardWidth - 31) as string[]).slice(0, 3);
-          doc.text(compactNameLines, x + 28, y + 7, { lineHeightFactor: 1.02 });
-          if (data.catalog.showProductCode) {
-            doc.setFont('PlexMono', 'normal');
-            doc.setFontSize(6.2);
-            doc.setTextColor(muted);
-            const codeWidth = cardWidth - 31;
-            const measuredCodeWidth = doc.getTextWidth(product.productCode);
-            if (measuredCodeWidth > codeWidth) {
-              doc.setFontSize(Math.max(4.8, 6.2 * (codeWidth / measuredCodeWidth)));
-            }
-            doc.text(product.productCode, x + 28, y + 23);
-          }
-
-          doc.setDrawColor(line);
-          doc.line(x + 3, y + 27, x + cardWidth - 3, y + 27);
-          doc.setTextColor(navy);
-          doc.setFont('Hanken', 'bold');
-          doc.setFontSize(10.5);
-          const priceLabel = formatMoney(product.salePrice);
-          const priceWidth = doc.getTextWidth(priceLabel);
-          if (priceWidth > cardWidth - 6) {
-            doc.setFontSize(Math.max(7.2, 10.5 * ((cardWidth - 6) / priceWidth)));
-          }
-          doc.text(priceLabel, x + 3, y + 37);
-          doc.setTextColor(muted);
-          doc.setFont('Hanken', 'normal');
-          doc.setFontSize(6.5);
-          if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 3, y + 44);
-          if (data.catalog.showStockStatus && product.stockStatus) {
-            const inStock = product.stockStatus === 'IN_STOCK';
-            doc.setFillColor(inStock ? '#ecfdf5' : '#fff7ed');
-            doc.roundedRect(x + 3, y + 47.5, 22, 6.5, 1.3, 1.3, 'F');
-            doc.setTextColor(inStock ? '#047857' : '#c2410c');
-            doc.setFont('Hanken', 'bold');
-            doc.setFontSize(6.1);
-            doc.text(inStock ? 'STOKTA' : 'STOKTA YOK', x + 14, y + 51.8, { align: 'center' });
-          }
-          doc.setTextColor(muted);
-          doc.setFont('Hanken', 'normal');
-          doc.setFontSize(6);
-          doc.text(data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV haric', x + cardWidth - 3, y + 51.8, { align: 'right' });
-          return;
-        }
-
-        if (image) {
-          drawContainedImage(image, 'JPEG', x + 4, y + 4, 34, 32);
-        } else {
-          doc.setFillColor('#f1f5f9');
-          doc.roundedRect(x + 4, y + 4, 34, 32, 1.5, 1.5, 'F');
-          doc.setTextColor('#94a3b8');
-          doc.setFontSize(7.5);
-          doc.text('Gorsel yok', x + 21, y + 21, { align: 'center' });
-        }
-
-        doc.setTextColor(ink);
-        doc.setFont('Hanken', 'bold');
-        doc.setFontSize(9.2);
-        const nameLines = doc.splitTextToSize(product.name, 40).slice(0, 3);
-        doc.text(nameLines, x + 42, y + 9);
-        if (data.catalog.showProductCode) {
-          doc.setFont('PlexMono', 'normal');
-          doc.setFontSize(7.5);
-          doc.setTextColor(muted);
-          doc.text(product.productCode, x + 42, y + 31);
-        }
-
-        doc.setDrawColor(line);
-        doc.line(x + 4, y + 41, x + cardWidth - 4, y + 41);
-        doc.setTextColor(navy);
-        doc.setFont('Hanken', 'bold');
-        doc.setFontSize(15);
-        doc.text(formatMoney(product.salePrice), x + 4, y + 54);
-        doc.setTextColor(muted);
-        doc.setFont('Hanken', 'normal');
-        doc.setFontSize(8);
-        if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 4, y + 63);
-        if (data.catalog.showStockStatus && product.stockStatus) {
-          const inStock = product.stockStatus === 'IN_STOCK';
-          doc.setFillColor(inStock ? '#ecfdf5' : '#fff7ed');
-          doc.roundedRect(x + 4, y + 68, 28, 8, 1.5, 1.5, 'F');
-          doc.setTextColor(inStock ? '#047857' : '#c2410c');
-          doc.setFont('Hanken', 'bold');
-          doc.setFontSize(7.5);
-          doc.text(inStock ? 'STOKTA' : 'STOKTA YOK', x + 18, y + 73.3, { align: 'center' });
-        }
-        doc.setTextColor(muted);
-        doc.setFont('Hanken', 'normal');
-        doc.setFontSize(7.2);
-        doc.text(data.catalog.vatMode === 'INCLUDED' ? 'KDV dahil' : 'KDV haric', x + cardWidth - 4, y + 73.3, { align: 'right' });
+      const row = section.products.slice(start, start + columnCount);
+      row.forEach((product, columnIndex) => {
+        const x = horizontalMargin + columnIndex * (cardWidth + columnGap);
+        drawProductCard(product, x, cursorY);
       });
+      cursorY += cardHeight + rowGap;
     }
+    cursorY += compact ? 2.5 : 4;
   }
 
   doc.setPage(1);
   sectionPages.filter((item) => item.tocIndex < 12).forEach((item) => {
-    const column = item.tocIndex >= 6 ? 1 : 0;
-    const row = item.tocIndex % 6;
+    const column = Math.floor(item.tocIndex / tocRows);
+    const row = item.tocIndex % tocRows;
     const x = 16 + column * 91;
     const y = tocY + row * 12;
     doc.setTextColor(navy);
