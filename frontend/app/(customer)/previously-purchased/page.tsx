@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { FilterRail, RailFilters, RailCategory } from '@/components/customer/FilterRail';
+import { CatalogBannerCarousel } from '@/components/customer/CatalogBannerCarousel';
 import { FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -379,6 +380,8 @@ export default function PreviouslyPurchasedPage() {
             </div>
           )}
         </div>
+
+        <CatalogBannerCarousel />
 
         {/* Mobil: filtre rayini ac/kapa (varsayilan kapali -> urunler hemen gorunur) */}
         <div className="mb-4 lg:hidden">

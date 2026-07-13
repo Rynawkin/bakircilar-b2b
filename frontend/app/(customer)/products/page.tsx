@@ -10,6 +10,7 @@ import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { FilterRail, RailFilters, RailCategory } from '@/components/customer/FilterRail';
 import { InGridBanner } from '@/components/customer/InGridBanner';
+import { CatalogBannerCarousel } from '@/components/customer/CatalogBannerCarousel';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { FilterState } from '@/components/customer/AdvancedFilters';
@@ -472,6 +473,8 @@ export default function ProductsPage() {
             </div>
           )}
         </div>
+
+        <CatalogBannerCarousel />
 
         {/* Mobil: filtre rayini ac/kapa (varsayilan kapali -> urunler hemen gorunur) */}
         <div className="mb-4 lg:hidden">

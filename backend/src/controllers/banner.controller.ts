@@ -5,7 +5,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 
-const POSITIONS = ['HERO', 'STRIP', 'SIDE', 'GRID'];
+const POSITIONS = ['HERO', 'STRIP', 'SIDE', 'GRID', 'CATALOG'];
 
 const sanitize = (body: any) => {
   const out: any = {};

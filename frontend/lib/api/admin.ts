@@ -492,7 +492,7 @@ export type CustomerWithListSuggestion = Customer & {
   manualListNote?: string | null;
 };
 
-export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID';
+export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID' | 'CATALOG';
 
 export interface AdminBanner {
   id: string;

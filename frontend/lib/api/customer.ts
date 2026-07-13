@@ -24,7 +24,7 @@ import {
   PaymentSummary,
 } from '@/types';
 
-export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID';
+export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID' | 'CATALOG';
 
 export interface Banner {
   id: string;

@@ -16,6 +16,7 @@ export const POSITION_OPTIONS: { value: BannerPosition; label: string; hint: str
   { value: 'STRIP', label: 'STRIP', hint: 'Anasayfa ince şerit (hero altında)' },
   { value: 'SIDE', label: 'SIDE', hint: 'Dikey banner (anasayfa sağ + liste sayfaları sol)' },
   { value: 'GRID', label: 'GRID', hint: 'Ürün ızgarası içi banner (Tüm Ürünler)' },
+  { value: 'CATALOG', label: 'KATALOG', hint: 'Ürün listeleme sayfalarında filtrelerin üstündeki dönen banner' },
 ];
 
 export const POSITION_BADGE: Record<BannerPosition, string> = {
@@ -23,6 +24,7 @@ export const POSITION_BADGE: Record<BannerPosition, string> = {
   STRIP: 'bg-amber-100 text-amber-700',
   SIDE: 'bg-slate-100 text-slate-700',
   GRID: 'bg-emerald-100 text-emerald-700',
+  CATALOG: 'bg-cyan-100 text-cyan-800',
 };
 
 // Pozisyona gore hedef ebat (kirpma bu orana/ebata gore yapilir)
@@ -31,6 +33,7 @@ export const POSITION_DIMS: Record<BannerPosition, { w: number; h: number }> = {
   STRIP: { w: 1200, h: 140 },
   SIDE: { w: 800, h: 1000 }, // 4:5 dikey — HERO ile yan yana eşit yükseklik
   GRID: { w: 800, h: 360 },
+  CATALOG: { w: 1600, h: 280 }, // Liste başlığı ile filtreler arasında geniş, kompakt carousel
 };
 
 // Pozisyona gore MOBIL (dar ekran) hedef ebat — geniş görselden ayrı, dikeye yakın oranlar.
@@ -40,6 +43,7 @@ export const POSITION_DIMS_MOBILE: Record<BannerPosition, { w: number; h: number
   STRIP: { w: 375, h: 160 }, // ~2.34:1 — ince şerit ama telefonda okunur yükseklik
   SIDE: { w: 375, h: 500 }, // ~3:4 dikey
   GRID: { w: 375, h: 280 }, // ~4:3 ızgara içi
+  CATALOG: { w: 768, h: 300 }, // Telefonda metin ve CTA için yeterli yükseklik
 };
 
 // ---- Coklu marka -> link donusum yardimcilari ----
@@ -72,6 +76,7 @@ export const RECOMMENDED_SIZE: Record<BannerPosition, string> = {
   STRIP: 'Görsel tam 1200 × 140 px (~8.6:1 ince şerit) oranında gösterilir — kırpılmaz. Maks 5MB',
   SIDE: 'Görsel tam 800 × 1000 px (4:5 dikey) oranında gösterilir — kırpılmaz. Maks 5MB',
   GRID: 'Görsel tam 800 × 360 px (~2.2:1) oranında gösterilir — kırpılmaz. Maks 5MB',
+  CATALOG: 'Görsel tam 1600 × 280 px (~5.7:1) oranında ürün listeleme sayfalarında gösterilir — kırpılmaz. Maks 5MB',
 };
 
 // Pozisyona gore onerilen MOBIL gorsel olcusu (dar ekran, <640px).
@@ -81,6 +86,7 @@ export const RECOMMENDED_SIZE_MOBILE: Record<BannerPosition, string> = {
   STRIP: 'Mobil görsel tam 375 × 160 px (~2.34:1) oranında gösterilir — kırpılmaz. Boş bırakılırsa geniş görsel kullanılır',
   SIDE: 'Mobil görsel tam 375 × 500 px (3:4 dikey) oranında gösterilir — kırpılmaz. Boş bırakılırsa geniş görsel kullanılır',
   GRID: 'Mobil görsel tam 375 × 280 px (~4:3) oranında gösterilir — kırpılmaz. Boş bırakılırsa geniş görsel kullanılır',
+  CATALOG: 'Mobil görsel tam 768 × 300 px (~2.56:1) oranında gösterilir — kırpılmaz. Boş bırakılırsa geniş görsel kullanılır',
 };
 
 const emptyForm: BannerInput = {

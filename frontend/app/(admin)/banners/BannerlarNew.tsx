@@ -42,7 +42,7 @@ import {
  * Yeni gorunum Banner Yonetimi ekrani.
  * Mevcut TUM mantik useBannerlar'dan gelir; sadece gorsel yeni.
  * Hicbir handler/izin/kosul/modal/kolon/durum dusurulmemistir; brief 4.10.3'teki her oge mevcut:
- * Yeni Banner + kart grid (onizleme 16/7 + pozisyon rozeti HERO/STRIP/SIDE + sira + Aktif/Pasif
+ * Yeni Banner + kart grid (onizleme 16/7 + pozisyon rozeti + sira + Aktif/Pasif
  * + baslik/alt baslik + Link/Urun/tarih + CTA + Pasife Al/Duzenle/Sil) + modal
  * (Baslik* + Alt Baslik + Gorsel[yukle/URL/onizleme] + Link + Urun Kodu + CTA + Pozisyon
  * + Sira + Baslangic/Bitis + Aktif toggle) + ConfirmDialog silme.
@@ -57,6 +57,7 @@ const POSITION_BADGE_NEW: Record<BannerPosition, string> = {
   STRIP: 'bg-[#fffbeb] text-[#b45309] border border-[#fde68a]',
   SIDE: 'bg-[#f4f6fa] text-[#51607a] border border-[#e3e8f0]',
   GRID: 'bg-[#ecfdf5] text-[#047857] border border-[#d1fae5]',
+  CATALOG: 'bg-[#ecfeff] text-[#0e7490] border border-[#a5f3fc]',
 };
 
 const fieldClass =
@@ -104,7 +105,7 @@ export default function BannerlarNew() {
                 Bannerlar
               </h1>
               <p className="mt-[5px] text-[13px] text-[#8b97ac]">
-                Vitrin bannerları · HERO / STRIP / SIDE pozisyonları
+                Vitrin bannerları · Anasayfa, katalog ve ürün ızgarası pozisyonları
               </p>
             </div>
           </div>
