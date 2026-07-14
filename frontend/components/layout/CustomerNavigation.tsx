@@ -602,6 +602,8 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           {/* Sepet (lacivert) */}
           <Link
             href="/cart"
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex h-[42px] flex-none items-center gap-2.5 rounded-[10px] bg-primary-700 px-2.5 text-white transition-colors hover:bg-primary-600 sm:px-[15px]"
           >
             <span className="relative flex">
@@ -816,6 +818,8 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               <Link
                 key={item.href}
                 href={item.href}
+                target={item.href === '/cart' ? '_blank' : undefined}
+                rel={item.href === '/cart' ? 'noopener noreferrer' : undefined}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`flex min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   isActive(item.href) ? 'bg-primary-50 text-primary-700' : 'text-[var(--ink-2)] hover:bg-[var(--surface-0)]'
@@ -878,6 +882,8 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
         <Link
           href="/cart"
+          target="_blank"
+          rel="noopener noreferrer"
           onClick={() => { setMobileMenuOpen(false); setMobileCategoriesOpen(false); }}
           className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
             isActive('/cart') ? 'text-primary-600' : 'text-[var(--ink-3)]'
