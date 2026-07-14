@@ -633,8 +633,16 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
       {/* ── KATEGORİ / GEZİNME SATIRI (48px) ─────────────────────── */}
       <div className="relative hidden border-b border-[#eef1f6] md:block" onMouseLeave={() => setMegaOpen(false)}>
         <div className="mx-auto flex h-12 w-full max-w-[1900px] items-center justify-between px-4 sm:px-6 lg:px-8">
-          {/* Sol — Tüm Kategoriler (hover mega) + Tüm Ürünler */}
+          {/* Sol — Anasayfa + Tüm Kategoriler (hover mega) + Tüm Ürünler */}
           <nav className="flex items-center gap-0.5 whitespace-nowrap">
+            <Link
+              href="/home"
+              className={`flex h-12 items-center px-3 text-[13.5px] font-semibold text-primary-700 transition-colors hover:text-primary-600 ${
+                isActive('/home') ? 'underline decoration-2 underline-offset-[14px]' : ''
+              }`}
+            >
+              Anasayfa
+            </Link>
             <button
               type="button"
               onMouseEnter={() => setMegaOpen(true)}
@@ -645,7 +653,12 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               Tüm Kategoriler
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
-            <Link href="/products" className="flex h-12 items-center px-3 text-[13.5px] font-semibold text-primary-700 transition-colors hover:text-primary-600">
+            <Link
+              href="/products"
+              className={`flex h-12 items-center px-3 text-[13.5px] font-semibold text-primary-700 transition-colors hover:text-primary-600 ${
+                isActive('/products') ? 'underline decoration-2 underline-offset-[14px]' : ''
+              }`}
+            >
               Tüm Ürünler
             </Link>
           </nav>

@@ -128,7 +128,7 @@ export function CatalogBannerCarousel() {
               </div>
             )}
 
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/15 to-transparent" />
+            <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(3,12,25,.82)_0%,rgba(3,12,25,.24)_62%,transparent_100%)] sm:bg-[linear-gradient(90deg,rgba(3,12,25,.78)_0%,rgba(3,12,25,.52)_40%,rgba(3,12,25,.08)_68%,transparent_82%)]" />
             <div className="absolute inset-0 flex max-w-[82%] flex-col justify-end gap-1.5 p-4 text-white sm:max-w-[68%] sm:gap-2 sm:p-6 lg:p-7">
               <h2 className="line-clamp-2 text-[18px] font-bold leading-tight drop-shadow-sm sm:text-[25px] lg:text-[28px]">
                 {banner.title}
