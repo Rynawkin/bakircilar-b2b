@@ -160,7 +160,21 @@ export interface OrderItem {
   totalPrice: number;
   mikroOrderId?: string | null;
   lineNote?: string | null;
+  approvedQuantity?: number | null;
   responsibilityCenter?: string | null;
+  status?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  rejectionReason?: string | null;
+  isGift?: boolean;
+  vatRate?: number | null;
+  vatZeroed?: boolean;
+  product?: {
+    id: string;
+    name: string;
+    mikroCode: string;
+    unit?: string | null;
+    imageUrl?: string | null;
+    vatRate?: number | null;
+  } | null;
 }
 
 export interface Order {
@@ -170,8 +184,8 @@ export interface Order {
   totalAmount: number;
   items: OrderItem[];
   createdAt: string;
-  approvedAt?: string;
-  rejectedAt?: string;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
   adminNote?: string;
   mikroOrderIds?: string[];
   customerOrderNumber?: string | null;
@@ -188,12 +202,14 @@ export interface Order {
       id: string;
       name: string;
       email?: string | null;
+      phone?: string | null;
     };
   } | null;
   requestedBy?: {
     id: string;
     name: string;
     email?: string;
+    phone?: string | null;
   };
 }
 
@@ -245,24 +261,25 @@ export interface OrderRequest {
 
 export interface PendingOrderForAdmin extends Order {
   user: {
+    id?: string;
     name: string;
     email: string;
     mikroCariCode: string;
     displayName?: string | null;
     mikroName?: string | null;
-  customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
-  city?: string;
-  district?: string;
-  phone?: string;
-  groupCode?: string;
-  sectorCode?: string;
-  paymentTerm?: number;
-  paymentPlanNo?: number | null;
-  paymentPlanCode?: string | null;
-  paymentPlanName?: string | null;
-  hasEInvoice?: boolean;
-  balance?: number;
-  isLocked?: boolean;
+    customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
+    city?: string | null;
+    district?: string | null;
+    phone?: string | null;
+    groupCode?: string | null;
+    sectorCode?: string | null;
+    paymentTerm?: number | null;
+    paymentPlanNo?: number | null;
+    paymentPlanCode?: string | null;
+    paymentPlanName?: string | null;
+    hasEInvoice?: boolean;
+    balance?: number;
+    isLocked?: boolean;
   };
 }
 

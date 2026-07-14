@@ -7,12 +7,12 @@ interface CustomerInfo {
   email?: string;
   mikroCariCode?: string;
   customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
-  city?: string;
-  district?: string;
-  phone?: string;
-  groupCode?: string;
-  sectorCode?: string;
-  paymentTerm?: number;
+  city?: string | null;
+  district?: string | null;
+  phone?: string | null;
+  groupCode?: string | null;
+  sectorCode?: string | null;
+  paymentTerm?: number | null;
   paymentPlanNo?: number | null;
   paymentPlanCode?: string | null;
   paymentPlanName?: string | null;

@@ -2674,17 +2674,26 @@ export class AdminController {
               mikroName: true,
               customerType: true,
               mikroCariCode: true,
+              city: true,
+              district: true,
+              phone: true,
+              groupCode: true,
               sectorCode: true,
+              paymentTerm: true,
+              paymentPlanNo: true,
+              paymentPlanCode: true,
+              paymentPlanName: true,
+              balance: true,
             },
           },
           requestedBy: {
-            select: { id: true, name: true, email: true },
+            select: { id: true, name: true, email: true, phone: true },
           },
           customerRequest: {
             select: {
               id: true,
               createdAt: true,
-              requestedBy: { select: { id: true, name: true, email: true } },
+              requestedBy: { select: { id: true, name: true, email: true, phone: true } },
             },
           },
           sourceQuote: {
