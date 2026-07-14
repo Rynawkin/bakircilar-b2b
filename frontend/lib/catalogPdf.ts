@@ -350,6 +350,28 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     cursorY += headingHeight + (compact ? 2.5 : 3.5);
   };
 
+  const fitProductName = (
+    name: string,
+    maxWidth: number,
+    initialFontSize: number,
+    minimumFontSize: number,
+    maxLines: number
+  ) => {
+    let fontSize = initialFontSize;
+    let lines = doc.splitTextToSize(name, maxWidth) as string[];
+    while (lines.length > maxLines && fontSize > minimumFontSize) {
+      fontSize = Math.max(minimumFontSize, fontSize - 0.25);
+      doc.setFontSize(fontSize);
+      lines = doc.splitTextToSize(name, maxWidth) as string[];
+    }
+    while (lines.length > maxLines && fontSize > 4.4) {
+      fontSize = Math.max(4.4, fontSize - 0.2);
+      doc.setFontSize(fontSize);
+      lines = doc.splitTextToSize(name, maxWidth) as string[];
+    }
+    return { fontSize, lines };
+  };
+
   const drawProductCard = (
     product: SalesCatalogPresentation['sections'][number]['products'][number],
     x: number,
@@ -375,8 +397,9 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
       doc.setTextColor(ink);
       doc.setFont('Hanken', 'bold');
       doc.setFontSize(7.3);
-      const nameLines = (doc.splitTextToSize(product.name, cardWidth - 30) as string[]).slice(0, 3);
-      doc.text(nameLines, x + 27, y + 6.2, { lineHeightFactor: 1.02 });
+      const fittedName = fitProductName(product.name, cardWidth - 30, 7.3, 5.4, 6);
+      doc.setFontSize(fittedName.fontSize);
+      doc.text(fittedName.lines, x + 27, y + 6.2, { lineHeightFactor: 0.98 });
       if (data.catalog.showProductCode) {
         doc.setFont('PlexMono', 'normal');
         doc.setFontSize(5.9);
@@ -430,8 +453,9 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     doc.setTextColor(ink);
     doc.setFont('Hanken', 'bold');
     doc.setFontSize(9);
-    const nameLines = (doc.splitTextToSize(product.name, cardWidth - 44) as string[]).slice(0, 3);
-    doc.text(nameLines, x + 40, y + 8, { lineHeightFactor: 1.05 });
+    const fittedName = fitProductName(product.name, cardWidth - 44, 9, 6.2, 6);
+    doc.setFontSize(fittedName.fontSize);
+    doc.text(fittedName.lines, x + 40, y + 8, { lineHeightFactor: 0.98 });
     if (data.catalog.showProductCode) {
       doc.setFont('PlexMono', 'normal');
       doc.setFontSize(7.1);

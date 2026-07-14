@@ -128,13 +128,13 @@ export function CatalogBannerCarousel() {
               </div>
             )}
 
-            <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(3,12,25,.82)_0%,rgba(3,12,25,.24)_62%,transparent_100%)] sm:bg-[linear-gradient(90deg,rgba(3,12,25,.78)_0%,rgba(3,12,25,.52)_40%,rgba(3,12,25,.08)_68%,transparent_82%)]" />
-            <div className="absolute inset-0 flex max-w-[82%] flex-col justify-end gap-1.5 p-4 text-white sm:max-w-[68%] sm:gap-2 sm:p-6 lg:p-7">
-              <h2 className="line-clamp-2 text-[18px] font-bold leading-tight drop-shadow-sm sm:text-[25px] lg:text-[28px]">
+            <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(5,17,34,.68)_0%,rgba(5,17,34,.18)_58%,transparent_100%)] sm:bg-[linear-gradient(90deg,rgba(5,17,34,.52)_0%,rgba(5,17,34,.30)_26%,rgba(5,17,34,.10)_44%,transparent_62%)]" />
+            <div className="absolute inset-0 flex max-w-[86%] flex-col justify-end gap-1.5 p-4 text-white sm:max-w-[52%] sm:justify-center sm:gap-2 sm:p-6 lg:max-w-[48%] lg:p-7">
+              <h2 className="line-clamp-2 !text-white text-[18px] font-bold leading-tight [text-shadow:0_1px_8px_rgba(0,0,0,.42)] sm:text-[25px] lg:text-[28px]">
                 {banner.title}
               </h2>
               {banner.subtitle && (
-                <p className="line-clamp-2 text-[12.5px] leading-5 text-white/90 sm:max-w-2xl sm:text-[14px]">
+                <p className="line-clamp-2 !text-white text-[12.5px] leading-5 [text-shadow:0_1px_6px_rgba(0,0,0,.45)] sm:max-w-xl sm:text-[14px]">
                   {banner.subtitle}
                 </p>
               )}

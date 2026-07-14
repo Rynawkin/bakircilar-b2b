@@ -215,7 +215,7 @@ export default function PublicSalesCatalogPage() {
                 </div>
                 <div className={compact ? 'grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 xl:gap-[18px]'}>
                 {section.products.map((product) => (
-                  <article key={product.id} className="group overflow-hidden rounded-lg border border-[#e6ebf2] bg-white shadow-[0_1px_2px_rgba(11,29,59,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(11,29,59,0.12)]">
+                  <article key={product.id} className="group flex h-full flex-col overflow-hidden rounded-lg border border-[#e6ebf2] bg-white shadow-[0_1px_2px_rgba(11,29,59,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(11,29,59,0.12)]">
                     <div className={`relative flex items-center justify-center overflow-hidden border-b border-[#eef2f7] bg-white ${compact ? 'aspect-[5/3] p-2.5' : 'aspect-[4/3] p-3.5'}`}>
                       {product.imageUrl ? (
                         <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.03]" loading="lazy" />
@@ -229,14 +229,31 @@ export default function PublicSalesCatalogPage() {
                         </span>
                       )}
                     </div>
-                    <div className={compact ? 'p-3' : 'p-[15px]'}>
-                      <div className={`break-words font-semibold text-[#0f1c33] ${compact ? 'min-h-[40px] text-[13px] leading-5' : 'min-h-[40px] text-[14px] leading-[1.4]'}`}>{product.name}</div>
+                    <div className={`flex flex-1 flex-col ${compact ? 'p-3' : 'p-[15px]'}`}>
+                      <div
+                        className={`font-semibold text-[#0f1c33] [overflow-wrap:anywhere] ${
+                          product.name.length > 105
+                            ? compact
+                              ? 'min-h-[46px] text-[11px] leading-[1.35]'
+                              : 'min-h-[48px] text-[12px] leading-[1.38]'
+                            : product.name.length > 72
+                              ? compact
+                                ? 'min-h-[44px] text-[12px] leading-[1.4]'
+                                : 'min-h-[46px] text-[13px] leading-[1.4]'
+                              : compact
+                                ? 'min-h-[40px] text-[13px] leading-5'
+                                : 'min-h-[40px] text-[14px] leading-[1.4]'
+                        }`}
+                        title={product.name}
+                      >
+                        {product.name}
+                      </div>
                       <div className={`${compact ? 'mt-1.5' : 'mt-2'} flex min-h-[18px] flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-[#8b97ac]`}>
                         {data.catalog.showProductCode && <span className="font-mono">{product.productCode}</span>}
                         {data.catalog.showUnit && product.unit && <span>{product.unit}</span>}
                         {product.brandCode && <span>{product.brandCode}</span>}
                       </div>
-                      <div className={`${compact ? 'mt-2 pt-2' : 'mt-3 pt-3'} flex items-end justify-between gap-3 border-t border-[#edf1f6]`}>
+                      <div className={`${compact ? 'pt-2' : 'pt-3'} mt-auto flex items-end justify-between gap-3 border-t border-[#edf1f6]`}>
                         <div className="min-w-0">
                           <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#93a2b8]">Satış fiyatı</div>
                           <div className={`mt-0.5 font-extrabold tabular-nums text-[#0b1d3b] ${compact ? 'text-[20px]' : 'text-[24px]'}`}>{formatCurrency(product.salePrice)}</div>
