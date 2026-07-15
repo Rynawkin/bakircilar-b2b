@@ -3,6 +3,7 @@ import salesCatalogService from '../services/sales-catalog.service';
 import salesCatalogShareService from '../services/sales-catalog-share.service';
 import auditLogService from '../services/audit-log.service';
 import config from '../config';
+import { getTrustedClientIp } from '../utils/trusted-client-ip';
 
 const CATALOG_VISITOR_COOKIE = 'b2b_catalog_vid';
 
@@ -20,7 +21,7 @@ const publicRequestContext = (req: Request) => ({
   visitorKey: readCookie(req, CATALOG_VISITOR_COOKIE),
   userAgent: req.get('user-agent') || null,
   accessToken: req.get('x-catalog-access-token') || null,
-  ip: req.ip || req.socket.remoteAddress || null,
+  ip: getTrustedClientIp(req),
 });
 
 const setVisitorCookie = (res: Response, visitorKey?: string | null) => {
