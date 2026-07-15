@@ -590,12 +590,16 @@ class WarehouseWorkflowService {
         sth_teslim_tarihi: this.raw(`CAST('1899-12-30' as datetime)`),
         sth_belge_tarih: this.raw('CAST(GETDATE() as date)'),
         sth_taxfree_fl: 0,
+        // Vergisiz perakende satirda Mikro OTV/OIV vergisiz bayraklarini da 1 yazar.
+        sth_otvvergisiz_fl: 1,
+        sth_oivvergisiz_fl: 1,
         sth_matbu_fl: toNumber(templateRow.sth_matbu_fl) ? 1 : 0,
         sth_satis_fiyat_doviz_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_satis_fiyat_doviz_cinsi)), 0),
         sth_satis_fiyat_doviz_kuru: toNumber(templateRow.sth_satis_fiyat_doviz_kuru) || 0,
         sth_tevkifat_sifirlandi_fl: toNumber(templateRow.sth_tevkifat_sifirlandi_fl) ? 1 : 0,
       };
       this.applyDispatchDocumentFields(values, sthColumns, '');
+      this.applyMikroNativeSthDefaults(values, sthColumns);
 
       const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
       await mikroService.executeQuery(insertSql);
@@ -2224,7 +2228,71 @@ class WarehouseWorkflowService {
     };
 
     assign(['sth_belge_no', 'sth_belgeno', 'sth_matbu_belgeno'], normalizedDocumentNo);
-    assign(['sth_belge_tarih', 'sth_belgetarih'], this.raw('GETDATE()'));
+    assign(['sth_belge_tarih', 'sth_belgetarih'], this.raw('CAST(GETDATE() as date)'));
+  }
+
+  // Mikro'nun kendi kaydettigi STOK_HAREKETLERI satirlarinda bos gecilmeyen kolonlar.
+  // B2B insert'i bunlari atlayinca NULL kaliyor; ISNULL kullanmayan Mikro rapor/ekranlari
+  // bu satirlari hesaba katmiyor ("tekrar kaydetmeden gorunmeme" sikayetinin bir ayagi).
+  // Degerler canli Mikro'nun native irsaliye satirlarindan birebir alindi.
+  private applyMikroNativeSthDefaults(values: Record<string, unknown>, columns: Set<string>) {
+    const defaults: Record<string, unknown> = {
+      sth_isk_mas1: 0,
+      sth_isk_mas2: 1,
+      sth_isk_mas3: 1,
+      sth_isk_mas4: 1,
+      sth_isk_mas5: 1,
+      sth_isk_mas6: 1,
+      sth_isk_mas7: 1,
+      sth_isk_mas8: 1,
+      sth_isk_mas9: 1,
+      sth_isk_mas10: 1,
+      sth_sat_iskmas1: 0,
+      sth_sat_iskmas2: 0,
+      sth_sat_iskmas3: 0,
+      sth_sat_iskmas4: 0,
+      sth_sat_iskmas5: 0,
+      sth_sat_iskmas6: 0,
+      sth_sat_iskmas7: 0,
+      sth_sat_iskmas8: 0,
+      sth_sat_iskmas9: 0,
+      sth_sat_iskmas10: 0,
+      sth_pos_satis: 0,
+      sth_promosyon_fl: 0,
+      sth_netagirlik: 0,
+      sth_brutagirlik: 0,
+      sth_aciklama: '',
+      sth_isemri_gider_kodu: '',
+      sth_maliyet_ana: 0,
+      sth_maliyet_alternatif: 0,
+      sth_maliyet_orjinal: 0,
+      sth_parti_kodu: '',
+      sth_lot_no: 0,
+      sth_exim_kodu: '',
+      sth_disticaret_turu: 0,
+      sth_otvvergisiz_fl: 0,
+      sth_oivvergisiz_fl: 0,
+      sth_taxfree_fl: 0,
+      sth_ilave_edilecek_kdv: 0,
+      sth_ismerkezi_kodu: '',
+      sth_HareketGrupKodu1: '',
+      sth_HareketGrupKodu2: '',
+      sth_HareketGrupKodu3: '',
+      sth_Olcu1: 0,
+      sth_Olcu2: 0,
+      sth_Olcu3: 0,
+      sth_Olcu4: 0,
+      sth_Olcu5: 0,
+      sth_FormulMiktarNo: 0,
+      sth_FormulMiktar: 0,
+      sth_eticaret_kanal_kodu: '',
+      sth_bagli_ithalat_kodu: '',
+    };
+    for (const [column, value] of Object.entries(defaults)) {
+      if (columns.has(column) && !(column in values)) {
+        values[column] = value;
+      }
+    }
   }
 
   private async updateEInvoiceTransportDetails(params: {
@@ -2319,24 +2387,32 @@ class WarehouseWorkflowService {
     if (tipColumn) updateValues[tipColumn] = toNumber(eirsTemplateRow.eir_tipi) || 3;
     const pozisyonColumn = this.pickFirstColumn(eirsColumns, ['eir_pozisyon']);
     if (pozisyonColumn) updateValues[pozisyonColumn] = toNumber(eirsTemplateRow.eir_pozisyon) || 0;
+    // GIB seri/sira ve gonderim bilgisi bu evraga ait degil; sablondan KOPYALANMAZ.
+    // Sablonun gonderildi_fl=1 degeri kopyalaninca evrak e-irsaliye gonderim
+    // kuyrugunda hic listelenmiyordu ("tekrar kaydetmeden gorunmeme" kok nedeni).
     const gibSeriColumn = this.pickFirstColumn(eirsColumns, ['eir_gib_seri']);
     if (gibSeriColumn) updateValues[gibSeriColumn] = '';
     const gibSiraColumn = this.pickFirstColumn(eirsColumns, ['eir_gib_sira']);
-    if (gibSiraColumn) updateValues[gibSiraColumn] = toNumber(eirsTemplateRow.eir_gib_sira) || 0;
+    if (gibSiraColumn) updateValues[gibSiraColumn] = 0;
     const olrkColumn = this.pickFirstColumn(eirsColumns, ['eir_eirs_olrk_gonderilsin']);
     if (olrkColumn) updateValues[olrkColumn] = 0;
     const gonderildiColumn = this.pickFirstColumn(eirsColumns, ['eir_gonderildi_fl']);
-    if (gonderildiColumn) updateValues[gonderildiColumn] = toNumber(eirsTemplateRow.eir_gonderildi_fl) ? 1 : 0;
+    if (gonderildiColumn) updateValues[gonderildiColumn] = 0;
+    const gonderimTarihiColumn = this.pickFirstColumn(eirsColumns, ['eir_gonderim_tarihi']);
+    if (gonderimTarihiColumn) updateValues[gonderimTarihiColumn] = null;
+    const gonderenKulNoColumn = this.pickFirstColumn(eirsColumns, ['eir_gonderenKulNo']);
+    if (gonderenKulNoColumn) updateValues[gonderenKulNoColumn] = null;
     const soforUidColumn = this.pickFirstColumn(eirsColumns, ['eir_sofor_uid']);
     if (soforUidColumn) updateValues[soforUidColumn] = driverUidSql;
     const sofor2UidColumn = this.pickFirstColumn(eirsColumns, ['eir_sofor2_uid']);
     if (sofor2UidColumn) updateValues[sofor2UidColumn] = this.raw(`CAST('00000000-0000-0000-0000-000000000000' as uniqueidentifier)`);
     const matbuTarihColumn = this.pickFirstColumn(eirsColumns, ['eir_matbu_tarih']);
-    if (matbuTarihColumn) updateValues[matbuTarihColumn] = this.raw('GETDATE()');
+    if (matbuTarihColumn) updateValues[matbuTarihColumn] = this.raw('CAST(GETDATE() as date)');
+    // eir_uuid evragin GIB kimligidir; sablondan kopyalanirsa iki evrak ayni UUID'yi
+    // tasir (BKR-18089/18090'da canlida dogrulandi). Her zaman yeni uretilir.
     const uuidColumn = this.pickFirstColumn(eirsColumns, ['eir_uuid']);
     if (uuidColumn) {
-      const uuidTemplate = normalizeCode(eirsTemplateRow.eir_uuid);
-      updateValues[uuidColumn] = uuidTemplate || this.raw('CONVERT(nvarchar(50), NEWID())');
+      updateValues[uuidColumn] = this.raw('CONVERT(nvarchar(50), NEWID())');
     }
     const tasiyiciFirmaKoduColumn = this.pickFirstColumn(eirsColumns, ['eir_tasiyici_firma_kodu']);
     if (tasiyiciFirmaKoduColumn) updateValues[tasiyiciFirmaKoduColumn] = normalizeCode(eirsTemplateRow.eir_tasiyici_firma_kodu || '');
@@ -2357,6 +2433,33 @@ class WarehouseWorkflowService {
     assign(['eir_arac_tipi', 'eir_tasiyici_adi', 'eir_tasiyici_firma'], params.transport.vehicleName);
     assign(['eir_matbu_belgeno', 'eir_belge_no', 'eir_belgeno'], params.documentNo);
     assign(['eir_detay_bilgi'], params.transport.vehicleName);
+
+    // Mikro'nun kendi kaydettigi e-irsaliye detayinda bos gecilmeyen kolonlar
+    // (NULL yerine ''/0/1899-12-30). Canli native kayitlardan birebir alindi.
+    const eirNativeDefaults: Record<string, unknown> = {
+      eir_mVkn: '',
+      eir_tasiyici_dorse_plaka1: '',
+      eir_tasiyici_dorse_plaka2: '',
+      eir_stok_konsinye: 0,
+      eir_toptanci_firma_kodu: '',
+      eir_bayi_firma_kodu: '',
+      eir_sofor2_adi: '',
+      eir_sofor2_soyadi: '',
+      eir_sofor2_tckn: '',
+      eir_kargo_no: '',
+      eir_asama_no: '',
+      eir_tasima_yontemi: '',
+      eir_guzergah_kodu: '',
+      eir_baslama_zamani: this.raw(`CAST('1899-12-30' as datetime)`),
+      eir_bitis_zamani: this.raw(`CAST('1899-12-30' as datetime)`),
+      eir_sofor_pasaportno: '',
+      eir_sofor2_pasaportno: '',
+    };
+    for (const [column, value] of Object.entries(eirNativeDefaults)) {
+      if (eirsColumns.has(column) && !(column in updateValues)) {
+        updateValues[column] = value;
+      }
+    }
 
     const setEntries = Object.entries(updateValues);
     if (setEntries.length === 0) return;
@@ -2383,7 +2486,7 @@ class WarehouseWorkflowService {
       forceAssign(['eir_detay_bilgi'], params.transport.vehicleName);
 
       const matbuTarih = this.pickFirstColumn(eirsColumns, ['eir_matbu_tarih']);
-      if (matbuTarih) forceValues[matbuTarih] = this.raw('GETDATE()');
+      if (matbuTarih) forceValues[matbuTarih] = this.raw('CAST(GETDATE() as date)');
       const lastupDate = this.pickFirstColumn(eirsColumns, ['eir_lastup_date']);
       if (lastupDate) forceValues[lastupDate] = this.raw('GETDATE()');
 
@@ -2693,7 +2796,9 @@ class WarehouseWorkflowService {
         sth_special3: normalizeCode(templateRow.sth_special3 || ''),
         sth_firmano: toNumber(templateRow.sth_firmano) || 0,
         sth_subeno: toNumber(templateRow.sth_subeno) || 0,
-        sth_tarih: this.raw('GETDATE()'),
+        // Mikro evrak tarihini saatsiz (gece yarisi) yazar; saatli tarih gun-esitligi
+        // filtreli Mikro ekran/raporlarinda evragi gizler.
+        sth_tarih: this.raw('CAST(GETDATE() as date)'),
         sth_tip: Math.max(Math.trunc(toNumber(templateRow.sth_tip)), 0),
         sth_cins: Math.max(Math.trunc(toNumber(templateRow.sth_cins)), 0),
         sth_normal_iade: Math.max(Math.trunc(toNumber(templateRow.sth_normal_iade)), 0),
@@ -2767,6 +2872,7 @@ class WarehouseWorkflowService {
       };
       this.applyDispatchDocumentFields(values, sthColumns, dispatchDocumentNo);
       this.applyDispatchTransportFields(values, sthColumns, params.transport);
+      this.applyMikroNativeSthDefaults(values, sthColumns);
 
       const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
       await mikroService.executeQuery(insertSql);
@@ -2781,7 +2887,7 @@ class WarehouseWorkflowService {
             ELSE ${belgeNoColumn}
           END,`
       : '';
-    const setBelgeTarih = hasBelgeTarih ? 'sip_belge_tarih = GETDATE(),' : '';
+    const setBelgeTarih = hasBelgeTarih ? 'sip_belge_tarih = CAST(GETDATE() as date),' : '';
     await mikroService.executeQuery(`
       UPDATE SIPARISLER
       SET
