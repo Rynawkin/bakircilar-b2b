@@ -138,6 +138,7 @@ enum PaymentAmountType {
   TOTAL_BALANCE
   PAST_DUE
   CUSTOM
+  EARLY_PAYMENT
 }
 
 enum PaymentStatus {
@@ -656,6 +657,10 @@ model Settings {
   // Vitrin: HERO banner otomatik gecis suresi (ms). Admin bannerlar ekranindan degistirilir.
   heroBannerIntervalMs      Int                     @default(6000)
 
+  // Erken odeme indirimi: vadesi gelmemis bakiyeyi erken odeyene yillik oran uzerinden
+  // gun-bazli indirim (indirim = tutar * oran/100 * kalanGun / 365). 0 = kapali.
+  earlyPaymentAnnualRate    Float                   @default(0)
+
   // Min-Max v2 hesap motoru varsayilanlari (Ucarer depo)
   // dailySales = son minmaxLookbackDays gun satisi / minmaxLookbackDays
   // min = dailySales * minmaxMinDays, max(hedef) = dailySales * minmaxMaxDays
@@ -836,6 +841,9 @@ model PaymentAttempt {
   // Mikro tahsilat makbuzu kimligi (yazildiysa): evrak no (POS-1) ve referans no (MK-...).
   mikroReceiptNo         String?
   mikroReceiptRef        String?
+  // Erken odeme indirimi: brut borc ve uygulanan indirim (amount = brut - indirim, odenen).
+  grossAmount            Decimal?          @db.Decimal(18, 2)
+  discountAmount         Decimal?          @db.Decimal(18, 2)
   metadata               Json?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt

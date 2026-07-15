@@ -33,6 +33,7 @@ const amountTypeLabel: Record<PaymentAmountType, string> = {
   TOTAL_BALANCE: 'Toplam bakiye',
   PAST_DUE: 'Vadesi gecen',
   CUSTOM: 'Ozel tutar',
+  EARLY_PAYMENT: 'Erken odeme (indirimli)',
 };
 
 const formatDateTime = (value?: string | null) => value
@@ -103,6 +104,7 @@ export default function CustomerPaymentsPage() {
     if (!summary) return 0;
     if (amountType === 'TOTAL_BALANCE') return summary.availability.total;
     if (amountType === 'PAST_DUE') return summary.availability.pastDue;
+    if (amountType === 'EARLY_PAYMENT') return summary.earlyPayment?.available ? summary.earlyPayment.netAmount : 0;
     return Number(customAmount || 0);
   }, [amountType, customAmount, summary]);
 
@@ -264,6 +266,29 @@ export default function CustomerPaymentsPage() {
                   ))}
                 </div>
 
+                {summary.earlyPayment?.available && (
+                  <button
+                    type="button"
+                    onClick={() => setAmountType('EARLY_PAYMENT')}
+                    className={`mt-2.5 w-full border px-3.5 py-3 text-left transition-colors ${amountType === 'EARLY_PAYMENT' ? 'border-emerald-600 bg-emerald-50 ring-1 ring-emerald-600' : 'border-emerald-300 bg-emerald-50/40 hover:border-emerald-500'}`}
+                  >
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] font-semibold text-emerald-800">Erken ödeme indirimi</span>
+                      <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                        {formatCurrency(summary.earlyPayment.discountAmount)} indirim
+                      </span>
+                    </span>
+                    <span className="mt-1 block text-[13px] text-emerald-900">
+                      Vadesi gelmemiş <b className="tabular-nums">{formatCurrency(summary.earlyPayment.grossAmount)}</b> borcunuzu
+                      {' '}{summary.earlyPayment.daysRemaining} gün erken kapatın:
+                      {' '}<b className="tabular-nums text-[15px]">{formatCurrency(summary.earlyPayment.netAmount)}</b> ödeyin.
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-emerald-700">
+                      İndirim farkı muhasebe tarafından cari hesabınızda kapatılır.
+                    </span>
+                  </button>
+                )}
+
                 {amountType === 'CUSTOM' && (
                   <label className="mt-4 block">
                     <span className="mb-1.5 block text-xs font-semibold text-[var(--ink-2)]">Ozel odeme tutari</span>
@@ -309,7 +334,7 @@ export default function CustomerPaymentsPage() {
                 <div className="mt-4 border-t border-white/15 pt-4 text-xs leading-5 text-slate-300">
                   <p>Tek kullanımlik odeme baglantisi</p>
                   <p>Tutar banka ekraninda degistirilemez</p>
-                  <p>Mikro'ya otomatik tahsilat fisi yazilmaz</p>
+                  <p>Muhasebe onayi sonrasi tahsilat makbuzu otomatik islenir</p>
                 </div>
               </aside>
             </section>
@@ -342,7 +367,12 @@ export default function CustomerPaymentsPage() {
                     <div key={payment.id} className="grid grid-cols-[1.2fr_1fr_1fr_1fr_1.2fr] items-center gap-3 border-t border-[var(--line)] px-5 py-3 text-[12px]">
                       <div><p className="font-medium text-[var(--ink-1)]">{formatDateTime(payment.createdAt)}</p><p className="mt-0.5 font-mono text-[10px] text-[var(--ink-3)]">{payment.orderId}</p></div>
                       <span className="text-[var(--ink-2)]">{amountTypeLabel[payment.amountType]}</span>
-                      <span className="text-right text-[13px] font-bold tabular-nums text-[var(--ink-1)]">{formatCurrency(payment.amount)}</span>
+                      <div className="text-right">
+                        <span className="text-[13px] font-bold tabular-nums text-[var(--ink-1)]">{formatCurrency(payment.amount)}</span>
+                        {(payment.discountAmount ?? 0) > 0 && (
+                          <p className="mt-0.5 text-[10px] font-medium text-emerald-700">{formatCurrency(payment.discountAmount!)} erken ödeme indirimi</p>
+                        )}
+                      </div>
                       <div><span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${meta.className}`}>{meta.label}</span>{payment.reconciledAt && <p className="mt-1 text-[10px] text-emerald-700">Muhasebeye islendi</p>}</div>
                       <div className="flex justify-end gap-1.5">
                         {canResume && <a href={payment.paymentLinkUrl!} className="inline-flex h-8 items-center gap-1 bg-[#b45309] px-2.5 font-semibold text-white"><ExternalLink className="h-3 w-3" /> Devam et</a>}

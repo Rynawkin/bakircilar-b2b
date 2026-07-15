@@ -772,7 +772,7 @@ export interface EInvoiceDocument {
 
 // ==================== ONLINE PAYMENT TYPES ====================
 
-export type PaymentAmountType = 'TOTAL_BALANCE' | 'PAST_DUE' | 'CUSTOM';
+export type PaymentAmountType = 'TOTAL_BALANCE' | 'PAST_DUE' | 'CUSTOM' | 'EARLY_PAYMENT';
 export type PaymentStatus =
   | 'CREATED'
   | 'PENDING'
@@ -790,6 +790,8 @@ export interface PaymentAttempt {
   customerName: string;
   amountType: PaymentAmountType;
   amount: number;
+  grossAmount?: number | null;
+  discountAmount?: number | null;
   currency: string;
   status: PaymentStatus;
   provider: string;
@@ -848,6 +850,16 @@ export interface PaymentSummary {
     reason: 'GATEWAY_DISABLED' | 'GATEWAY_NOT_CONFIGURED' | 'BALANCE_STALE' | 'NO_PAYABLE_BALANCE' | null;
   };
   limits: { min: number; max: number; currency: 'TRY' };
+  earlyPayment?: {
+    available: boolean;
+    annualRate: number;
+    daysRemaining: number;
+    grossAmount: number;
+    discountAmount: number;
+    netAmount: number;
+    notDueDate?: string | null;
+    reason: string | null;
+  };
 }
 
 export interface Notification {
@@ -876,6 +888,8 @@ export interface Settings {
   costCalculationMethod: 'LAST_ENTRY' | 'CURRENT_COST' | 'DYNAMIC';
   /** Kategori/urun kurali olmayan urunlere uygulanan varsayilan kar marji (0.15 = %15) */
   defaultProfitMargin?: number;
+  /** Erken odeme yillik indirim orani (%). 0 = kapali. */
+  earlyPaymentAnnualRate?: number;
   dynamicCostParams?: {
     dayThreshold?: number;
     priceWeightNew?: number;

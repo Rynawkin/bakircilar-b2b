@@ -202,6 +202,34 @@ export default function AyarlarNew() {
                   Kategori/ürün marj kuralı olmayan ürünlere uygulanır. 15 = %15. İndirimli (excess) fiyatlar dahil tüm marj-motoru fiyatlarını etkiler.
                 </p>
               </div>
+
+              <div>
+                <label className={LABEL}>
+                  <span className="inline-flex items-center gap-[5px]">
+                    <Calculator size={11} className="text-[#8b97ac]" />
+                    Erken Ödeme Yıllık İndirim Oranı (%)
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min={0}
+                  max={200}
+                  className={FIELD}
+                  placeholder="0"
+                  value={settings.earlyPaymentAnnualRate ?? 0}
+                  onChange={(e) => {
+                    const pct = parseFloat(e.target.value);
+                    setSettings({
+                      ...settings,
+                      earlyPaymentAnnualRate: Number.isFinite(pct) && pct >= 0 ? pct : settings.earlyPaymentAnnualRate,
+                    });
+                  }}
+                />
+                <p className="text-[11px] text-[#8b97ac] mt-[5px] m-0">
+                  Vadesi gelmemiş bakiyesini online erken ödeyene gün bazlı indirim: tutar × oran × kalan gün / 365. Örn. %36 → günlük ~%0,1. 0 = kapalı. Vadesi geçmiş borcu olan müşteriye sunulmaz; Mikro'ya yalnız ödenen tutarın makbuzu yazılır, indirim farkını muhasebe kapatır.
+                </p>
+              </div>
             </div>
 
             {/* DYNAMIC alt blok — klasikteki tum alanlar korunur */}

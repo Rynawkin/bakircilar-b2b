@@ -91,6 +91,8 @@ const publicAttempt = (attempt: any) => ({
   customerName: attempt.customerNameSnapshot,
   amountType: attempt.amountType,
   amount: asNumber(attempt.amount),
+  grossAmount: attempt.grossAmount === null || attempt.grossAmount === undefined ? null : asNumber(attempt.grossAmount),
+  discountAmount: attempt.discountAmount === null || attempt.discountAmount === undefined ? null : asNumber(attempt.discountAmount),
   currency: attempt.currency,
   status: attempt.status,
   provider: attempt.provider,
@@ -270,6 +272,52 @@ class PaymentService {
     return fromCents(Math.max(0, toCents(rows._sum.amount)));
   }
 
+  /**
+   * Erken odeme indirimi: vadesi gecmis borcu OLMAYAN musteri, vadesi gelmemis bakiyesini
+   * bugun oderse yillik oran uzerinden gun-bazli indirim alir. Mikro'ya yalniz odenen
+   * (indirimli) tutarin makbuzu yazilir; fark muhasebece kapatilir (isletme karari).
+   */
+  private computeEarlyPayment(
+    summary: Awaited<ReturnType<PaymentService['calculateSummary']>>,
+    annualRate: number
+  ) {
+    const base = {
+      available: false as boolean,
+      annualRate,
+      daysRemaining: 0,
+      grossAmount: 0,
+      discountAmount: 0,
+      netAmount: 0,
+      notDueDate: summary.balance.notDueDate,
+      reason: null as string | null,
+    };
+    if (!(annualRate > 0)) return { ...base, reason: 'DISABLED' };
+    if (summary.availablePastDue > 0) return { ...base, reason: 'PAST_DUE_EXISTS' };
+    if (!summary.balance.notDueDate) return { ...base, reason: 'NO_DUE_DATE' };
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const daysRemaining = Math.floor((summary.balance.notDueDate.getTime() - Date.now()) / msPerDay);
+    if (daysRemaining < 1) return { ...base, reason: 'DUE_TOO_CLOSE' };
+    const gross = summary.availableTotal;
+    if (gross < config.nestpay.minAmount) return { ...base, reason: 'NO_PAYABLE_BALANCE' };
+    const discount = roundMoney(gross * (annualRate / 100) * (daysRemaining / 365));
+    const net = roundMoney(gross - discount);
+    if (!(discount > 0) || !(net >= config.nestpay.minAmount)) return { ...base, reason: 'DISCOUNT_TOO_SMALL' };
+    return {
+      ...base,
+      available: true,
+      daysRemaining,
+      grossAmount: gross,
+      discountAmount: discount,
+      netAmount: net,
+    };
+  }
+
+  private async getEarlyPaymentRate(): Promise<number> {
+    const settings = await prisma.settings.findFirst({ select: { earlyPaymentAnnualRate: true } });
+    const rate = Number(settings?.earlyPaymentAnnualRate ?? 0);
+    return Number.isFinite(rate) && rate > 0 && rate <= 200 ? rate : 0;
+  }
+
   async getCustomerSummary(actorId: string) {
     const access = await this.resolveAccess(actorId);
     await this.expireStaleAttempts(access.customerId);
@@ -325,6 +373,7 @@ class PaymentService {
         max: config.nestpay.maxAmount,
         currency: 'TRY',
       },
+      earlyPayment: this.computeEarlyPayment(summary, await this.getEarlyPaymentRate()),
     };
   }
 
@@ -339,15 +388,36 @@ class PaymentService {
     return attempts.map(publicAttempt);
   }
 
-  private chooseAmount(summary: Awaited<ReturnType<PaymentService['calculateSummary']>>, input: CreatePaymentInput) {
+  private chooseAmount(
+    summary: Awaited<ReturnType<PaymentService['calculateSummary']>>,
+    input: CreatePaymentInput,
+    earlyPaymentRate: number
+  ): { amount: number; grossAmount: number | null; discountAmount: number | null } {
     const balanceAgeHours = Math.max(0, (Date.now() - summary.balance.updatedAt.getTime()) / 3_600_000);
     if (balanceAgeHours > config.nestpay.maxBalanceAgeHours) {
       throw new PaymentServiceError('Cari bakiye verisi guncel degil. Yeni vade/bakiye raporu yuklendikten sonra tekrar deneyin.', 409, 'BALANCE_STALE');
     }
     let amount = 0;
+    let grossAmount: number | null = null;
+    let discountAmount: number | null = null;
     if (input.amountType === PaymentAmountType.TOTAL_BALANCE) amount = summary.availableTotal;
     else if (input.amountType === PaymentAmountType.PAST_DUE) amount = summary.availablePastDue;
-    else amount = roundMoney(input.customAmount);
+    else if (input.amountType === PaymentAmountType.EARLY_PAYMENT) {
+      // Indirimli tutari SUNUCU hesaplar; istemciden tutar alinmaz.
+      const early = this.computeEarlyPayment(summary, earlyPaymentRate);
+      if (!early.available) {
+        throw new PaymentServiceError(
+          early.reason === 'PAST_DUE_EXISTS'
+            ? 'Erken odeme indirimi icin once vadesi gecen bakiyenin odenmesi gerekir.'
+            : 'Erken odeme indirimi su anda kullanilamiyor.',
+          409,
+          'EARLY_PAYMENT_UNAVAILABLE'
+        );
+      }
+      amount = early.netAmount;
+      grossAmount = early.grossAmount;
+      discountAmount = early.discountAmount;
+    } else amount = roundMoney(input.customAmount);
 
     if (amount < config.nestpay.minAmount) {
       throw new PaymentServiceError('Odenebilir bakiye veya girilen tutar banka alt limitinin altinda.', 409, 'AMOUNT_TOO_LOW');
@@ -358,7 +428,7 @@ class PaymentService {
     if (amount > config.nestpay.maxAmount) {
       throw new PaymentServiceError(`Tek islem tutari en fazla ${config.nestpay.maxAmount.toLocaleString('tr-TR')} TL olabilir.`, 409, 'AMOUNT_TOO_HIGH');
     }
-    return amount;
+    return { amount, grossAmount, discountAmount };
   }
 
   async createPayByLink(input: CreatePaymentInput) {
@@ -379,6 +449,9 @@ class PaymentService {
       }
       return publicAttempt(existing);
     }
+    const earlyPaymentRate = input.amountType === PaymentAmountType.EARLY_PAYMENT
+      ? await this.getEarlyPaymentRate()
+      : 0;
 
     let attempt: any;
     for (let tryNo = 0; tryNo < 3; tryNo += 1) {
@@ -387,7 +460,7 @@ class PaymentService {
           const duplicate = await tx.paymentAttempt.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
           if (duplicate) return duplicate;
           const summary = await this.calculateSummary(access.customerId, tx);
-          const amount = this.chooseAmount(summary, input);
+          const chosen = this.chooseAmount(summary, input, earlyPaymentRate);
           const created = await tx.paymentAttempt.create({
             data: {
               orderId: paymentOrderId(),
@@ -397,7 +470,9 @@ class PaymentService {
               customerCodeSnapshot: access.customerCode,
               customerNameSnapshot: access.customerName,
               amountType: input.amountType,
-              amount: new Prisma.Decimal(amount),
+              amount: new Prisma.Decimal(chosen.amount),
+              grossAmount: chosen.grossAmount === null ? null : new Prisma.Decimal(chosen.grossAmount),
+              discountAmount: chosen.discountAmount === null ? null : new Prisma.Decimal(chosen.discountAmount),
               bankName: config.nestpay.bankName,
               totalBalanceSnapshot: new Prisma.Decimal(summary.totalBalance),
               pastDueBalanceSnapshot: new Prisma.Decimal(summary.pastDueBalance),
@@ -411,7 +486,12 @@ class PaymentService {
                   type: 'PAYMENT_ATTEMPT_CREATED',
                   source: 'CUSTOMER',
                   status: PaymentStatus.CREATED,
-                  payload: { amountType: input.amountType, amount },
+                  payload: {
+                    amountType: input.amountType,
+                    amount: chosen.amount,
+                    grossAmount: chosen.grossAmount,
+                    discountAmount: chosen.discountAmount,
+                  },
                 },
               },
             },

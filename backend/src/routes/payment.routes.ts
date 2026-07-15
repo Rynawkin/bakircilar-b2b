@@ -67,7 +67,7 @@ router.use(authenticate);
 
 const createSchema = z.object({
   idempotencyKey: z.string().uuid(),
-  amountType: z.enum(['TOTAL_BALANCE', 'PAST_DUE', 'CUSTOM']),
+  amountType: z.enum(['TOTAL_BALANCE', 'PAST_DUE', 'CUSTOM', 'EARLY_PAYMENT']),
   customAmount: z.number().positive().max(10_000_000).optional(),
 }).superRefine((value, ctx) => {
   if (value.amountType === 'CUSTOM' && value.customAmount === undefined) {

@@ -122,10 +122,15 @@ export async function generatePaymentReceiptPdf(payment: PaymentAttempt) {
   section('Müşteri Bilgileri');
   row('Ünvan', payment.customerName);
   row('Cari Kodu', payment.customerCode || undefined, true);
+  // "Tutar" satiri kaldirildi; asagida Odenen Tutar (ve varsa indirim kirilimi) gosterilir.
 
   section('Ödeme Bilgileri');
   row('Ödeme Tarihi', dateTime(payment.succeededAt || payment.createdAt));
-  row('Tutar', money(payment.amount));
+  if ((payment.discountAmount ?? 0) > 0 && (payment.grossAmount ?? 0) > 0) {
+    row('Borç Tutarı', money(payment.grossAmount!));
+    row('Erken Ödeme İndirimi', `−${money(payment.discountAmount!)}`);
+  }
+  row('Ödenen Tutar', money(payment.amount));
   row('Ödeme Yöntemi', `${payment.bankName} - Kredi Kartı (Güvenli Ödeme Sayfası)`);
   row('Sistem Referansı', payment.orderId, true);
 
