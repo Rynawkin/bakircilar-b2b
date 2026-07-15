@@ -7,6 +7,8 @@ export type SalesCatalogVatMode = 'EXCLUDED' | 'INCLUDED';
 export type SalesCatalogRounding = 'NONE' | 'NEAREST_0_50' | 'NEAREST_1' | 'NEAREST_5' | 'END_90' | 'END_99';
 export type SalesCatalogGuard = 'NONE' | 'CURRENT_COST' | 'MAX_COST';
 export type SalesCatalogDisplayDensity = 'STANDARD' | 'COMPACT';
+export type SalesCatalogShareLinkStatus = 'ACTIVE' | 'PAUSED' | 'REVOKED';
+export type SalesCatalogShareLinkEffectiveStatus = SalesCatalogShareLinkStatus | 'EXPIRED' | 'VIEW_LIMIT_REACHED';
 
 export interface SalesCatalogProductRef {
   id: string;
@@ -187,6 +189,14 @@ export interface SalesCatalogPresentation {
     showUnit: boolean;
     displayDensity: SalesCatalogDisplayDensity;
     generatedAt: string;
+    shareLinkId?: string | null;
+    shareLinkName?: string | null;
+    recipientLabel?: string | null;
+    linkedCustomerCode?: string | null;
+    personalized?: boolean;
+    watermarkText?: string | null;
+    priceFingerprint?: string | null;
+    priceSnapshotId?: string | null;
     priceBasis?: SalesCatalogPriceBasis;
     adjustmentType?: SalesCatalogAdjustment;
     adjustmentValue?: number;
@@ -211,6 +221,94 @@ export interface SalesCatalogPresentation {
     includedProducts: number;
     excludedProducts: number;
   };
+}
+
+export interface SalesCatalogShareLinkInput {
+  name?: string;
+  recipientName?: string | null;
+  linkedCustomerId?: string | null;
+  status?: SalesCatalogShareLinkStatus;
+  expiresAt?: string | null;
+  maxDevices?: number | null;
+  maxViews?: number | null;
+  pin?: string | null;
+  clearPin?: boolean;
+  lockToFirstDevice?: boolean;
+  resetDeviceBinding?: boolean;
+  useCustomPricing?: boolean;
+  adjustmentType?: SalesCatalogAdjustment | null;
+  adjustmentValue?: number | null;
+}
+
+export interface SalesCatalogShareLink {
+  id: string;
+  catalogId: string;
+  name: string;
+  recipientName?: string | null;
+  linkedCustomerId?: string | null;
+  linkedCustomerCode?: string | null;
+  linkedCustomerName?: string | null;
+  token: string;
+  publicPath: string;
+  isDefault: boolean;
+  status: SalesCatalogShareLinkStatus;
+  effectiveStatus: SalesCatalogShareLinkEffectiveStatus;
+  expiresAt?: string | null;
+  maxDevices?: number | null;
+  maxViews?: number | null;
+  hasPin: boolean;
+  lockToFirstDevice: boolean;
+  boundVisitorId?: string | null;
+  useCustomPricing: boolean;
+  adjustmentType?: SalesCatalogAdjustment | null;
+  adjustmentValue?: number | null;
+  viewCount: number;
+  sessionCount: number;
+  uniqueDevices: number;
+  pdfDownloadCount: number;
+  shareClickCount: number;
+  lastViewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SalesCatalogShareVisitor {
+  id: string;
+  anonymousId: string;
+  deviceType?: string | null;
+  operatingSystem?: string | null;
+  browser?: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  viewCount: number;
+  sessionCount: number;
+  pdfDownloadCount: number;
+  shareClickCount: number;
+  catalogBlocked: boolean;
+  globalBlocked: boolean;
+  globalBlockedAt?: string | null;
+}
+
+export interface SalesCatalogShareAnalytics {
+  link: SalesCatalogShareLink;
+  visitors: SalesCatalogShareVisitor[];
+  events: Array<{
+    id: string;
+    visitorId: string;
+    eventType: string;
+    metadata?: Record<string, unknown> | null;
+    occurredAt: string;
+    priceSnapshotId?: string | null;
+  }>;
+  snapshots: Array<{
+    id: string;
+    fingerprint: string;
+    catalogRevision: number;
+    adjustmentType: SalesCatalogAdjustment;
+    adjustmentValue: number;
+    productCount: number;
+    generatedAt: string;
+  }>;
 }
 
 export const salesCatalogApi = {
@@ -262,12 +360,59 @@ export const salesCatalogApi = {
     const response = await apiClient.post(`/admin/sales-catalogs/${id}/rotate-token`);
     return response.data;
   },
-  getPublic: async (token: string): Promise<SalesCatalogPresentation> => {
-    const response = await apiClient.get(`/sales-catalogs/public/${encodeURIComponent(token)}`);
+  getPublic: async (token: string, accessToken?: string | null): Promise<SalesCatalogPresentation> => {
+    const response = await apiClient.get(`/sales-catalogs/public/${encodeURIComponent(token)}`, {
+      headers: accessToken ? { 'x-catalog-access-token': accessToken } : undefined,
+    });
     return response.data;
   },
-  recordPdfDownload: async (token: string): Promise<void> => {
-    await apiClient.post(`/sales-catalogs/public/${encodeURIComponent(token)}/pdf-download`);
+  authorizePin: async (token: string, pin: string): Promise<{ accessToken: string | null; protected: boolean }> => {
+    const response = await apiClient.post(`/sales-catalogs/public/${encodeURIComponent(token)}/access`, { pin });
+    return response.data;
+  },
+  recordEvent: async (
+    token: string,
+    eventType: 'VIEW' | 'PDF_DOWNLOAD' | 'SHARE_CLICK',
+    payload?: { clientEventId?: string; priceSnapshotId?: string | null; metadata?: Record<string, unknown> },
+    accessToken?: string | null
+  ): Promise<{ success: boolean; sessionId?: string | null }> => {
+    const response = await apiClient.post(
+      `/sales-catalogs/public/${encodeURIComponent(token)}/events`,
+      { eventType, ...(payload || {}) },
+      { headers: accessToken ? { 'x-catalog-access-token': accessToken } : undefined }
+    );
+    return response.data;
+  },
+  recordPdfDownload: async (token: string, payload?: { clientEventId?: string; priceSnapshotId?: string | null }, accessToken?: string | null): Promise<void> => {
+    await apiClient.post(
+      `/sales-catalogs/public/${encodeURIComponent(token)}/pdf-download`,
+      payload || {},
+      { headers: accessToken ? { 'x-catalog-access-token': accessToken } : undefined }
+    );
+  },
+  listShareLinks: async (catalogId: string): Promise<{ links: SalesCatalogShareLink[] }> => {
+    const response = await apiClient.get(`/admin/sales-catalogs/${catalogId}/share-links`);
+    return response.data;
+  },
+  createShareLink: async (catalogId: string, data: SalesCatalogShareLinkInput): Promise<{ link: SalesCatalogShareLink }> => {
+    const response = await apiClient.post(`/admin/sales-catalogs/${catalogId}/share-links`, data);
+    return response.data;
+  },
+  updateShareLink: async (catalogId: string, linkId: string, data: SalesCatalogShareLinkInput): Promise<{ link: SalesCatalogShareLink }> => {
+    const response = await apiClient.patch(`/admin/sales-catalogs/${catalogId}/share-links/${linkId}`, data);
+    return response.data;
+  },
+  rotateShareLinkToken: async (catalogId: string, linkId: string): Promise<{ link: SalesCatalogShareLink }> => {
+    const response = await apiClient.post(`/admin/sales-catalogs/${catalogId}/share-links/${linkId}/rotate-token`);
+    return response.data;
+  },
+  getShareLinkAnalytics: async (catalogId: string, linkId: string): Promise<SalesCatalogShareAnalytics> => {
+    const response = await apiClient.get(`/admin/sales-catalogs/${catalogId}/share-links/${linkId}/analytics`);
+    return response.data;
+  },
+  setVisitorBlock: async (catalogId: string, linkId: string, visitorId: string, data: { scope: 'CATALOG' | 'GLOBAL'; blocked: boolean; reason?: string | null }): Promise<{ success: boolean }> => {
+    const response = await apiClient.post(`/admin/sales-catalogs/${catalogId}/share-links/${linkId}/visitors/${visitorId}/block`, data);
+    return response.data;
   },
 };
 

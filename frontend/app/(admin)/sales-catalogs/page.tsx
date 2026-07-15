@@ -25,9 +25,11 @@ import {
   Search,
   Send,
   Trash2,
+  Users,
   X,
 } from 'lucide-react';
 import { ImageCropUpload } from '@/components/admin/ImageCropUpload';
+import SalesCatalogShareLinks from '@/components/admin/SalesCatalogShareLinks';
 import { formatCurrency } from '@/lib/utils/format';
 import salesCatalogApi, {
   SalesCatalogAdmin,
@@ -263,6 +265,7 @@ export default function SalesCatalogsPage() {
   const [catalogs, setCatalogs] = useState<SalesCatalogAdmin[]>([]);
   const [loading, setLoading] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [shareCatalog, setShareCatalog] = useState<SalesCatalogAdmin | null>(null);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [searching, setSearching] = useState(false);
@@ -296,6 +299,14 @@ export default function SalesCatalogsPage() {
   useEffect(() => {
     loadCatalogs();
   }, [loadCatalogs]);
+
+  useEffect(() => {
+    if (catalogs.length === 0 || typeof window === 'undefined') return;
+    const catalogId = new URLSearchParams(window.location.search).get('shareCatalog');
+    if (!catalogId || shareCatalog) return;
+    const selected = catalogs.find((catalog) => catalog.id === catalogId);
+    if (selected) setShareCatalog(selected);
+  }, [catalogs, shareCatalog]);
 
   useEffect(() => {
     if (!editorOpen || productFiltersLoaded) return;
@@ -628,6 +639,10 @@ export default function SalesCatalogsPage() {
     }
   };
 
+  if (shareCatalog) {
+    return <SalesCatalogShareLinks catalog={shareCatalog} onBack={() => setShareCatalog(null)} />;
+  }
+
   if (editor) {
     return (
       <div className="min-h-[calc(100vh-60px)] bg-[#f4f6fa] pb-16">
@@ -643,6 +658,14 @@ export default function SalesCatalogsPage() {
             {editor.id && (
               <button onClick={loadPreview} disabled={previewLoading} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#d8e0ec] px-3 text-[13px] font-medium text-[#51607a] hover:bg-[#f4f6fa] disabled:opacity-50">
                 {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />} Önizle
+              </button>
+            )}
+            {editor.id && (
+              <button onClick={() => {
+                const selected = catalogs.find((catalog) => catalog.id === editor.id);
+                if (selected) setShareCatalog(selected);
+              }} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#b9caea] bg-[#f5f8fd] px-3 text-[13px] font-semibold text-[#15356b] hover:bg-[#eef3fb]">
+                <Link2 className="h-4 w-4" /> Paylaşım linkleri
               </button>
             )}
             <button onClick={() => save('DRAFT')} disabled={saving} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#15356b] px-3 text-[13px] font-semibold text-[#15356b] hover:bg-[#eef2fa] disabled:opacity-50">
@@ -960,6 +983,10 @@ export default function SalesCatalogsPage() {
                 </div>
                 <button onClick={() => copyPublicLink(editor)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#d8e0ec] px-3 text-[12.5px] font-medium text-[#51607a] hover:bg-[#f4f6fa]"><Copy className="h-4 w-4" /> Linki kopyala</button>
                 <button onClick={() => shareWhatsApp(editor)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 px-3 text-[12.5px] font-medium text-emerald-700 hover:bg-emerald-50"><Send className="h-4 w-4" /> WhatsApp</button>
+                <button onClick={() => {
+                  const selected = catalogs.find((catalog) => catalog.id === editor.id);
+                  if (selected) setShareCatalog(selected);
+                }} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#b9caea] bg-[#f5f8fd] px-3 text-[12.5px] font-semibold text-[#15356b] hover:bg-[#eef3fb]"><Users className="h-4 w-4" /> Kişiye özel linkler</button>
                 <button onClick={rotateToken} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-200 px-3 text-[12.5px] font-medium text-amber-700 hover:bg-amber-50"><RotateCcw className="h-4 w-4" /> Linki yenile</button>
               </div>
             </section>
@@ -1027,6 +1054,7 @@ export default function SalesCatalogsPage() {
                         <div className="flex justify-end gap-1">
                           {catalog.status === 'PUBLISHED' && <IconButton title="Linki kopyala" onClick={() => copyPublicLink(catalog)} icon={<Copy className="h-4 w-4" />} />}
                           {catalog.status === 'PUBLISHED' && <IconButton title="Kataloğu aç" onClick={() => window.open(catalog.publicPath, '_blank', 'noopener,noreferrer')} icon={<ExternalLink className="h-4 w-4" />} />}
+                          <IconButton title="Paylaşım linkleri" onClick={() => setShareCatalog(catalog)} icon={<Link2 className="h-4 w-4" />} />
                           <IconButton title="Düzenle" onClick={() => openEditor(catalog)} icon={<Pencil className="h-4 w-4" />} />
                           <IconButton title="Sil" danger onClick={() => removeCatalog(catalog)} icon={<Trash2 className="h-4 w-4" />} />
                         </div>

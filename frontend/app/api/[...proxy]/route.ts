@@ -80,10 +80,15 @@ async function proxyRequest(request: NextRequest, method: string) {
     const location = response.headers.get('Location');
     if (location) responseHeaders.Location = location;
 
-    return new NextResponse(responseBody, {
+    const proxiedResponse = new NextResponse(responseBody, {
       status: response.status,
       headers: responseHeaders,
     });
+    const responseHeadersWithCookies = response.headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = responseHeadersWithCookies.getSetCookie?.()
+      || (response.headers.get('set-cookie') ? [response.headers.get('set-cookie') as string] : []);
+    setCookies.forEach((cookie) => proxiedResponse.headers.append('set-cookie', cookie));
+    return proxiedResponse;
   } catch (error: any) {
     console.error('[Proxy] Error:', error.message);
     return NextResponse.json(

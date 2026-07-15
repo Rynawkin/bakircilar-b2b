@@ -287,6 +287,22 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     : `Olusturma: ${new Date(data.catalog.generatedAt).toLocaleDateString('tr-TR')}`;
   doc.text(validity, 16, height - 18);
   doc.text(data.catalog.vatMode === 'INCLUDED' ? 'Fiyatlara KDV dahildir.' : 'Fiyatlara KDV dahil degildir.', 16, height - 12);
+  if (data.catalog.watermarkText) {
+    doc.setFillColor('#eef4fb');
+    doc.setDrawColor('#d6e0f1');
+    doc.roundedRect(width - 104, height - 23, 88, 12, 2, 2, 'FD');
+    doc.setTextColor('#15356b');
+    doc.setFont('Hanken', 'bold');
+    doc.setFontSize(7.2);
+    const recipientLine = (doc.splitTextToSize(data.catalog.watermarkText, 80) as string[])[0] || data.catalog.watermarkText;
+    doc.text(recipientLine, width - 60, height - 17.8, { align: 'center' });
+    if (data.catalog.priceFingerprint) {
+      doc.setFont('PlexMono', 'normal');
+      doc.setFontSize(5.5);
+      doc.setTextColor('#64748b');
+      doc.text(`FIYAT IZI ${data.catalog.priceFingerprint}`, width - 60, height - 13.7, { align: 'center' });
+    }
+  }
 
   const sectionPages: Array<{ title: string; page: number; tocIndex: number }> = [];
   const compact = data.catalog.displayDensity === 'COMPACT';
@@ -318,6 +334,13 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     doc.setFont('PlexMono', 'normal');
     doc.setFontSize(6.2);
     doc.text(`REV ${String(data.catalog.revision).padStart(2, '0')}  /  ${data.catalog.vatMode === 'INCLUDED' ? 'KDV DAHIL' : 'KDV HARIC'}`, width - 12, 17, { align: 'right' });
+    if (data.catalog.watermarkText) {
+      doc.setFont('Hanken', 'normal');
+      doc.setFontSize(5.8);
+      doc.setTextColor('#c9d9ee');
+      const watermarkLine = (doc.splitTextToSize(data.catalog.watermarkText, 112) as string[])[0] || data.catalog.watermarkText;
+      doc.text(watermarkLine, width - 12, 21.2, { align: 'right' });
+    }
   };
 
   const drawCategoryHeading = (
@@ -570,6 +593,13 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     doc.setFont('Hanken', 'normal');
     doc.setFontSize(7.5);
     doc.text(`Bakircilar B2B | Revizyon ${data.catalog.revision}`, 16, height - 5);
+    if (data.catalog.watermarkText) {
+      doc.setFont('Hanken', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor('#64748b');
+      const footerWatermark = (doc.splitTextToSize(data.catalog.watermarkText, 92) as string[])[0] || data.catalog.watermarkText;
+      doc.text(footerWatermark, width / 2, height - 5, { align: 'center' });
+    }
     doc.text(`${page} / ${pageCount}`, width - 16, height - 5, { align: 'right' });
   }
 

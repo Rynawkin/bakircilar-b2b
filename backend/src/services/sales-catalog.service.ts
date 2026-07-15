@@ -107,6 +107,18 @@ type PricingRule = {
   minimumPriceGuardPercent: number;
 };
 
+export type SalesCatalogSharePricingContext = {
+  id: string;
+  token: string;
+  name: string;
+  recipientName?: string | null;
+  linkedCustomerName?: string | null;
+  linkedCustomerCode?: string | null;
+  useCustomPricing?: boolean;
+  adjustmentType?: string | null;
+  adjustmentValue?: number | null;
+};
+
 const clamp = (value: unknown, min: number, max: number, fallback: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -212,7 +224,7 @@ class SalesCatalogService {
     return crypto.randomBytes(24).toString('base64url');
   }
 
-  private catalogInclude() {
+  catalogInclude() {
     return {
       sections: {
         orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
@@ -477,7 +489,8 @@ class SalesCatalogService {
     const data = this.buildCatalogData(input);
     data.name = String(data.name || data.title || 'Yeni Katalog').trim();
     data.title = String(data.title || data.name || 'Yeni Katalog').trim();
-    data.shareToken = this.makeShareToken();
+    const shareToken = this.makeShareToken();
+    data.shareToken = shareToken;
     data.createdById = actor.userId || null;
     data.createdByName = actor.name || null;
     data.updatedById = actor.userId || null;
@@ -491,6 +504,19 @@ class SalesCatalogService {
 
     const created = await prisma.$transaction(async (tx) => {
       const catalog = await tx.salesCatalog.create({ data: data as any });
+      await tx.salesCatalogShareLink.create({
+        data: {
+          catalogId: catalog.id,
+          name: 'Genel Link',
+          token: shareToken,
+          isDefault: true,
+          status: data.status === 'ARCHIVED' ? 'PAUSED' : 'ACTIVE',
+          createdById: actor.userId || null,
+          createdByName: actor.name || null,
+          updatedById: actor.userId || null,
+          updatedByName: actor.name || null,
+        },
+      });
       for (const section of sections) {
         const createdSection = await tx.salesCatalogSection.create({
           data: {
@@ -577,14 +603,45 @@ class SalesCatalogService {
   }
 
   async rotateShareToken(id: string, actor: CatalogActor) {
-    const row = await prisma.salesCatalog.update({
-      where: { id },
-      data: {
-        shareToken: this.makeShareToken(),
-        updatedById: actor.userId || null,
-        updatedByName: actor.name || null,
-        revision: { increment: 1 },
-      },
+    const shareToken = this.makeShareToken();
+    const row = await prisma.$transaction(async (tx) => {
+      const catalog = await tx.salesCatalog.update({
+        where: { id },
+        data: {
+          shareToken,
+          updatedById: actor.userId || null,
+          updatedByName: actor.name || null,
+          revision: { increment: 1 },
+        },
+      });
+      const existingDefault = await tx.salesCatalogShareLink.findFirst({
+        where: { catalogId: id, isDefault: true },
+        select: { id: true },
+      });
+      if (existingDefault) {
+        await tx.salesCatalogShareLink.update({
+          where: { id: existingDefault.id },
+          data: {
+            token: shareToken,
+            updatedById: actor.userId || null,
+            updatedByName: actor.name || null,
+          },
+        });
+      } else {
+        await tx.salesCatalogShareLink.create({
+          data: {
+            catalogId: id,
+            name: 'Genel Link',
+            token: shareToken,
+            isDefault: true,
+            createdById: actor.userId || null,
+            createdByName: actor.name || null,
+            updatedById: actor.userId || null,
+            updatedByName: actor.name || null,
+          },
+        });
+      }
+      return catalog;
     });
     return { shareToken: row.shareToken, publicPath: `/catalog/${row.shareToken}` };
   }
@@ -603,12 +660,18 @@ class SalesCatalogService {
     });
     if (!catalog || catalog.status !== 'PUBLISHED') return null;
     if ((catalog.validFrom && catalog.validFrom > now) || (catalog.validTo && catalog.validTo < now)) return null;
-    const presentation = await this.buildPresentation(catalog, false);
-    await prisma.salesCatalog.update({
-      where: { id: catalog.id },
-      data: { viewCount: { increment: 1 }, lastViewedAt: now },
-    }).catch(() => undefined);
-    return presentation;
+    return this.buildPresentation(catalog, false);
+  }
+
+  async getPublicPresentationForShareLink(catalogId: string, shareLink: SalesCatalogSharePricingContext) {
+    const now = new Date();
+    const catalog = await prisma.salesCatalog.findUnique({
+      where: { id: catalogId },
+      include: this.catalogInclude(),
+    });
+    if (!catalog || catalog.status !== 'PUBLISHED') return null;
+    if ((catalog.validFrom && catalog.validFrom > now) || (catalog.validTo && catalog.validTo < now)) return null;
+    return this.buildPresentation(catalog, false, shareLink);
   }
 
   async recordPdfDownload(token: string) {
@@ -708,7 +771,11 @@ class SalesCatalogService {
     };
   }
 
-  private async buildPresentation(catalog: any, includeAdmin: boolean) {
+  async buildPresentation(
+    catalog: any,
+    includeAdmin: boolean,
+    shareLink?: SalesCatalogSharePricingContext | null
+  ) {
     const allItems = catalog.sections.flatMap((section: any) => section.items || []);
     const productCodes = allItems.map((item: any) => item.product?.mikroCode).filter(Boolean);
     const [priceStatsMap, settings] = await Promise.all([
@@ -718,8 +785,12 @@ class SalesCatalogService {
     const includedWarehouses = settings?.includedWarehouses || [];
     const rule: PricingRule = {
       priceBasis: catalog.priceBasis,
-      adjustmentType: catalog.adjustmentType,
-      adjustmentValue: Number(catalog.adjustmentValue || 0),
+      adjustmentType: shareLink?.useCustomPricing
+        ? normalizeEnum(shareLink.adjustmentType, ADJUSTMENT_VALUES, catalog.adjustmentType)
+        : catalog.adjustmentType,
+      adjustmentValue: shareLink?.useCustomPricing
+        ? clamp(shareLink.adjustmentValue, 0, 99.99, Number(catalog.adjustmentValue || 0))
+        : Number(catalog.adjustmentValue || 0),
       betweenPercent: Number(catalog.betweenPercent ?? 50),
       priceListNo: catalog.priceListNo,
       vatMode: catalog.vatMode,
@@ -808,8 +879,8 @@ class SalesCatalogService {
       subtitle: catalog.subtitle,
       coverImageUrl: catalog.coverImageUrl,
       accentColor: catalog.accentColor,
-      shareToken: catalog.shareToken,
-      publicPath: `/catalog/${catalog.shareToken}`,
+      shareToken: shareLink?.token || catalog.shareToken,
+      publicPath: `/catalog/${shareLink?.token || catalog.shareToken}`,
       status: catalog.status,
       vatMode: catalog.vatMode,
       validFrom: catalog.validFrom,
@@ -820,6 +891,13 @@ class SalesCatalogService {
       showUnit: catalog.showUnit,
       displayDensity: catalog.displayDensity,
       generatedAt: new Date(),
+      shareLinkId: shareLink?.id || null,
+      shareLinkName: shareLink?.name || 'Genel Link',
+      recipientLabel: shareLink
+        ? (shareLink.recipientName || shareLink.linkedCustomerName || null)
+        : null,
+      linkedCustomerCode: shareLink?.linkedCustomerCode || null,
+      personalized: Boolean(shareLink && (shareLink.recipientName || shareLink.linkedCustomerName)),
     };
     if (!includeAdmin) return { catalog: publicMeta, sections };
     return {

@@ -38,6 +38,7 @@ export const NOTIFICATION_CATEGORIES = [
   { key: 'IMAGE', label: 'Gorsel' },
   { key: 'AUDIT', label: 'Audit' },
   { key: 'MARGIN', label: 'Marj Ihlalleri' },
+  { key: 'CATALOG', label: 'Satis kataloglari' },
 ] as const;
 
 const normalizeCategory = (value?: string | null) => {

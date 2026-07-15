@@ -871,6 +871,12 @@ router.get('/sales-catalogs/:id/preview', requirePermission('admin:campaigns'), 
 router.post('/sales-catalogs', requirePermission('admin:campaigns'), salesCatalogController.create);
 router.put('/sales-catalogs/:id', requirePermission('admin:campaigns'), salesCatalogController.update);
 router.post('/sales-catalogs/:id/rotate-token', requirePermission('admin:campaigns'), salesCatalogController.rotateToken);
+router.get('/sales-catalogs/:id/share-links', requirePermission('admin:campaigns'), salesCatalogController.listShareLinks);
+router.post('/sales-catalogs/:id/share-links', requirePermission('admin:campaigns'), salesCatalogController.createShareLink);
+router.patch('/sales-catalogs/:id/share-links/:linkId', requirePermission('admin:campaigns'), salesCatalogController.updateShareLink);
+router.post('/sales-catalogs/:id/share-links/:linkId/rotate-token', requirePermission('admin:campaigns'), salesCatalogController.rotateShareLinkToken);
+router.get('/sales-catalogs/:id/share-links/:linkId/analytics', requirePermission('admin:campaigns'), salesCatalogController.getShareLinkAnalytics);
+router.post('/sales-catalogs/:id/share-links/:linkId/visitors/:visitorId/block', requirePermission('admin:campaigns'), salesCatalogController.setVisitorBlock);
 router.delete('/sales-catalogs/:id', requirePermission('admin:campaigns'), salesCatalogController.remove);
 
 export default router;

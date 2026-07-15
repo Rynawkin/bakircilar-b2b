@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Send,
   Share2,
+  ShieldCheck,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import salesCatalogApi, { SalesCatalogPresentation } from '@/lib/api/salesCatalog';
@@ -30,6 +31,10 @@ const formatDate = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
 };
 
+const makeClientEventId = () => typeof crypto !== 'undefined' && crypto.randomUUID
+  ? crypto.randomUUID()
+  : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 export default function PublicSalesCatalogPage() {
   const params = useParams<{ token: string }>();
   const token = String(params?.token || '');
@@ -37,29 +42,112 @@ export default function PublicSalesCatalogPage() {
   const [loading, setLoading] = useState(true);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pinRequired, setPinRequired] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinLoading, setPinLoading] = useState(false);
   const [activeSection, setActiveSection] = useState('');
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  const viewRecordedRef = useRef(false);
+
+  const accessStorageKey = `catalog-access:${token}`;
+  const getAccessToken = () => typeof window === 'undefined' ? null : window.sessionStorage.getItem(accessStorageKey);
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const response = await salesCatalogApi.getPublic(token);
+      const response = await salesCatalogApi.getPublic(token, getAccessToken());
       setData(response);
+      setPinRequired(false);
       setActiveSection(response.sections[0]?.id || '');
     } catch (requestError: any) {
-      setError(requestError?.response?.status === 404
-        ? 'Bu katalog yayında değil, süresi dolmuş veya bağlantısı yenilenmiş olabilir.'
-        : 'Katalog şu anda yüklenemiyor. Lütfen tekrar deneyin.');
+      const accessCode = requestError?.response?.data?.details?.catalogAccessCode;
+      if (accessCode === 'PIN_REQUIRED') {
+        setPinRequired(true);
+        setError(null);
+      } else {
+        const messages: Record<string, string> = {
+          LINK_PAUSED: 'Bu katalog bağlantısı geçici olarak duraklatılmış.',
+          LINK_REVOKED: 'Bu katalog bağlantısı iptal edilmiş.',
+          LINK_EXPIRED: 'Bu katalog bağlantısının süresi dolmuş.',
+          DEVICE_LIMIT: 'Bu katalog bağlantısı izin verilen cihaz sınırına ulaşmış.',
+          VISITOR_BLOCKED: 'Bu tarayıcının katalog erişimi engellenmiş.',
+          VIEW_LIMIT: 'Bu katalog bağlantısının görüntülenme limiti dolmuş.',
+          CATALOG_DATE_INACTIVE: 'Katalog henüz yayında değil veya yayın dönemi sona ermiş.',
+        };
+        setError(messages[accessCode] || (requestError?.response?.status === 404
+          ? 'Bu katalog yayında değil, süresi dolmuş veya bağlantısı yenilenmiş olabilir.'
+          : 'Katalog şu anda yüklenemiyor. Lütfen tekrar deneyin.'));
+      }
     } finally {
       setLoading(false);
     }
   }, [token]);
 
+  const submitPin = async () => {
+    if (!/^\d{4,12}$/.test(pin)) {
+      setPinError('PIN 4-12 haneli olmalıdır.');
+      return;
+    }
+    setPinLoading(true);
+    setPinError(null);
+    try {
+      const result = await salesCatalogApi.authorizePin(token, pin);
+      if (result.accessToken) window.sessionStorage.setItem(accessStorageKey, result.accessToken);
+      setPin('');
+      await load();
+    } catch (requestError: any) {
+      const accessCode = requestError?.response?.data?.details?.catalogAccessCode;
+      setPinError(accessCode === 'PIN_RATE_LIMIT'
+        ? 'Çok fazla hatalı deneme yapıldı. 15 dakika sonra tekrar deneyin.'
+        : 'PIN doğru değil. Lütfen kontrol edip yeniden deneyin.');
+    } finally {
+      setPinLoading(false);
+    }
+  };
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    viewRecordedRef.current = false;
+  }, [token]);
+
+  useEffect(() => {
+    if (!data || viewRecordedRef.current) return;
+    let timer: number | null = null;
+    let active = true;
+    const record = () => {
+      if (!active || viewRecordedRef.current || document.visibilityState !== 'visible') return;
+      viewRecordedRef.current = true;
+      const clientEventId = makeClientEventId();
+      salesCatalogApi.recordEvent(token, 'VIEW', {
+        clientEventId,
+        priceSnapshotId: data.catalog.priceSnapshotId,
+      }, getAccessToken()).catch(() => undefined);
+    };
+    const schedule = () => {
+      if (document.visibilityState !== 'visible' || timer !== null) return;
+      timer = window.setTimeout(record, 2000);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') schedule();
+      else if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+    schedule();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      active = false;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [data, token]);
 
   useEffect(() => {
     if (!data || typeof IntersectionObserver === 'undefined') return;
@@ -89,12 +177,18 @@ export default function PublicSalesCatalogPage() {
   const share = async () => {
     if (!data) return;
     const payload = { title: data.catalog.title, text: data.catalog.subtitle || 'Güncel satış kataloğu', url: window.location.href };
+    const nativeShareAvailable = typeof navigator.share === 'function';
     try {
-      if (navigator.share) await navigator.share(payload);
+      if (nativeShareAvailable) await navigator.share(payload);
       else {
         await navigator.clipboard.writeText(window.location.href);
         toast.success('Katalog bağlantısı kopyalandı.');
       }
+      salesCatalogApi.recordEvent(token, 'SHARE_CLICK', {
+        clientEventId: makeClientEventId(),
+        priceSnapshotId: data.catalog.priceSnapshotId,
+        metadata: { channel: nativeShareAvailable ? 'native' : 'clipboard' },
+      }, getAccessToken()).catch(() => undefined);
     } catch (shareError: any) {
       if (shareError?.name !== 'AbortError') toast.error('Bağlantı paylaşılamadı.');
     }
@@ -102,6 +196,11 @@ export default function PublicSalesCatalogPage() {
 
   const shareWhatsApp = () => {
     if (!data) return;
+    salesCatalogApi.recordEvent(token, 'SHARE_CLICK', {
+      clientEventId: makeClientEventId(),
+      priceSnapshotId: data.catalog.priceSnapshotId,
+      metadata: { channel: 'whatsapp' },
+    }, getAccessToken()).catch(() => undefined);
     window.open(
       `https://wa.me/?text=${encodeURIComponent(`${data.catalog.title}\n${data.catalog.subtitle || ''}\n${window.location.href}`)}`,
       '_blank',
@@ -114,7 +213,10 @@ export default function PublicSalesCatalogPage() {
     setPdfLoading(true);
     try {
       await generateSalesCatalogPdf(data);
-      await salesCatalogApi.recordPdfDownload(token).catch(() => undefined);
+      await salesCatalogApi.recordPdfDownload(token, {
+        clientEventId: makeClientEventId(),
+        priceSnapshotId: data.catalog.priceSnapshotId,
+      }, getAccessToken()).catch(() => undefined);
       toast.success('PDF güncel fiyatlarla oluşturuldu.');
     } catch (pdfError) {
       console.error(pdfError);
@@ -125,6 +227,7 @@ export default function PublicSalesCatalogPage() {
   };
 
   if (loading) return <CatalogLoading />;
+  if (pinRequired) return <CatalogPin pin={pin} setPin={setPin} error={pinError} loading={pinLoading} onSubmit={submitPin} />;
   if (error || !data) return <CatalogError message={error || 'Katalog bulunamadı.'} onRetry={load} />;
 
   const validFrom = formatDate(data.catalog.validFrom);
@@ -176,6 +279,11 @@ export default function PublicSalesCatalogPage() {
               <div className="mb-4 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9cc3ef] sm:mb-5">
                 <span className="h-px w-8 bg-[#7fb0e8]" /> Güncel satış kataloğu
               </div>
+              {data.catalog.watermarkText && (
+                <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-[11.5px] font-semibold text-white/95 backdrop-blur-sm">
+                  <ShieldCheck className="h-4 w-4 text-[#9cc3ef]" /> {data.catalog.watermarkText}
+                </div>
+              )}
               <h1 className={`font-bold leading-[1.1] text-white [text-shadow:0_2px_14px_rgba(0,0,0,0.35)] ${compact ? 'text-[28px] sm:text-[36px]' : 'text-[32px] sm:text-[44px]'}`}>{data.catalog.title}</h1>
               {data.catalog.subtitle && <p className="mt-4 max-w-[560px] text-[15px] leading-6 text-white/90 [text-shadow:0_1px_8px_rgba(0,0,0,0.35)] sm:text-[16px]">{data.catalog.subtitle}</p>}
               <div className={`${compact ? 'mt-5' : 'mt-7'} flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/80`}>
@@ -297,6 +405,8 @@ export default function PublicSalesCatalogPage() {
               <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#8fb4e6]">Katalog</div>
               <div>Revizyon {String(data.catalog.revision).padStart(2, '0')}</div>
               <div>Son hesaplama: {generatedAt}</div>
+              {data.catalog.watermarkText && <div>{data.catalog.watermarkText}</div>}
+              {data.catalog.priceFingerprint && <div className="font-mono text-[9.5px] text-white/45">Fiyat izi: {data.catalog.priceFingerprint}</div>}
               <div>{data.catalog.vatMode === 'INCLUDED' ? 'Fiyatlara KDV dahildir.' : 'Fiyatlara KDV dahil değildir.'}</div>
             </div>
           </div>
@@ -317,6 +427,34 @@ function CatalogLoading() {
       <div className="h-16 border-b border-[#e2e7ef] bg-white" />
       <div className="flex h-[420px] items-center justify-center bg-[#0b1d3b] text-white"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Katalog güncel fiyatlarla hazırlanıyor</div>
       <div className="mx-auto grid max-w-[1280px] gap-3 px-5 py-10 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-80 animate-pulse rounded-lg border border-[#e2e7ef] bg-white" />)}</div>
+    </div>
+  );
+}
+
+function CatalogPin({ pin, setPin, error, loading, onSubmit }: {
+  pin: string;
+  setPin: (value: string) => void;
+  error: string | null;
+  loading: boolean;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#e9edf3] px-4 py-10">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-[#dfe5ee] bg-white shadow-[0_24px_70px_rgba(11,29,59,0.16)]">
+        <div className="bg-[#0b1d3b] px-7 py-6 text-white">
+          <Logo layout="horizontal" tone="white" size="md" />
+          <div className="mt-7 flex h-11 w-11 items-center justify-center rounded-lg border border-white/15 bg-white/10"><ShieldCheck className="h-5 w-5 text-[#9cc3ef]" /></div>
+          <h1 className="mt-4 text-[20px] font-semibold">Korumalı satış kataloğu</h1>
+          <p className="mt-2 text-[12.5px] leading-5 text-white/65">Bu bağlantı yalnız yetkili alıcı için hazırlanmıştır. Görüntülemek için paylaşım PIN'ini girin.</p>
+        </div>
+        <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }} className="p-7">
+          <label className="text-[11.5px] font-semibold text-[#51607a]">Katalog PIN'i</label>
+          <input autoFocus type="password" inputMode="numeric" autoComplete="one-time-code" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 12))} className="mt-2 h-12 w-full rounded-lg border border-[#cfd8e6] px-4 text-center font-mono text-[20px] tracking-[0.28em] text-[#14223b] outline-none focus:border-[#577fbb] focus:ring-2 focus:ring-[#577fbb]/15" placeholder="••••" />
+          {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11.5px] text-red-700">{error}</div>}
+          <button type="submit" disabled={loading || pin.length < 4} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#15356b] text-[13px] font-semibold text-white disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Kataloğu aç</button>
+          <p className="mt-4 text-center text-[10.5px] leading-4 text-[#8b97ac]">Tarayıcı, cihaz limiti ve güvenlik için anonim bir kimlikle eşleştirilir. Donanım kimliği toplanmaz.</p>
+        </form>
+      </div>
     </div>
   );
 }

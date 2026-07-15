@@ -3453,6 +3453,11 @@ model SalesCatalog {
 
   sections                 SalesCatalogSection[]
   items                    SalesCatalogItem[]
+  shareLinks               SalesCatalogShareLink[]
+  visitorBlocks            SalesCatalogVisitorBlock[]
+  viewSessions             SalesCatalogViewSession[]
+  events                   SalesCatalogEvent[]
+  priceSnapshots           SalesCatalogPriceSnapshot[]
 
   @@index([status, updatedAt])
   @@index([validFrom, validTo])
@@ -3492,6 +3497,176 @@ model SalesCatalogItem {
   @@unique([catalogId, productId])
   @@index([catalogId, sectionId, sortOrder])
   @@index([productId])
+}
+
+model SalesCatalogShareLink {
+  id                    String   @id @default(uuid())
+  catalogId             String
+  catalog               SalesCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  name                  String
+  recipientName         String?
+  linkedCustomerId      String?
+  linkedCustomerCode    String?
+  linkedCustomerName    String?
+  token                 String   @unique
+  isDefault             Boolean  @default(false)
+  status                String   @default("ACTIVE") // ACTIVE | PAUSED | REVOKED
+  expiresAt             DateTime?
+  maxDevices            Int?
+  maxViews              Int?
+  pinHash               String?
+  lockToFirstDevice     Boolean  @default(false)
+  boundVisitorId        String?
+  boundVisitor          SalesCatalogVisitor? @relation("SalesCatalogBoundVisitor", fields: [boundVisitorId], references: [id], onDelete: SetNull)
+  useCustomPricing      Boolean  @default(false)
+  adjustmentType        String?
+  adjustmentValue       Float?
+  viewCount             Int      @default(0)
+  sessionCount          Int      @default(0)
+  pdfDownloadCount      Int      @default(0)
+  shareClickCount       Int      @default(0)
+  lastViewedAt          DateTime?
+  lastAnomalyNotifiedAt DateTime?
+  createdById           String?
+  createdByName         String?
+  updatedById           String?
+  updatedByName         String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  visitors              SalesCatalogLinkVisitor[]
+  viewSessions          SalesCatalogViewSession[]
+  events                SalesCatalogEvent[]
+  priceSnapshots        SalesCatalogPriceSnapshot[]
+
+  @@unique([catalogId, name])
+  @@index([catalogId, status, updatedAt])
+  @@index([linkedCustomerId])
+  @@index([expiresAt])
+  @@index([boundVisitorId])
+}
+
+model SalesCatalogVisitor {
+  id                  String   @id @default(uuid())
+  visitorKey          String   @unique
+  deviceType         String?
+  operatingSystem    String?
+  browser             String?
+  userAgentHash       String?
+  firstSeenAt         DateTime @default(now())
+  lastSeenAt          DateTime @default(now())
+  globalBlockedAt     DateTime?
+  globalBlockReason   String?
+  globalBlockedById   String?
+  globalBlockedByName String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  linkVisitors        SalesCatalogLinkVisitor[]
+  catalogBlocks       SalesCatalogVisitorBlock[]
+  viewSessions        SalesCatalogViewSession[]
+  events              SalesCatalogEvent[]
+  boundLinks          SalesCatalogShareLink[] @relation("SalesCatalogBoundVisitor")
+
+  @@index([globalBlockedAt])
+  @@index([lastSeenAt])
+}
+
+model SalesCatalogLinkVisitor {
+  id               String   @id @default(uuid())
+  shareLinkId      String
+  shareLink        SalesCatalogShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  visitorId        String
+  visitor          SalesCatalogVisitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  viewCount        Int      @default(0)
+  sessionCount     Int      @default(0)
+  pdfDownloadCount Int      @default(0)
+  shareClickCount  Int      @default(0)
+  firstSeenAt      DateTime @default(now())
+  lastSeenAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([shareLinkId, visitorId])
+  @@index([shareLinkId, lastSeenAt])
+  @@index([visitorId, lastSeenAt])
+}
+
+model SalesCatalogVisitorBlock {
+  id            String   @id @default(uuid())
+  catalogId     String
+  catalog       SalesCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  visitorId     String
+  visitor       SalesCatalogVisitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  reason        String?
+  blockedById   String?
+  blockedByName String?
+  blockedAt     DateTime @default(now())
+
+  @@unique([catalogId, visitorId])
+  @@index([visitorId, blockedAt])
+}
+
+model SalesCatalogViewSession {
+  id              String   @id @default(uuid())
+  catalogId       String
+  catalog         SalesCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  shareLinkId     String
+  shareLink       SalesCatalogShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  visitorId       String
+  visitor         SalesCatalogVisitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  priceSnapshotId String?
+  priceSnapshot   SalesCatalogPriceSnapshot? @relation(fields: [priceSnapshotId], references: [id], onDelete: SetNull)
+  startedAt       DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  viewCount       Int      @default(1)
+
+  @@index([shareLinkId, visitorId, lastSeenAt])
+  @@index([catalogId, startedAt])
+  @@index([priceSnapshotId])
+}
+
+model SalesCatalogEvent {
+  id              String   @id @default(uuid())
+  catalogId       String
+  catalog         SalesCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  shareLinkId     String
+  shareLink       SalesCatalogShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  visitorId       String
+  visitor         SalesCatalogVisitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  sessionId       String?
+  clientEventId   String?  @unique
+  eventType       String
+  priceSnapshotId String?
+  priceSnapshot   SalesCatalogPriceSnapshot? @relation(fields: [priceSnapshotId], references: [id], onDelete: SetNull)
+  metadata        Json?
+  occurredAt      DateTime @default(now())
+
+  @@index([shareLinkId, occurredAt])
+  @@index([visitorId, occurredAt])
+  @@index([eventType, occurredAt])
+  @@index([priceSnapshotId])
+}
+
+model SalesCatalogPriceSnapshot {
+  id              String   @id @default(uuid())
+  catalogId       String
+  catalog         SalesCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  shareLinkId     String
+  shareLink       SalesCatalogShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  fingerprint     String
+  catalogRevision Int
+  adjustmentType  String
+  adjustmentValue Float
+  productCount    Int
+  prices          Json
+  generatedAt     DateTime @default(now())
+
+  sessions        SalesCatalogViewSession[]
+  events          SalesCatalogEvent[]
+
+  @@unique([shareLinkId, fingerprint])
+  @@index([catalogId, generatedAt])
 }
 
 
