@@ -8,6 +8,7 @@ import nestpayPayByLinkService, {
   NestpayParsedResponse,
 } from './nestpay-paybylink.service';
 import notificationService from './notification.service';
+import mikroReceiptService from './mikro-receipt.service';
 
 type CreatePaymentInput = {
   requestedById: string;
@@ -688,7 +689,13 @@ class PaymentService {
     if (attempt.status !== PaymentStatus.SUCCEEDED) {
       throw new PaymentServiceError('Yalniz banka tarafindan basarili dogrulanmis odeme mutabik edilebilir.', 409, 'PAYMENT_NOT_SUCCEEDED');
     }
-    if (attempt.reconciledAt) return publicAttempt(attempt);
+    if (attempt.reconciledAt) {
+      // Zaten mutabik; ama makbuz onceki denemede yazilamamis olabilir (Mikro down vb.).
+      // writeMikroReceipt idempotent oldugu icin eksik makbuzu guvenle tamamla.
+      await this.writeMikroReceipt(attempt, actorId).catch((error) =>
+        console.error('Mikro receipt backfill failed', { paymentId, orderId: attempt.orderId, error: error?.message }));
+      return publicAttempt(await prisma.paymentAttempt.findUnique({ where: { id: paymentId } }) || attempt);
+    }
     const now = new Date();
     const updated = await prisma.paymentAttempt.update({
       where: { id: paymentId },
@@ -722,7 +729,71 @@ class PaymentService {
       body: `${asNumber(updated.amount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL tutarindaki odeme mutabik edildi.`,
       linkUrl: '/payments',
     }).catch((error) => console.error('Payment reconciliation notification failed', { paymentId, error }));
+    // Mutabakat sonrasi Mikro tahsilat makbuzu. enabled=false ise no-op; hata mutabakati BOZMAZ
+    // (makbuz idempotent - orderId ile isaretli - sonradan tekrar denenebilir).
+    await this.writeMikroReceipt(updated, actorId).catch((error) =>
+      console.error('Mikro receipt write failed', { paymentId, orderId: updated.orderId, error: error?.message }));
     return publicAttempt(updated);
+  }
+
+  private async writeMikroReceipt(attempt: any, actorId: string) {
+    if (!mikroReceiptService.isEnabled()) return;
+    // Uygulama tarafi idempotency: bu deneme icin makbuz zaten yazildiysa tekrar deneme.
+    const priorReceipt = await prisma.paymentEvent.findFirst({
+      where: { paymentAttemptId: attempt.id, type: { in: ['MIKRO_RECEIPT_WRITTEN', 'MIKRO_RECEIPT_EXISTS'] } },
+      select: { id: true },
+    });
+    if (priorReceipt) return;
+    if (!attempt.customerCodeSnapshot) {
+      await prisma.paymentEvent.create({
+        data: {
+          paymentAttemptId: attempt.id,
+          type: 'MIKRO_RECEIPT_SKIPPED',
+          source: 'MIKRO',
+          status: attempt.status,
+          payload: { reason: 'CUSTOMER_CODE_MISSING' },
+        },
+      });
+      return;
+    }
+    try {
+      const result = await mikroReceiptService.writeCollectionReceipt({
+        orderId: attempt.orderId,
+        customerCode: attempt.customerCodeSnapshot,
+        amount: asNumber(attempt.amount),
+        description: `B2B online odeme ${attempt.orderId}`,
+      });
+      if (!result) return;
+      await prisma.paymentEvent.create({
+        data: {
+          paymentAttemptId: attempt.id,
+          type: result.alreadyExists ? 'MIKRO_RECEIPT_EXISTS' : 'MIKRO_RECEIPT_WRITTEN',
+          source: 'MIKRO',
+          status: attempt.status,
+          payload: { documentNo: result.documentNo, alreadyExists: result.alreadyExists },
+        },
+      });
+      await auditLogService.log({
+        actorId,
+        action: 'MIKRO_RECEIPT_WRITE',
+        entityType: 'PaymentAttempt',
+        entityId: attempt.id,
+        entityCode: attempt.orderId,
+        summary: `${attempt.customerNameSnapshot} icin Mikro tahsilat makbuzu: ${result.documentNo}`,
+        after: { documentNo: result.documentNo, alreadyExists: result.alreadyExists },
+      });
+    } catch (error: any) {
+      await prisma.paymentEvent.create({
+        data: {
+          paymentAttemptId: attempt.id,
+          type: 'MIKRO_RECEIPT_FAILED',
+          source: 'MIKRO',
+          status: attempt.status,
+          payload: { code: error?.code || 'UNKNOWN', message: safeText(error?.message, 300) },
+        },
+      }).catch(() => undefined);
+      throw error;
+    }
   }
 }
 

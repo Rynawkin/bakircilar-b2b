@@ -94,6 +94,18 @@ export const config = {
     requestTimeoutMs: Math.max(5000, parseInt(process.env.NESTPAY_REQUEST_TIMEOUT_MS || '30000', 10)),
   },
 
+  // Online odeme -> Mikro tahsilat makbuzu. Mikro'ya YAZAR; varsayilan KAPALI.
+  // Yalniz admin mutabakati (reconcile) sonrasi ve enabled=true iken calisir.
+  mikroReceipt: {
+    enabled: process.env.MIKRO_RECEIPT_ENABLED === 'true',
+    series: (process.env.MIKRO_RECEIPT_SERIES || 'POS').trim(),
+    account: (process.env.MIKRO_RECEIPT_ACCOUNT || '102.01.002').trim(), // cha_kasa_hizkod (POS/banka hesabi)
+    kasaHizmet: Math.trunc(Number(process.env.MIKRO_RECEIPT_KASA_HIZMET || '2')), // 2 = banka/kredi karti
+    cinsi: Math.trunc(Number(process.env.MIKRO_RECEIPT_CINSI || '19')), // 19 = kredi karti tahsilati
+    srmrkKodu: (process.env.MIKRO_RECEIPT_SRMRK || 'HENDEK').trim(), // sorumluluk merkezi (firma default)
+    userNo: Math.max(1, Math.trunc(Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || '1'))),
+  },
+
   // Cron
   enableCron: process.env.ENABLE_CRON === 'true',
   cronTimezone: process.env.CRON_TIMEZONE || 'Europe/Istanbul',
