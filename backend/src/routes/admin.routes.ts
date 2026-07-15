@@ -866,6 +866,8 @@ router.delete('/collections/:id', requireAdmin, invalidateCacheMiddleware(['coll
 
 // Canli satis katalogu: B2B DB + public token gorunumu, Mikro yazimi yok.
 router.get('/sales-catalogs', requirePermission('admin:campaigns'), salesCatalogController.listAdmin);
+router.get('/sales-catalogs/product-filters', requirePermission('admin:campaigns'), salesCatalogController.getProductFilters);
+router.get('/sales-catalogs/product-options', requirePermission('admin:campaigns'), salesCatalogController.searchProducts);
 router.get('/sales-catalogs/:id', requirePermission('admin:campaigns'), salesCatalogController.getAdmin);
 router.get('/sales-catalogs/:id/preview', requirePermission('admin:campaigns'), salesCatalogController.preview);
 router.post('/sales-catalogs', requirePermission('admin:campaigns'), salesCatalogController.create);

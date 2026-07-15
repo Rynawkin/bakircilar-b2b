@@ -127,7 +127,7 @@ export const emptyExtraUnit = (index: number): ExtraUnit => ({
   heightCm: '',
 });
 
-export const defaultForm = (templateCode = 'B108423'): StockForm => ({
+export const defaultForm = (templateCode = ''): StockForm => ({
   templateCode,
   name: '',
   foreignName: '',
@@ -220,6 +220,8 @@ export function LookupField({
   const [items, setItems] = useState<LookupItem[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [lookupError, setLookupError] = useState('');
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     setSearch(value);
@@ -227,20 +229,28 @@ export function LookupField({
 
   useEffect(() => {
     if (!open) return;
+    const requestId = ++requestIdRef.current;
     const timer = setTimeout(async () => {
       setLoading(true);
+      setLookupError('');
       try {
         const res = await apiClient.get(`/admin/stock-create/lookups/${type}`, {
           params: { search, limit: 40 },
         });
-        setItems(res.data.items || []);
-      } catch (error) {
-        setItems([]);
+        if (requestId === requestIdRef.current) setItems(res.data.items || []);
+      } catch (error: any) {
+        if (requestId === requestIdRef.current) {
+          setItems([]);
+          setLookupError(error?.response?.data?.error || 'Arama gecici olarak yapilamadi');
+        }
       } finally {
-        setLoading(false);
+        if (requestId === requestIdRef.current) setLoading(false);
       }
     }, 250);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (requestId === requestIdRef.current) requestIdRef.current += 1;
+    };
   }, [search, type, open]);
 
   useEffect(() => {
@@ -293,7 +303,8 @@ export function LookupField({
       {open && (
         <div className="absolute z-30 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
           {loading && <div className="px-3 py-2 text-sm text-slate-500">Araniyor...</div>}
-          {!loading && items.length === 0 && <div className="px-3 py-2 text-sm text-slate-500">Sonuc yok</div>}
+          {!loading && lookupError && <div className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{lookupError}</div>}
+          {!loading && !lookupError && items.length === 0 && <div className="px-3 py-2 text-sm text-slate-500">Sonuc yok</div>}
           {!loading && items.map((item) => (
             <button
               key={`${type}-${item.code}`}
@@ -380,7 +391,7 @@ export function useStokAcma() {
   const { user, loadUserFromStorage } = useAuthStore();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [nextCode, setNextCode] = useState('');
-  const [defaultTemplateCode, setDefaultTemplateCode] = useState('B108423');
+  const [defaultTemplateCode, setDefaultTemplateCode] = useState('');
   const [unitNames, setUnitNames] = useState<string[]>([]);
   const [form, setForm] = useState<StockForm>(defaultForm());
   const [stockFamilyOptions, setStockFamilyOptions] = useState<FamilyOption[]>([]);
@@ -414,19 +425,34 @@ export function useStokAcma() {
 
   useEffect(() => {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(DRAFT_KEY) : null;
+    let restoredTemplateCode = '';
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
         if (parsed.form) {
           // Draft'ta File yoktur; gorseli her zaman bos yukle. Diger alanlar geri yuklenir.
           const { image: _img, imagePreviewUrl: _prev, ...draftForm } = parsed.form || {};
-          setForm({ ...defaultForm(draftForm.templateCode || 'B108423'), ...draftForm, image: null, imagePreviewUrl: null });
+          const hasMeaningfulDraft = Boolean(
+            draftForm.name || draftForm.foreignName || draftForm.supplierCode || draftForm.brandCode ||
+            draftForm.categoryCode || draftForm.packageCode || draftForm.currentCost || draftForm.costT ||
+            draftForm.costP || draftForm.barcode || draftForm.notes ||
+            (Array.isArray(draftForm.stockFamilyIds) && draftForm.stockFamilyIds.length > 0) ||
+            draftForm.priceFamilyId
+          );
+          restoredTemplateCode = hasMeaningfulDraft ? String(draftForm.templateCode || '').trim().toUpperCase() : '';
+          setForm({
+            ...defaultForm(restoredTemplateCode),
+            ...draftForm,
+            templateCode: restoredTemplateCode,
+            image: null,
+            imagePreviewUrl: null,
+          });
         }
       } catch {
         // ignore broken local draft
       }
     }
-    void loadMetadata();
+    void loadMetadata(restoredTemplateCode);
     void loadFamilies();
   }, []);
 
@@ -446,38 +472,35 @@ export function useStokAcma() {
     };
   }, [form.imagePreviewUrl]);
 
-  useEffect(() => {
-    // Aktiflestirmede de sablon otomatik yuklemesi devrede degil (form pasif stoktan gelir).
-    if (editingStockCode || activateMode) return;
-    const code = form.templateCode.trim().toUpperCase();
-    if (!code || code.length < 4) {
-      setTemplateStock(null);
-      return;
-    }
-    const timer = setTimeout(() => {
-      void loadTemplate(code, true);
-    }, 450);
-    return () => clearTimeout(timer);
-  }, [form.templateCode, editingStockCode, activateMode]);
-
-  const loadMetadata = async () => {
+  async function loadMetadata(preferredTemplateCode = '', resetFormToTemplate = false) {
     setLoading(true);
     try {
       const [metadataRes, historyRes] = await Promise.all([
         apiClient.get('/admin/stock-create/metadata'),
         apiClient.get('/admin/stock-create/history', { params: { limit: 30 } }),
       ]);
+      const latestTemplateCode = String(metadataRes.data.defaultTemplateCode || '').trim().toUpperCase();
+      const targetTemplateCode = String(
+        preferredTemplateCode || (resetFormToTemplate ? '' : form.templateCode) || latestTemplateCode
+      ).trim().toUpperCase();
       setNextCode(metadataRes.data.nextCode || '');
-      setDefaultTemplateCode(metadataRes.data.defaultTemplateCode || 'B108423');
+      setDefaultTemplateCode(latestTemplateCode);
       setUnitNames(metadataRes.data.unitNames || []);
       setHistoryRows(historyRes.data.logs || []);
-      setForm((prev) => ({ ...prev, templateCode: prev.templateCode || metadataRes.data.defaultTemplateCode || 'B108423' }));
+      setForm((prev) => resetFormToTemplate
+        ? defaultForm(targetTemplateCode)
+        : { ...prev, templateCode: prev.templateCode || targetTemplateCode });
+      if (targetTemplateCode) {
+        await loadTemplate(targetTemplateCode, true);
+      } else {
+        setTemplateStock(null);
+      }
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Stok acma bilgileri alinamadi');
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   // Stok ailesi (coklu) ve fiyat ailesi (tekli) atama secenekleri; ekran acilisinda bir kez cekilir.
   const loadFamilies = async () => {
@@ -533,7 +556,7 @@ export function useStokAcma() {
     setPreviewRows([]);
   };
 
-  const loadTemplate = async (templateCode: string, applyDefaults = false) => {
+  async function loadTemplate(templateCode: string, applyDefaults = false) {
     const code = templateCode.trim().toUpperCase();
     if (!code) return;
     setTemplateLoading(true);
@@ -553,7 +576,7 @@ export function useStokAcma() {
     } finally {
       setTemplateLoading(false);
     }
-  };
+  }
 
   const copyFromTemplate = (patch: Partial<StockForm>) => {
     updateForm(patch);
@@ -561,6 +584,7 @@ export function useStokAcma() {
 
   const updateTemplateCode = (templateCode: string) => {
     appliedTemplateRef.current = '';
+    setTemplateStock(null);
     updateForm({ templateCode });
   };
 
@@ -673,6 +697,7 @@ export function useStokAcma() {
     appliedTemplateRef.current = '';
     setImageFile(null);
     setForm(defaultForm(defaultTemplateCode));
+    if (defaultTemplateCode) void loadTemplate(defaultTemplateCode, true);
     setPreviewRows([]);
   };
 
@@ -817,8 +842,7 @@ export function useStokAcma() {
       toast.success(res.stockCode ? `${res.stockCode} stok karti olusturuldu` : 'Stok karti olusturuldu');
       setPreviewRows([]);
       setImageFile(null);
-      await loadMetadata();
-      setForm(defaultForm(defaultTemplateCode));
+      await loadMetadata(String(res.stockCode || ''), true);
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Stok karti olusturulamadi');
     } finally {

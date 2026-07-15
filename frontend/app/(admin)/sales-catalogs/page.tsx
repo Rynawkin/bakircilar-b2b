@@ -27,7 +27,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import adminApi from '@/lib/api/admin';
 import { ImageCropUpload } from '@/components/admin/ImageCropUpload';
 import { formatCurrency } from '@/lib/utils/format';
 import salesCatalogApi, {
@@ -39,6 +38,8 @@ import salesCatalogApi, {
   SalesCatalogInput,
   SalesCatalogPresentation,
   SalesCatalogPriceBasis,
+  SalesCatalogProductFilters,
+  SalesCatalogProductOption,
   SalesCatalogProductRef,
   SalesCatalogRounding,
   SalesCatalogStatus,
@@ -98,6 +99,7 @@ type EditorState = {
 
 const key = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 const isoDate = (value?: string | null) => (value ? String(value).slice(0, 10) : '');
+const EMPTY_PRODUCT_FILTERS: SalesCatalogProductFilters = { categories: [], brands: [], suppliers: [] };
 
 const emptyEditor = (): EditorState => ({
   name: '',
@@ -264,10 +266,20 @@ export default function SalesCatalogsPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [searching, setSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
+  const [searchResults, setSearchResults] = useState<SalesCatalogProductOption[]>([]);
+  const [productFilters, setProductFilters] = useState<SalesCatalogProductFilters>(EMPTY_PRODUCT_FILTERS);
+  const [productFiltersLoaded, setProductFiltersLoaded] = useState(false);
+  const [productFiltersLoading, setProductFiltersLoading] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
+  const [supplierFilter, setSupplierFilter] = useState('');
+  const [productResultPage, setProductResultPage] = useState(1);
+  const [productPagination, setProductPagination] = useState({ page: 1, limit: 100, total: 0, totalPages: 1 });
   const [preview, setPreview] = useState<SalesCatalogPresentation | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const editorOpen = editor !== null;
 
   const loadCatalogs = useCallback(async () => {
     setLoading(true);
@@ -286,27 +298,77 @@ export default function SalesCatalogsPage() {
   }, [loadCatalogs]);
 
   useEffect(() => {
-    if (!editor || search.trim().length < 2) {
+    if (!editorOpen || productFiltersLoaded) return;
+    let active = true;
+    setProductFiltersLoading(true);
+    salesCatalogApi.getProductFilters()
+      .then((filters) => {
+        if (!active) return;
+        setProductFilters(filters);
+        setProductFiltersLoaded(true);
+      })
+      .catch((error) => {
+        if (active) toast.error(getErrorMessage(error, 'Urun filtreleri alinamadi.'));
+      })
+      .finally(() => {
+        if (active) setProductFiltersLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [editorOpen, productFiltersLoaded]);
+
+  const hasProductCriteria = search.trim().length >= 2 || Boolean(categoryFilter || brandFilter || supplierFilter);
+
+  useEffect(() => {
+    setProductResultPage(1);
+  }, [search, categoryFilter, brandFilter, supplierFilter]);
+
+  useEffect(() => {
+    if (!editorOpen || !hasProductCriteria) {
       setSearchResults([]);
+      setProductPagination({ page: 1, limit: 100, total: 0, totalPages: 1 });
       return;
     }
+
     let active = true;
     const timer = setTimeout(async () => {
-      setSearching(true);
+      const append = productResultPage > 1;
+      if (append) setLoadingMoreProducts(true);
+      else setSearching(true);
       try {
-        const response = await adminApi.getProducts({ search: search.trim(), page: 1, limit: 30 });
-        if (active) setSearchResults(response.products || []);
-      } catch {
-        if (active) setSearchResults([]);
+        const response = await salesCatalogApi.searchProducts({
+          search: search.trim() || undefined,
+          categoryId: categoryFilter || undefined,
+          brandCode: brandFilter || undefined,
+          supplierCode: supplierFilter || undefined,
+          page: productResultPage,
+          limit: 100,
+        });
+        if (!active) return;
+        setSearchResults((current) => {
+          if (!append) return response.products || [];
+          const seen = new Set(current.map((product) => product.id));
+          return [...current, ...(response.products || []).filter((product) => !seen.has(product.id))];
+        });
+        setProductPagination(response.pagination);
+      } catch (error) {
+        if (!active) return;
+        if (!append) setSearchResults([]);
+        toast.error(getErrorMessage(error, 'Urunler aranirken hata olustu.'));
       } finally {
-        if (active) setSearching(false);
+        if (active) {
+          setSearching(false);
+          setLoadingMoreProducts(false);
+        }
       }
-    }, 250);
+    }, productResultPage === 1 ? 250 : 0);
+
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [editor, search]);
+  }, [editorOpen, hasProductCriteria, search, categoryFilter, brandFilter, supplierFilter, productResultPage]);
 
   const selectedProductIds = useMemo(
     () => new Set(editor?.sections.flatMap((section) => section.items.map((item) => item.productId)) || []),
@@ -317,6 +379,12 @@ export default function SalesCatalogsPage() {
   const openEditor = async (catalog?: SalesCatalogAdmin) => {
     setPreview(null);
     setSearch('');
+    setCategoryFilter('');
+    setBrandFilter('');
+    setSupplierFilter('');
+    setProductResultPage(1);
+    setSearchResults([]);
+    setProductPagination({ page: 1, limit: 100, total: 0, totalPages: 1 });
     if (!catalog) {
       setEditor(emptyEditor());
       return;
@@ -332,8 +400,12 @@ export default function SalesCatalogsPage() {
     }
   };
 
-  const addProduct = (product: any) => {
+  const addProduct = (product: SalesCatalogProductOption) => {
     if (!editor || selectedProductIds.has(product.id)) return;
+    if (selectedProductIds.size >= 500) {
+      toast.error('Bir katalog en fazla 500 urun icerebilir.');
+      return;
+    }
     const categoryId = product.category?.id || null;
     const categoryName = product.category?.name || 'Diğer Ürünler';
     const productRef: SalesCatalogProductRef = {
@@ -375,6 +447,7 @@ export default function SalesCatalogsPage() {
     const alreadySelected = new Set(selectedProductIds);
     searchResults.forEach((product) => {
       if (alreadySelected.has(product.id)) return;
+      if (alreadySelected.size >= 500) return;
       alreadySelected.add(product.id);
       const categoryId = product.category?.id || null;
       const categoryName = product.category?.name || 'Diğer Ürünler';
@@ -410,6 +483,9 @@ export default function SalesCatalogsPage() {
       });
     });
     setEditor({ ...editor, sections: nextSections });
+    if (alreadySelected.size >= 500 && searchResults.some((product) => !selectedProductIds.has(product.id))) {
+      toast('Katalog 500 urun sinirina ulasti.');
+    }
   };
 
   const updateSection = (sectionKey: string, updater: (section: EditorSection) => EditorSection) => {
@@ -752,31 +828,81 @@ export default function SalesCatalogsPage() {
                   <input className={`${field} pl-9`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Kod, ürün adı veya arama kelimesi" />
                   {searching && <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-[#577fbb]" />}
                 </div>
+                <div className="mt-3 space-y-2">
+                  <select aria-label="Kategoriye gore filtrele" className={field} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} disabled={productFiltersLoading}>
+                    <option value="">Tüm kategoriler</option>
+                    {productFilters.categories.map((category) => (
+                      <option key={category.id} value={category.id}>{category.name} ({category.mikroCode})</option>
+                    ))}
+                  </select>
+                  <div className="grid gap-2">
+                    <select aria-label="Markaya gore filtrele" className={field} value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)} disabled={productFiltersLoading}>
+                      <option value="">Tüm markalar</option>
+                      {productFilters.brands.map((brand) => (
+                        <option key={brand.code} value={brand.code}>{brand.name}</option>
+                      ))}
+                    </select>
+                    <select aria-label="Ana saglayiciya gore filtrele" className={field} value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)} disabled={productFiltersLoading}>
+                      <option value="">Tüm ana sağlayıcılar</option>
+                      {productFilters.suppliers.map((supplier) => (
+                        <option key={supplier.code} value={supplier.code}>{supplier.name} ({supplier.productCount})</option>
+                      ))}
+                    </select>
+                  </div>
+                  {(categoryFilter || brandFilter || supplierFilter) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategoryFilter('');
+                        setBrandFilter('');
+                        setSupplierFilter('');
+                      }}
+                      className="text-[11.5px] font-semibold text-[#577fbb] hover:underline"
+                    >
+                      Kategori, marka ve sağlayıcı filtrelerini temizle
+                    </button>
+                  )}
+                </div>
                 {searchResults.length > 0 && (
                   <div className="mt-3 flex items-center justify-between">
-                    <span className="text-[11.5px] text-[#8b97ac]">{searchResults.length} sonuç</span>
-                    <button onClick={addVisibleResults} className="text-[12px] font-semibold text-[#15356b] hover:underline">Görünenlerin tümünü ekle</button>
+                    <span className="text-[11.5px] text-[#8b97ac]">{searchResults.length} / {productPagination.total} ürün yüklendi</span>
+                    <button onClick={addVisibleResults} className="text-[12px] font-semibold text-[#15356b] hover:underline">Yüklenenlerin tümünü ekle</button>
                   </div>
                 )}
-                <div className="mt-2 max-h-[640px] space-y-1.5 overflow-y-auto pr-1">
-                  {search.trim().length < 2 ? (
-                    <div className="rounded-lg border border-dashed border-[#d8e0ec] p-6 text-center text-[12px] leading-5 text-[#8b97ac]">En az iki karakter yazarak ürün arayın. Sonuçlardan tek tek veya topluca ekleyin.</div>
+                <div className="mt-2 max-h-[560px] space-y-1.5 overflow-y-auto pr-1">
+                  {!hasProductCriteria ? (
+                    <div className="rounded-lg border border-dashed border-[#d8e0ec] p-6 text-center text-[12px] leading-5 text-[#8b97ac]">En az iki karakter yazın veya kategori, marka ya da ana sağlayıcı seçin. Sonuçları tek tek veya topluca ekleyebilirsiniz.</div>
                   ) : !searching && searchResults.length === 0 ? (
                     <div className="p-5 text-center text-[12px] text-[#8b97ac]">Sonuç bulunamadı.</div>
-                  ) : searchResults.map((product) => {
-                    const selected = selectedProductIds.has(product.id);
-                    return (
-                      <button key={product.id} type="button" disabled={selected} onClick={() => addProduct(product)} className="flex w-full items-center gap-3 rounded-lg border border-[#e7ebf2] p-2 text-left hover:border-[#b9caea] hover:bg-[#f8faff] disabled:bg-[#f4f6fa]">
-                        <ProductImage src={product.imageUrl} name={product.name} className="h-11 w-11" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[12.5px] font-semibold text-[#14223b]">{product.name}</span>
-                          <span className="block truncate text-[10.5px] text-[#8b97ac]">{product.mikroCode} · {product.category?.name || 'Kategorisiz'}</span>
-                          <span className="block text-[10.5px] text-[#51607a]">Maliyet: {formatCurrency(Number(product.currentCost || 0))} · {product.currentCostDate ? new Date(product.currentCostDate).toLocaleDateString('tr-TR') : 'tarih yok'}</span>
-                        </span>
-                        {selected ? <Check className="h-4 w-4 text-emerald-600" /> : <Plus className="h-4 w-4 text-[#15356b]" />}
-                      </button>
-                    );
-                  })}
+                  ) : (
+                    <>
+                      {searchResults.map((product) => {
+                        const selected = selectedProductIds.has(product.id);
+                        return (
+                          <button key={product.id} type="button" disabled={selected} onClick={() => addProduct(product)} className="flex w-full items-center gap-3 rounded-lg border border-[#e7ebf2] p-2 text-left hover:border-[#b9caea] hover:bg-[#f8faff] disabled:bg-[#f4f6fa]">
+                            <ProductImage src={product.imageUrl} name={product.name} className="h-11 w-11" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[12.5px] font-semibold text-[#14223b]">{product.name}</span>
+                              <span className="block truncate text-[10.5px] text-[#8b97ac]">{product.mikroCode} · {product.category?.name || 'Kategorisiz'}{product.brandCode ? ` · ${product.brandCode}` : ''}</span>
+                              <span className="block text-[10.5px] text-[#51607a]">Maliyet: {formatCurrency(Number(product.currentCost || 0))} · {product.currentCostDate ? new Date(product.currentCostDate).toLocaleDateString('tr-TR') : 'tarih yok'}</span>
+                            </span>
+                            {selected ? <Check className="h-4 w-4 text-emerald-600" /> : <Plus className="h-4 w-4 text-[#15356b]" />}
+                          </button>
+                        );
+                      })}
+                      {productPagination.page < productPagination.totalPages && (
+                        <button
+                          type="button"
+                          disabled={loadingMoreProducts}
+                          onClick={() => setProductResultPage((page) => page + 1)}
+                          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[#b9caea] bg-[#f8faff] text-[12px] font-semibold text-[#15356b] hover:bg-[#eef3fb] disabled:opacity-60"
+                        >
+                          {loadingMoreProducts && <Loader2 className="h-4 w-4 animate-spin" />}
+                          Daha fazla ürün göster
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
 

@@ -3,6 +3,31 @@ import salesCatalogService from '../services/sales-catalog.service';
 import auditLogService from '../services/audit-log.service';
 
 class SalesCatalogController {
+  async getProductFilters(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const filters = await salesCatalogService.getProductFilters();
+      res.json(filters);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async searchProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await salesCatalogService.searchProducts({
+        search: typeof req.query.search === 'string' ? req.query.search : '',
+        categoryId: typeof req.query.categoryId === 'string' ? req.query.categoryId : '',
+        brandCode: typeof req.query.brandCode === 'string' ? req.query.brandCode : '',
+        supplierCode: typeof req.query.supplierCode === 'string' ? req.query.supplierCode : '',
+        page: typeof req.query.page === 'string' ? Number(req.query.page) : 1,
+        limit: typeof req.query.limit === 'string' ? Number(req.query.limit) : 100,
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async listAdmin(_req: Request, res: Response, next: NextFunction) {
     try {
       const catalogs = await salesCatalogService.listCatalogs();

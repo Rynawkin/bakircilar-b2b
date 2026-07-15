@@ -149,8 +149,8 @@ export default function StokAcmaNew() {
             <div className="font-mono text-[15px] font-semibold text-white">{nextCode || '-'}</div>
           </div>
           <div>
-            <div className="text-[10.5px] text-[#7d93bd]">Varsayilan Sablon</div>
-            <div className="text-[15px] font-semibold text-white">{defaultTemplateCode}</div>
+            <div className="text-[10.5px] text-[#7d93bd]">Son Acilan Stok</div>
+            <div className="text-[15px] font-semibold text-white">{defaultTemplateCode || '-'}</div>
           </div>
           <div className="ml-auto flex items-center gap-2 text-[11.5px] text-[#9bb0d4]">
             <ShieldCheck className="h-4 w-4 text-[#6ee7b7]" />
@@ -166,7 +166,7 @@ export default function StokAcmaNew() {
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={loadMetadata}
+              onClick={() => void loadMetadata()}
               disabled={loading}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-white px-[13px] py-[9px] text-[12.5px] font-medium text-[#51607a] transition hover:bg-[#f4f6fa] disabled:opacity-60"
             >

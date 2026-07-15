@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import { prisma } from '../utils/prisma';
 import { AppError, ErrorCode } from '../types/errors';
 import priceListService from './price-list.service';
+import mikroService from './mikroFactory.service';
+import { normalizeSearchText, splitSearchTokens } from '../utils/search';
 
 const STATUS_VALUES = new Set(['DRAFT', 'PUBLISHED', 'ARCHIVED']);
 const PRICE_BASIS_VALUES = new Set([
@@ -28,6 +30,19 @@ type CatalogActor = {
   userId?: string | null;
   name?: string | null;
 };
+
+type ProductSearchInput = {
+  search?: string;
+  categoryId?: string;
+  brandCode?: string;
+  supplierCode?: string;
+  page?: number;
+  limit?: number;
+};
+
+const PRODUCT_FILTER_CACHE_TTL_MS = 5 * 60 * 1000;
+let productFilterCache: { data: any; ts: number } | null = null;
+const supplierProductCodeCache = new Map<string, { codes: string[]; ts: number }>();
 
 type CatalogItemInput = {
   productId?: string;
@@ -181,6 +196,18 @@ const sumAvailableStock = (
 };
 
 class SalesCatalogService {
+  private async getSupplierProductCodes(supplierCode: string) {
+    const cacheKey = supplierCode.trim().toUpperCase();
+    const cached = supplierProductCodeCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < PRODUCT_FILTER_CACHE_TTL_MS) return cached.codes;
+
+    const supplierProducts = await mikroService.getProductsByMainSupplier(supplierCode);
+    const codes = supplierProducts.map((product) => product.code).filter(Boolean);
+    if (supplierProductCodeCache.size >= 200) supplierProductCodeCache.clear();
+    supplierProductCodeCache.set(cacheKey, { codes, ts: Date.now() });
+    return codes;
+  }
+
   private makeShareToken() {
     return crypto.randomBytes(24).toString('base64url');
   }
@@ -316,6 +343,110 @@ class SalesCatalogService {
     if (validFrom && validTo && validFrom > validTo) {
       throw new AppError('Gecerlilik baslangici bitis tarihinden sonra olamaz.', 400, ErrorCode.INVALID_INPUT);
     }
+  }
+
+  async getProductFilters() {
+    if (productFilterCache && Date.now() - productFilterCache.ts < PRODUCT_FILTER_CACHE_TTL_MS) {
+      return productFilterCache.data;
+    }
+
+    const [categories, brandRows, suppliers] = await Promise.all([
+      prisma.category.findMany({
+        where: { active: true },
+        select: { id: true, mikroCode: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.product.findMany({
+        where: { active: true, brandCode: { not: null } },
+        select: { brandCode: true },
+        distinct: ['brandCode'],
+      }),
+      mikroService.getMainSupplierList(),
+    ]);
+
+    const brands = brandRows
+      .map((row) => String(row.brandCode || '').trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'tr'))
+      .map((code) => ({ code, name: code }));
+
+    const data = {
+      categories,
+      brands,
+      suppliers: suppliers.map((supplier) => ({
+        code: supplier.cariKod,
+        name: supplier.cariName || supplier.cariKod,
+        productCount: supplier.productCount,
+      })),
+    };
+    productFilterCache = { data, ts: Date.now() };
+    return data;
+  }
+
+  async searchProducts(input: ProductSearchInput) {
+    const page = Math.max(1, Math.trunc(Number(input.page) || 1));
+    const limit = Math.min(100, Math.max(20, Math.trunc(Number(input.limit) || 100)));
+    const where: any = { active: true };
+    const andFilters: any[] = [];
+
+    const searchTokens = splitSearchTokens(input.search);
+    if (searchTokens.length > 0) {
+      andFilters.push(...searchTokens.map((token) => ({
+        OR: [
+          { name: { contains: token, mode: 'insensitive' } },
+          { mikroCode: { contains: token, mode: 'insensitive' } },
+          { searchText: { contains: normalizeSearchText(token) } },
+        ],
+      })));
+    }
+
+    const categoryId = String(input.categoryId || '').trim();
+    if (categoryId) where.categoryId = categoryId;
+
+    const brandCode = String(input.brandCode || '').trim();
+    if (brandCode) where.brandCode = { equals: brandCode, mode: 'insensitive' };
+
+    const supplierCode = String(input.supplierCode || '').trim();
+    if (supplierCode) {
+      const supplierProductCodes = await this.getSupplierProductCodes(supplierCode);
+      andFilters.push({ mikroCode: { in: supplierProductCodes.length > 0 ? supplierProductCodes : ['__none__'] } });
+    }
+
+    if (andFilters.length > 0) where.AND = andFilters;
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          brandCode: true,
+          unit: true,
+          imageUrl: true,
+          currentCost: true,
+          currentCostDate: true,
+          lastEntryPrice: true,
+          category: {
+            select: { id: true, mikroCode: true, name: true },
+          },
+        },
+        orderBy: [{ name: 'asc' }, { mikroCode: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    return {
+      products,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
   }
 
   async listCatalogs() {

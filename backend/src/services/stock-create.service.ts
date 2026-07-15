@@ -120,7 +120,6 @@ type ValidationResult = {
   };
 };
 
-const DEFAULT_TEMPLATE_CODE = 'B108423';
 const MAX_ITEMS = 200;
 const UNIT_INDEXES = [2, 3, 4] as const;
 
@@ -270,7 +269,7 @@ class StockCreateService {
 
     return {
       rowNo,
-      templateCode: upperText(input.templateCode) || DEFAULT_TEMPLATE_CODE,
+      templateCode: upperText(input.templateCode),
       name: normalizeText(input.name),
       foreignName: normalizeText(input.foreignName),
       shortName: normalizeText(input.shortName),
@@ -304,6 +303,7 @@ class StockCreateService {
     const errors: string[] = [];
     const warnings: string[] = [];
 
+    if (!item.templateCode) errors.push('Sablon stok zorunlu');
     if (!item.name) errors.push('Stok adi zorunlu');
     if (item.name.length > 127) errors.push('Stok adi Mikro limitini asiyor (127 karakter)');
     if (item.foreignName.length > 127) errors.push('Tedarikci urun kodu / yabanci isim 127 karakterden uzun olamaz');
@@ -363,19 +363,23 @@ class StockCreateService {
     return { errors, warnings };
   }
 
-  async getNextStockCode(offset = 1) {
+  private async getMaxBStockNo() {
     const rows = await mikroService.executeQuery(`
       SELECT MAX(TRY_CONVERT(int, SUBSTRING(sto_kod, 2, 20))) AS maxBNo
       FROM STOKLAR WITH (NOLOCK)
       WHERE sto_kod LIKE N'B%' AND TRY_CONVERT(int, SUBSTRING(sto_kod, 2, 20)) IS NOT NULL
     `);
-    const maxNo = Number(rows[0]?.maxBNo) || 0;
+    return Number(rows[0]?.maxBNo) || 0;
+  }
+
+  async getNextStockCode(offset = 1) {
+    const maxNo = await this.getMaxBStockNo();
     return `B${maxNo + offset}`;
   }
 
   async getMetadata() {
-    const [nextCode, unitRows, recentCreations] = await Promise.all([
-      this.getNextStockCode(),
+    const [maxBNo, unitRows, recentCreations] = await Promise.all([
+      this.getMaxBStockNo(),
       mikroService.executeQuery(`
         SELECT DISTINCT unitName
         FROM (
@@ -398,8 +402,8 @@ class StockCreateService {
     ]);
 
     return {
-      nextCode,
-      defaultTemplateCode: DEFAULT_TEMPLATE_CODE,
+      nextCode: `B${maxBNo + 1}`,
+      defaultTemplateCode: maxBNo > 0 ? `B${maxBNo}` : '',
       vatOptions: [
         { label: '%20', value: 20, mikroCode: 5 },
         { label: '%10', value: 10, mikroCode: 7 },
@@ -478,16 +482,38 @@ class StockCreateService {
       return rows.map((row: any) => ({ code: normalizeText(row.code), name: normalizeText(row.name) }));
     }
 
+    const templateSearch = normalizeText(search);
+    const templateTokens = templateSearch
+      .replace(/\*/g, ' ')
+      .split(/\s+/)
+      .map((token) => escapeSql(token.trim()))
+      .filter(Boolean);
+    const templateCondition = templateTokens.length > 0
+      ? `AND ${templateTokens
+          .map((token) => `(sto_kod LIKE N'%${token}%' OR sto_isim LIKE N'%${token}%')`)
+          .join(' AND ')}`
+      : '';
+    const exactTemplateSearch = escapeSql(templateSearch);
+
     const rows = await mikroService.executeQuery(`
       SELECT TOP ${safeLimit}
         sto_kod AS code,
         sto_isim AS name
       FROM STOKLAR WITH (NOLOCK)
       WHERE ISNULL(sto_pasif_fl, 0) = 0
-        AND (sto_kod LIKE N'%${safe}%' OR sto_isim LIKE N'%${safe}%')
+        ${templateCondition}
       ORDER BY
-        CASE WHEN sto_kod = N'${safe}' THEN 0 WHEN sto_kod LIKE N'${safe}%' THEN 1 ELSE 2 END,
-        sto_kod
+        CASE
+          WHEN N'${exactTemplateSearch}' <> N'' AND sto_kod = N'${exactTemplateSearch}' THEN 0
+          WHEN N'${exactTemplateSearch}' <> N'' AND sto_kod LIKE N'${exactTemplateSearch}%' THEN 1
+          WHEN N'${exactTemplateSearch}' <> N'' AND sto_isim LIKE N'${exactTemplateSearch}%' THEN 2
+          ELSE 3
+        END,
+        CASE
+          WHEN sto_kod LIKE N'B%' THEN TRY_CONVERT(int, SUBSTRING(sto_kod, 2, 20))
+          ELSE NULL
+        END DESC,
+        sto_kod DESC
     `);
     return rows.map((row: any) => ({ code: normalizeText(row.code), name: normalizeText(row.name) }));
   }

@@ -19,6 +19,17 @@ export interface SalesCatalogProductRef {
   category?: { id: string; name: string; mikroCode?: string | null } | null;
 }
 
+export interface SalesCatalogProductOption extends SalesCatalogProductRef {
+  brandCode?: string | null;
+  unit?: string | null;
+}
+
+export interface SalesCatalogProductFilters {
+  categories: Array<{ id: string; mikroCode: string; name: string }>;
+  brands: Array<{ code: string; name: string }>;
+  suppliers: Array<{ code: string; name: string; productCount: number }>;
+}
+
 export interface SalesCatalogItemInput {
   productId: string;
   sortOrder?: number;
@@ -208,6 +219,24 @@ export const salesCatalogApi = {
   },
   get: async (id: string): Promise<{ catalog: SalesCatalogAdmin }> => {
     const response = await apiClient.get(`/admin/sales-catalogs/${id}`);
+    return response.data;
+  },
+  getProductFilters: async (): Promise<SalesCatalogProductFilters> => {
+    const response = await apiClient.get('/admin/sales-catalogs/product-filters');
+    return response.data;
+  },
+  searchProducts: async (params: {
+    search?: string;
+    categoryId?: string;
+    brandCode?: string;
+    supplierCode?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    products: SalesCatalogProductOption[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> => {
+    const response = await apiClient.get('/admin/sales-catalogs/product-options', { params });
     return response.data;
   },
   create: async (data: SalesCatalogInput): Promise<{ catalog: SalesCatalogAdmin }> => {

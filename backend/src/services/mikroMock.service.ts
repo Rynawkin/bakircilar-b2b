@@ -786,6 +786,14 @@ export class MikroMockService {
     return false;
   }
 
+  async getMainSupplierList(): Promise<Array<{ cariKod: string; cariName: string | null; productCount: number }>> {
+    return [];
+  }
+
+  async getProductsByMainSupplier(_cariKod: string): Promise<Array<{ code: string; name: string | null }>> {
+    return [];
+  }
+
   /**
    * Mock bağlantı testi
    */
