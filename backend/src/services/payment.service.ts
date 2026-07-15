@@ -39,6 +39,10 @@ export class PaymentServiceError extends Error {
   }
 }
 
+// REVIEW_REQUIRED tutarlari bakiye rezervinde sinirli sure tutulur; suresi gecenler manuel
+// mutabakata kalir (aksi halde belirsiz bir kayit musterinin odenebilir bakiyesini kalici kilitler).
+const REVIEW_REQUIRED_RESERVE_HOURS = 72;
+
 const roundMoney = (value: unknown) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 const toCents = (value: unknown) => Math.round(roundMoney(value) * 100);
 const fromCents = (value: number) => roundMoney(value / 100);
@@ -185,6 +189,7 @@ class PaymentService {
     }
     const now = new Date();
     const createdCutoff = new Date(now.getTime() - 10 * 60 * 1000);
+    const reviewCutoff = new Date(now.getTime() - REVIEW_REQUIRED_RESERVE_HOURS * 60 * 60 * 1000);
     const [active, successful] = await Promise.all([
       db.paymentAttempt.aggregate({
         where: {
@@ -192,7 +197,7 @@ class PaymentService {
           OR: [
             { status: PaymentStatus.CREATED, createdAt: { gte: createdCutoff } },
             { status: PaymentStatus.PENDING, linkExpiresAt: { gt: now } },
-            { status: PaymentStatus.REVIEW_REQUIRED },
+            { status: PaymentStatus.REVIEW_REQUIRED, createdAt: { gte: reviewCutoff } },
           ],
         },
         _sum: { amount: true },
@@ -492,50 +497,81 @@ class PaymentService {
       return publicAttempt(attempt);
     }
     if (attempt.status === PaymentStatus.PENDING && attempt.linkExpiresAt && attempt.linkExpiresAt < new Date()) {
-      const expired = await prisma.paymentAttempt.update({
-        where: { id: attempt.id },
-        data: {
-          status: PaymentStatus.EXPIRED,
-          failedAt: new Date(),
-          events: { create: { type: 'PAYMENT_LINK_EXPIRED', source, status: PaymentStatus.EXPIRED } },
-        },
+      // Kosullu yazim: es zamanli bir verify bu arada SUCCEEDED yazdiysa EXPIRED ile ezilmez.
+      const expiredClaim = await prisma.paymentAttempt.updateMany({
+        where: { id: attempt.id, status: PaymentStatus.PENDING },
+        data: { status: PaymentStatus.EXPIRED, failedAt: new Date() },
       });
-      return publicAttempt(expired);
+      if (expiredClaim.count === 1) {
+        await prisma.paymentEvent.create({
+          data: { paymentAttemptId: attempt.id, type: 'PAYMENT_LINK_EXPIRED', source, status: PaymentStatus.EXPIRED },
+        });
+      }
+      const fresh = await prisma.paymentAttempt.findUnique({ where: { id: attempt.id } });
+      return publicAttempt(fresh || attempt);
     }
 
     const result = await nestpayPayByLinkService.queryOrderStatus(attempt.orderId);
     let nextStatus: PaymentStatus = attempt.status;
+    let preserveStatus = false;
     if (result.state === 'SUCCEEDED') nextStatus = PaymentStatus.SUCCEEDED;
     else if (result.state === 'PENDING') nextStatus = PaymentStatus.PENDING;
     else if (result.state === 'FAILED' && result.transactionStatus) nextStatus = PaymentStatus.FAILED;
-    else if (result.state === 'FAILED' || result.state === 'UNKNOWN') nextStatus = PaymentStatus.REVIEW_REQUIRED;
+    else if (
+      attempt.status === PaymentStatus.PENDING
+      || attempt.status === PaymentStatus.EXPIRED
+      || attempt.status === PaymentStatus.FAILED
+    ) {
+      // Henuz odenmemis PayByLink icin banka ORDERSTATUS'a "kayit yok/Error + bos TRANS_STAT"
+      // doner (canli dogrulama 2026-07-15). Bu yanit PENDING/EXPIRED/FAILED kayitlar icin
+      // beklenen durumdur; incelemeye yukseltmek linki gizler ve tutari rezerve kilitler.
+      // Mevcut durum korunur, banka alanlari ezilmez.
+      nextStatus = attempt.status;
+      preserveStatus = true;
+    } else if (result.state === 'FAILED' || result.state === 'UNKNOWN') {
+      nextStatus = PaymentStatus.REVIEW_REQUIRED;
+    }
 
     const now = new Date();
-    const becameSuccessful = attempt.status !== PaymentStatus.SUCCEEDED && nextStatus === PaymentStatus.SUCCEEDED;
-    const updated = await prisma.paymentAttempt.update({
-      where: { id: attempt.id },
-      data: {
-        status: nextStatus,
-        lastVerifiedAt: now,
-        ...(nextStatus === PaymentStatus.SUCCEEDED ? { succeededAt: attempt.succeededAt || now, failedAt: null } : {}),
-        ...(nextStatus === PaymentStatus.FAILED ? { failedAt: attempt.failedAt || now } : {}),
-        ...bankFields(result),
-        events: {
-          create: {
-            type: 'PAYMENT_STATUS_VERIFIED',
-            source,
-            status: nextStatus,
-            payload: {
-              response: result.response || null,
-              returnCode: result.returnCode || null,
-              transactionStatus: result.transactionStatus || null,
-              state: result.state,
-            },
+    const wantsSuccess = attempt.status !== PaymentStatus.SUCCEEDED && nextStatus === PaymentStatus.SUCCEEDED;
+    const updateData = {
+      status: nextStatus,
+      lastVerifiedAt: now,
+      ...(nextStatus === PaymentStatus.SUCCEEDED ? { succeededAt: attempt.succeededAt || now, failedAt: null } : {}),
+      ...(nextStatus === PaymentStatus.FAILED && !preserveStatus ? { failedAt: attempt.failedAt || now } : {}),
+      ...(preserveStatus ? {} : bankFields(result)),
+    };
+    // Tum gecisler kosullu yazilir: es zamanli verify/expire yarislarinda SUCCEEDED/CANCELLED
+    // geri alinamaz, korunan durum baska bir gecisi ezemez; basari gecisi tek dogrulayiciya
+    // verilir (cift bildirim/audit uretilmez). Event ayni transaction icinde kaydedilir.
+    const writeGuard = wantsSuccess
+      ? { id: attempt.id, status: { not: PaymentStatus.SUCCEEDED } }
+      : preserveStatus
+        ? { id: attempt.id, status: attempt.status }
+        : { id: attempt.id, status: { notIn: [PaymentStatus.SUCCEEDED, PaymentStatus.CANCELLED] } };
+    const [claimed] = await prisma.$transaction([
+      prisma.paymentAttempt.updateMany({ where: writeGuard, data: updateData }),
+      prisma.paymentEvent.create({
+        data: {
+          paymentAttemptId: attempt.id,
+          type: 'PAYMENT_STATUS_VERIFIED',
+          source,
+          status: nextStatus,
+          payload: {
+            response: result.response || null,
+            returnCode: result.returnCode || null,
+            transactionStatus: result.transactionStatus || null,
+            state: result.state,
           },
         },
-      },
+      }),
+    ]);
+    const becameSuccessful = wantsSuccess && claimed.count === 1;
+    const updated = await prisma.paymentAttempt.findUnique({
+      where: { id: attempt.id },
       include: { customer: { select: { sectorCode: true } } },
     });
+    if (!updated) return publicAttempt(attempt);
     if (becameSuccessful) {
       await auditLogService.log({
         action: 'PAYMENT_SUCCEEDED',

@@ -95,6 +95,7 @@ const safeBankUrl = (value: string) => {
 
 const extractPaymentUrl = (xml: string) => {
   const fromTag = firstTagValue(xml, [
+    'PAYMENTLINKTOKEN',
     'PAYMENTLINK',
     'PAYMENTLINKURL',
     'PaymentLink',
@@ -166,6 +167,11 @@ export const parseNestpayResponse = (xml: string): NestpayParsedResponse => {
 const tag = (name: string, value: unknown) => `<${name}>${escapeXml(value)}</${name}>`;
 
 export const buildPayByLinkXml = (input: PayByLinkInput, settings = config.nestpay) => {
+  const amountValue = Number(input.amount);
+  if (!Number.isFinite(amountValue) || amountValue <= 0) {
+    throw new NestpayGatewayError('Gecersiz odeme tutari.', 'INVALID_AMOUNT');
+  }
+  const amountText = amountValue.toFixed(2);
   const phone = normalizePhone(input.phone);
   const email = normalizeEmail(input.email);
   const extra: string[] = [
@@ -177,7 +183,7 @@ export const buildPayByLinkXml = (input: PayByLinkInput, settings = config.nestp
     ...(phone ? [tag('PHONENUMBER', phone)] : []),
     ...(email ? [tag('EMAIL', email)] : []),
     tag('Ecom_ConsumerOrderID', input.orderId),
-    tag('Ecom_Payment_Amount', input.amount.toFixed(2)),
+    tag('Ecom_Payment_Amount', amountText),
     tag('Ecom_Payment_CurrencyCode', '949'),
     tag('PAYMENTLINKFAILURL', input.failUrl),
     tag('PAYMENTLINKOKURL', input.okUrl),
@@ -191,12 +197,14 @@ export const buildPayByLinkXml = (input: PayByLinkInput, settings = config.nestp
     tag('ORDER_BILLTO_POSTAL_COMPANY', input.customerName),
     ...(phone ? [tag('ORDER_BILLTO_PHONE', phone)] : []),
     ...(email ? [tag('ORDER_BILLTO_EMAIL', email)] : []),
-    `<OrderItemList><OrderItem>${tag('ItemNumber', '1')}${tag('ProductCode', input.customerCode || 'CARI-ODEME')}${tag('Id', input.orderId)}${tag('Desc', input.description)}${tag('Qty', '1')}${tag('Price', input.amount.toFixed(2))}${tag('Total', input.amount.toFixed(2))}</OrderItem></OrderItemList>`,
+    `<OrderItemList><OrderItem>${tag('ItemNumber', '1')}${tag('ProductCode', input.customerCode || 'CARI-ODEME')}${tag('Id', input.orderId)}${tag('Desc', input.description)}${tag('Qty', '1')}${tag('Price', amountText)}${tag('Total', amountText)}</OrderItem></OrderItemList>`,
     ...(settings.origin ? [tag('ORIGIN', settings.origin)] : []),
     ...(settings.merchantIp ? [tag('MERCHANT_IP', settings.merchantIp)] : []),
   ];
 
-  return `<?xml version="1.0" encoding="UTF-8"?><PayRequest>${tag('Ecom_Merchant_ID', settings.merchantId)}${tag('Ecom_Merchant_User_Name', settings.apiUsername)}${tag('Ecom_Merchant_User_Password', settings.apiPassword)}${tag('Ecom_Terminal_ID', settings.terminalId)}${tag('Ecom_Transaction_Type', 'Auth')}<Ecom_ExtraFields>${extra.join('')}</Ecom_ExtraFields></PayRequest>`;
+  // Banka tutari YALNIZ kok seviyedeki Ecom_Payment_Amount'tan okur; Ecom_ExtraFields icindeki
+  // kopya okunmaz (CORE-2009 "sifir tutar" hatasi; canli eksiltme testleriyle dogrulandi, 2026-07-15).
+  return `<?xml version="1.0" encoding="UTF-8"?><PayRequest>${tag('Ecom_Merchant_ID', settings.merchantId)}${tag('Ecom_Merchant_User_Name', settings.apiUsername)}${tag('Ecom_Merchant_User_Password', settings.apiPassword)}${tag('Ecom_Terminal_ID', settings.terminalId)}${tag('Ecom_Transaction_Type', 'Auth')}${tag('Ecom_Payment_Amount', amountText)}<Ecom_ExtraFields>${extra.join('')}</Ecom_ExtraFields></PayRequest>`;
 };
 
 export const buildOrderStatusXml = (orderId: string, settings = config.nestpay) => (
@@ -245,10 +253,15 @@ class NestpayPayByLinkService {
         signal: controller.signal,
       });
       const body = await response.text();
+      const parsed = parseNestpayResponse(body);
       if (!response.ok) {
-        throw new NestpayGatewayError('Banka servisine ulasilamadi.', 'GATEWAY_HTTP_ERROR');
+        throw new NestpayGatewayError(
+          parsed.message || 'Banka servisine ulasilamadi.',
+          'GATEWAY_HTTP_ERROR',
+          parsed
+        );
       }
-      return parseNestpayResponse(body);
+      return parsed;
     } catch (error: any) {
       if (error instanceof NestpayGatewayError) throw error;
       if (error?.name === 'AbortError') {

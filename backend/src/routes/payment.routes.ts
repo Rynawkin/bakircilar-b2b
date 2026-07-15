@@ -7,12 +7,26 @@ import { validateBody } from '../middleware/validation.middleware';
 
 const router = Router();
 
+// app 'trust proxy: true' calistigi icin req.ip istemcinin gonderdigi X-Forwarded-For'dan gelir ve
+// sahtelenebilir. nginx X-Real-IP'yi kendi gordugu peer IP ile yazar; ancak bu basliga YALNIZ
+// baglanti loopback'ten (yerel nginx) geldiginde guvenilir - 5000 portuna dogrudan gelen bir
+// istemci basligi kendi uretebilir, o durumda soket IP'si esas alinir.
+const clientIpKey = (req: express.Request) => {
+  const socketIp = req.socket.remoteAddress || '';
+  const viaLocalProxy = socketIp === '127.0.0.1' || socketIp === '::1' || socketIp === '::ffff:127.0.0.1';
+  if (viaLocalProxy) return String(req.headers['x-real-ip'] || req.ip || 'unknown');
+  return socketIp || 'unknown';
+};
+// Kimlikli rotalarda kullanici bazli limit: header/IP sahteciligiyle asilamaz.
+const userKey = (req: express.Request) => req.user?.userId || clientIpKey(req);
+
 const callbackLimiter = rateLimit({
   windowMs: 60_000,
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many callback requests' },
+  keyGenerator: clientIpKey,
   validate: { trustProxy: false, xForwardedForHeader: false },
 });
 const createLimiter = rateLimit({
@@ -21,6 +35,7 @@ const createLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Cok fazla odeme baglantisi istegi. Lutfen daha sonra tekrar deneyin.' },
+  keyGenerator: userKey,
   validate: { trustProxy: false, xForwardedForHeader: false },
 });
 const statusLimiter = rateLimit({
@@ -29,10 +44,16 @@ const statusLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Odeme durumu cok sik sorgulandi.' },
+  keyGenerator: userKey,
   validate: { trustProxy: false, xForwardedForHeader: false },
 });
 
-const xmlBody = express.text({ type: ['application/xml', 'text/xml', 'application/*+xml'], limit: '256kb' });
+// text/plain ve text/html de kapsanir: bazi gateway'ler XML callback'i bu tiplerle POST'lar;
+// aksi halde govde hic okunmaz ve orderId yalniz query parametresine kalir.
+const xmlBody = express.text({
+  type: ['application/xml', 'text/xml', 'application/*+xml', 'text/plain', 'text/html'],
+  limit: '256kb',
+});
 
 // Bank redirects/callbacks are public. They never trust inbound success data;
 // each request only triggers a server-to-server Nestpay order-status query.

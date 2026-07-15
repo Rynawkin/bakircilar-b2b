@@ -46,9 +46,36 @@ test('PayByLink XML uses hosted single-use non-editable payment fields', () => {
   assert.match(xml, /<PAYMENTLINKTYPE>SINGLE_LINK_PAYMENT<\/PAYMENTLINKTYPE>/);
   assert.match(xml, /<Ecom_Transaction_Type>Auth<\/Ecom_Transaction_Type>/);
   assert.match(xml, /<Ecom_Payment_Amount>123\.45<\/Ecom_Payment_Amount>/);
+  // Banka tutari kok seviyedeki Ecom_Payment_Amount'tan okur (canli dogrulama 2026-07-15);
+  // etiket Ecom_ExtraFields ACILMADAN once, kokte bulunmali.
+  assert.match(xml, /<Ecom_Transaction_Type>Auth<\/Ecom_Transaction_Type><Ecom_Payment_Amount>123\.45<\/Ecom_Payment_Amount><Ecom_ExtraFields>/);
   assert.match(xml, /<PAYMENTLINKAMOUNT_EDITABLE>false<\/PAYMENTLINKAMOUNT_EDITABLE>/);
   assert.match(xml, /A &amp; B &lt;Ltd&gt;/);
   assert.doesNotMatch(xml, /<CardNumber>|<StoreKey>/);
+});
+
+test('non-positive or invalid amounts are rejected before any bank call', () => {
+  for (const amount of [0, -5, Number.NaN]) {
+    assert.throws(() => buildPayByLinkXml({
+      orderId: 'B2B-PAY-2',
+      amount,
+      customerName: 'Test',
+      customerCode: null,
+      phone: null,
+      email: null,
+      description: 'test',
+      okUrl: settings.okUrl,
+      failUrl: settings.failUrl,
+      callbackUrl: settings.callbackUrl,
+    }, settings), /Gecersiz odeme tutari/);
+  }
+});
+
+test('payment link is read from the PAYMENTLINKTOKEN tag of the live response shape', () => {
+  const parsed = parseNestpayResponse('<PayResponse><Response>Approved</Response><Ecom_Transaction_ReturnCode>00</Ecom_Transaction_ReturnCode><Ecom_ExtraFields><TRXDATE>20260715 12:35:21</TRXDATE><PAYMENTLINKTOKEN>https://sanalpos2.ziraatbank.com.tr/fim/pay-by-link?token=abc&amp;tsl=1</PAYMENTLINKTOKEN><NUMCODE>00</NUMCODE></Ecom_ExtraFields></PayResponse>');
+  assert.equal(parsed.paymentUrl, 'https://sanalpos2.ziraatbank.com.tr/fim/pay-by-link?token=abc&tsl=1');
+  assert.equal(parsed.response, 'Approved');
+  assert.equal(parsed.returnCode, '00');
 });
 
 test('order status XML escapes credentials and requests QUERY', () => {
