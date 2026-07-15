@@ -222,7 +222,7 @@ export const salesCatalogApi = {
     return response.data;
   },
   getProductFilters: async (): Promise<SalesCatalogProductFilters> => {
-    const response = await apiClient.get('/admin/sales-catalogs/product-filters');
+    const response = await apiClient.get('/admin/products', { params: { catalogMode: 'filters' } });
     return response.data;
   },
   searchProducts: async (params: {
@@ -236,7 +236,9 @@ export const salesCatalogApi = {
     products: SalesCatalogProductOption[];
     pagination: { page: number; limit: number; total: number; totalPages: number };
   }> => {
-    const response = await apiClient.get('/admin/sales-catalogs/product-options', { params });
+    const response = await apiClient.get('/admin/products', {
+      params: { ...params, catalogMode: 'options' },
+    });
     return response.data;
   },
   create: async (data: SalesCatalogInput): Promise<{ catalog: SalesCatalogAdmin }> => {

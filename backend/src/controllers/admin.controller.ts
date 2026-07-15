@@ -41,6 +41,7 @@ import scheduledJobsService from '../services/scheduled-jobs.service';
 import priceListSuggestionService from '../services/price-list-suggestion.service';
 import auditLogService from '../services/audit-log.service';
 import actionRadarService from '../services/action-radar.service';
+import salesCatalogService from '../services/sales-catalog.service';
 import priceMarginConsistencyService, {
   PriceMarginIssueFilter,
 } from '../services/price-margin-consistency.service';
@@ -640,6 +641,25 @@ export class AdminController {
    */
   async getProducts(req: Request, res: Response, next: NextFunction) {
     try {
+      const catalogMode = typeof req.query.catalogMode === 'string' ? req.query.catalogMode : '';
+      if (catalogMode === 'filters') {
+        const filters = await salesCatalogService.getProductFilters();
+        res.json(filters);
+        return;
+      }
+      if (catalogMode === 'options') {
+        const result = await salesCatalogService.searchProducts({
+          search: typeof req.query.search === 'string' ? req.query.search : '',
+          categoryId: typeof req.query.categoryId === 'string' ? req.query.categoryId : '',
+          brandCode: typeof req.query.brandCode === 'string' ? req.query.brandCode : '',
+          supplierCode: typeof req.query.supplierCode === 'string' ? req.query.supplierCode : '',
+          page: typeof req.query.page === 'string' ? Number(req.query.page) : 1,
+          limit: typeof req.query.limit === 'string' ? Number(req.query.limit) : 100,
+        });
+        res.json(result);
+        return;
+      }
+
       const {
         search,
         hasImage,
