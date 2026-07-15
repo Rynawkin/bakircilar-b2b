@@ -140,6 +140,7 @@ export interface SalesCatalogPublicProduct {
   brandCode?: string | null;
   unit?: string | null;
   unit2?: string | null;
+  unit2Factor?: number | null;
   imageUrl?: string | null;
   salePrice: number;
   stockStatus?: 'IN_STOCK' | 'OUT_OF_STOCK' | null;

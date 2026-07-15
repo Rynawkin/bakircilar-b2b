@@ -1,5 +1,6 @@
 import type { SalesCatalogPresentation } from '@/lib/api/salesCatalog';
 import { BRAND_ASSETS } from '@/lib/brand';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 
 const mm = (value: number) => value;
 
@@ -372,6 +373,29 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     return { fontSize, lines };
   };
 
+  const drawPackagingBadge = (
+    label: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    height: number,
+    initialFontSize: number
+  ) => {
+    doc.setFont('Hanken', 'bold');
+    let fontSize = initialFontSize;
+    doc.setFontSize(fontSize);
+    while (doc.getTextWidth(label) + 5 > maxWidth && fontSize > 4.3) {
+      fontSize = Math.max(4.3, fontSize - 0.2);
+      doc.setFontSize(fontSize);
+    }
+    const badgeWidth = Math.min(maxWidth, doc.getTextWidth(label) + 5);
+    doc.setFillColor('#eef4fb');
+    doc.setDrawColor('#d6e0f1');
+    doc.roundedRect(x, y, badgeWidth, height, 1.2, 1.2, 'FD');
+    doc.setTextColor('#15356b');
+    doc.text(label, x + badgeWidth / 2, y + height * 0.69, { align: 'center' });
+  };
+
   const drawProductCard = (
     product: SalesCatalogPresentation['sections'][number]['products'][number],
     x: number,
@@ -381,6 +405,7 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     doc.setFillColor('#ffffff');
     doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'FD');
     const image = product.imageUrl ? images.get(product.imageUrl) : null;
+    const packagingLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
 
     if (compact) {
       if (image) {
@@ -419,10 +444,14 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
       const priceWidth = doc.getTextWidth(priceLabel);
       if (priceWidth > cardWidth - 6) doc.setFontSize(Math.max(7, 10.2 * ((cardWidth - 6) / priceWidth)));
       doc.text(priceLabel, x + 3, y + 34.5);
-      doc.setTextColor(muted);
-      doc.setFont('Hanken', 'normal');
-      doc.setFontSize(6.2);
-      if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 3, y + 40.5);
+      if (packagingLabel) {
+        drawPackagingBadge(packagingLabel, x + 3, y + 37.2, cardWidth - 6, 5.3, 5.7);
+      } else {
+        doc.setTextColor(muted);
+        doc.setFont('Hanken', 'normal');
+        doc.setFontSize(6.2);
+        if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 3, y + 40.5);
+      }
       if (data.catalog.showStockStatus && product.stockStatus) {
         const inStock = product.stockStatus === 'IN_STOCK';
         doc.setFillColor(inStock ? '#ecfdf5' : '#fff7ed');
@@ -475,10 +504,14 @@ export async function generateSalesCatalogPdf(data: SalesCatalogPresentation) {
     const priceWidth = doc.getTextWidth(priceLabel);
     if (priceWidth > cardWidth - 8) doc.setFontSize(Math.max(10, 14.2 * ((cardWidth - 8) / priceWidth)));
     doc.text(priceLabel, x + 4, y + 53.5);
-    doc.setTextColor(muted);
-    doc.setFont('Hanken', 'normal');
-    doc.setFontSize(7.3);
-    if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 4, y + 61);
+    if (packagingLabel) {
+      drawPackagingBadge(packagingLabel, x + 4, y + 57.6, cardWidth - 8, 5.8, 6.4);
+    } else {
+      doc.setTextColor(muted);
+      doc.setFont('Hanken', 'normal');
+      doc.setFontSize(7.3);
+      if (data.catalog.showUnit && product.unit) doc.text(`Birim: ${product.unit}`, x + 4, y + 61);
+    }
     if (data.catalog.showStockStatus && product.stockStatus) {
       const inStock = product.stockStatus === 'IN_STOCK';
       doc.setFillColor(inStock ? '#ecfdf5' : '#fff7ed');

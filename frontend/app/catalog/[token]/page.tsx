@@ -21,6 +21,7 @@ import toast from 'react-hot-toast';
 import salesCatalogApi, { SalesCatalogPresentation } from '@/lib/api/salesCatalog';
 import { generateSalesCatalogPdf } from '@/lib/catalogPdf';
 import { formatCurrency } from '@/lib/utils/format';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { Logo } from '@/components/ui/Logo';
 
 const formatDate = (value?: string | null) => {
@@ -214,7 +215,9 @@ export default function PublicSalesCatalogPage() {
                   <span className="flex-none text-[12px] text-[#8b97ac]">{section.products.length} ürün</span>
                 </div>
                 <div className={compact ? 'grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 xl:gap-[18px]'}>
-                {section.products.map((product) => (
+                {section.products.map((product) => {
+                  const packagingLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+                  return (
                   <article key={product.id} className="group flex h-full flex-col overflow-hidden rounded-lg border border-[#e6ebf2] bg-white shadow-[0_1px_2px_rgba(11,29,59,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(11,29,59,0.12)]">
                     <div className={`relative flex items-center justify-center overflow-hidden border-b border-[#eef2f7] bg-white ${compact ? 'aspect-[5/3] p-2.5' : 'aspect-[4/3] p-3.5'}`}>
                       {product.imageUrl ? (
@@ -253,6 +256,14 @@ export default function PublicSalesCatalogPage() {
                         {data.catalog.showUnit && product.unit && <span>{product.unit}</span>}
                         {product.brandCode && <span>{product.brandCode}</span>}
                       </div>
+                      {packagingLabel && (
+                        <div className={`${compact ? 'mt-1.5' : 'mt-2'} flex`}>
+                          <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-[#d6e0f1] bg-[#eef4fb] px-2 py-1 text-[10.5px] font-semibold leading-4 text-[#15356b]">
+                            <PackageCheck className="h-3.5 w-3.5 flex-none" />
+                            <span className="min-w-0 [overflow-wrap:anywhere]">{packagingLabel}</span>
+                          </span>
+                        </div>
+                      )}
                       <div className={`${compact ? 'pt-2' : 'pt-3'} mt-auto flex items-end justify-between gap-3 border-t border-[#edf1f6]`}>
                         <div className="min-w-0">
                           <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#93a2b8]">Satış fiyatı</div>
@@ -262,7 +273,8 @@ export default function PublicSalesCatalogPage() {
                       </div>
                     </div>
                   </article>
-                ))}
+                  );
+                })}
                 </div>
               </div>
             </section>

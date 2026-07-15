@@ -220,16 +220,16 @@ export const getUnitConversionLabel = (
   const absFactor = Math.abs(factor);
   if (absFactor === 0) return null;
 
-  const normalizedUnit = normalizeUnit(unit);
-  const normalizedUnit2 = normalizeUnit(unit2);
+  const normalizedUnit = normalizeUnit(unit).replace(/İ/g, 'I');
+  const normalizedUnit2 = normalizeUnit(unit2).replace(/İ/g, 'I');
   const isKoli = normalizedUnit.includes('KOLI') || normalizedUnit2.includes('KOLI');
   const primaryUnit = factor > 0 ? unit : unit2;
   const secondaryUnit = factor > 0 ? unit2 : unit;
 
   if (isKoli) {
     const targetUnit = normalizedUnit.includes('KOLI') ? unit2 : unit;
-    return `Koli ici: ${formatUnitFactor(absFactor)} ${targetUnit}`;
+    return `Koli içi: ${formatUnitFactor(absFactor)} ${targetUnit}`;
   }
 
-  return `Birim orani: 1 ${primaryUnit} = ${formatUnitFactor(absFactor)} ${secondaryUnit}`;
+  return `Birim oranı: 1 ${primaryUnit} = ${formatUnitFactor(absFactor)} ${secondaryUnit}`;
 };
