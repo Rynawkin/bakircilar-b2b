@@ -255,13 +255,14 @@ ${publicUrl(link)}`;
       adjustmentValue: form.useCustomPricing ? Number(form.adjustmentValue) || 0 : null,
     };
     try {
-      if (form.id) await salesCatalogApi.updateShareLink(catalog.id, form.id, payload);
+      const editedLinkId = form.id;
+      if (editedLinkId) await salesCatalogApi.updateShareLink(catalog.id, editedLinkId, payload);
       else await salesCatalogApi.createShareLink(catalog.id, payload);
       toast.success(form.id ? 'Paylaşım bağlantısı güncellendi.' : 'Kişiye özel bağlantı oluşturuldu.');
       setForm(null);
       setCustomerSearch('');
       await loadLinks();
-      if (analytics?.link.id === form.id) await openAnalytics(form.id!);
+      if (editedLinkId && analytics?.link.id === editedLinkId) await openAnalytics(editedLinkId);
     } catch (error) {
       toast.error(errorText(error, 'Paylaşım bağlantısı kaydedilemedi.'));
     } finally {
@@ -292,6 +293,7 @@ ${publicUrl(link)}`;
   };
 
   const openAnalytics = async (linkId: string) => {
+    if (!linkId) return;
     setAnalyticsLoading(true);
     try {
       setAnalytics(await salesCatalogApi.getShareLinkAnalytics(catalog.id, linkId));
