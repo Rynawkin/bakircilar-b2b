@@ -117,8 +117,6 @@ class PaymentController {
 
   async callback(req: Request, res: Response) {
     const inbound = extractInbound(req);
-    // TANI: bankanin gonderdigi gercek OrderId'yi gorunur kil (kok neden analizi).
-    console.log(`[nestpay-callback] our=${inbound.orderId} bank=${inbound.bankOrderId} paymentId=${inbound.paymentId} rc=${inbound.payload.returnCode} ts=${inbound.payload.transactionStatus}`);
     if (!inbound.orderId) return res.status(202).json({ ok: true, verified: false });
     try {
       await paymentService.recordInboundEvent(inbound.orderId, 'NESTPAY_CALLBACK', inbound.payload);
