@@ -622,6 +622,7 @@ class PaymentService {
           response: safeText(payload.response, 100) || null,
           returnCode: safeText(payload.returnCode, 100) || null,
           transactionStatus: safeText(payload.transactionStatus, 50) || null,
+          bankOrderId: safeText(payload.bankOrderId, 100) || null,
         },
       },
     });

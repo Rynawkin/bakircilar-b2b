@@ -21,13 +21,22 @@ const extractInbound = (req: Request) => {
     || bodyValue(req.body, ['orderId', 'OrderId', 'oid', 'Ecom_ConsumerOrderID'])
     || parsed?.orderId
     || '';
+  // Banka-uretilen OrderId (PayByLink kendi ORDER-... numarasini uretir; bizim
+  // Ecom_ConsumerOrderID'den farkli). Durum sorgusu bu numara ile yapilmali.
+  const bankOrderId = String(
+    parsed?.orderId
+    || bodyValue(req.body, ['OrderId', 'ORD_ID', 'oid'])
+    || ''
+  ).trim();
   return {
     orderId: orderId.slice(0, 100),
+    bankOrderId: bankOrderId.slice(0, 100),
     paymentId: String(req.query.paymentId || bodyValue(req.body, ['paymentId'])).slice(0, 100),
     payload: {
       response: parsed?.response || bodyValue(req.body, ['Response', 'response']),
       returnCode: parsed?.returnCode || bodyValue(req.body, ['ProcReturnCode', 'Ecom_Transaction_ReturnCode']),
       transactionStatus: parsed?.transactionStatus || bodyValue(req.body, ['TRANS_STAT', 'TransactionStatus']),
+      bankOrderId: bankOrderId.slice(0, 100),
     },
   };
 };
@@ -108,6 +117,8 @@ class PaymentController {
 
   async callback(req: Request, res: Response) {
     const inbound = extractInbound(req);
+    // TANI: bankanin gonderdigi gercek OrderId'yi gorunur kil (kok neden analizi).
+    console.log(`[nestpay-callback] our=${inbound.orderId} bank=${inbound.bankOrderId} paymentId=${inbound.paymentId} rc=${inbound.payload.returnCode} ts=${inbound.payload.transactionStatus}`);
     if (!inbound.orderId) return res.status(202).json({ ok: true, verified: false });
     try {
       await paymentService.recordInboundEvent(inbound.orderId, 'NESTPAY_CALLBACK', inbound.payload);
