@@ -61,15 +61,29 @@ const OVERRIDDEN_COLUMNS = new Set([
   'cha_iptal', 'cha_hidden', 'cha_kilitli', 'cha_degisti', 'cha_fileid',
 ]);
 
+// ODEME_EMIRLERI (kredi karti odeme emri) eslik kaydi: kart eslestirme raporu bu tablodan
+// beslenir; makbuz tek basina yazilirsa raporda GORUNMEZ (canli tespit: Mikro'da evrak
+// tekrar-kaydedilince bu kayit olusuyor ve rapor o zaman goruyordu). sck_tip=6 = kredi karti.
+const SCK_OVERRIDDEN_COLUMNS = new Set([
+  'sck_Guid', 'sck_tip', 'sck_refno', 'sck_borclu', 'sck_vdaire_no', 'sck_borclu_tel',
+  'sck_vade', 'sck_tutar', 'sck_sahip_cari_kodu', 'sck_nerede_cari_cins', 'sck_nerede_cari_kodu',
+  'sck_nerede_cari_grupno', 'sck_ilk_evrak_seri', 'sck_ilk_evrak_sira_no',
+  'sck_ilk_hareket_tarihi', 'sck_son_hareket_tarihi', 'sck_doviz_kur', 'sck_sonpoz',
+  'sck_srmmrk', 'sck_taksit_sayisi', 'sck_kacinci_taksit',
+  'sck_create_user', 'sck_lastup_user', 'sck_create_date', 'sck_lastup_date',
+  'sck_iptal', 'sck_hidden', 'sck_kilitli', 'sck_degisti',
+]);
+
 class MikroReceiptService {
-  private columnMetaCache: Map<string, ColumnMeta> | null = null;
+  private columnMetaCache = new Map<string, Map<string, ColumnMeta>>();
 
   isEnabled() {
     return config.mikroReceipt.enabled;
   }
 
-  private async getColumnMeta(): Promise<Map<string, ColumnMeta>> {
-    if (this.columnMetaCache) return this.columnMetaCache;
+  private async getColumnMeta(tableName = 'CARI_HESAP_HAREKETLERI'): Promise<Map<string, ColumnMeta>> {
+    const cached = this.columnMetaCache.get(tableName);
+    if (cached) return cached;
     const rows = await mikroService.executeQuery(`
       SELECT c.name AS name,
         CASE
@@ -80,7 +94,7 @@ class MikroReceiptService {
         END AS charLength
       FROM sys.columns c
       INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
-      WHERE c.object_id = OBJECT_ID(N'dbo.CARI_HESAP_HAREKETLERI')
+      WHERE c.object_id = OBJECT_ID(N'dbo.${escapeSql(tableName)}')
         AND c.is_identity = 0 AND c.is_computed = 0
         AND t.name NOT IN ('timestamp','rowversion')
     `);
@@ -90,8 +104,8 @@ class MikroReceiptService {
       if (!name) continue;
       map.set(name, { name, charLength: r.charLength === null || r.charLength === undefined ? null : Number(r.charLength) });
     }
-    if (!map.size) throw new MikroReceiptError('Kolon meta okunamadi.', 'COLUMN_META_FAILED');
-    this.columnMetaCache = map;
+    if (!map.size) throw new MikroReceiptError('Kolon meta okunamadi: ' + tableName, 'COLUMN_META_FAILED');
+    this.columnMetaCache.set(tableName, map);
     return map;
   }
 
@@ -157,14 +171,35 @@ class MikroReceiptService {
     return rows[0];
   }
 
-  private async assertCustomerExists(customerCode: string) {
+  private async getCustomerInfo(customerCode: string) {
     const rows = await mikroService.executeQuery(`
-      SELECT TOP 1 cari_kod FROM CARI_HESAPLAR WITH (NOLOCK)
+      SELECT TOP 1 cari_kod, cari_unvan1, cari_vdaire_adi, cari_vergikimlikno, cari_vdaire_no, cari_ceptel
+      FROM CARI_HESAPLAR WITH (NOLOCK)
       WHERE cari_kod = '${escapeSql(customerCode)}'
     `);
     if (!rows.length) {
       throw new MikroReceiptError('Mikro cari kodu bulunamadi: ' + customerCode, 'CUSTOMER_NOT_FOUND');
     }
+    const row = rows[0];
+    const vergiNo = normalizeCode(row.cari_vergikimlikno) || normalizeCode(row.cari_vdaire_no);
+    return {
+      unvan: normalizeCode(row.cari_unvan1),
+      vdaireNo: [normalizeCode(row.cari_vdaire_adi), vergiNo].filter(Boolean).join(' '),
+      tel: normalizeCode(row.cari_ceptel),
+    };
+  }
+
+  /** ODEME_EMIRLERI eslik kaydi icin bilinen-iyi sablon (son kredi karti odeme emri). */
+  private async loadSckTemplate(): Promise<Record<string, unknown>> {
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP 1 * FROM ODEME_EMIRLERI WITH (NOLOCK)
+      WHERE sck_tip = 6 AND sck_iptal = 0 AND sck_hidden = 0
+      ORDER BY sck_create_date DESC
+    `);
+    if (!rows.length) {
+      throw new MikroReceiptError('Kredi karti odeme emri sablonu bulunamadi.', 'SCK_TEMPLATE_NOT_FOUND');
+    }
+    return rows[0];
   }
 
   /**
@@ -185,8 +220,12 @@ class MikroReceiptService {
     const existing = await this.findExisting(input.orderId);
     if (existing) return existing;
 
-    await this.assertCustomerExists(customerCode);
-    const template = await this.loadTemplate();
+    const customer = await this.getCustomerInfo(customerCode);
+    const [template, sckTemplate, sckMeta] = await Promise.all([
+      this.loadTemplate(),
+      this.loadSckTemplate(),
+      this.getColumnMeta('ODEME_EMIRLERI'),
+    ]);
 
     const guid = randomUUID();
     const series = this.fit(meta, 'cha_evrakno_seri', config.mikroReceipt.series);
@@ -267,6 +306,53 @@ class MikroReceiptService {
   DECLARE @trefno NVARCHAR(25) = @pfx + RIGHT('00000000' + CAST(@refnum AS VARCHAR(8)), 8);` : `
   DECLARE @trefno NVARCHAR(25) = NULL;`;
 
+    // ODEME_EMIRLERI eslik kaydi (kredi karti odeme emri, sck_tip=6): kart eslestirme
+    // raporu bu tablodan okur. Ayni transaction'da yazilir; unique index (sck_tip, sck_refno)
+    // ref cakismasinda tum islemi geri alir (sessiz mukerrer olusamaz).
+    const sckHas = (c: string) => sckMeta.has(c);
+    const sckGuid = randomUUID();
+    const sckFit = (c: string, v: string) => this.fit(sckMeta, c, v);
+    const sckValues: Record<string, unknown> = {};
+    for (const [col, val] of Object.entries(sckTemplate)) {
+      if (!sckHas(col) || SCK_OVERRIDDEN_COLUMNS.has(col)) continue;
+      sckValues[col] = typeof val === 'string' ? sckFit(col, val) : val;
+    }
+    Object.assign(sckValues, {
+      sck_Guid: { raw: `CAST('${sckGuid}' as uniqueidentifier)` },
+      sck_tip: 6,
+      // sck_refno batch icinde @trefno ile atanir.
+      sck_borclu: sckFit('sck_borclu', customer.unvan || input.customerCode || ''),
+      sck_vdaire_no: sckFit('sck_vdaire_no', customer.vdaireNo),
+      sck_borclu_tel: sckFit('sck_borclu_tel', customer.tel),
+      sck_vade: { raw: 'CONVERT(datetime, CONVERT(date, GETDATE()))' },
+      sck_tutar: amount,
+      sck_sahip_cari_kodu: sckFit('sck_sahip_cari_kodu', customerCode),
+      sck_nerede_cari_cins: 2,
+      sck_nerede_cari_kodu: sckFit('sck_nerede_cari_kodu', config.mikroReceipt.account),
+      sck_nerede_cari_grupno: 7,
+      sck_ilk_evrak_seri: sckFit('sck_ilk_evrak_seri', series),
+      // sck_ilk_evrak_sira_no batch icinde @sira ile atanir.
+      sck_ilk_hareket_tarihi: { raw: 'GETDATE()' },
+      sck_son_hareket_tarihi: { raw: 'GETDATE()' },
+      sck_doviz_kur: 1,
+      sck_sonpoz: 2,
+      sck_srmmrk: sckFit('sck_srmmrk', srmrk),
+      // Pesin tek cekim (elle girilen gercek slip ornegi TP-3943 ile ayni: 1/1).
+      sck_taksit_sayisi: 1,
+      sck_kacinci_taksit: 1,
+      sck_iptal: 0,
+      sck_hidden: 0,
+      sck_kilitli: 0,
+      sck_degisti: 0,
+      sck_create_user: userNo,
+      sck_lastup_user: userNo,
+      sck_create_date: { raw: 'GETDATE()' },
+      sck_lastup_date: { raw: 'GETDATE()' },
+    });
+    const sckInsertColumns = Object.keys(sckValues).filter((c) => sckHas(c) && c !== 'sck_refno' && c !== 'sck_ilk_evrak_sira_no');
+    const sckColumnList = ['sck_refno', 'sck_ilk_evrak_sira_no', ...sckInsertColumns].map((c) => `[${c}]`).join(', ');
+    const sckValueList = ['@trefno', '@sira', ...sckInsertColumns.map((c) => this.sqlLiteral(sckValues[c]))].join(', ');
+
     const batch = `
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
@@ -293,6 +379,7 @@ BEGIN
     FROM CARI_HESAP_HAREKETLERI WITH (UPDLOCK, HOLDLOCK)
     WHERE cha_evrak_tip = 1 AND cha_evrakno_seri = '${escapeSql(series)}';${trefnoBlock}
   INSERT INTO CARI_HESAP_HAREKETLERI (${columnList}) VALUES (${valueList});
+  INSERT INTO ODEME_EMIRLERI (${sckColumnList}) VALUES (${sckValueList});
   COMMIT TRANSACTION;
   SELECT @sira AS sira, @trefno AS trefno, CAST(0 AS INT) AS duplicate, CAST(0 AS INT) AS lockFailed;
 END`;
