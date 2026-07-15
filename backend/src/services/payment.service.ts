@@ -512,7 +512,11 @@ class PaymentService {
       return publicAttempt(fresh || attempt);
     }
 
-    const result = await nestpayPayByLinkService.queryOrderStatus(attempt.orderId);
+    // PayByLink odemesi banka-uretilen ORDER-... numarasi ile kayitli; varsa onunla sorgula
+    // (bizim orderId ile sorgu "kayit bulunamadi" doner). providerOrderId yoksa (callback henuz
+    // gelmedi) bizim orderId ile denenir; sonuc "kayit yok" olsa PENDING korunur.
+    const queryOrderId = attempt.providerOrderId || attempt.orderId;
+    const result = await nestpayPayByLinkService.queryOrderStatus(queryOrderId);
     let nextStatus: PaymentStatus = attempt.status;
     let preserveStatus = false;
     if (result.state === 'SUCCEEDED') nextStatus = PaymentStatus.SUCCEEDED;
@@ -612,6 +616,13 @@ class PaymentService {
   async recordInboundEvent(orderId: string, source: string, payload: Record<string, unknown>) {
     const attempt = await prisma.paymentAttempt.findUnique({ where: { orderId } });
     if (!attempt) return null;
+    // PayByLink kendi ORDER-... numarasini uretir ve callback govdesinde gonderir; ilk kez
+    // yakalayip kaydet. Durum sorgulari bundan sonra bu numara ile yapilir.
+    const bankOrderId = safeText(payload.bankOrderId, 100);
+    if (bankOrderId && bankOrderId !== orderId && !attempt.providerOrderId) {
+      await prisma.paymentAttempt.update({ where: { id: attempt.id }, data: { providerOrderId: bankOrderId } });
+      (attempt as any).providerOrderId = bankOrderId;
+    }
     await prisma.paymentEvent.create({
       data: {
         paymentAttemptId: attempt.id,

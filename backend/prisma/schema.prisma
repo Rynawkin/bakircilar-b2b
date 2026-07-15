@@ -810,6 +810,9 @@ model PaymentAttempt {
   status                 PaymentStatus     @default(CREATED)
   provider               String            @default("NESTPAY_ZIRAAT_PAYBYLINK")
   bankName               String            @default("Ziraat Bankasi")
+  // Banka-uretilen OrderId (PayByLink kendi ORDER-... numarasini uretir; bizim orderId'den
+  // farkli). Durum sorgusu (ORDERSTATUS) bu numara ile yapilmali; callback'ten yakalanir.
+  providerOrderId        String?
   paymentLinkUrl         String?
   linkExpiresAt          DateTime?
   totalBalanceSnapshot   Decimal           @db.Decimal(18, 2)
