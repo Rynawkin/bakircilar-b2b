@@ -17,6 +17,7 @@ import exclusionService from '../services/exclusion.service';
 import cartPricingService, { CartPriceType } from '../services/cart-pricing.service';
 import bundlePricingService from '../services/bundle-pricing.service';
 import vadeService from '../services/vade.service';
+import paymentService from '../services/payment.service';
 import giftCampaignService from '../services/gift-campaign.service';
 import { splitSearchTokens, normalizeSearchText } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
@@ -1629,15 +1630,27 @@ export class CustomerController {
       if (!balance) {
         return res.json({ financials: null });
       }
+      // Rapor bakiyesine henuz yansimamis basarili online odemeleri dus; musteri
+      // "odedim ama bakiyem degismedi" gormesin. Dusum vade sirasiyla uygulanir
+      // (once vadesi gecen, kalani vadesi gelmemis); alacakli (negatif) bakiye kirpilmaz.
+      const onlinePaymentDeduction = await paymentService
+        .getOnlineBalanceDeduction(customerId, balance.referenceDate || balance.updatedAt)
+        .catch((error) => {
+          console.error('Financials online deduction failed', { customerId, error: error?.message });
+          return 0;
+        });
+      const rawPastDue = Math.max(0, Number(balance.pastDueBalance));
+      const notDueDeduction = Math.max(0, onlinePaymentDeduction - rawPastDue);
       res.json({
         financials: {
-          totalBalance: balance.totalBalance,
-          pastDueBalance: balance.pastDueBalance,
+          totalBalance: Number(balance.totalBalance) - onlinePaymentDeduction,
+          pastDueBalance: Math.max(0, rawPastDue - onlinePaymentDeduction),
           pastDueDate: balance.pastDueDate,
-          notDueBalance: balance.notDueBalance,
+          notDueBalance: Math.max(0, Number(balance.notDueBalance) - notDueDeduction),
           notDueDate: balance.notDueDate,
           paymentTermLabel: balance.paymentTermLabel,
           referenceDate: balance.referenceDate,
+          onlinePaymentDeduction,
         },
       });
     } catch (error) {

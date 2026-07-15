@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { AlertTriangle, CheckCircle2, CreditCard, RefreshCw, Search, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, FileText, RefreshCw, Search, X } from 'lucide-react';
 import adminApi from '@/lib/api/admin';
 import { formatCurrency } from '@/lib/utils/format';
 import { PaymentAttempt, PaymentStatus } from '@/types';
@@ -44,6 +44,19 @@ export default function PaymentOperationsPage() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [receiptId, setReceiptId] = useState<string | null>(null);
+
+  const downloadReceipt = async (payment: PaymentAttempt) => {
+    setReceiptId(payment.id);
+    try {
+      const { generatePaymentReceiptPdf } = await import('@/lib/paymentReceiptPdf');
+      await generatePaymentReceiptPdf(payment);
+    } catch {
+      toast.error('Dekont olusturulamadi.');
+    } finally {
+      setReceiptId(null);
+    }
+  };
 
   const load = useCallback(async (page = 1) => {
     setLoading(true);
@@ -148,8 +161,11 @@ export default function PaymentOperationsPage() {
                   <div><p className="font-semibold text-[#14223b]">{item.customerName}</p><p className="text-[10px] text-[#718097]">{item.customerCode || '-'} · {item.requestedByName || 'Musteri'}</p></div>
                   <span className="text-right text-sm font-bold text-[#14223b]">{formatCurrency(item.amount)}</span>
                   <span className={`w-fit rounded-full px-2 py-1 text-[10px] font-semibold ${statusClass[item.status]}`}>{statusLabels[item.status]}</span>
-                  <div>{item.reconciledAt ? <><p className="font-semibold text-emerald-700">Mutabik</p><p className="text-[10px] text-[#8b97ac]">{formatDateTime(item.reconciledAt)}</p></> : <span className="text-[#8b97ac]">Bekliyor</span>}</div>
-                  <div className="flex justify-end gap-1.5">{item.status === 'SUCCEEDED' && !item.reconciledAt ? <button type="button" onClick={() => { setSelected(item); setNote(''); }} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-[11px] font-semibold text-white"><CheckCircle2 className="h-3.5 w-3.5" /> Mutabik et</button> : ['PENDING', 'REVIEW_REQUIRED'].includes(item.status) ? <button type="button" onClick={() => verify(item)} disabled={verifyingId === item.id} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#d7deea] px-3 text-[11px] font-semibold text-[#33445f] disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${verifyingId === item.id ? 'animate-spin' : ''}`} /> Bankadan kontrol</button> : <span className="text-[10px] text-[#8b97ac]">{item.bankReturnCode || '-'}</span>}</div>
+                  <div>{item.reconciledAt ? <><p className="font-semibold text-emerald-700">Mutabik</p><p className="text-[10px] text-[#8b97ac]">{formatDateTime(item.reconciledAt)}</p>{item.mikroReceiptNo && <p className="font-mono text-[9px] text-[#15356b]">Makbuz: {item.mikroReceiptNo}{item.mikroReceiptRef ? ` · ${item.mikroReceiptRef}` : ''}</p>}</> : <span className="text-[#8b97ac]">Bekliyor</span>}</div>
+                  <div className="flex justify-end gap-1.5">
+                    {item.status === 'SUCCEEDED' && !item.reconciledAt ? <button type="button" onClick={() => { setSelected(item); setNote(''); }} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-[11px] font-semibold text-white"><CheckCircle2 className="h-3.5 w-3.5" /> Mutabik et</button> : ['PENDING', 'REVIEW_REQUIRED'].includes(item.status) ? <button type="button" onClick={() => verify(item)} disabled={verifyingId === item.id} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#d7deea] px-3 text-[11px] font-semibold text-[#33445f] disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${verifyingId === item.id ? 'animate-spin' : ''}`} /> Bankadan kontrol</button> : <span className="text-[10px] text-[#8b97ac]">{item.bankReturnCode || '-'}</span>}
+                    {item.status === 'SUCCEEDED' && <button type="button" onClick={() => downloadReceipt(item)} disabled={receiptId === item.id} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-600 px-3 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"><FileText className="h-3.5 w-3.5" /> Dekont</button>}
+                  </div>
                 </div>
               ))}
             </div></div>

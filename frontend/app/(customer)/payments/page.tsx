@@ -54,6 +54,7 @@ export default function CustomerPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [receiptId, setReceiptId] = useState<string | null>(null);
   const [amountType, setAmountType] = useState<PaymentAmountType>('TOTAL_BALANCE');
   const [customAmount, setCustomAmount] = useState('');
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
@@ -104,6 +105,18 @@ export default function CustomerPaymentsPage() {
     if (amountType === 'PAST_DUE') return summary.availability.pastDue;
     return Number(customAmount || 0);
   }, [amountType, customAmount, summary]);
+
+  const downloadReceipt = async (payment: PaymentAttempt) => {
+    setReceiptId(payment.id);
+    try {
+      const { generatePaymentReceiptPdf } = await import('@/lib/paymentReceiptPdf');
+      await generatePaymentReceiptPdf(payment);
+    } catch {
+      toast.error('Dekont olusturulamadi. Lutfen tekrar deneyin.');
+    } finally {
+      setReceiptId(null);
+    }
+  };
 
   const createPayment = async () => {
     if (!summary?.eligibility.canCreate) {
@@ -187,6 +200,9 @@ export default function CustomerPaymentsPage() {
               <div className="px-5 py-4 sm:border-r sm:border-[var(--line)]">
                 <p className="text-xs font-medium text-[var(--ink-3)]">Toplam bakiye</p>
                 <p className="mt-1 text-[23px] font-bold tabular-nums text-[var(--ink-1)]">{formatCurrency(summary.balance.total)}</p>
+                {(summary.balance.onlineDeduction ?? 0) > 0 && (
+                  <p className="mt-0.5 text-[11px] font-medium text-emerald-700">Online ödemeniz düşüldü: −{formatCurrency(summary.balance.onlineDeduction!)}</p>
+                )}
               </div>
               <div className="border-t border-[var(--line)] px-5 py-4 sm:border-r sm:border-t-0">
                 <p className="text-xs font-medium text-[var(--ink-3)]">Vadesi gecen</p>
@@ -331,6 +347,16 @@ export default function CustomerPaymentsPage() {
                       <div className="flex justify-end gap-1.5">
                         {canResume && <a href={payment.paymentLinkUrl!} className="inline-flex h-8 items-center gap-1 bg-[#b45309] px-2.5 font-semibold text-white"><ExternalLink className="h-3 w-3" /> Devam et</a>}
                         {['PENDING', 'REVIEW_REQUIRED'].includes(payment.status) && <button type="button" onClick={() => refreshPayment(payment.id)} disabled={refreshingId === payment.id} className="inline-flex h-8 items-center gap-1 border border-[var(--line)] px-2.5 font-semibold text-[var(--ink-2)] disabled:opacity-50"><RefreshCw className={`h-3 w-3 ${refreshingId === payment.id ? 'animate-spin' : ''}`} /> Kontrol</button>}
+                        {payment.status === 'SUCCEEDED' && (
+                          <button
+                            type="button"
+                            onClick={() => downloadReceipt(payment)}
+                            disabled={receiptId === payment.id}
+                            className="inline-flex h-8 items-center gap-1 border border-emerald-600 px-2.5 font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                          >
+                            <FileText className="h-3 w-3" /> Dekont
+                          </button>
+                        )}
                         {payment.status === 'SUCCEEDED' && <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
                       </div>
                     </div>

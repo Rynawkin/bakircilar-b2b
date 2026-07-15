@@ -804,6 +804,11 @@ export interface PaymentAttempt {
   bankMessage?: string | null;
   bankReturnCode?: string | null;
   bankTransactionStatus?: string | null;
+  bankAuthCode?: string | null;
+  bankTransactionId?: string | null;
+  providerOrderId?: string | null;
+  mikroReceiptNo?: string | null;
+  mikroReceiptRef?: string | null;
   requestedByName?: string | null;
   reconciledByName?: string | null;
   createdAt: string;
@@ -819,6 +824,8 @@ export interface PaymentSummary {
     updatedAt: string;
     referenceDate?: string | null;
     source: string;
+    rawTotal?: number;
+    onlineDeduction?: number;
   };
   availability: {
     total: number;

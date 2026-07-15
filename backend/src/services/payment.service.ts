@@ -109,6 +109,12 @@ const publicAttempt = (attempt: any) => ({
   bankMessage: attempt.bankMessage,
   bankReturnCode: attempt.bankReturnCode,
   bankTransactionStatus: attempt.bankTransactionStatus,
+  // Dekont icin banka islem kimlikleri + Mikro makbuz bilgisi.
+  bankAuthCode: attempt.bankAuthCode,
+  bankTransactionId: attempt.bankTransactionId,
+  providerOrderId: attempt.providerOrderId,
+  mikroReceiptNo: attempt.mikroReceiptNo,
+  mikroReceiptRef: attempt.mikroReceiptRef,
   createdAt: attempt.createdAt,
   updatedAt: attempt.updatedAt,
 });
@@ -204,15 +210,30 @@ class PaymentService {
         _sum: { amount: true },
       }),
       db.paymentAttempt.aggregate({
-        where: { customerId, status: PaymentStatus.SUCCEEDED, reconciledAt: null },
+        // Bakiyeye henuz yansimamis basarili odemeler: Mikro makbuzu hic yazilmamis olanlar
+        // (mutabakatsiz VEYA mutabik-ama-makbuz-basarisiz) + makbuzu rapor kesitinden (once
+        // referenceDate, yoksa yukleme ani) SONRA yazilanlar. Ikisi de gosterim ve
+        // odenebilirlikten dusulur.
+        where: {
+          customerId,
+          status: PaymentStatus.SUCCEEDED,
+          OR: [
+            { mikroReceiptNo: null },
+            { reconciledAt: { gt: balance.referenceDate || balance.updatedAt } },
+          ],
+        },
         _sum: { amount: true },
       }),
     ]);
-    const totalCents = Math.max(0, toCents(balance.totalBalance));
+    const rawTotalCents = toCents(balance.totalBalance);
+    const totalCents = Math.max(0, rawTotalCents);
     const pastDueCents = Math.max(0, toCents(balance.pastDueBalance));
+    const notDueCents = Math.max(0, toCents(balance.notDueBalance));
     const reservedCents = Math.max(0, toCents(active._sum.amount));
     const unreconciledCents = Math.max(0, toCents(successful._sum.amount));
     const deductionCents = reservedCents + unreconciledCents;
+    // Gosterim dususu vade siralamasiyla: once vadesi gecenden, kalani vadesi gelmemisten.
+    const notDueDeductionCents = Math.max(0, unreconciledCents - pastDueCents);
     return {
       balance,
       totalBalance: fromCents(totalCents),
@@ -221,7 +242,32 @@ class PaymentService {
       successfulUnreconciledAmount: fromCents(unreconciledCents),
       availableTotal: fromCents(Math.max(0, totalCents - deductionCents)),
       availablePastDue: fromCents(Math.max(0, pastDueCents - deductionCents)),
+      // Musteriye gosterilecek bakiye: rapor bakiyesi - henuz yansimamis odemeler.
+      // Alacakli (negatif) bakiye 0'a kirpilmaz, oldugu gibi gosterilir.
+      displayTotal: fromCents(rawTotalCents - unreconciledCents),
+      displayPastDue: fromCents(Math.max(0, pastDueCents - unreconciledCents)),
+      displayNotDue: fromCents(Math.max(0, notDueCents - notDueDeductionCents)),
     };
+  }
+
+  /**
+   * Musteri bakiye GOSTERIMINDEN dusulecek online odeme toplami (rapor bakiyesine henuz
+   * yansimamis SUCCEEDED odemeler). /financials gibi bakiye gosteren uclara servis edilir.
+   * balanceAnchor: rapor kesit ani (referenceDate; yoksa yukleme ani updatedAt).
+   */
+  async getOnlineBalanceDeduction(customerId: string, balanceAnchor: Date): Promise<number> {
+    const rows = await prisma.paymentAttempt.aggregate({
+      where: {
+        customerId,
+        status: PaymentStatus.SUCCEEDED,
+        OR: [
+          { mikroReceiptNo: null },
+          { reconciledAt: { gt: balanceAnchor } },
+        ],
+      },
+      _sum: { amount: true },
+    });
+    return fromCents(Math.max(0, toCents(rows._sum.amount)));
   }
 
   async getCustomerSummary(actorId: string) {
@@ -237,12 +283,16 @@ class PaymentService {
         name: access.customerName,
       },
       balance: {
-        total: summary.totalBalance,
-        pastDue: summary.pastDueBalance,
-        notDue: asNumber(summary.balance.notDueBalance),
+        // Gosterim: rapor bakiyesi - henuz yansimamis online odemeler (musteri "odedim ama
+        // bakiyem dusmedi" gormesin). Ham rapor degeri rawTotal'da.
+        total: summary.displayTotal,
+        pastDue: summary.displayPastDue,
+        notDue: summary.displayNotDue,
         updatedAt: summary.balance.updatedAt,
         referenceDate: summary.balance.referenceDate,
         source: summary.balance.source,
+        rawTotal: summary.totalBalance,
+        onlineDeduction: summary.successfulUnreconciledAmount,
       },
       availability: {
         total: summary.availableTotal,
@@ -776,13 +826,17 @@ class PaymentService {
         description: `B2B online odeme ${attempt.orderId}`,
       });
       if (!result) return;
+      await prisma.paymentAttempt.update({
+        where: { id: attempt.id },
+        data: { mikroReceiptNo: result.documentNo, mikroReceiptRef: result.refNo },
+      });
       await prisma.paymentEvent.create({
         data: {
           paymentAttemptId: attempt.id,
           type: result.alreadyExists ? 'MIKRO_RECEIPT_EXISTS' : 'MIKRO_RECEIPT_WRITTEN',
           source: 'MIKRO',
           status: attempt.status,
-          payload: { documentNo: result.documentNo, alreadyExists: result.alreadyExists },
+          payload: { documentNo: result.documentNo, refNo: result.refNo, alreadyExists: result.alreadyExists },
         },
       });
       await auditLogService.log({

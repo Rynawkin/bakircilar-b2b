@@ -833,6 +833,9 @@ model PaymentAttempt {
   reconciledById         String?
   reconciledBy           User?             @relation("PaymentReconciler", fields: [reconciledById], references: [id], onDelete: SetNull)
   reconciliationNote     String?
+  // Mikro tahsilat makbuzu kimligi (yazildiysa): evrak no (POS-1) ve referans no (MK-...).
+  mikroReceiptNo         String?
+  mikroReceiptRef        String?
   metadata               Json?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt

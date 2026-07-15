@@ -29,6 +29,7 @@ type ReceiptInput = {
 
 export type ReceiptResult = {
   documentNo: string;
+  refNo: string | null;
   guid: string | null;
   alreadyExists: boolean;
 };
@@ -123,12 +124,17 @@ class MikroReceiptService {
     const meta = await this.getColumnMeta();
     const belgeNo = this.belgeNo(meta, orderId);
     const rows = await mikroService.executeQuery(`
-      SELECT TOP 1 cha_evrakno_seri AS seri, cha_evrakno_sira AS sira
+      SELECT TOP 1 cha_evrakno_seri AS seri, cha_evrakno_sira AS sira, cha_trefno AS refNo
       FROM CARI_HESAP_HAREKETLERI
       WHERE cha_belge_no = '${escapeSql(belgeNo)}'
     `);
     if (!rows.length) return null;
-    return { documentNo: `${rows[0].seri}-${rows[0].sira}`, guid: null, alreadyExists: true };
+    return {
+      documentNo: `${rows[0].seri}-${rows[0].sira}`,
+      refNo: normalizeCode(rows[0].refNo) || null,
+      guid: null,
+      alreadyExists: true,
+    };
   }
 
   private async loadTemplate(): Promise<Record<string, unknown>> {
@@ -221,7 +227,7 @@ class MikroReceiptService {
       cha_aciklama: aciklama,
       // Online odeme belirli bir plasiyere atfedilmez; template'in plasiyerini miras alma.
       cha_satici_kodu: '',
-      cha_trefno: '',
+      // cha_trefno batch icinde @trefno ile atanir (Mikro'nun MK-000-000-YYYY-NNNNNNNN sayaci).
       cha_iptal: 0,
       cha_hidden: 0,
       cha_kilitli: 0,
@@ -239,35 +245,63 @@ class MikroReceiptService {
       values.cha_altmeblag = altKur > 0 ? round2(amount / altKur) : 0;
     }
 
-    // Atomik: seri bazli MAX(sira)+1 al ve ayni transaction'da INSERT et. Mukerrer korumasi IF EXISTS.
-    const insertColumns = Object.keys(values).filter((c) => has(c));
-    const columnList = ['cha_evrakno_sira', ...insertColumns].map((c) => `[${c}]`).join(', ');
-    const valueList = ['@sira', ...insertColumns.map((c) => this.sqlLiteral(values[c]))].join(', ');
+    // Atomik: seri bazli MAX(sira)+1 ve MK ref sayacindan MAX+1 trefno ayni transaction'da
+    // alinip INSERT edilir. B2B'nin kendi yazicilarini sp_getapplock serialize eder; boylece
+    // trefno/belge_no taramalari kilit hint'i tasimaz (indexsiz kolonda UPDLOCK+HOLDLOCK tum
+    // tabloyu kilitleyip Mikro masaustu kullanicilarini bloklar/deadlock uretirdi). Sira sayaci
+    // NDX_..._04 index prefix'iyle arandigi icin dar UPDLOCK+HOLDLOCK korunur.
+    const useTrefno = has('cha_trefno');
+    const insertColumns = Object.keys(values).filter((c) => has(c) && c !== 'cha_trefno');
+    const columnList = ['cha_evrakno_sira', ...(useTrefno ? ['cha_trefno'] : []), ...insertColumns].map((c) => `[${c}]`).join(', ');
+    const valueList = ['@sira', ...(useTrefno ? ['@trefno'] : []), ...insertColumns.map((c) => this.sqlLiteral(values[c]))].join(', ');
+
+    // Makbuz referans no: Mikro'nun otomatik sayaci MK-000-000-YYYY-NNNNNNNN formatinda,
+    // yil bazli ve seriden bagimsiz sirali ilerliyor (TP-3942->2109, TP-3943->2110, sonraki
+    // evrak->2111 canli gozlemi). Muhasebe eslestirme raporu bu ref no'yu bekliyor.
+    const trefnoBlock = useTrefno ? `
+  DECLARE @pfx NVARCHAR(16) = 'MK-000-000-' + CAST(YEAR(GETDATE()) AS VARCHAR(4)) + '-';
+  DECLARE @refnum INT;
+  SELECT @refnum = ISNULL(MAX(CASE WHEN RIGHT(cha_trefno, 8) NOT LIKE '%[^0-9]%' THEN CAST(RIGHT(cha_trefno, 8) AS INT) END), 0) + 1
+    FROM CARI_HESAP_HAREKETLERI
+    WHERE cha_trefno LIKE @pfx + '%';
+  DECLARE @trefno NVARCHAR(25) = @pfx + RIGHT('00000000' + CAST(@refnum AS VARCHAR(8)), 8);` : `
+  DECLARE @trefno NVARCHAR(25) = NULL;`;
 
     const batch = `
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+SET LOCK_TIMEOUT 15000;
 BEGIN TRANSACTION;
-IF EXISTS (SELECT 1 FROM CARI_HESAP_HAREKETLERI WITH (UPDLOCK, HOLDLOCK) WHERE cha_belge_no = '${escapeSql(belgeNo)}')
+DECLARE @lockResult INT;
+EXEC @lockResult = sp_getapplock @Resource = 'B2B_MIKRO_RECEIPT', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000;
+IF @lockResult < 0
 BEGIN
   ROLLBACK TRANSACTION;
-  SELECT CAST(-1 AS INT) AS sira, CAST(1 AS INT) AS duplicate;
+  SELECT CAST(-2 AS INT) AS sira, CAST(NULL AS NVARCHAR(25)) AS trefno, CAST(0 AS INT) AS duplicate, CAST(1 AS INT) AS lockFailed;
+END
+ELSE IF EXISTS (SELECT 1 FROM CARI_HESAP_HAREKETLERI WHERE cha_belge_no = '${escapeSql(belgeNo)}')
+BEGIN
+  ROLLBACK TRANSACTION;
+  SELECT CAST(-1 AS INT) AS sira, CAST(NULL AS NVARCHAR(25)) AS trefno, CAST(1 AS INT) AS duplicate, CAST(0 AS INT) AS lockFailed;
 END
 ELSE
 BEGIN
   DECLARE @sira INT;
   -- Unique index NDX_..._04 = (cha_evrak_tip, cha_evrakno_seri, cha_evrakno_sira, cha_satir_no).
-  -- Sira sayaci bu index prefix'iyle (evrak_tip=1 + seri) hesaplanmali.
+  -- Sira sayaci bu index prefix'iyle (evrak_tip=1 + seri) hesaplanir; kilit dar kalir.
   SELECT @sira = ISNULL(MAX(cha_evrakno_sira), 0) + 1
     FROM CARI_HESAP_HAREKETLERI WITH (UPDLOCK, HOLDLOCK)
-    WHERE cha_evrak_tip = 1 AND cha_evrakno_seri = '${escapeSql(series)}';
+    WHERE cha_evrak_tip = 1 AND cha_evrakno_seri = '${escapeSql(series)}';${trefnoBlock}
   INSERT INTO CARI_HESAP_HAREKETLERI (${columnList}) VALUES (${valueList});
   COMMIT TRANSACTION;
-  SELECT @sira AS sira, CAST(0 AS INT) AS duplicate;
+  SELECT @sira AS sira, @trefno AS trefno, CAST(0 AS INT) AS duplicate, CAST(0 AS INT) AS lockFailed;
 END`;
 
     const rows = await mikroService.executeQuery(batch);
     const row = rows[0] || {};
+    if (Number(row.lockFailed) === 1) {
+      throw new MikroReceiptError('Makbuz yazimi icin kilit alinamadi (Mikro yogun). Tekrar deneyin.', 'LOCK_TIMEOUT');
+    }
     if (Number(row.duplicate) === 1) {
       const again = await this.findExisting(input.orderId);
       if (again) return again;
@@ -277,7 +311,12 @@ END`;
     if (!sira || sira <= 0) {
       throw new MikroReceiptError('Makbuz sira numarasi alinamadi.', 'SEQUENCE_FAILED');
     }
-    return { documentNo: `${series}-${sira}`, guid, alreadyExists: false };
+    return {
+      documentNo: `${series}-${sira}`,
+      refNo: normalizeCode(row.trefno) || null,
+      guid,
+      alreadyExists: false,
+    };
   }
 }
 

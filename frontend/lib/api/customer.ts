@@ -48,6 +48,8 @@ export interface CustomerFinancials {
   notDueDate?: string | null;
   paymentTermLabel?: string | null;
   referenceDate?: string | null;
+  /** Rapor bakiyesine henuz yansimamis basarili online odemeler (gosterimden dusuldu). */
+  onlinePaymentDeduction?: number;
 }
 
 export interface GiftCampaignGift {

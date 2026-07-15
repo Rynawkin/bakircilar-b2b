@@ -218,6 +218,11 @@ export default function CustomerHomePage() {
               <div>
                 <div className="text-[12px] font-medium text-[#8b97ac]">Cari bakiye</div>
                 <div className="text-[22px] font-semibold tabular-nums tracking-tight text-[#14223b]">{formatCurrency(financials.totalBalance)}</div>
+                {(financials.onlinePaymentDeduction ?? 0) > 0 && (
+                  <div className="mt-0.5 text-[11px] font-medium text-[#15803d]">
+                    Online ödemeniz düşüldü: −{formatCurrency(financials.onlinePaymentDeduction!)}
+                  </div>
+                )}
               </div>
               {financials.pastDueBalance > 0 && (
                 <div className="rounded-[10px] border border-[#fde68a] bg-[#fffbeb] px-3.5 py-1.5">
