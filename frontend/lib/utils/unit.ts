@@ -209,6 +209,48 @@ export const getUnitOptions = (
   };
 };
 
+/**
+ * Miktari koli+parca kirilimina cevirir: orn. koli ici 30 olan urunde 305 -> "10 KOLI + 5 ADET".
+ * Miktar HER ZAMAN ana (baz) birim cinsinden verilir (depo kiosk satir miktarlari gibi).
+ *  - Negatif katsayi (2. birim daha BUYUK, orn. 1 KOLI = 30 ADET): koli = floor(qty/30), kalan adet.
+ *  - Pozitif katsayi (ANA birim daha BUYUK, orn. ana KOLI, 1 KOLI = 10 PAKET): tam koli + kesirli kismin paketi.
+ * Kirilim anlamli degilse (katsayi yok/1, miktar tek koliden az, kesir yok) null doner.
+ */
+export const getCaseBreakdownLabel = (
+  quantity: number,
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+): string | null => {
+  const qty = Number(quantity);
+  if (!Number.isFinite(qty) || qty <= 0) return null;
+  const factor = Number(unit2Factor);
+  if (!hasSecondaryUnit(unit, unit2, factor)) return null;
+  const abs = Math.abs(factor);
+  if (!(abs > 1)) return null;
+  const mainUnit = (unit || 'ADET').trim();
+  const altUnit = (unit2 || '').trim();
+  if (!altUnit) return null;
+  const EPS = 1e-6;
+
+  if (factor < 0) {
+    // 2. birim (orn. KOLI) ana birimden buyuk: 1 unit2 = abs ana birim
+    const boxes = Math.floor((qty + EPS) / abs);
+    if (boxes < 1) return null;
+    const rest = Math.max(roundQty(qty - boxes * abs, 3), 0);
+    return rest > EPS
+      ? `${formatUnitFactor(boxes)} ${altUnit} + ${formatUnitFactor(rest)} ${mainUnit}`
+      : `${formatUnitFactor(boxes)} ${altUnit}`;
+  }
+
+  // Ana birim daha buyuk (orn. ana KOLI, unit2 PAKET): 1 ana birim = abs unit2
+  const boxes = Math.floor(qty + EPS);
+  const rest = Math.max(roundQty((qty - boxes) * abs, 3), 0);
+  if (rest <= EPS) return null;
+  if (boxes < 1) return `${formatUnitFactor(rest)} ${altUnit}`;
+  return `${formatUnitFactor(boxes)} ${mainUnit} + ${formatUnitFactor(rest)} ${altUnit}`;
+};
+
 export const getUnitConversionLabel = (
   unit?: string | null,
   unit2?: string | null,

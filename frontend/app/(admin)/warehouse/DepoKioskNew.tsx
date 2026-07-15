@@ -21,6 +21,7 @@ import {
   Delete,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { getCaseBreakdownLabel } from '@/lib/utils/unit';
 import {
   useDepoKiosk,
   type WorkflowStatus,
@@ -109,6 +110,8 @@ export default function DepoKioskNew() {
     setShowAllOpenOrders,
     showCompletedLines,
     setShowCompletedLines,
+    sortLinesByShelf,
+    toggleSortLinesByShelf,
     dispatchModalOrderNumber,
     setDispatchModalOrderNumber,
     dispatchModalSeries,
@@ -698,13 +701,30 @@ export default function DepoKioskNew() {
                 </button>
               </div>
 
-              <div className="flex-1 min-h-0 overflow-y-auto p-3.5">
+              {/* Tek siparis gorunumunde xl+ YATAY ekranda dis kapsayici scroll etmez;
+                  sadece satir listesi scroll eder (baslik+aksiyon sabit, 58vh siniri yok,
+                  32" ekranda cok daha fazla satir gorunur). xl alti ve dikey modda ise
+                  yukseklik zinciri belirsiz kalacagi icin ESKI davranis korunur
+                  (dis kapsayici scroll + satir listesinde 58vh siniri). */}
+              <div
+                className={`flex-1 min-h-0 p-3 ${
+                  showAllOpenOrders || isPortrait ? 'overflow-y-auto' : 'overflow-y-auto xl:overflow-hidden'
+                }`}
+              >
                 {isDetailLoading && !detail ? (
                   <div className="py-20 text-center text-[#8b97ac] font-medium">Siparis detayi yukleniyor...</div>
                 ) : visibleOrderNumbers.length === 0 ? (
                   <div className="py-20 text-center text-[#8b97ac] font-medium">Sol listeden bir siparis secin</div>
                 ) : (
-                  <div className={showAllOpenOrders ? 'grid grid-cols-1 2xl:grid-cols-2 gap-4' : 'space-y-4'}>
+                  <div
+                    className={
+                      showAllOpenOrders
+                        ? 'grid grid-cols-1 2xl:grid-cols-2 gap-4'
+                        : isPortrait
+                        ? undefined
+                        : 'xl:h-full'
+                    }
+                  >
                     {visibleOrderNumbers.map((orderNumber) => {
                       const panelDetail = detailByOrder[orderNumber];
                       if (!panelDetail) {
@@ -722,24 +742,53 @@ export default function DepoKioskNew() {
                       const panelIsActive = activeOrderNumber === orderNumber;
                       const panelCov = coverageBadgeNew[panelDetail.coverageStatus];
                       const panelStatusBadge = statusBadgeNew[panelWorkflowStatus];
-                      const panelLineAreaClass = isDetailFullscreen
-                        ? 'space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto pr-1 touch-pan-y overscroll-contain'
-                        : 'space-y-3 max-h-[58vh] overflow-y-auto pr-1 touch-pan-y overscroll-contain';
+                      // Tek siparis gorunumunde xl+ yatayda satir listesi kalan TUM yuksekligi
+                      // kullanir; xl alti / dikey / coklu (grid) gorunumde 58vh siniri korunur.
+                      const panelLineAreaClass = showAllOpenOrders
+                        ? isDetailFullscreen
+                          ? 'space-y-2 max-h-[calc(100vh-400px)] overflow-y-auto pr-1 touch-pan-y overscroll-contain'
+                          : 'space-y-2 max-h-[58vh] overflow-y-auto pr-1 touch-pan-y overscroll-contain'
+                        : isPortrait
+                        ? 'space-y-2 max-h-[58vh] overflow-y-auto pr-1 touch-pan-y overscroll-contain'
+                        : 'space-y-2 max-h-[58vh] xl:max-h-none xl:flex-1 xl:min-h-0 overflow-y-auto pr-1 touch-pan-y overscroll-contain';
                       const visibleLines = showCompletedLines
                         ? panelDetail.lines
                         : panelDetail.lines.filter((line) => line.remainingQty > 0 && line.pickedQty < line.remainingQty);
+                      // Raf sirasi acikken satirlar raf koduna gore (dogal/sayisal) dizilir;
+                      // rafi olmayanlar sona, esitlikte siparis satir sirasi korunur.
+                      const orderedLines = sortLinesByShelf
+                        ? [...visibleLines].sort((a, b) => {
+                            const shelfA = (a.shelfCode || '').trim();
+                            const shelfB = (b.shelfCode || '').trim();
+                            if (shelfA && shelfB) {
+                              const compared = shelfA.localeCompare(shelfB, 'tr', { numeric: true, sensitivity: 'base' });
+                              if (compared !== 0) return compared;
+                            } else if (shelfA) {
+                              return -1;
+                            } else if (shelfB) {
+                              return 1;
+                            }
+                            return (Number(a.rowNumber) || 0) - (Number(b.rowNumber) || 0);
+                          })
+                        : visibleLines;
 
                       return (
                         <div
                           key={orderNumber}
-                          className="space-y-3 rounded-xl border p-3"
+                          className={
+                            showAllOpenOrders
+                              ? 'space-y-3 rounded-xl border p-3'
+                              : isPortrait
+                              ? 'flex flex-col gap-2.5 rounded-xl border p-2.5'
+                              : 'xl:h-full min-h-0 flex flex-col gap-2.5 rounded-xl border p-2.5'
+                          }
                           style={{
                             borderColor: panelIsActive ? '#bcd0ef' : '#eef1f6',
                             background: panelIsActive ? '#f5f8fd' : '#fff',
                           }}
                         >
                           {/* Siparis baslik karti */}
-                          <div className="rounded-xl border border-[#eef1f6] bg-[#fafbfd] p-3">
+                          <div className="shrink-0 rounded-xl border border-[#eef1f6] bg-[#fafbfd] px-3 py-2">
                             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                               <div>
                                 <h2 className="text-[16px] font-semibold text-[#14223b] leading-tight">
@@ -784,7 +833,7 @@ export default function DepoKioskNew() {
                           </div>
 
                           {/* Aksiyon cubugu */}
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="shrink-0 flex flex-wrap items-center gap-2">
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
@@ -814,11 +863,22 @@ export default function DepoKioskNew() {
                                 Detay Yenile
                               </button>
                               <span className="text-[11.5px] text-[#8b97ac]">
-                                Satirlar ({visibleLines.length}/{panelDetail.lines.length})
+                                Satirlar ({orderedLines.length}/{panelDetail.lines.length})
                               </span>
                             </div>
 
                             <div className="ml-auto flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={toggleSortLinesByShelf}
+                                className={`h-9 px-3.5 rounded-lg text-[12px] font-semibold whitespace-nowrap ${
+                                  sortLinesByShelf
+                                    ? 'bg-[#0e7c66] text-white hover:bg-[#0b6553]'
+                                    : 'bg-white border border-[#d8e0ec] text-[#51607a] hover:bg-[#f4f6fa]'
+                                }`}
+                              >
+                                {sortLinesByShelf ? 'Raf Sirasi: Acik' : 'Raf Sirasi: Kapali'}
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => setShowCompletedLines((prev) => !prev)}
@@ -857,7 +917,7 @@ export default function DepoKioskNew() {
 
                           {/* Satirlar */}
                           <div className={panelLineAreaClass}>
-                            {visibleLines.map((line) => {
+                            {orderedLines.map((line) => {
                               const draftKey = getShelfDraftKey(orderNumber, line.lineKey);
                               const saving = lineSavingKey === draftKey;
                               const isLineCompleted = line.remainingQty <= 0 || line.pickedQty >= line.remainingQty;
@@ -868,6 +928,13 @@ export default function DepoKioskNew() {
                               const imageIssueReporting = reportingImageKey === imageIssueKey;
                               const confirmComplete = Boolean(confirmCompleteKeys[draftKey]);
                               const unitLabel = getUnitConversionLabel(line.unit, line.unit2, line.unit2Factor);
+                              // Kalan miktarin koli kirilimi: orn. koli ici 30 -> 305 = "10 KOLI + 5 ADET"
+                              const remainingCaseLabel = getCaseBreakdownLabel(
+                                line.remainingQty,
+                                line.unit,
+                                line.unit2,
+                                line.unit2Factor
+                              );
                               const lineBorder = isLineCompleted
                                 ? '#a7f3d0'
                                 : line.stockCoverageStatus === 'NONE'
@@ -881,9 +948,9 @@ export default function DepoKioskNew() {
                                   className="rounded-xl border overflow-hidden bg-white"
                                   style={{ borderColor: lineBorder }}
                                 >
-                                  <div className="flex gap-3 p-2.5">
+                                  <div className="flex gap-2.5 p-2">
                                     {/* Urun gorseli */}
-                                    <div className="w-20 h-20 md:w-24 md:h-24 rounded-lg overflow-hidden bg-[#f4f6fa] border border-[#eef1f6] shrink-0 flex items-center justify-center">
+                                    <div className="w-16 h-16 md:w-20 md:h-20 rounded-lg overflow-hidden bg-[#f4f6fa] border border-[#eef1f6] shrink-0 flex items-center justify-center">
                                       {line.imageUrl ? (
                                         <button
                                           type="button"
@@ -942,9 +1009,6 @@ export default function DepoKioskNew() {
                                               SATIR REZERVE: {line.reservedQty} {line.unit}
                                             </span>
                                           )}
-                                          <span className="text-[10px] px-2 py-1 rounded-md border border-[#d6e0f1] bg-[#eef2fa] text-[#1c4585] font-semibold">
-                                            Birim: {line.unit}
-                                          </span>
                                           <span className={`text-[10px] px-2 py-1 rounded-md border font-semibold ${stockStatusNew[line.stockCoverageStatus]}`}>
                                             Siparis Depo Stok: {line.stockAvailable} {line.unit}
                                           </span>
@@ -975,11 +1039,14 @@ export default function DepoKioskNew() {
                                       </div>
 
                                       {/* Miktar / raf kolonlari */}
-                                      <div className="mt-2 grid grid-cols-1 xl:grid-cols-[245px_minmax(0,1fr)] gap-2">
+                                      <div className="mt-1.5 grid grid-cols-1 xl:grid-cols-[245px_minmax(0,1fr)] gap-2">
                                         <div className="grid grid-cols-2 gap-1.5 xl:self-start">
                                           <div className={`rounded-lg border px-2 py-1.5 min-w-0 ${remainingBoxNew(line.stockCoverageStatus)}`}>
                                             <p className="text-[9.5px] font-semibold uppercase tracking-wide">Kalan Siparis</p>
                                             <p className="text-[15px] leading-none font-semibold mt-1">{line.remainingQty}</p>
+                                            {remainingCaseLabel && (
+                                              <p className="text-[10px] font-bold mt-0.5 whitespace-nowrap">= {remainingCaseLabel}</p>
+                                            )}
                                           </div>
                                           <div className="rounded-lg border border-[#a7f3d0] bg-[#ecfdf5] px-2 py-1.5 min-w-0">
                                             <p className="text-[9.5px] font-semibold uppercase tracking-wide text-[#047857]">Depodaki Miktar</p>
@@ -1237,6 +1304,25 @@ export default function DepoKioskNew() {
               Siparis: <strong>{dispatchModalOrderNumber || '-'}</strong> — irsaliye serisi, sofor ve arac secimi zorunlu.
             </span>
           </div>
+          {(() => {
+            const modalDetail = dispatchModalOrderNumber ? detailByOrder[dispatchModalOrderNumber] : null;
+            const extraLines = (modalDetail?.lines || []).filter((line) => line.extraQty > 0);
+            if (extraLines.length === 0) return null;
+            return (
+              <div className="rounded-lg border border-[#fde68a] bg-[#fffbeb] px-3 py-2.5">
+                <p className="text-[11.5px] font-semibold text-[#b45309] mb-1">
+                  Siparissiz ek miktarlar irsaliyeye AYRI SATIR olarak eklenecek:
+                </p>
+                <div className="max-h-32 overflow-y-auto space-y-0.5">
+                  {extraLines.map((line) => (
+                    <p key={line.lineKey} className="text-[11px] text-[#92400e]">
+                      • {line.productName}: +{line.extraQty} {line.unit}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           <div>
             <p className="text-[11px] font-semibold text-[#8b97ac] mb-1">Irsaliye Serisi</p>
             <input

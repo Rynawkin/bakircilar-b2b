@@ -404,6 +404,7 @@ class WarehouseWorkflowService {
         sto_kod as productCode,
         sto_isim as productName,
         ISNULL(sto_birim1_ad, 'ADET') as unit,
+        CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) as decimal(18,3)) as stockMerkez,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) as decimal(18,4)) as perakende1,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) as decimal(18,4)) as perakende2,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) as decimal(18,4)) as perakende3,
@@ -418,6 +419,22 @@ class WarehouseWorkflowService {
     const missingCodes = productCodes.filter((code) => !productMap.has(code));
     if (missingCodes.length > 0) {
       throw new Error(`Stok karti bulunamadi: ${missingCodes.join(', ')}`);
+    }
+
+    // Stok kontrolu: satis Merkez depodan (1) kesilir; depodaki miktardan fazla satisa izin verme.
+    const insufficientStock = productCodes
+      .map((code) => {
+        const row = productMap.get(code);
+        const available = Math.max(toNumber(row?.stockMerkez), 0);
+        const requested = quantityByCode.get(code) || 0;
+        return { code, available, requested };
+      })
+      .filter((item) => item.requested > item.available);
+    if (insufficientStock.length > 0) {
+      const detail = insufficientStock
+        .map((item) => `${item.code} (stok: ${item.available}, istenen: ${item.requested})`)
+        .join(', ');
+      throw new Error(`Merkez depoda yeterli stok yok: ${detail}`);
     }
 
     const unitPriceField = `perakende${priceLevel}` as const;
@@ -2627,7 +2644,7 @@ class WarehouseWorkflowService {
     customerCode: string;
     deliverySeries: string;
     transport: DispatchTransportInfo;
-    lines: Array<{ rowNumber: number | null; productCode: string; deliverQty: number }>;
+    lines: Array<{ rowNumber: number | null; productCode: string; deliverQty: number; extraQty: number }>;
   }): Promise<{
     deliveryNoteNo: string;
     deliverySequence: number;
@@ -2700,8 +2717,14 @@ class WarehouseWorkflowService {
     const orderContext = await this.getOrderContext(params.orderSeries, params.orderSequence);
     const dispatchDocumentNo = orderContext.documentNo || deliveryNoteNo;
 
+    // Satir no'yu ayrica sayiyoruz: siparissiz ek miktar ayni irsaliyede EK satir olarak
+    // yazildigi icin (sip baglantisiz), satir sayisi params.lines'tan fazla olabilir.
+    let satirNo = 0;
     for (let index = 0; index < params.lines.length; index += 1) {
       const line = params.lines[index];
+      const deliverQty = Math.max(toNumber(line.deliverQty), 0);
+      const extraQty = Math.max(toNumber(line.extraQty), 0);
+      if (deliverQty <= 0 && extraQty <= 0) continue;
       const safeProductCode = normalizeCode(line.productCode);
       const rowFilter =
         line.rowNumber !== null && Number.isFinite(Number(line.rowNumber))
@@ -2765,7 +2788,7 @@ class WarehouseWorkflowService {
           console.warn('Stok vergi kodu fallback okunamadi:', { productCode: safeProductCode, error });
         }
       }
-      const lineTotal = Math.max(unitPrice * line.deliverQty, 0);
+      const lineTotal = Math.max(unitPrice * deliverQty, 0);
       const vatAmount = Math.max(lineTotal * vatRate, 0);
       const depoNo = Math.max(Math.trunc(toNumber(sipRow.depo_no || 1)), 1);
       const sipGuid = normalizeCode(sipRow.sip_guid) || zeroGuid;
@@ -2805,9 +2828,9 @@ class WarehouseWorkflowService {
         sth_evraktip: templateDocType,
         sth_evrakno_seri: deliverySeries,
         sth_evrakno_sira: deliverySequence,
-        sth_satirno: index,
+        sth_satirno: satirNo,
         sth_stok_kod: safeProductCode,
-        sth_miktar: line.deliverQty,
+        sth_miktar: deliverQty,
         sth_miktar2: 0,
         sth_birim_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_birim_pntr)), 1),
         sth_cari_kodu: params.customerCode,
@@ -2874,10 +2897,33 @@ class WarehouseWorkflowService {
       this.applyDispatchTransportFields(values, sthColumns, params.transport);
       this.applyMikroNativeSthDefaults(values, sthColumns);
 
-      const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
-      await mikroService.executeQuery(insertSql);
-      if (sipGuid && sipGuid !== zeroGuid) {
-        lineLinks.push({ sipGuid, deliverQty: line.deliverQty });
+      if (deliverQty > 0) {
+        const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
+        await mikroService.executeQuery(insertSql);
+        satirNo += 1;
+        if (sipGuid && sipGuid !== zeroGuid) {
+          lineLinks.push({ sipGuid, deliverQty });
+        }
+      }
+
+      // Siparissiz ek miktar: ayni irsaliyede siparis baglantisiz (sip_uid=0) EK satir.
+      // Mikro sip_teslim_miktar siparis miktariyla sinirli oldugundan siparis satirina
+      // eklenemez; teslim-reconcile sorgulari sip_uid bagli satirlari topladigi icin
+      // bu satir teslim miktarlarini bozmaz. Fiyat/KDV ayni siparis satirindan alinir.
+      if (extraQty > 0) {
+        const extraTotal = Math.max(unitPrice * extraQty, 0);
+        const extraValues: Record<string, unknown> = {
+          ...values,
+          sth_Guid: this.raw(`CAST('${randomUUID()}' as uniqueidentifier)`),
+          sth_satirno: satirNo,
+          sth_miktar: extraQty,
+          sth_tutar: extraTotal,
+          sth_vergi: Math.max(extraTotal * vatRate, 0),
+          sth_sip_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        };
+        const extraInsertSql = this.buildInsertSql('STOK_HAREKETLERI', extraValues, sthColumns);
+        await mikroService.executeQuery(extraInsertSql);
+        satirNo += 1;
       }
     }
 
@@ -3034,27 +3080,26 @@ class WarehouseWorkflowService {
         const remainingQty = Math.max(toNumber(item.remainingQty), 0);
         const pickedQty = Math.max(toNumber(item.pickedQty), 0);
         const deliverQty = Math.min(remainingQty, pickedQty);
+        const extraQty = Math.max(toNumber(item.extraQty), 0);
         return {
           ...item,
           deliverQty,
+          dispatchExtraQty: extraQty,
         };
       })
-      .filter((item) => item.deliverQty > 0);
+      .filter((item) => item.deliverQty > 0 || item.dispatchExtraQty > 0);
 
     if (linesToDispatch.length === 0) {
-      throw new Error('Irsaliyelestirme icin toplanan miktar bulunamadi');
+      throw new Error('Irsaliyelestirme icin toplanan veya ek miktar bulunamadi');
     }
 
-    // 5.1: "Siparissiz ek" (extraQty) miktarlari bir siparis satirina bagli olmadigindan
-    // bu irsaliyeye DAHIL EDILEMIYOR (Mikro sip_teslim_miktar siparis miktariyla sinirli).
-    // Bu durum eskiden sessizce kayboluyordu; en azindan gorunur sekilde uyar.
-    // KALICI COZUM is karari gerektirir: ya ek icin ayri irsaliye kesilmeli ya da
-    // "siparissiz ek" ozelligi tamamen kaldirilmali.
-    const totalExtraQty = workflowItems.reduce((sum, it) => sum + Math.max(toNumber(it.extraQty), 0), 0);
+    // 5.1 (cozuldu): "Siparissiz ek" (extraQty) artik ayni irsaliyeye siparis
+    // baglantisiz EK satir olarak yazilir (createMikroDeliveryNote). Teslim
+    // miktari guncellemeleri yalnizca deliverQty ile yapilir.
+    const totalExtraQty = linesToDispatch.reduce((sum, it) => sum + it.dispatchExtraQty, 0);
     if (totalExtraQty > 0) {
-      console.warn(
-        `⚠️ 5.1 Siparis ${orderNo}: ${totalExtraQty} adet "siparissiz ek" irsaliyeye DAHIL EDILMEDI. ` +
-        `Bu miktar icin ayri irsaliye kesilmesi gerekebilir.`
+      console.log(
+        `5.1 Siparis ${orderNo}: ${totalExtraQty} adet "siparissiz ek" irsaliyeye siparissiz satir olarak dahil edildi.`
       );
     }
 
@@ -3069,6 +3114,7 @@ class WarehouseWorkflowService {
         rowNumber: Number.isFinite(Number(line.rowNumber)) ? Number(line.rowNumber) : null,
         productCode: line.productCode,
         deliverQty: line.deliverQty,
+        extraQty: line.dispatchExtraQty,
       })),
     });
     const deliveryNoteNo = createdDelivery.deliveryNoteNo;
@@ -3132,7 +3178,8 @@ class WarehouseWorkflowService {
         nextRemaining,
         nextPicked,
         nextShortage,
-        extraQty: Math.max(toNumber(line.extraQty), 0),
+        // Ek miktar bu irsaliyeye yazildi; satirda sifirlanir (mukerrer sevk olmasin).
+        extraQty: 0,
       };
     });
     const hasRemainingAfterDispatch = lineUpdates.some((line) => line.nextRemaining > 0);
@@ -3147,6 +3194,7 @@ class WarehouseWorkflowService {
             remainingQty: line.nextRemaining,
             pickedQty: line.nextPicked,
             shortageQty: line.nextShortage,
+            extraQty: line.extraQty,
             status: toItemStatus(line.nextPicked, line.extraQty, line.nextShortage, line.nextRemaining),
           },
         });

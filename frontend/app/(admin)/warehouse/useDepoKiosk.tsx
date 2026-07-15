@@ -192,6 +192,32 @@ export const KEYBOARD_ROWS = [
 
 export const NUMPAD_NUMBER_KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.'];
 
+// Kiosk cihazi tek ve sabit oldugu icin son kullanilan irsaliye serisi/sofor/arac
+// localStorage'da hatirlanir; her sevkte yeniden yazmak/secmek gerekmez.
+const DISPATCH_DEFAULTS_STORAGE_KEY = 'depoKiosk.dispatchDefaults';
+const SHELF_SORT_STORAGE_KEY = 'depoKiosk.sortLinesByShelf';
+
+type DispatchDefaults = { series?: string; driverId?: string; vehicleId?: string };
+
+const readDispatchDefaults = (): DispatchDefaults => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DISPATCH_DEFAULTS_STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? (parsed as DispatchDefaults) : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveDispatchDefaults = (defaults: DispatchDefaults) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(DISPATCH_DEFAULTS_STORAGE_KEY, JSON.stringify(defaults));
+  } catch {
+    // localStorage kullanilamiyorsa hafiza ozelligi sessizce devre disi kalir
+  }
+};
+
 export type DriverOption = {
   id: string;
   firstName: string;
@@ -244,6 +270,8 @@ export function useDepoKiosk() {
   const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
   const [showAllOpenOrders, setShowAllOpenOrders] = useState(false);
   const [showCompletedLines, setShowCompletedLines] = useState(true);
+  // Satirlari raf koduna gore sirala (depocu koridor sirasiyla toplasin); tercih kalicidir.
+  const [sortLinesByShelf, setSortLinesByShelf] = useState(true);
   const [dispatchModalOrderNumber, setDispatchModalOrderNumber] = useState<string | null>(null);
   const [dispatchModalSeries, setDispatchModalSeries] = useState('');
   const [dispatchModalDriverId, setDispatchModalDriverId] = useState('');
@@ -285,9 +313,12 @@ export function useDepoKiosk() {
   const isEditingRef = useRef(false);
   const [activeInputCount, setActiveInputCount] = useState(0);
 
+  // xl'de tek satirli grid'in yuksekligi acikca 1fr'a sabitlenir; aksi halde satir
+  // "auto" kalip icerik kadar buyuyebiliyor ve paneller ekrandan tasip az satir
+  // gorunmesine / bozuk kaydirmaya yol aciyordu (32" kiosk sikayeti).
   const layoutClass = isPortrait
     ? 'grid grid-cols-1 gap-3'
-    : 'grid grid-cols-1 xl:grid-cols-[500px_minmax(0,1fr)] gap-3';
+    : 'grid grid-cols-1 xl:grid-cols-[500px_minmax(0,1fr)] xl:grid-rows-[minmax(0,1fr)] gap-3';
   const actionButtonClass = 'h-7 px-1.5 text-[10px] font-bold';
   const activeDrivers = useMemo(() => dispatchDrivers.filter((item) => item.active), [dispatchDrivers]);
   const activeVehicles = useMemo(() => dispatchVehicles.filter((item) => item.active), [dispatchVehicles]);
@@ -295,6 +326,28 @@ export function useDepoKiosk() {
   useEffect(() => {
     loadUserFromStorage();
   }, [loadUserFromStorage]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.localStorage.getItem(SHELF_SORT_STORAGE_KEY);
+      if (stored !== null) setSortLinesByShelf(stored !== '0');
+    } catch {
+      // tercih okunamazsa varsayilan (acik) kalir
+    }
+  }, []);
+
+  const toggleSortLinesByShelf = () => {
+    setSortLinesByShelf((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(SHELF_SORT_STORAGE_KEY, next ? '1' : '0');
+      } catch {
+        // kalicilik olmadan da calisir
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -909,6 +962,12 @@ export function useDepoKiosk() {
           result?.workflow?.mikroDeliveryNoteNo ||
           result?.mikroDeliveryNoteNo ||
           '';
+        // Bir sonraki sevkte ayni seri/sofor/arac hazir gelsin.
+        saveDispatchDefaults({
+          series: deliverySeries.toUpperCase(),
+          driverId: selectedDriver.id,
+          vehicleId: selectedVehicle.id,
+        });
         await refreshOrderDetail(mikroOrderNumber);
         if (resolvedNo) {
           setDeliveryNoteDrafts((prev) => ({ ...prev, [mikroOrderNumber]: deliverySeries }));
@@ -930,10 +989,19 @@ export function useDepoKiosk() {
   };
 
   const openDispatchModal = (mikroOrderNumber: string) => {
+    // Siparise ozel taslak varsa onu, yoksa son kullanilan seri/sofor/araci getir.
+    const defaults = readDispatchDefaults();
+    const defaultDriverId =
+      defaults.driverId && activeDrivers.some((item) => item.id === defaults.driverId) ? defaults.driverId : '';
+    const defaultVehicleId =
+      defaults.vehicleId && activeVehicles.some((item) => item.id === defaults.vehicleId) ? defaults.vehicleId : '';
+    // Taslak onceki sevkten tam irsaliye no ("BKR-18090") olarak kalmis olabilir;
+    // seri alanina sadece seri kismi gelsin.
+    const draftSeries = getDeliveryDraft(mikroOrderNumber).replace(/-\d+$/, '');
     setDispatchModalOrderNumber(mikroOrderNumber);
-    setDispatchModalSeries(getDeliveryDraft(mikroOrderNumber));
-    setDispatchModalDriverId(getDriverDraft(mikroOrderNumber));
-    setDispatchModalVehicleId(getVehicleDraft(mikroOrderNumber));
+    setDispatchModalSeries(draftSeries || (defaults.series || '').toUpperCase());
+    setDispatchModalDriverId(getDriverDraft(mikroOrderNumber) || defaultDriverId);
+    setDispatchModalVehicleId(getVehicleDraft(mikroOrderNumber) || defaultVehicleId);
   };
 
   const reportImageIssue = async (
@@ -1206,6 +1274,8 @@ export function useDepoKiosk() {
     setShowAllOpenOrders,
     showCompletedLines,
     setShowCompletedLines,
+    sortLinesByShelf,
+    toggleSortLinesByShelf,
     // dispatch modal
     dispatchModalOrderNumber,
     setDispatchModalOrderNumber,
