@@ -52,6 +52,13 @@ export interface CustomerFinancials {
   onlinePaymentDeduction?: number;
 }
 
+export interface CustomerListPagination {
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export interface GiftCampaignGift {
   id: string;
   productId: string;
@@ -107,7 +114,33 @@ export interface CollectionDetail {
     sourceType: 'RULE' | 'MANUAL';
   };
   products: Product[];
+  total?: number;
+  hasMore?: boolean;
 }
+
+export type CustomerCatalogSort =
+  | 'bestsellerValue'
+  | 'lastPurchasedDesc'
+  | 'lastPurchasedAsc'
+  | 'nameAsc'
+  | 'nameDesc'
+  | 'priceAsc'
+  | 'priceDesc'
+  | 'stockAsc'
+  | 'stockDesc'
+  | 'discountDesc';
+
+export type CustomerCatalogFilters = {
+  sort?: CustomerCatalogSort;
+  minPrice?: number;
+  maxPrice?: number;
+  minStock?: number;
+  maxStock?: number;
+  priceType?: 'invoiced' | 'white';
+  stockStatus?: 'all' | 'in' | 'supply';
+  onlyDiscount?: boolean;
+  onlyAgreement?: boolean;
+};
 
 export const customerApi = {
   // Banners (musteri - yalniz aktif)
@@ -125,18 +158,18 @@ export const customerApi = {
   },
 
   // Products
-  getProducts: async (params?: {
+  getProducts: async (params?: CustomerCatalogFilters & {
     categoryId?: string;
     categoryIds?: string[];
     brands?: string;
     search?: string;
+    documentNo?: string;
     warehouse?: string;
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
-    sort?: 'bestsellerValue' | 'lastPurchasedDesc' | 'nameAsc';
     featured?: boolean;
     limit?: number;
     offset?: number;
-  }, options?: { signal?: AbortSignal }): Promise<{ products: Product[]; total?: number }> => {
+  }, options?: { signal?: AbortSignal }): Promise<{ products: Product[]; total?: number; hasMore?: boolean }> => {
     const response = await apiClient.get('/products', {
       params: {
         ...params,
@@ -249,8 +282,16 @@ export const customerApi = {
     return response.data;
   },
 
-  getCollection: async (id: string): Promise<CollectionDetail> => {
-    const response = await apiClient.get(`/collections/${id}`);
+  getCollection: async (
+    id: string,
+    params?: Pick<CustomerCatalogFilters, 'sort' | 'priceType'> & {
+      search?: string;
+      limit?: number;
+      offset?: number;
+    },
+    options?: { signal?: AbortSignal }
+  ): Promise<CollectionDetail> => {
+    const response = await apiClient.get(`/collections/${id}`, { params, signal: options?.signal });
     return response.data;
   },
 
@@ -272,17 +313,20 @@ export const customerApi = {
 
   // Hic alinmayan kategorilerdeki urunler (cok-satan sirali) + sol ray icin denenmemis kategori listesi.
   // NOT: customer route'lari /api altinda mount'lu -> dogru yol '/unbought-category-products'.
-  getUnboughtCategoryProducts: async (params?: {
+  getUnboughtCategoryProducts: async (params?: CustomerCatalogFilters & {
     categoryId?: string;
-    sort?: string;
+    search?: string;
+    warehouse?: string;
     offset?: number;
     limit?: number;
-  }): Promise<{
+  }, options?: { signal?: AbortSignal }): Promise<{
     products: Product[];
     totalCount: number;
+    total?: number;
+    hasMore?: boolean;
     categories: Array<{ id: string; name: string; mikroCode?: string; imageUrl?: string; count?: number }>;
   }> => {
-    const response = await apiClient.get('/unbought-category-products', { params });
+    const response = await apiClient.get('/unbought-category-products', { params, signal: options?.signal });
     return response.data;
   },
 
@@ -346,8 +390,13 @@ export const customerApi = {
     return response.data;
   },
 
-  getOrders: async (): Promise<{ orders: Order[] }> => {
-    const response = await apiClient.get('/orders');
+  getOrders: async (params?: {
+    status?: Order['status'];
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ orders: Order[]; pagination?: CustomerListPagination }> => {
+    const response = await apiClient.get('/orders', { params });
     return response.data;
   },
 
@@ -395,8 +444,13 @@ export const customerApi = {
   },
 
   // Quotes
-  getQuotes: async (): Promise<{ quotes: Quote[] }> => {
-    const response = await apiClient.get('/quotes');
+  getQuotes: async (params?: {
+    status?: Quote['status'];
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ quotes: Quote[]; pagination?: CustomerListPagination }> => {
+    const response = await apiClient.get('/quotes', { params });
     return response.data;
   },
 

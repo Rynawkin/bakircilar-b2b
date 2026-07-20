@@ -4,9 +4,10 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Product, Category } from '@/types';
-import customerApi from '@/lib/api/customer';
+import customerApi, { CustomerCatalogSort } from '@/lib/api/customer';
 import { Button } from '@/components/ui/Button';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
+import { LoadErrorState } from '@/components/ui/LoadErrorState';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { FilterRail, RailFilters, RailCategory } from '@/components/customer/FilterRail';
 import { InGridBanner } from '@/components/customer/InGridBanner';
@@ -14,7 +15,6 @@ import { CatalogBannerCarousel } from '@/components/customer/CatalogBannerCarous
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { FilterState } from '@/components/customer/AdvancedFilters';
-import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
@@ -23,24 +23,34 @@ import { ChevronRight, Search, ArrowDownUp, X, SlidersHorizontal, Warehouse, Lay
 
 // Aile disi rail client-side filtreleri: stok durumu + sadece indirimli/anlasmali.
 // ProductCard'daki indirim/anlasma mantigiyla tutarli — veri/fiyat mantigina dokunmaz.
-const railMatches = (product: Product, filters: RailFilters): boolean => {
-  const hasAgreement = Boolean(product.agreement);
-  const stock = product.availableStock ?? product.excessStock ?? 0;
+const toApiSort = (sort: FilterState['sortBy']): CustomerCatalogSort => {
+  const sortMap: Partial<Record<FilterState['sortBy'], CustomerCatalogSort>> = {
+    'price-asc': 'priceAsc',
+    'price-desc': 'priceDesc',
+    'name-asc': 'nameAsc',
+    'name-desc': 'nameDesc',
+    'stock-asc': 'stockAsc',
+    'stock-desc': 'stockDesc',
+  };
+  return sortMap[sort] || 'bestsellerValue';
+};
 
-  if (filters.stockStatus === 'in' && !(stock > 0)) return false;
-  if (filters.stockStatus === 'supply' && stock > 0) return false;
+const fromApiSort = (sort: string | null): FilterState['sortBy'] => {
+  const sortMap: Record<string, FilterState['sortBy']> = {
+    priceAsc: 'price-asc',
+    priceDesc: 'price-desc',
+    nameAsc: 'name-asc',
+    nameDesc: 'name-desc',
+    stockAsc: 'stock-asc',
+    stockDesc: 'stock-desc',
+  };
+  return sortMap[sort || ''] || 'none';
+};
 
-  if (filters.onlyAgreement && !hasAgreement) return false;
-
-  if (filters.onlyDiscount) {
-    // Indirim: anlasma yok + fazla stok var + excessPrices temel fiyatin altinda
-    const base = product.prices?.invoiced ?? 0;
-    const disc = product.excessPrices?.invoiced;
-    const isDiscounted = !hasAgreement && (product.excessStock ?? 0) > 0 && typeof disc === 'number' && disc > 0 && disc < base;
-    if (!isDiscounted) return false;
-  }
-
-  return true;
+const readUrlNumber = (value: string | null): number | undefined => {
+  if (value === null || value.trim() === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 };
 
 const PRODUCTS_PAGE_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
@@ -91,6 +101,8 @@ export default function ProductsPage() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [agreementsAvailable, setAgreementsAvailable] = useState(false);
@@ -99,6 +111,9 @@ export default function ProductsPage() {
   const lastSearchRef = useRef('');
   const fallbackRequestRef = useRef<AbortController | null>(null);
   const productsRequestRef = useRef<AbortController | null>(null);
+  const skipUrlSyncRef = useRef(true);
+  const lastWrittenQueryRef = useRef<string | null>(null);
+  const [urlStateReady, setUrlStateReady] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   // Banner "birden fazla marka" tiklamasi: /products?brands=A,B,C -> bu markalarin urunleri
   const [brandCodes, setBrandCodes] = useState<string[]>([]);
@@ -124,8 +139,15 @@ export default function ProductsPage() {
   // linkleri ([/products?categoryId=...]) ayni sayfadayken de calissin + filtre sifirlansin:
   // kategoriye gidince arama, aramaya gidince kategori temizlenir.
   useEffect(() => {
+    const currentQuery = searchParams?.toString() || '';
+    if (lastWrittenQueryRef.current === currentQuery) {
+      lastWrittenQueryRef.current = null;
+      return;
+    }
+    skipUrlSyncRef.current = true;
     setSelectedCategory(searchParams?.get('categoryId') || '');
     setSearch(searchParams?.get('search') || '');
+    setWarehouse(searchParams?.get('warehouse') || '');
     const rawBrands = searchParams?.get('brands') || searchParams?.get('brand') || '';
     setBrandCodes(
       rawBrands
@@ -133,7 +155,67 @@ export default function ProductsPage() {
         .map((s) => s.trim())
         .filter(Boolean)
     );
+    const urlPriceType = searchParams?.get('priceType');
+    setAdvancedFilters({
+      sortBy: fromApiSort(searchParams?.get('sort') || null),
+      priceType: urlPriceType === 'white' ? 'white' : 'invoiced',
+      minPrice: readUrlNumber(searchParams?.get('minPrice') || null),
+      maxPrice: readUrlNumber(searchParams?.get('maxPrice') || null),
+      minStock: readUrlNumber(searchParams?.get('minStock') || null),
+      maxStock: readUrlNumber(searchParams?.get('maxStock') || null),
+    });
+    const urlStockStatus = searchParams?.get('stockStatus');
+    setRailFilters({
+      stockStatus: urlStockStatus === 'in' || urlStockStatus === 'supply' ? urlStockStatus : 'all',
+      onlyDiscount: searchParams?.get('onlyDiscount') === '1',
+      onlyAgreement: searchParams?.get('onlyAgreement') === '1',
+    });
+    setUrlStateReady(true);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!urlStateReady) return;
+    if (skipUrlSyncRef.current) {
+      skipUrlSyncRef.current = false;
+      return;
+    }
+    const next = new URLSearchParams(searchParams?.toString() || '');
+    const setOrDelete = (key: string, value: string | undefined) => {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    };
+    setOrDelete('categoryId', selectedCategory || undefined);
+    setOrDelete('brands', brandCodes.length ? brandCodes.join(',') : undefined);
+    next.delete('brand');
+    setOrDelete('search', debouncedSearch.trim() || undefined);
+    setOrDelete('warehouse', warehouse || undefined);
+    setOrDelete('sort', advancedFilters.sortBy === 'none' ? undefined : toApiSort(advancedFilters.sortBy));
+    setOrDelete('priceType', advancedFilters.priceType === defaultFilterPriceType ? undefined : advancedFilters.priceType);
+    setOrDelete('minPrice', advancedFilters.minPrice === undefined ? undefined : String(advancedFilters.minPrice));
+    setOrDelete('maxPrice', advancedFilters.maxPrice === undefined ? undefined : String(advancedFilters.maxPrice));
+    setOrDelete('minStock', advancedFilters.minStock === undefined ? undefined : String(advancedFilters.minStock));
+    setOrDelete('maxStock', advancedFilters.maxStock === undefined ? undefined : String(advancedFilters.maxStock));
+    setOrDelete('stockStatus', railFilters.stockStatus === 'all' ? undefined : railFilters.stockStatus);
+    setOrDelete('onlyDiscount', railFilters.onlyDiscount ? '1' : undefined);
+    setOrDelete('onlyAgreement', railFilters.onlyAgreement ? '1' : undefined);
+    const query = next.toString();
+    const current = searchParams?.toString() || '';
+    if (query !== current) {
+      lastWrittenQueryRef.current = query;
+      router.replace(query ? `/products?${query}` : '/products', { scroll: false });
+    }
+  }, [
+    urlStateReady,
+    searchParams,
+    router,
+    selectedCategory,
+    brandCodes,
+    debouncedSearch,
+    warehouse,
+    advancedFilters,
+    railFilters,
+    defaultFilterPriceType,
+  ]);
 
   useEffect(() => {
     setAdvancedFilters((prev) => {
@@ -169,11 +251,7 @@ export default function ProductsPage() {
     [advancedFilters.minPrice, advancedFilters.maxPrice, railFilters]
   );
 
-  const filteredProducts = useMemo(() => {
-    const base = applyProductFilters(products, advancedFilters);
-    const railActive = railFilters.stockStatus !== 'all' || railFilters.onlyDiscount || railFilters.onlyAgreement;
-    return railActive ? base.filter((p) => railMatches(p, combinedRailFilters)) : base;
-  }, [products, advancedFilters, railFilters, combinedRailFilters]);
+  const filteredProducts = products;
 
   useEffect(() => {
     loadUserFromStorage();
@@ -218,8 +296,15 @@ export default function ProductsPage() {
       const controller = new AbortController();
       productsRequestRef.current = controller;
 
-      if (reset) setIsSearching(true);
-      else setIsLoadingMore(true);
+      if (reset) {
+        setIsSearching(true);
+        setIsLoadingMore(false);
+        setLoadError(null);
+        setLoadMoreError(null);
+      } else {
+        setIsLoadingMore(true);
+        setLoadMoreError(null);
+      }
       try {
         const searchParamsObj = {
           categoryId: selectedCategory || undefined,
@@ -228,20 +313,45 @@ export default function ProductsPage() {
           search: debouncedSearch || undefined,
           warehouse: warehouse || undefined,
           mode: 'all' as const,
-          sort: 'bestsellerValue' as const,
+          sort: toApiSort(advancedFilters.sortBy),
+          priceType: advancedFilters.priceType,
+          minPrice: advancedFilters.minPrice,
+          maxPrice: advancedFilters.maxPrice,
+          minStock: advancedFilters.minStock,
+          maxStock: advancedFilters.maxStock,
+          stockStatus: railFilters.stockStatus,
+          onlyDiscount: railFilters.onlyDiscount || undefined,
+          onlyAgreement: railFilters.onlyAgreement || undefined,
           limit: PAGE_SIZE,
           offset: nextOffset,
         };
 
         const productsData = await customerApi.getProducts(searchParamsObj, { signal: controller.signal });
+        if (productsRequestRef.current !== controller) return;
         const nextProducts = productsData.products;
         setProducts((prev) => (reset ? nextProducts : [...prev, ...nextProducts]));
         setOffset(nextOffset + nextProducts.length);
-        setHasMore(nextProducts.length === PAGE_SIZE);
+        setHasMore(
+          typeof productsData.hasMore === 'boolean'
+            ? productsData.hasMore
+            : typeof productsData.total === 'number'
+              ? nextOffset + nextProducts.length < productsData.total
+              : nextProducts.length === PAGE_SIZE
+        );
         if (typeof productsData.total === 'number') setTotalCount(productsData.total);
       } catch (error) {
         if (isCanceledRequest(error)) return;
+        if (productsRequestRef.current !== controller) return;
         console.error('Ürün yükleme hatası:', error);
+        if (reset) {
+          setProducts([]);
+          setTotalCount(null);
+          setOffset(0);
+          setHasMore(false);
+          setLoadError('Ürünler şu anda yüklenemedi. Bu bir bağlantı veya sunucu hatası olabilir; ürün kayıtları silinmedi.');
+        } else {
+          setLoadMoreError('Daha fazla ürün yüklenemedi. Mevcut ürünler korunuyor; tekrar deneyebilirsiniz.');
+        }
       } finally {
         if (productsRequestRef.current === controller) {
           productsRequestRef.current = null;
@@ -254,15 +364,15 @@ export default function ProductsPage() {
         }
       }
     },
-    [selectedCategory, selectedCategoryIds, brandCodes, debouncedSearch, warehouse]
+    [selectedCategory, selectedCategoryIds, brandCodes, debouncedSearch, warehouse, advancedFilters, railFilters]
   );
 
   useEffect(() => {
-    if (!isStaticLoaded) return;
+    if (!isStaticLoaded || !urlStateReady) return;
     setOffset(0);
     setHasMore(true);
     fetchProducts({ reset: true, offset: 0 });
-  }, [selectedCategory, brandCodes, debouncedSearch, warehouse, isStaticLoaded, fetchProducts]);
+  }, [isStaticLoaded, urlStateReady, fetchProducts]);
 
   const handleLoadMore = () => {
     if (isSearching || isLoadingMore || !hasMore) return;
@@ -321,11 +431,7 @@ export default function ProductsPage() {
 
   const clearBrandFilter = useCallback(() => {
     setBrandCodes([]);
-    // brands URL parametreliyse temizle (banner tiklamasi sonrasi)
-    if (searchParams?.get('brands') || searchParams?.get('brand')) {
-      router.push('/products');
-    }
-  }, [router, searchParams]);
+  }, []);
 
   // Rail'den marka toggle: cok-secim. Sadece state guncellenir; URL'e DOKUNULMAZ.
   // Banner'dan gelen ?brands= parametresi ilk yuklemede state'i doldurur (URL-sync effect);
@@ -372,17 +478,7 @@ export default function ProductsPage() {
     };
   }, [debouncedSearch, brandCodes, warehouse]);
 
-  // Toolbar urun sayisi: client-side filtre (fiyat/stok araligi veya rail) aktifken
-  // gercek gorunen sayi; degilse sunucu toplami.
-  const clientFilterActive =
-    railFilters.stockStatus !== 'all' ||
-    railFilters.onlyDiscount ||
-    railFilters.onlyAgreement ||
-    typeof advancedFilters.minPrice === 'number' ||
-    typeof advancedFilters.maxPrice === 'number' ||
-    typeof advancedFilters.minStock === 'number' ||
-    typeof advancedFilters.maxStock === 'number';
-  const displayCount = clientFilterActive ? filteredProducts.length : totalCount ?? filteredProducts.length;
+  const displayCount = totalCount ?? filteredProducts.length;
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -674,6 +770,12 @@ export default function ProductsPage() {
               <ProductCardSkeleton key={i} />
             ))}
           </div>
+        ) : loadError && products.length === 0 ? (
+          <LoadErrorState
+            title="Ürünler yüklenemedi"
+            description={loadError}
+            onRetry={() => fetchProducts({ reset: true, offset: 0 })}
+          />
         ) : filteredProducts.length === 0 ? (
           <div className="space-y-5">
             <div className="flex flex-col items-center justify-center rounded-[14px] border border-[var(--line)] bg-white px-5 py-14 text-center">
@@ -756,7 +858,7 @@ export default function ProductsPage() {
             )}
 
             <div className={PRODUCTS_GRID_CLASS}>
-              {!search && !selectedCategory && brandCodes.length === 0 && offset === 0 && <InGridBanner />}
+              {!search && !selectedCategory && brandCodes.length === 0 && <InGridBanner />}
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}
@@ -772,12 +874,17 @@ export default function ProductsPage() {
 
             {hasMore && (
               <div className="mt-8 flex flex-col items-center gap-2.5">
+                {loadMoreError && (
+                  <p role="alert" className="text-center text-sm font-medium text-amber-700">
+                    {loadMoreError}
+                  </p>
+                )}
                 <Button
                   className="rounded-lg border border-[var(--line-strong)] bg-white px-6 font-semibold text-primary-600 hover:bg-[var(--surface-0)]"
                   onClick={handleLoadMore}
                   isLoading={isLoadingMore}
                 >
-                  Daha fazla yükle
+                  {loadMoreError ? 'Tekrar dene' : 'Daha fazla yükle'}
                 </Button>
                 {totalCount !== null && (
                   <span className="text-xs text-[var(--ink-3)]">

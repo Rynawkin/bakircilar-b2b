@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Product, Category } from '@/types';
-import customerApi from '@/lib/api/customer';
+import customerApi, { CustomerCatalogSort } from '@/lib/api/customer';
 import { Button } from '@/components/ui/Button';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
+import { LoadErrorState } from '@/components/ui/LoadErrorState';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { FilterRail, RailFilters, RailCategory } from '@/components/customer/FilterRail';
 import { CatalogBannerCarousel } from '@/components/customer/CatalogBannerCarousel';
 import { FilterState } from '@/components/customer/AdvancedFilters';
-import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
@@ -22,32 +22,19 @@ import { ChevronRight, Tag, Search, ArrowDownUp, X, SlidersHorizontal, Warehouse
 // Rail'in stok durumu + indirim/anlasmali (client-side). Bu sayfa zaten indirimli-only
 // (kaynak mode:'discounted') → "Sadece indirimli" pre-checked ve zararsiz (hicbir kalemi elemez).
 // ProductCard mantigiyla tutarli — veri/fiyat mantigina dokunmaz.
-const railMatches = (product: Product, filters: RailFilters): boolean => {
-  const hasAgreement = Boolean(product.agreement);
-  const stock = product.availableStock ?? product.excessStock ?? 0;
-
-  if (filters.stockStatus === 'in' && !(stock > 0)) return false;
-  if (filters.stockStatus === 'supply' && stock > 0) return false;
-
-  if (filters.onlyAgreement && !hasAgreement) return false;
-
-  if (filters.onlyDiscount) {
-    const base = product.prices?.invoiced ?? 0;
-    const disc = product.excessPrices?.invoiced;
-    const isDiscounted = !hasAgreement && (product.excessStock ?? 0) > 0 && typeof disc === 'number' && disc > 0 && disc < base;
-    if (!isDiscounted) return false;
-  }
-
-  return true;
-};
-
-// Bu sayfaya ozgu: "En cok indirim" siralamasi (design 'indirim' sort'u). Shared FilterState
-// tipini genisletmeden, yerel bir sort katmani olarak uygulanir; digerleri applyProductFilters'a delege.
-const discountRatio = (p: Product, priceType: 'invoiced' | 'white'): number => {
-  const base = priceType === 'invoiced' ? p.prices?.invoiced ?? 0 : p.prices?.white ?? 0;
-  const disc = priceType === 'invoiced' ? p.excessPrices?.invoiced : p.excessPrices?.white;
-  if (!base || typeof disc !== 'number' || disc <= 0 || disc >= base) return 0;
-  return 1 - disc / base;
+const toApiSort = (
+  sort: 'discount-desc' | FilterState['sortBy']
+): CustomerCatalogSort => {
+  if (sort === 'discount-desc') return 'discountDesc';
+  const sortMap: Partial<Record<FilterState['sortBy'], CustomerCatalogSort>> = {
+    'price-asc': 'priceAsc',
+    'price-desc': 'priceDesc',
+    'name-asc': 'nameAsc',
+    'name-desc': 'nameDesc',
+    'stock-asc': 'stockAsc',
+    'stock-desc': 'stockDesc',
+  };
+  return sortMap[sort] || 'discountDesc';
 };
 
 const PAGE_SIZE = 60;
@@ -84,6 +71,8 @@ export default function DiscountedProductsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
@@ -105,7 +94,7 @@ export default function DiscountedProductsPage() {
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({ sortBy: 'none', priceType: 'invoiced' });
   const [railFilters, setRailFilters] = useState<Omit<RailFilters, 'minPrice' | 'maxPrice'>>({
     stockStatus: 'all',
-    onlyDiscount: true, // implicit acik: bu sayfa zaten indirimli-only
+    onlyDiscount: false,
     onlyAgreement: false,
   });
 
@@ -156,8 +145,15 @@ export default function DiscountedProductsPage() {
       reqRef.current?.abort();
       const controller = new AbortController();
       reqRef.current = controller;
-      if (reset) setIsSearching(true);
-      else setIsLoadingMore(true);
+      if (reset) {
+        setIsSearching(true);
+        setIsLoadingMore(false);
+        setLoadError(null);
+        setLoadMoreError(null);
+      } else {
+        setIsLoadingMore(true);
+        setLoadMoreError(null);
+      }
       try {
         const data = await customerApi.getProducts(
           {
@@ -167,19 +163,43 @@ export default function DiscountedProductsPage() {
             search: debouncedSearch || undefined,
             warehouse: warehouse || undefined,
             mode: 'discounted',
-            sort: 'bestsellerValue',
+            sort: toApiSort(sortBy),
+            priceType: advancedFilters.priceType,
+            minPrice: advancedFilters.minPrice,
+            maxPrice: advancedFilters.maxPrice,
+            minStock: advancedFilters.minStock,
+            maxStock: advancedFilters.maxStock,
+            stockStatus: railFilters.stockStatus,
+            onlyAgreement: railFilters.onlyAgreement || undefined,
             limit: PAGE_SIZE,
             offset: nextOffset,
           },
           { signal: controller.signal }
         );
+        if (reqRef.current !== controller) return;
         const next = data.products;
         setProducts((prev) => (reset ? next : [...prev, ...next]));
         setOffset(nextOffset + next.length);
-        setHasMore(next.length === PAGE_SIZE);
+        setHasMore(
+          typeof data.hasMore === 'boolean'
+            ? data.hasMore
+            : typeof data.total === 'number'
+              ? nextOffset + next.length < data.total
+              : next.length === PAGE_SIZE
+        );
         setTotalCount(typeof data.total === 'number' ? data.total : null);
       } catch (e) {
-        if (!isCanceled(e)) console.error('Urun yukleme:', e);
+        if (isCanceled(e) || reqRef.current !== controller) return;
+        console.error('Urun yukleme:', e);
+        if (reset) {
+          setProducts([]);
+          setTotalCount(null);
+          setOffset(0);
+          setHasMore(false);
+          setLoadError('İndirimli ürünler şu anda yüklenemedi. Kayıtlarınızda bir değişiklik olmadı.');
+        } else {
+          setLoadMoreError('Daha fazla indirimli ürün yüklenemedi. Mevcut ürünler korunuyor; tekrar deneyebilirsiniz.');
+        }
       } finally {
         if (reqRef.current === controller) {
           reqRef.current = null;
@@ -192,7 +212,7 @@ export default function DiscountedProductsPage() {
         }
       }
     },
-    [selectedCategory, selectedCategoryIds, brandCodes, debouncedSearch, warehouse]
+    [selectedCategory, selectedCategoryIds, brandCodes, debouncedSearch, warehouse, sortBy, advancedFilters, railFilters]
   );
 
   useEffect(() => {
@@ -200,7 +220,7 @@ export default function DiscountedProductsPage() {
     setOffset(0);
     setHasMore(true);
     fetchProducts({ reset: true, offset: 0 });
-  }, [selectedCategory, brandCodes, debouncedSearch, warehouse, isStaticLoaded, fetchProducts]);
+  }, [isStaticLoaded, fetchProducts]);
 
   const combinedRailFilters = useMemo<RailFilters>(
     () => ({
@@ -211,24 +231,7 @@ export default function DiscountedProductsPage() {
     [advancedFilters.minPrice, advancedFilters.maxPrice, railFilters]
   );
 
-  const filteredProducts = useMemo(() => {
-    // Shared fiyat araligi filtresi (advancedFilters.sortBy 'none' — sort'u yerelde yapiyoruz)
-    let base = applyProductFilters(products, advancedFilters);
-    // ONEMLI: bu sayfa zaten SERVER-SIDE mode:'discounted' -> onlyDiscount CLIENT filtresini UYGULAMA.
-    // (Sunucu garanti ediyor; ayrica discounted-mode payload'unda excessPrices/excessStock alan sekli
-    //  farkli oldugundan railMatches.onlyDiscount yanlislikla TUM kalemleri elerdi -> "indirimli urun yok".)
-    // Sadece stok durumu / "sadece anlasmali" client filtreleri gecerli.
-    const railActive = railFilters.stockStatus !== 'all' || railFilters.onlyAgreement;
-    if (railActive) base = base.filter((p) => railMatches(p, { ...combinedRailFilters, onlyDiscount: false }));
-
-    // Siralama: 'discount-desc' yerel; digerleri applyProductFilters'a delege
-    if (sortBy === 'discount-desc') {
-      base = [...base].sort((a, b) => discountRatio(b, advancedFilters.priceType) - discountRatio(a, advancedFilters.priceType));
-    } else if (sortBy !== 'none') {
-      base = applyProductFilters(base, { ...advancedFilters, sortBy });
-    }
-    return base;
-  }, [products, advancedFilters, railFilters, combinedRailFilters, sortBy]);
+  const filteredProducts = products;
 
   const handleAdd = useCallback(async (args: ProductCardAddArgs) => { await addToCart(args); }, [addToCart]);
 
@@ -273,14 +276,7 @@ export default function DiscountedProductsPage() {
     };
   }, [debouncedSearch, brandCodes, warehouse]);
 
-  // "Sadece indirimli" bu sayfada baseline (pre-checked). onlyDiscount === false = baseline'dan sapma.
-  const clientFilterActive =
-    railFilters.stockStatus !== 'all' ||
-    railFilters.onlyAgreement ||
-    !railFilters.onlyDiscount ||
-    typeof advancedFilters.minPrice === 'number' ||
-    typeof advancedFilters.maxPrice === 'number';
-  const displayCount = clientFilterActive ? filteredProducts.length : totalCount ?? filteredProducts.length;
+  const displayCount = totalCount ?? filteredProducts.length;
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -293,7 +289,6 @@ export default function DiscountedProductsPage() {
     if (typeof advancedFilters.maxPrice === 'number') count += 1;
     if (railFilters.stockStatus !== 'all') count += 1;
     if (railFilters.onlyAgreement) count += 1;
-    if (!railFilters.onlyDiscount) count += 1;
     return count;
   }, [search, selectedCategory, brandCodes, warehouse, sortBy, advancedFilters, railFilters]);
 
@@ -302,7 +297,6 @@ export default function DiscountedProductsPage() {
     brandCodes.length > 0 ||
     railFilters.stockStatus !== 'all' ||
     railFilters.onlyAgreement ||
-    !railFilters.onlyDiscount ||
     typeof advancedFilters.minPrice === 'number' ||
     typeof advancedFilters.maxPrice === 'number';
 
@@ -313,7 +307,7 @@ export default function DiscountedProductsPage() {
     setBrandCodes([]);
     setSortBy('discount-desc');
     setAdvancedFilters({ sortBy: 'none', priceType: defaultFilterPriceType });
-    setRailFilters({ stockStatus: 'all', onlyDiscount: true, onlyAgreement: false });
+    setRailFilters({ stockStatus: 'all', onlyDiscount: false, onlyAgreement: false });
   };
 
   if (!user) {
@@ -417,6 +411,7 @@ export default function DiscountedProductsPage() {
                     filters={combinedRailFilters}
                     onFiltersChange={combinedRailForToggle}
                     showAgreementRow={agreementsAvailable}
+                    showDiscountRow={false}
                   />
                 </div>
               </div>
@@ -435,6 +430,7 @@ export default function DiscountedProductsPage() {
               filters={combinedRailFilters}
               onFiltersChange={combinedRailForToggle}
               showAgreementRow={agreementsAvailable}
+              showDiscountRow={false}
             />
           </div>
 
@@ -560,6 +556,12 @@ export default function DiscountedProductsPage() {
             {/* Liste */}
             {isLoading ? (
               <div className={GRID}>{Array.from({ length: 12 }).map((_, i) => <ProductCardSkeleton key={i} />)}</div>
+            ) : loadError && products.length === 0 ? (
+              <LoadErrorState
+                title="İndirimli ürünler yüklenemedi"
+                description={loadError}
+                onRetry={() => fetchProducts({ reset: true, offset: 0 })}
+              />
             ) : filteredProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-[14px] border border-[var(--line)] bg-white px-5 py-14 text-center">
                 <span className="mb-3.5 flex h-14 w-14 items-center justify-center rounded-[14px] bg-[#ecfdf5] text-[#047857]">
@@ -613,12 +615,17 @@ export default function DiscountedProductsPage() {
                 </div>
                 {hasMore && (
                   <div className="mt-8 flex flex-col items-center gap-2.5">
+                    {loadMoreError && (
+                      <p role="alert" className="text-center text-sm font-medium text-amber-700">
+                        {loadMoreError}
+                      </p>
+                    )}
                     <Button
                       className="rounded-lg border border-[var(--line-strong)] bg-white px-6 font-semibold text-primary-600 hover:bg-[var(--surface-0)]"
                       onClick={() => { if (!isSearching && !isLoadingMore && hasMore) fetchProducts({ reset: false, offset }); }}
                       isLoading={isLoadingMore}
                     >
-                      Daha fazla yükle
+                      {loadMoreError ? 'Tekrar dene' : 'Daha fazla yükle'}
                     </Button>
                     {totalCount !== null && (
                       <span className="text-xs text-[var(--ink-3)]">

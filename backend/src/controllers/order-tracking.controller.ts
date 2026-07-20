@@ -377,15 +377,19 @@ class OrderTrackingController {
       const { prisma } = require('../utils/prisma');
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { mikroCariCode: true },
+        select: {
+          mikroCariCode: true,
+          parentCustomer: { select: { mikroCariCode: true } },
+        },
       });
 
-      if (!user || !user.mikroCariCode) {
+      const effectiveMikroCariCode = user?.parentCustomer?.mikroCariCode || user?.mikroCariCode;
+      if (!effectiveMikroCariCode) {
         return res.status(404).json({ error: 'Müşteri kodu bulunamadı' });
       }
 
       // Bekleyen siparişleri getir
-      const orders = await orderTrackingService.getCustomerPendingOrders(user.mikroCariCode);
+      const orders = await orderTrackingService.getCustomerPendingOrders(effectiveMikroCariCode);
 
       res.json(orders);
     } catch (error: any) {

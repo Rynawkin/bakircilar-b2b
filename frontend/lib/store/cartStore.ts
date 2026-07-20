@@ -21,17 +21,24 @@ interface CartState {
   clearCart: () => void;
 }
 
+let cartFetchSequence = 0;
+
 export const useCartStore = create<CartState>((set, get) => ({
   cart: null,
-  isLoading: false,
+  // Ilk istemci istegi tamamlanana kadar bos sepet durumunu gostermeyip yukleme
+  // durumunda kal; CustomerLayout ve sepet sayfasi mount'ta fetchCart cagirir.
+  isLoading: true,
   error: null,
 
   fetchCart: async () => {
+    const requestId = ++cartFetchSequence;
     set({ isLoading: true, error: null });
     try {
       const cart = await customerApi.getCart();
-      set({ cart, isLoading: false });
+      if (requestId !== cartFetchSequence) return;
+      set({ cart, isLoading: false, error: null });
     } catch (error: any) {
+      if (requestId !== cartFetchSequence) return;
       set({
         error: error.response?.data?.error || 'Failed to fetch cart',
         isLoading: false,
@@ -88,7 +95,8 @@ export const useCartStore = create<CartState>((set, get) => ({
   },
 
   clearCart: () => {
-    set({ cart: null });
+    cartFetchSequence += 1;
+    set({ cart: null, isLoading: false, error: null });
   },
 }));
 

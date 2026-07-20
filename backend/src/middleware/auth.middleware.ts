@@ -40,8 +40,9 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       res.status(401).json({ error: 'Account is inactive' });
       return;
     }
-    // Eski token'larda pwfp olmayabilir; sadece varsa dogrula (kademeli gecis).
-    if (decoded.pwfp && decoded.pwfp !== passwordFingerprint(user.password)) {
+    // Şifre değişikliğinin bütün oturumları kesin olarak sonlandırabilmesi için parmak izi
+    // taşımayan eski tokenlar da yeniden girişe zorlanır.
+    if (!decoded.pwfp || decoded.pwfp !== passwordFingerprint(user.password)) {
       res.status(401).json({ error: 'Session expired, please login again' });
       return;
     }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Fragment, useEffect, useMemo } from 'react';
+import { useState, Fragment, useEffect, useMemo, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -39,6 +39,7 @@ import {
 
 const ACCOUNT_LINKS = (pendingRequestCount: number, isSubUser: boolean) => [
   { name: 'Siparişlerim', href: '/my-orders', icon: Package },
+  { name: 'Bekleyen Siparişler', href: '/pending-orders', icon: Clock },
   { name: 'Online Ödeme', href: '/payments', icon: CreditCard },
   { name: 'Faturalarım', href: '/invoices', icon: FileText },
   { name: 'Tekliflerim', href: '/my-quotes', icon: FileText },
@@ -62,12 +63,17 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [unreadCount, setUnreadCount] = useState(0);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [notificationLoading, setNotificationLoading] = useState(false);
+  const [notificationPreferenceBusy, setNotificationPreferenceBusy] = useState<string | null>(null);
+  const [markAllReadBusy, setMarkAllReadBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [agreementsAvailable, setAgreementsAvailable] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const megaButtonRef = useRef<HTMLButtonElement>(null);
+  const megaFirstItemRef = useRef<HTMLButtonElement>(null);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   // Sepet rozeti: kalem (satir) sayisi — 2. birim satirlarinda kesirli baz-miktar
@@ -100,9 +106,11 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   };
 
   const handleToggleNotificationPreference = async (category: string, enabled: boolean) => {
+    if (notificationPreferenceBusy) return;
     const previous = notificationPreferences;
     const next = previous.map((item) => (item.key === category ? { ...item, enabled } : item));
     setNotificationPreferences(next);
+    setNotificationPreferenceBusy(category);
     try {
       const { categories } = await customerApi.updateNotificationPreferences(
         next.map((item) => ({ category: item.key, enabled: item.enabled }))
@@ -111,6 +119,9 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     } catch (error) {
       console.error('Notification preferences not updated:', error);
       setNotificationPreferences(previous);
+      toast.error('Bildirim tercihi kaydedilemedi. Lütfen tekrar deneyin.', { duration: 5000 });
+    } finally {
+      setNotificationPreferenceBusy(null);
     }
   };
 
@@ -198,12 +209,21 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   };
 
   const handleMarkAllRead = async () => {
+    if (markAllReadBusy || unreadCount === 0) return;
+    const previousNotifications = notifications;
+    const previousUnreadCount = unreadCount;
+    setMarkAllReadBusy(true);
+    setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
+    setUnreadCount(0);
     try {
       await customerApi.markNotificationsReadAll();
-      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
-      setUnreadCount(0);
     } catch (error) {
       console.error('Notifications not updated:', error);
+      setNotifications(previousNotifications);
+      setUnreadCount(previousUnreadCount);
+      toast.error('Bildirimler okundu olarak işaretlenemedi. Lütfen tekrar deneyin.', { duration: 5000 });
+    } finally {
+      setMarkAllReadBusy(false);
     }
   };
 
@@ -253,7 +273,31 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   useEffect(() => {
     setMobileMenuOpen(false);
     setMobileCategoriesOpen(false);
+    setMegaOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      setSearchFocused(true);
+    };
+
+    window.addEventListener('keydown', focusSearch);
+    return () => window.removeEventListener('keydown', focusSearch);
+  }, []);
 
   // Hesap menusu ve kategori paneli birbirini disar (ayni anda bir tanesi acik)
   const openMobileMenu = () => {
@@ -350,6 +394,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             <form onSubmit={handleSearch} className="flex h-[42px] w-full items-center gap-2.5 rounded-[10px] border border-[var(--line)] bg-[#f6f8fc] px-3.5">
               <Search className="h-[18px] w-[18px] flex-none text-[var(--ink-3)]" />
               <input
+                ref={searchInputRef}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
@@ -463,8 +508,13 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               <Menu.Items className="absolute right-0 z-[60] mt-2 w-[calc(100vw-1.5rem)] max-w-[20rem] origin-top-right overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-[var(--line)] focus:outline-none sm:w-80">
                 <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
                   <div className="text-sm font-semibold text-[var(--ink-1)]">Bildirimler</div>
-                  <button className="text-xs font-medium text-primary-600 hover:text-primary-700" onClick={handleMarkAllRead} type="button">
-                    Tümünü okundu yap
+                  <button
+                    className="text-xs font-medium text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={handleMarkAllRead}
+                    disabled={markAllReadBusy || unreadCount === 0}
+                    type="button"
+                  >
+                    {markAllReadBusy ? 'Güncelleniyor…' : 'Tümünü okundu yap'}
                   </button>
                 </div>
                 <div className="border-b border-[var(--line)] bg-[var(--surface-0)] px-4 py-3">
@@ -483,8 +533,9 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                           <input
                             type="checkbox"
                             checked={item.enabled}
+                            disabled={notificationPreferenceBusy !== null}
                             onChange={(event) => handleToggleNotificationPreference(item.key, event.target.checked)}
-                            className="h-3.5 w-3.5 accent-primary-600"
+                            className="h-3.5 w-3.5 accent-primary-600 disabled:cursor-not-allowed disabled:opacity-60"
                           />
                           <span className="truncate">{item.label}</span>
                         </label>
@@ -499,23 +550,26 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                   )}
                   {!notificationLoading &&
                     notifications.map((notification) => (
-                      <button
-                        key={notification.id}
-                        className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                          notification.isRead
-                            ? 'border-transparent text-[var(--ink-2)] hover:bg-[var(--surface-0)]'
-                            : 'border-primary-100 bg-primary-50 text-[var(--ink-1)] hover:bg-primary-100/70'
-                        }`}
-                        onClick={() => handleNotificationClick(notification)}
-                        type="button"
-                      >
-                        <div className="flex items-start gap-2 text-sm font-medium">
-                          {!notification.isRead && <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary-600" />}
-                          <span className="flex-1">{notification.title}</span>
-                        </div>
-                        {notification.body && <div className="mt-1 line-clamp-2 text-xs text-[var(--ink-2)]">{notification.body}</div>}
-                        <div className="mt-1 text-[11px] text-[var(--ink-3)]">{formatDateShort(notification.createdAt)}</div>
-                      </button>
+                      <Menu.Item key={notification.id}>
+                        {({ active }) => (
+                          <button
+                            className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                              notification.isRead
+                                ? 'border-transparent text-[var(--ink-2)] hover:bg-[var(--surface-0)]'
+                                : 'border-primary-100 bg-primary-50 text-[var(--ink-1)] hover:bg-primary-100/70'
+                            } ${active ? 'ring-2 ring-primary-200' : ''}`}
+                            onClick={() => handleNotificationClick(notification)}
+                            type="button"
+                          >
+                            <div className="flex items-start gap-2 text-sm font-medium">
+                              {!notification.isRead && <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary-600" />}
+                              <span className="flex-1">{notification.title}</span>
+                            </div>
+                            {notification.body && <div className="mt-1 line-clamp-2 text-xs text-[var(--ink-2)]">{notification.body}</div>}
+                            <div className="mt-1 text-[11px] text-[var(--ink-3)]">{formatDateShort(notification.createdAt)}</div>
+                          </button>
+                        )}
+                      </Menu.Item>
                     ))}
                 </div>
               </Menu.Items>
@@ -602,8 +656,6 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           {/* Sepet (lacivert) */}
           <Link
             href="/cart"
-            target="_blank"
-            rel="noopener noreferrer"
             className="flex h-[42px] flex-none items-center gap-2.5 rounded-[10px] bg-primary-700 px-2.5 text-white transition-colors hover:bg-primary-600 sm:px-[15px]"
           >
             <span className="relative flex">
@@ -633,7 +685,19 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
       </div>
 
       {/* ── KATEGORİ / GEZİNME SATIRI (48px) ─────────────────────── */}
-      <div className="relative hidden border-b border-[#eef1f6] md:block" onMouseLeave={() => setMegaOpen(false)}>
+      <div
+        className="relative hidden border-b border-[#eef1f6] md:block"
+        onMouseLeave={() => setMegaOpen(false)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMegaOpen(false);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape' || !megaOpen) return;
+          event.preventDefault();
+          setMegaOpen(false);
+          megaButtonRef.current?.focus();
+        }}
+      >
         <div className="mx-auto flex h-12 w-full max-w-[1900px] items-center justify-between px-4 sm:px-6 lg:px-8">
           {/* Sol — Anasayfa + Tüm Kategoriler (hover mega) + Tüm Ürünler */}
           <nav className="flex items-center gap-0.5 whitespace-nowrap">
@@ -646,14 +710,24 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               Anasayfa
             </Link>
             <button
+              ref={megaButtonRef}
               type="button"
               onMouseEnter={() => setMegaOpen(true)}
-              onClick={() => router.push('/products')}
+              onClick={() => setMegaOpen((open) => !open)}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowDown') return;
+                event.preventDefault();
+                setMegaOpen(true);
+                window.requestAnimationFrame(() => megaFirstItemRef.current?.focus());
+              }}
+              aria-expanded={megaOpen}
+              aria-haspopup="true"
+              aria-controls="customer-category-mega-menu"
               className="flex h-12 items-center gap-2 px-[13px] text-[13.5px] font-semibold text-primary-700"
             >
               <LayoutGrid className="h-[17px] w-[17px]" />
               Tüm Kategoriler
-              <ChevronDown className="h-3.5 w-3.5" />
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${megaOpen ? 'rotate-180' : ''}`} />
             </button>
             <Link
               href="/products"
@@ -693,18 +767,25 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] border-t border-t-[#eef1f6] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
+          <div
+            id="customer-category-mega-menu"
+            className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] border-t border-t-[#eef1f6] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]"
+            aria-label="Ürün kategorileri"
+            role="region"
+          >
             <div className="mx-auto w-full max-w-[1900px] px-4 py-[18px] sm:px-6 lg:px-8">
               <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--line)] md:grid-cols-[262px_minmax(0,1fr)] lg:grid-cols-[262px_minmax(0,1fr)_240px]">
                 {/* Sol — ANA (kök) kategoriler; hover orta kolonu değiştirir */}
                 <div className="max-h-[436px] overflow-y-auto border-b border-[var(--line)] bg-[#f6f8fc] py-2 md:border-b-0 md:border-r">
-                  {roots.map((root) => {
+                  {roots.map((root, index) => {
                     const active = root.id === megaActiveRootId;
                     return (
                       <button
+                        ref={index === 0 ? megaFirstItemRef : undefined}
                         key={root.id}
                         type="button"
                         onMouseEnter={() => setMegaRootId(root.id)}
+                        onFocus={() => setMegaRootId(root.id)}
                         onClick={() => { setMegaOpen(false); router.push(`/products?categoryId=${root.id}`); }}
                         className={`flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-[13px] transition-colors ${
                           active ? 'bg-white font-semibold text-primary-700' : 'text-[var(--ink-2)] hover:bg-white hover:text-[var(--ink-1)]'
@@ -818,8 +899,6 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               <Link
                 key={item.href}
                 href={item.href}
-                target={item.href === '/cart' ? '_blank' : undefined}
-                rel={item.href === '/cart' ? 'noopener noreferrer' : undefined}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`flex min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   isActive(item.href) ? 'bg-primary-50 text-primary-700' : 'text-[var(--ink-2)] hover:bg-[var(--surface-0)]'
@@ -882,8 +961,6 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
         <Link
           href="/cart"
-          target="_blank"
-          rel="noopener noreferrer"
           onClick={() => { setMobileMenuOpen(false); setMobileCategoriesOpen(false); }}
           className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
             isActive('/cart') ? 'text-primary-600' : 'text-[var(--ink-3)]'

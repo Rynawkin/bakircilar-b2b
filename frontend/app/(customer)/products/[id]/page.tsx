@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { Product } from '@/types';
 import customerApi from '@/lib/api/customer';
@@ -48,6 +49,7 @@ export default function ProductDetailPage() {
 
   const [product, setProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [productLoadError, setProductLoadError] = useState<'not-found' | 'failed' | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [priceType, setPriceType] = useState<'INVOICED' | 'WHITE'>('INVOICED');
   const [isAdding, setIsAdding] = useState(false);
@@ -156,6 +158,8 @@ export default function ProductDetailPage() {
 
   const fetchProduct = async (id: string, mode?: 'discounted' | 'excess') => {
     setIsLoading(true);
+    setProductLoadError(null);
+    setProduct(null);
     try {
       const data = await customerApi.getProductById(id, mode);
       setProduct(data);
@@ -165,6 +169,8 @@ export default function ProductDetailPage() {
       setUseUnit2(false);
     } catch (error) {
       console.error('Urun yukleme hatasi:', error);
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      setProductLoadError(status === 404 ? 'not-found' : 'failed');
     } finally {
       setIsLoading(false);
     }
@@ -206,10 +212,17 @@ export default function ProductDetailPage() {
         selectedUnit: unit2Active ? unitInfo.altUnit : undefined,
       });
 
-      toast.success('Urun sepete eklendi!');
-      router.push('/cart');
+      toast.success(
+        <span className="flex items-center gap-3">
+          <span>Ürün sepete eklendi</span>
+          <Link href="/cart" className="shrink-0 font-semibold text-primary-700 underline underline-offset-2">
+            Sepete git
+          </Link>
+        </span>,
+        { duration: 4000 }
+      );
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Sepete eklenirken hata olustu');
+      toast.error(error.response?.data?.error || 'Sepete eklenirken hata oluştu');
     } finally {
       setIsAdding(false);
     }
@@ -284,14 +297,34 @@ export default function ProductDetailPage() {
     );
   }
 
+  if (productLoadError === 'failed') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--surface-0)] px-4">
+        <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-white px-8 py-12 text-center shadow-sm" role="alert">
+          <AlertTriangle className="mx-auto h-10 w-10 text-amber-600" />
+          <h1 className="mt-4 text-lg font-semibold text-[var(--ink-1)]">Ürün yüklenemedi</h1>
+          <p className="mt-2 text-sm text-[var(--ink-2)]">
+            Bağlantınızı kontrol edip tekrar deneyin. Ürün kaydınız silinmiş değildir.
+          </p>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <Button onClick={() => fetchProduct(params.id as string, detailMode)}>Tekrar Dene</Button>
+            <Link href="/products" className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] hover:bg-[var(--surface-0)]">
+              Ürünlere Dön
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!product) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--surface-0)]">
         <div className="rounded-2xl border border-[var(--line)] bg-white px-8 py-12 text-center">
           <p className="text-[var(--ink-2)]">Ürün bulunamadı</p>
-          <button onClick={() => router.push('/products')} className="btn-primary mt-4">
+          <Link href="/products" className="btn-primary mt-4 inline-flex">
             Ürünlere Dön
-          </button>
+          </Link>
         </div>
       </div>
     );
@@ -403,9 +436,7 @@ export default function ProductDetailPage() {
   const vatPercent = Math.round((Number(product.vatRate) || 0) * 100);
   const formatAgreementDate = (value?: string | null) => {
     if (!value) return '-';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '-';
-    return date.toISOString().slice(0, 10);
+    return formatDateShort(value);
   };
 
   const rawDescription = (product as { description?: string | null }).description;
@@ -424,21 +455,13 @@ export default function ProductDetailPage() {
       <div className="mx-auto w-full max-w-[1280px] px-3 py-5 sm:px-4 sm:py-6 lg:px-6">
         {/* Breadcrumb */}
         <div className="mb-4 flex flex-wrap items-center gap-1.5 text-[12.5px] text-[var(--ink-3)]">
-          <button
-            type="button"
-            onClick={() => router.push('/dashboard')}
-            className="transition-colors hover:text-primary-700"
-          >
+          <Link href="/home" className="transition-colors hover:text-primary-700">
             Ana Sayfa
-          </button>
+          </Link>
           <ChevronRight className="h-3.5 w-3.5" />
-          <button
-            type="button"
-            onClick={() => router.push('/products')}
-            className="transition-colors hover:text-primary-700"
-          >
+          <Link href="/products" className="transition-colors hover:text-primary-700">
             Tüm Ürünler
-          </button>
+          </Link>
           <ChevronRight className="h-3.5 w-3.5" />
           <span className="font-medium text-[var(--ink-2)]">{product.name}</span>
         </div>
@@ -446,11 +469,15 @@ export default function ProductDetailPage() {
         <div className="flex flex-col items-start gap-7 lg:flex-row">
           {/* SOL: görsel */}
           <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-1">
-            <div
+            <button
+              type="button"
               className={`relative flex h-[300px] items-center justify-center overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] sm:h-[420px] ${
                 isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
-              }`}
+              } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-default`}
               onClick={() => setIsZoomed(!isZoomed)}
+              disabled={!activeImage}
+              aria-pressed={isZoomed}
+              aria-label={activeImage ? (isZoomed ? 'Ürün görselini küçült' : 'Ürün görselini büyüt') : 'Ürün görseli bulunmuyor'}
             >
               {activeImage ? (
                 <img
@@ -475,7 +502,7 @@ export default function ProductDetailPage() {
               {isDiscounted && (
                 <span className="absolute right-3.5 top-3.5 badge-success">İndirimli</span>
               )}
-            </div>
+            </button>
 
             {/* Galeri thumbnail seridi (birden fazla gorsel varsa) */}
             {gallery.length > 1 && (

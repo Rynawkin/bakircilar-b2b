@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Pencil,
   ShieldCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { CartItem, Product } from '@/types';
 import { useCartStore } from '@/lib/store/cartStore';
@@ -40,7 +41,16 @@ type RecommendationGroup = {
 export default function CartPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
-  const { cart, fetchCart, removeItem, updateQuantity, updateItemNote, addToCart } = useCartStore();
+  const {
+    cart,
+    isLoading: isCartLoading,
+    error: cartError,
+    fetchCart,
+    removeItem,
+    updateQuantity,
+    updateItemNote,
+    addToCart,
+  } = useCartStore();
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [lineNotes, setLineNotes] = useState<Record<string, string>>({});
   const [noteOpen, setNoteOpen] = useState<Record<string, boolean>>({});
@@ -52,6 +62,10 @@ export default function CartPage() {
   // Mobilde tamamlayici oneriler varsayilan kapali (akordeon) — "Siparisi Tamamla"yi asagi itmesin
   const [mobileRecoOpen, setMobileRecoOpen] = useState(false);
   const [stockShortNames, setStockShortNames] = useState<string[]>([]);
+  const [quantityUpdatingIds, setQuantityUpdatingIds] = useState<Record<string, boolean>>({});
+  const [removingItemIds, setRemovingItemIds] = useState<Record<string, boolean>>({});
+  const [isClearingCart, setIsClearingCart] = useState(false);
+  const quantityLocksRef = useRef<Set<string>>(new Set());
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -60,6 +74,11 @@ export default function CartPage() {
   const vatDisplayPreference = user?.vatDisplayPreference || 'WITHOUT_VAT';
   const allowedPriceTypes = useMemo(() => getAllowedPriceTypes(effectiveVisibility), [effectiveVisibility]);
   const defaultPriceType = getDefaultPriceType(effectiveVisibility);
+
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    const requestError = error as { response?: { data?: { error?: string } }; message?: string };
+    return requestError?.response?.data?.error || requestError?.message || fallback;
+  };
 
   // Girdi kutusu icin GRUPLAMASIZ sayi metni (parseInt guvenli). tr-TR gruplama
   // (1.000) parseInt'i bozar -> input'ta locale KULLANMA; sadece ≈ ipucunda kullan.
@@ -153,6 +172,7 @@ export default function CartPage() {
   };
 
   const handleRemove = async (itemId: string) => {
+    if (isClearingCart || removingItemIds[itemId]) return;
     await showConfirmDialog(
       {
         title: 'Ürünü Sepetten Çıkar',
@@ -160,10 +180,16 @@ export default function CartPage() {
         confirmLabel: 'Sil',
         cancelLabel: 'İptal',
         type: 'danger',
+        onError: (error) => toast.error(getErrorMessage(error, 'Ürün sepetten çıkarılamadı.')),
       },
       async () => {
-        await removeItem(itemId);
-        toast.success('Ürün sepetten çıkarıldı');
+        setRemovingItemIds((prev) => ({ ...prev, [itemId]: true }));
+        try {
+          await removeItem(itemId);
+          toast.success('Ürün sepetten çıkarıldı');
+        } finally {
+          setRemovingItemIds((prev) => ({ ...prev, [itemId]: false }));
+        }
       }
     );
   };
@@ -172,11 +198,23 @@ export default function CartPage() {
   // cevrilip backend'e gonderilir. 2. birim satirinda selectedUnit da iletilir.
   const applyDisplayQuantity = async (item: CartItem, nextDisplayQty: number) => {
     if (!(nextDisplayQty > 0)) return;
-    const { info, isSubUnit } = resolveLineUnit(item);
+    if (quantityLocksRef.current.has(item.id)) return;
+    const { info, isSubUnit, displayQty } = resolveLineUnit(item);
     const baseQty = isSubUnit ? info.altToBase(nextDisplayQty) : nextDisplayQty;
     if (!(baseQty > 0)) return;
+    const previousInput = plainQtyString(displayQty);
+    quantityLocksRef.current.add(item.id);
+    setQuantityUpdatingIds((prev) => ({ ...prev, [item.id]: true }));
     setQuantityInputs((prev) => ({ ...prev, [item.id]: plainQtyString(nextDisplayQty) }));
-    await updateQuantity(item.id, baseQty, isSubUnit ? (info.altUnit as string) : undefined);
+    try {
+      await updateQuantity(item.id, baseQty, isSubUnit ? (info.altUnit as string) : undefined);
+    } catch (error) {
+      setQuantityInputs((prev) => ({ ...prev, [item.id]: previousInput }));
+      toast.error(getErrorMessage(error, 'Miktar güncellenemedi. Eski değer geri getirildi.'));
+    } finally {
+      quantityLocksRef.current.delete(item.id);
+      setQuantityUpdatingIds((prev) => ({ ...prev, [item.id]: false }));
+    }
   };
 
   const handleQuantityStep = async (item: CartItem, delta: number) => {
@@ -275,7 +313,7 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
   };
 
   const handleClearCart = async () => {
-    if (!cart) return;
+    if (!cart || isClearingCart) return;
     await showConfirmDialog(
       {
         title: 'Sepeti Temizle',
@@ -283,12 +321,18 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
         confirmLabel: 'Sepeti Temizle',
         cancelLabel: 'İptal',
         type: 'danger',
+        onError: (error) => toast.error(getErrorMessage(error, 'Sepet tamamen temizlenemedi. Lütfen tekrar deneyin.')),
       },
       async () => {
-        for (const item of cart.items) {
-          await removeItem(item.id);
+        setIsClearingCart(true);
+        try {
+          for (const item of cart.items) {
+            await removeItem(item.id);
+          }
+          toast.success('Sepet temizlendi');
+        } finally {
+          setIsClearingCart(false);
         }
-        toast.success('Sepet temizlendi');
       }
     );
   };
@@ -318,22 +362,33 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
     const qtyValue = quantityInputs[item.id] ?? plainQtyString(lineUnit.displayQty);
     const stepDisabled = Math.round(lineUnit.displayQty) <= 1;
     const open = noteOpen[item.id];
+    const isQuantityUpdating = Boolean(quantityUpdatingIds[item.id]);
+    const isRemoving = Boolean(removingItemIds[item.id]) || isClearingCart;
     return (
       <div key={item.id} className="rounded-xl border border-[var(--line)] bg-white p-3.5">
         <div className="flex flex-wrap items-center gap-3">
-          {item.product.imageUrl ? (
-            <div className="h-[52px] w-[52px] flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-0)]">
+          <Link
+            href={`/products/${item.product.id}`}
+            aria-label={`${item.product.name} ürün detayını aç`}
+            className="h-[52px] w-[52px] flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-0)] transition-colors hover:border-primary-300"
+          >
+            {item.product.imageUrl ? (
               <img src={item.product.imageUrl} alt={item.product.name} className="h-full w-full object-contain" />
-            </div>
-          ) : (
-            <div className="flex h-[52px] w-[52px] flex-shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface-0)]">
-              <ShoppingCart className="h-5 w-5 text-gray-300" />
-            </div>
-          )}
+            ) : (
+              <span className="flex h-full w-full items-center justify-center">
+                <ShoppingCart className="h-5 w-5 text-gray-300" />
+              </span>
+            )}
+          </Link>
 
           <div className="min-w-0 flex-1 sm:min-w-[180px]">
             <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[var(--ink-1)]">{item.product.name}</span>
+              <Link
+                href={`/products/${item.product.id}`}
+                className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[var(--ink-1)] transition-colors hover:text-primary-700 hover:underline"
+              >
+                {item.product.name}
+              </Link>
               {isInvoiced ? (
                 <span className="badge-info flex-shrink-0">Faturalı</span>
               ) : (
@@ -342,7 +397,10 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
               {item.priceMode === 'EXCESS' && <span className="badge-success flex-shrink-0">İndirimli</span>}
             </div>
             <div className="mt-1 truncate font-mono text-[11px] text-[var(--ink-3)]">
-              {item.product.mikroCode} · KDV %{Math.round((item.vatRate || 0) * 100)}
+              <Link href={`/products/${item.product.id}`} className="hover:text-primary-700 hover:underline">
+                {item.product.mikroCode}
+              </Link>{' '}
+              · KDV %{Math.round((item.vatRate || 0) * 100)}
             </div>
           </div>
 
@@ -351,7 +409,7 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
               <div className="flex items-center overflow-hidden rounded-lg border border-[var(--line-strong)]">
                 <button
                   onClick={() => handleQuantityStep(item, -1)}
-                  disabled={stepDisabled}
+                  disabled={stepDisabled || isQuantityUpdating || isClearingCart}
                   className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] disabled:opacity-40"
                   aria-label="Azalt"
                 >
@@ -368,12 +426,14 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') e.currentTarget.blur();
                   }}
+                  disabled={isQuantityUpdating || isClearingCart}
                   className="h-8 w-11 border-x border-[var(--line)] text-center text-sm font-semibold text-[var(--ink-1)] focus:outline-none"
-                  aria-label={`${item.product.name} miktari`}
+                  aria-label={`${item.product.name} miktarı`}
                 />
                 <button
                   onClick={() => handleQuantityStep(item, 1)}
-                  className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                  disabled={isQuantityUpdating || isClearingCart}
+                  className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Artır"
                 >
                   <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
@@ -407,10 +467,11 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
             </div>
             <button
               onClick={() => handleRemove(item.id)}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--line)] text-[var(--ink-3)] transition-colors hover:border-red-200 hover:text-red-600"
+              disabled={isRemoving || isQuantityUpdating}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--line)] text-[var(--ink-3)] transition-colors hover:border-red-200 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Sepetten çıkar"
             >
-              <Trash2 className="h-4 w-4" />
+              {isRemoving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </button>
           </div>
         </div>
@@ -483,7 +544,23 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
           )}
         </div>
 
-        {!cart || cart.items.length === 0 ? (
+        {isCartLoading && !cart ? (
+          <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-[var(--line)] bg-white">
+            <div className="flex flex-col items-center gap-3 text-sm text-[var(--ink-3)]">
+              <RefreshCw className="h-8 w-8 animate-spin text-primary-600" />
+              Sepetiniz yükleniyor…
+            </div>
+          </div>
+        ) : cartError && (!cart || cart.items.length === 0) ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-red-200 bg-white px-6 py-14 text-center" role="alert">
+            <AlertTriangle className="mb-3 h-10 w-10 text-red-500" />
+            <h2 className="text-lg font-semibold text-[var(--ink-1)]">Sepet yüklenemedi</h2>
+            <p className="mt-1 max-w-sm text-sm text-[var(--ink-3)]">Bağlantıyı kontrol edip tekrar deneyin.</p>
+            <Button className="mt-5" onClick={() => void fetchCart()} isLoading={isCartLoading}>
+              Tekrar dene
+            </Button>
+          </div>
+        ) : !cart || cart.items.length === 0 ? (
           /* Bos sepet */
           <div className="flex flex-col items-center justify-center rounded-2xl border border-[var(--line)] bg-white px-6 py-16 text-center">
             <span className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-50 ring-1 ring-inset ring-primary-100">
@@ -546,10 +623,11 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
               <div className="flex justify-end">
                 <button
                   onClick={handleClearCart}
-                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50"
+                  disabled={isClearingCart || Object.values(removingItemIds).some(Boolean)}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Trash2 className="h-4 w-4" />
-                  Sepeti Temizle
+                  {isClearingCart ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  {isClearingCart ? 'Temizleniyor…' : 'Sepeti Temizle'}
                 </button>
               </div>
 

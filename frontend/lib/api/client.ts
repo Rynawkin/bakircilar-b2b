@@ -49,27 +49,18 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Sadece gerçek authentication hatalarında logout yap
-    // Network hataları veya CORS hataları ignore et
-    if (error.response?.status === 401 && error.response?.data?.error) {
-      const errorMessage = error.response.data.error;
-
-      // Sadece token hatalarında logout yap
-      if (
-        errorMessage.includes('token') ||
-        errorMessage.includes('expired') ||
-        errorMessage.includes('Invalid') ||
-        errorMessage.includes('Authentication required')
-      ) {
-        if (typeof window !== 'undefined') {
-          console.warn('⚠️ Auth token expired or invalid, logging out...');
-          // Tüm auth storage'ları temizle
-          localStorage.removeItem('b2b-auth');
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          localStorage.removeItem('b2b-auth-storage');
-          window.location.href = '/login';
-        }
+    // HTTP 401 her zaman geçersiz/eksik oturum anlamına gelir. Backend hata metninin
+    // diline göre karar vermek bazı 401 cevaplarında kullanıcıyı sonsuz spinner'da
+    // bırakıyordu. Login denemesi hariç tüm 401'larda yerel oturumu temizle.
+    const requestUrl = String(error.config?.url || '');
+    const isLoginRequest = requestUrl.includes('/auth/login');
+    if (error.response?.status === 401 && !isLoginRequest && typeof window !== 'undefined') {
+      localStorage.removeItem('b2b-auth');
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('b2b-auth-storage');
+      if (window.location.pathname !== '/login') {
+        window.location.replace('/login');
       }
     }
     return Promise.reject(error);

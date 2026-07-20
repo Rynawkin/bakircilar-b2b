@@ -3,41 +3,22 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { Product } from '@/types';
-import customerApi from '@/lib/api/customer';
+import customerApi, { CustomerCatalogSort } from '@/lib/api/customer';
 import { Button } from '@/components/ui/Button';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
+import { LoadErrorState } from '@/components/ui/LoadErrorState';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { FilterRail, RailFilters, RailCategory } from '@/components/customer/FilterRail';
 import { CatalogBannerCarousel } from '@/components/customer/CatalogBannerCarousel';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { FilterState } from '@/components/customer/AdvancedFilters';
-import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { ChevronRight, Search, ArrowDownUp, X, SlidersHorizontal, Compass } from 'lucide-react';
 
 // Aile disi rail client-side filtreleri: stok durumu + sadece indirimli/anlasmali.
 // ProductCard'daki indirim/anlasma mantigiyla tutarli — veri/fiyat mantigina dokunmaz.
-const railMatches = (product: Product, filters: RailFilters): boolean => {
-  const hasAgreement = Boolean(product.agreement);
-  const stock = product.availableStock ?? product.excessStock ?? 0;
-
-  if (filters.stockStatus === 'in' && !(stock > 0)) return false;
-  if (filters.stockStatus === 'supply' && stock > 0) return false;
-
-  if (filters.onlyAgreement && !hasAgreement) return false;
-
-  if (filters.onlyDiscount) {
-    const base = product.prices?.invoiced ?? 0;
-    const disc = product.excessPrices?.invoiced;
-    const isDiscounted = !hasAgreement && (product.excessStock ?? 0) > 0 && typeof disc === 'number' && disc > 0 && disc < base;
-    if (!isDiscounted) return false;
-  }
-
-  return true;
-};
-
 const CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
 const GRID_CLASS = 'grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-3 2xl:grid-cols-4 min-[1800px]:grid-cols-5';
 const PAGE_SIZE = 60;
@@ -49,6 +30,18 @@ type UnboughtCategory = { id: string; name: string; mikroCode?: string; imageUrl
 
 const isCanceledRequest = (error: any) =>
   error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError';
+
+const toApiSort = (sort: FilterState['sortBy']): CustomerCatalogSort => {
+  const sortMap: Partial<Record<FilterState['sortBy'], CustomerCatalogSort>> = {
+    'price-asc': 'priceAsc',
+    'price-desc': 'priceDesc',
+    'name-asc': 'nameAsc',
+    'name-desc': 'nameDesc',
+    'stock-asc': 'stockAsc',
+    'stock-desc': 'stockDesc',
+  };
+  return sortMap[sort] || 'bestsellerValue';
+};
 
 export default function NewCategoriesPage() {
   const { user, loadUserFromStorage } = useAuthStore();
@@ -74,6 +67,7 @@ export default function NewCategoriesPage() {
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
   const [hasError, setHasError] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [noUnbought, setNoUnbought] = useState(false);
 
   const [search, setSearch] = useState('');
@@ -81,7 +75,6 @@ export default function NewCategoriesPage() {
   const [agreementsAvailable, setAgreementsAvailable] = useState(false);
   const debouncedSearch = useDebounce(search, 300);
   const productsRequestRef = useRef<AbortController | null>(null);
-  const didInitRef = useRef(false);
 
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
     sortBy: 'none',
@@ -103,20 +96,7 @@ export default function NewCategoriesPage() {
   );
 
   // Sunucudan gelen urunler uzerinde client-side: arama + sirala + fiyat/stok araligi + rail filtreleri.
-  const filteredProducts = useMemo(() => {
-    let base = products;
-    const term = debouncedSearch.trim().toLocaleLowerCase('tr');
-    if (term) {
-      base = base.filter((p) => {
-        const name = (p.name || '').toLocaleLowerCase('tr');
-        const code = (p.mikroCode || '').toLocaleLowerCase('tr');
-        return name.includes(term) || code.includes(term);
-      });
-    }
-    base = applyProductFilters(base, advancedFilters);
-    const railActive = railFilters.stockStatus !== 'all' || railFilters.onlyDiscount || railFilters.onlyAgreement;
-    return railActive ? base.filter((p) => railMatches(p, combinedRailFilters)) : base;
-  }, [products, debouncedSearch, advancedFilters, railFilters, combinedRailFilters]);
+  const filteredProducts = products;
 
   const railCategories = useMemo<RailCategory[]>(
     () => categories.map((c) => ({ id: c.id, name: c.name, count: c.count })),
@@ -130,21 +110,44 @@ export default function NewCategoriesPage() {
       const controller = new AbortController();
       productsRequestRef.current = controller;
 
-      if (reset) setIsSearching(true);
-      else setIsLoadingMore(true);
+      if (reset) {
+        setIsSearching(true);
+        setIsLoadingMore(false);
+        setHasError(false);
+        setLoadMoreError(null);
+      } else {
+        setIsLoadingMore(true);
+        setLoadMoreError(null);
+      }
       try {
         const data = await customerApi.getUnboughtCategoryProducts({
           categoryId: categoryId || undefined,
-          sort: 'bestseller',
+          search: debouncedSearch.trim() || undefined,
+          warehouse: warehouse || undefined,
+          sort: toApiSort(advancedFilters.sortBy),
+          priceType: advancedFilters.priceType,
+          minPrice: advancedFilters.minPrice,
+          maxPrice: advancedFilters.maxPrice,
+          minStock: advancedFilters.minStock,
+          maxStock: advancedFilters.maxStock,
+          stockStatus: railFilters.stockStatus,
+          onlyDiscount: railFilters.onlyDiscount || undefined,
+          onlyAgreement: railFilters.onlyAgreement || undefined,
           offset: nextOffset,
           limit: PAGE_SIZE,
-        });
+        }, { signal: controller.signal });
         if (productsRequestRef.current !== controller) return;
 
         const nextProducts = Array.isArray(data?.products) ? data.products : [];
         setProducts((prev) => (reset ? nextProducts : [...prev, ...nextProducts]));
         setOffset(nextOffset + nextProducts.length);
-        setHasMore(nextProducts.length === PAGE_SIZE);
+        setHasMore(
+          typeof data?.hasMore === 'boolean'
+            ? data.hasMore
+            : typeof data?.totalCount === 'number'
+              ? nextOffset + nextProducts.length < data.totalCount
+              : nextProducts.length === PAGE_SIZE
+        );
         if (typeof data?.totalCount === 'number') setTotalCount(data.totalCount);
 
         // Denenmemis kategori listesi (rail icin) — ilk yuklemede / kategori degisiminde tazele.
@@ -156,8 +159,17 @@ export default function NewCategoriesPage() {
         setHasError(false);
       } catch (error) {
         if (isCanceledRequest(error)) return;
+        if (productsRequestRef.current !== controller) return;
         console.error('Denenmemis kategori urunleri yuklenemedi:', error);
-        setHasError(true);
+        if (reset) {
+          setProducts([]);
+          setTotalCount(null);
+          setOffset(0);
+          setHasMore(false);
+          setHasError(true);
+        } else {
+          setLoadMoreError('Daha fazla ürün yüklenemedi. Mevcut ürünler korunuyor; tekrar deneyebilirsiniz.');
+        }
       } finally {
         if (productsRequestRef.current === controller) {
           productsRequestRef.current = null;
@@ -170,7 +182,7 @@ export default function NewCategoriesPage() {
         }
       }
     },
-    []
+    [debouncedSearch, warehouse, advancedFilters, railFilters]
   );
 
   useEffect(() => {
@@ -183,12 +195,11 @@ export default function NewCategoriesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Ilk yukleme (Tumu = tum denenmemis kategoriler)
   useEffect(() => {
-    if (didInitRef.current) return;
-    didInitRef.current = true;
-    fetchProducts({ categoryId: '', reset: true, offset: 0 });
-  }, [fetchProducts]);
+    setOffset(0);
+    setHasMore(true);
+    fetchProducts({ categoryId: selectedCategory, reset: true, offset: 0 });
+  }, [selectedCategory, fetchProducts]);
 
   useEffect(() => {
     return () => {
@@ -201,11 +212,8 @@ export default function NewCategoriesPage() {
   const handleSelectCategory = useCallback(
     (id: string) => {
       setSelectedCategory(id);
-      setOffset(0);
-      setHasMore(true);
-      fetchProducts({ categoryId: id, reset: true, offset: 0 });
     },
-    [fetchProducts]
+    []
   );
 
   const handleLoadMore = () => {
@@ -234,16 +242,7 @@ export default function NewCategoriesPage() {
     }
   }, []);
 
-  const clientFilterActive =
-    Boolean(debouncedSearch.trim()) ||
-    railFilters.stockStatus !== 'all' ||
-    railFilters.onlyDiscount ||
-    railFilters.onlyAgreement ||
-    typeof advancedFilters.minPrice === 'number' ||
-    typeof advancedFilters.maxPrice === 'number' ||
-    typeof advancedFilters.minStock === 'number' ||
-    typeof advancedFilters.maxStock === 'number';
-  const displayCount = clientFilterActive ? filteredProducts.length : totalCount ?? filteredProducts.length;
+  const displayCount = totalCount ?? filteredProducts.length;
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -262,12 +261,7 @@ export default function NewCategoriesPage() {
     setSearch('');
     setAdvancedFilters({ sortBy: 'none', priceType: 'invoiced' });
     setRailFilters({ stockStatus: 'all', onlyDiscount: false, onlyAgreement: false });
-    if (selectedCategory) {
-      setSelectedCategory('');
-      setOffset(0);
-      setHasMore(true);
-      fetchProducts({ categoryId: '', reset: true, offset: 0 });
-    }
+    setSelectedCategory('');
   };
 
   if (!user) {
@@ -563,12 +557,17 @@ export default function NewCategoriesPage() {
 
                     {hasMore && (
                       <div className="mt-8 flex flex-col items-center gap-2.5">
+                        {loadMoreError && (
+                          <p role="alert" className="text-center text-sm font-medium text-amber-700">
+                            {loadMoreError}
+                          </p>
+                        )}
                         <Button
                           className="rounded-lg border border-[var(--line-strong)] bg-white px-6 font-semibold text-primary-600 hover:bg-[var(--surface-0)]"
                           onClick={handleLoadMore}
                           isLoading={isLoadingMore}
                         >
-                          Daha fazla yükle
+                          {loadMoreError ? 'Tekrar dene' : 'Daha fazla yükle'}
                         </Button>
                         {totalCount !== null && (
                           <span className="text-xs text-[var(--ink-3)]">

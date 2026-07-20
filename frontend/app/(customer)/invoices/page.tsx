@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 type Pagination = {
@@ -20,6 +21,13 @@ type Pagination = {
   limit: number;
   total: number;
   totalPages: number;
+};
+
+type InvoiceFilters = {
+  search: string;
+  invoicePrefix: string;
+  fromDate: string;
+  toDate: string;
 };
 
 const formatAmount = (value?: number | null, currency?: string) => {
@@ -60,6 +68,13 @@ const matchBadge = (status: string) => {
   );
 };
 
+const getInvoicePrefix = (document: EInvoiceDocument) => {
+  const invoiceNo = String(document.invoiceNo || '').trim();
+  const seriesAndYear = invoiceNo.match(/^(\D+\d{4})/u)?.[1]?.trim();
+  if (seriesAndYear) return seriesAndYear;
+  return String(document.evrakSeri || '').trim() || null;
+};
+
 export default function CustomerInvoicesPage() {
   const [documents, setDocuments] = useState<EInvoiceDocument[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 25, total: 0, totalPages: 1 });
@@ -69,23 +84,40 @@ export default function CustomerInvoicesPage() {
   const [invoicePrefix, setInvoicePrefix] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryPage, setRetryPage] = useState(1);
+  const [availablePrefixes, setAvailablePrefixes] = useState<string[]>([]);
 
-  const loadDocuments = async (page = 1) => {
+  const loadDocuments = async (page = 1, filters?: InvoiceFilters) => {
+    const activeFilters = filters || { search, invoicePrefix, fromDate, toDate };
+    setRetryPage(page);
     setLoading(true);
+    setLoadError(null);
     try {
       const result = await customerApi.getInvoices({
-        search: search || undefined,
-        invoicePrefix: invoicePrefix || undefined,
-        fromDate: fromDate || undefined,
-        toDate: toDate || undefined,
+        search: activeFilters.search || undefined,
+        invoicePrefix: activeFilters.invoicePrefix || undefined,
+        fromDate: activeFilters.fromDate || undefined,
+        toDate: activeFilters.toDate || undefined,
         page,
         limit: pagination.limit,
       });
-      setDocuments(result.documents || []);
+      const nextDocuments = result.documents || [];
+      setDocuments(nextDocuments);
+      setAvailablePrefixes((current) => {
+        const combined = new Set(current);
+        nextDocuments.forEach((document) => {
+          const prefix = getInvoicePrefix(document);
+          if (prefix) combined.add(prefix);
+        });
+        return Array.from(combined).sort((a, b) => a.localeCompare(b, 'tr'));
+      });
       setPagination(result.pagination || { page, limit: pagination.limit, total: 0, totalPages: 1 });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Faturalar yuklenemedi:', error);
-      toast.error('Faturalar yüklenemedi');
+      const message = error?.response?.data?.error || 'Faturalar yüklenemedi. Lütfen tekrar deneyin.';
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -121,7 +153,7 @@ export default function CustomerInvoicesPage() {
     setInvoicePrefix('');
     setFromDate('');
     setToDate('');
-    loadDocuments(1);
+    void loadDocuments(1, { search: '', invoicePrefix: '', fromDate: '', toDate: '' });
   };
 
   return (
@@ -159,7 +191,7 @@ export default function CustomerInvoicesPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') loadDocuments(1);
+                if (event.key === 'Enter') void loadDocuments(1);
               }}
               className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-[var(--ink-1)] outline-none placeholder:text-[var(--ink-3)]"
             />
@@ -174,9 +206,9 @@ export default function CustomerInvoicesPage() {
               className="cursor-pointer border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none"
             >
               <option value="">Tümü</option>
-              <option value="IRS2026">IRS2026</option>
-              <option value="IRS2025">IRS2025</option>
-              <option value="DEF2026">DEF2026</option>
+              {availablePrefixes.map((prefix) => (
+                <option key={prefix} value={prefix}>{prefix}</option>
+              ))}
             </select>
           </label>
 
@@ -214,7 +246,8 @@ export default function CustomerInvoicesPage() {
             <button
               type="button"
               onClick={clearFilters}
-              className="inline-flex h-[38px] flex-1 items-center justify-center rounded-[9px] border border-[var(--line)] bg-white px-4 text-[13px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] sm:flex-none"
+              disabled={loading}
+              className="inline-flex h-[38px] flex-1 items-center justify-center rounded-[9px] border border-[var(--line)] bg-white px-4 text-[13px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
             >
               Temizle
             </button>
@@ -233,6 +266,20 @@ export default function CustomerInvoicesPage() {
           {loading ? (
             <div className="flex justify-center py-12">
               <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-primary-600" />
+            </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center justify-center px-[18px] py-14 text-center" role="alert">
+              <AlertTriangle className="mb-3 h-10 w-10 text-red-500" />
+              <p className="font-semibold text-[var(--ink-1)]">Faturalar yüklenemedi</p>
+              <p className="mt-1 max-w-md text-sm text-[var(--ink-3)]">{loadError}</p>
+              <button
+                type="button"
+                onClick={() => void loadDocuments(retryPage)}
+                className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-600 px-4 text-xs font-semibold text-white hover:bg-primary-700"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Tekrar dene
+              </button>
             </div>
           ) : documents.length === 0 ? (
             <div className="flex flex-col items-center justify-center px-[18px] py-14 text-center">
@@ -258,7 +305,7 @@ export default function CustomerInvoicesPage() {
               {documents.map((doc) => (
                 <div
                   key={doc.id}
-                  className="grid grid-cols-[1fr_1.6fr_1.2fr_1fr_1fr] items-center gap-2.5 border-t border-[var(--line)] px-[18px] py-3 text-[13px] text-[var(--ink-1)] transition-colors hover:bg-[var(--surface-0)]"
+                  className="grid grid-cols-[1fr_1.6fr_1.2fr_1fr_1fr] items-center gap-2.5 border-t border-[var(--line)] px-[18px] py-3 text-[13px] text-[var(--ink-1)]"
                 >
                   <span className="text-[var(--ink-2)]">
                     {doc.issueDate ? formatDateShort(doc.issueDate) : '-'}

@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/lib/store/authStore';
 import { apiClient } from '@/lib/api/client';
+import { LoadErrorState } from '@/components/ui/LoadErrorState';
+import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import {
   Hourglass,
   Package,
@@ -18,6 +21,7 @@ import {
 } from 'lucide-react';
 
 interface OrderItem {
+  productId?: string | null;
   productCode: string;
   productName: string;
   unit: string;
@@ -47,6 +51,7 @@ export default function CustomerPendingOrdersPage() {
   const { user, loadUserFromStorage } = useAuthStore();
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -64,12 +69,14 @@ export default function CustomerPendingOrdersPage() {
 
   const fetchOrders = async () => {
     setIsLoading(true);
+    setLoadError(false);
     try {
       const res = await apiClient.get('/order-tracking/customer/pending-orders');
       setOrders(res.data);
     } catch (error: any) {
       console.error('Siparişler yüklenemedi:', error);
       toast.error('Siparişler yüklenemedi');
+      setLoadError(true);
     } finally {
       setIsLoading(false);
     }
@@ -85,17 +92,9 @@ export default function CustomerPendingOrdersPage() {
     setExpandedOrders(newExpanded);
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
-  };
-
   const formatDate = (date: string | null) => {
     if (!date) return '-';
-    return new Intl.DateTimeFormat('tr-TR', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-    }).format(new Date(date));
+    return formatDateShort(date);
   };
 
   // Tek dil: depo durumu metni + .badge-* sinifi
@@ -124,13 +123,12 @@ export default function CustomerPendingOrdersPage() {
       <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6">
         {/* Breadcrumb */}
         <nav className="mb-3 flex items-center gap-1.5 text-xs text-[var(--ink-3)]">
-          <button
-            type="button"
-            onClick={() => router.push('/my-orders')}
+          <Link
+            href="/my-orders"
             className="transition-colors hover:text-primary-700"
           >
             Siparişlerim
-          </button>
+          </Link>
           <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
           <span className="font-medium text-[var(--ink-2)]">Bekleyen Siparişler</span>
         </nav>
@@ -150,6 +148,14 @@ export default function CustomerPendingOrdersPage() {
           </div>
         </div>
 
+        {loadError ? (
+          <LoadErrorState
+            title="Bekleyen siparişler yüklenemedi"
+            description="Depo süreci şu anda getirilemedi. Sipariş kayıtlarınız silinmedi."
+            onRetry={fetchOrders}
+          />
+        ) : (
+          <>
         {/* Ozet kartlari */}
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-white p-4">
@@ -196,15 +202,18 @@ export default function CustomerPendingOrdersPage() {
               <span className="text-right">Depo Statüsü</span>
             </div>
 
-            {orders.map((order) => {
+            {orders.map((order, orderIndex) => {
               const isExpanded = expandedOrders.has(order.mikroOrderNumber);
               const statusMeta = getWarehouseStatusMeta(order.warehouseStatus);
+              const detailId = `pending-order-details-${orderIndex}`;
               return (
                 <div key={order.mikroOrderNumber} className="border-t border-[var(--line)] first:border-t-0 md:first:border-t">
                   {/* ====== Desktop satiri ====== */}
                   <button
                     type="button"
                     onClick={() => toggleOrder(order.mikroOrderNumber)}
+                    aria-expanded={isExpanded}
+                    aria-controls={detailId}
                     className="hidden w-full grid-cols-[1.3fr_1fr_1fr_0.8fr_1.1fr_1.3fr] items-center gap-2.5 px-5 py-3.5 text-left text-[13px] transition-colors hover:bg-[var(--surface-1)] md:grid"
                   >
                     <span className="inline-flex items-center gap-2 font-mono font-semibold text-[var(--ink-1)]">
@@ -230,6 +239,8 @@ export default function CustomerPendingOrdersPage() {
                   <button
                     type="button"
                     onClick={() => toggleOrder(order.mikroOrderNumber)}
+                    aria-expanded={isExpanded}
+                    aria-controls={detailId}
                     className="flex w-full items-start justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-[var(--surface-1)] md:hidden"
                   >
                     <div className="min-w-0 flex-1">
@@ -276,7 +287,12 @@ export default function CustomerPendingOrdersPage() {
 
                   {/* ====== Detaylar (acilir) ====== */}
                   {isExpanded && (
-                    <div className="border-t border-[var(--line)] bg-[var(--surface-1)] p-4">
+                    <div
+                      id={detailId}
+                      role="region"
+                      aria-label={`${order.mikroOrderNumber} sipariş detayları`}
+                      className="border-t border-[var(--line)] bg-[var(--surface-1)] p-4"
+                    >
                       <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-white">
                         <table className="w-full text-sm">
                           <thead>
@@ -285,7 +301,13 @@ export default function CustomerPendingOrdersPage() {
                                 Ürün
                               </th>
                               <th className="px-3 py-2 text-center text-[10.5px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
-                                Miktar
+                                Sipariş
+                              </th>
+                              <th className="px-3 py-2 text-center text-[10.5px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
+                                Teslim
+                              </th>
+                              <th className="px-3 py-2 text-center text-[10.5px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
+                                Kalan
                               </th>
                               <th className="px-3 py-2 text-right text-[10.5px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
                                 Birim Fiyat
@@ -299,8 +321,23 @@ export default function CustomerPendingOrdersPage() {
                             {order.items.map((item, index) => (
                               <tr key={index}>
                                 <td className="px-3 py-2.5">
-                                  <div className="font-medium text-[var(--ink-1)]">{item.productName}</div>
+                                  {item.productId ? (
+                                    <Link
+                                      href={`/products/${item.productId}`}
+                                      className="font-medium text-[var(--ink-1)] transition-colors hover:text-primary-700 hover:underline"
+                                    >
+                                      {item.productName}
+                                    </Link>
+                                  ) : (
+                                    <div className="font-medium text-[var(--ink-1)]">{item.productName}</div>
+                                  )}
                                   <div className="font-mono text-[11px] text-[var(--ink-3)]">{item.productCode}</div>
+                                </td>
+                                <td className="px-3 py-2.5 text-center text-[var(--ink-2)]">
+                                  {item.quantity} {item.unit}
+                                </td>
+                                <td className="px-3 py-2.5 text-center text-[var(--ink-2)]">
+                                  {item.deliveredQty} {item.unit}
                                 </td>
                                 <td className="px-3 py-2.5 text-center text-[var(--ink-2)]">
                                   {item.remainingQty} {item.unit}
@@ -342,6 +379,8 @@ export default function CustomerPendingOrdersPage() {
               );
             })}
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

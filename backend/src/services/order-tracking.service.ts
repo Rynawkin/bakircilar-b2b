@@ -9,8 +9,10 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import { MIKRO_TABLES } from '../config/mikro-tables';
 import warehouseWorkflowService from './warehouse-workflow.service';
+import exclusionService from './exclusion.service';
 
 interface PendingOrderItem {
+  productId?: string | null;
   productCode: string;
   productName: string;
   unit: string;
@@ -784,7 +786,42 @@ class OrderTrackingService {
       warehouseStatusUpdatedAt: workflowMap.get(order.mikroOrderNumber)?.updatedAt || null,
     }));
 
-    return this.enrichOrdersWithWarehouseAvailability(mappedOrders);
+    const enrichedOrders = await this.enrichOrdersWithWarehouseAvailability(mappedOrders);
+    const productCodes = Array.from(
+      new Set(
+        enrichedOrders.flatMap((order) =>
+          order.items.map((item) => normalizeCode(item.productCode)).filter(Boolean)
+        )
+      )
+    );
+
+    if (productCodes.length === 0) return enrichedOrders;
+
+    // Bekleyen Mikro satırlarını portal ürün detayına bağlamak için yalnız yerel ürün
+    // kimliklerini okur. Mikro'ya veya sipariş verisine yazma yapılmaz.
+    const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
+    const localProducts = await prisma.product.findMany({
+      where: {
+        mikroCode: {
+          in: productCodes,
+          ...(excludedProductCodes.length > 0 ? { notIn: excludedProductCodes } : {}),
+        },
+        active: true,
+        hiddenFromCustomers: false,
+      },
+      select: { id: true, mikroCode: true },
+    });
+    const productIdByCode = new Map(
+      localProducts.map((product) => [normalizeCode(product.mikroCode), product.id])
+    );
+
+    return enrichedOrders.map((order) => ({
+      ...order,
+      items: order.items.map((item) => ({
+        ...item,
+        productId: productIdByCode.get(normalizeCode(item.productCode)) || null,
+      })),
+    }));
   }
 
   /**

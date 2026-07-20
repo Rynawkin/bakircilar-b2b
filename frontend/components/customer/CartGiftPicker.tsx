@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Gift, Check, Lock } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { customerApi, GiftCampaignActive } from '@/lib/api/customer';
 import { formatCurrency } from '@/lib/utils/format';
 
@@ -44,7 +45,8 @@ export function CartGiftPicker({ refreshKey }: { refreshKey?: number }) {
   const gifts = campaign.gifts || [];
 
   const toggle = async (productId: string) => {
-    if (!qualified) return;
+    if (!qualified || saving) return;
+    const previous = selected;
     let next: string[];
     if (selected.includes(productId)) {
       next = selected.filter((x) => x !== productId);
@@ -58,9 +60,13 @@ export function CartGiftPicker({ refreshKey }: { refreshKey?: number }) {
     setSelected(next);
     setSaving(true);
     try {
-      await customerApi.setGiftCartSelection(campaign.id || null, next);
-    } catch {
-      /* sessiz */
+      const result = await customerApi.setGiftCartSelection(campaign.id || null, next);
+      if (!result.success) {
+        throw new Error(result.error || 'Hediye seçimi kaydedilemedi.');
+      }
+    } catch (error: any) {
+      setSelected(previous);
+      toast.error(error?.response?.data?.error || error?.message || 'Hediye seçimi kaydedilemedi.');
     } finally {
       setSaving(false);
     }

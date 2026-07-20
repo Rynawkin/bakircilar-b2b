@@ -22,6 +22,8 @@ import {
   LayoutGrid,
   Wallet,
   Headphones,
+  Pause,
+  Play,
 } from 'lucide-react';
 
 // Banner gorseli yoksa veya hatali yuklenirse kart kirik gorunmesin diye placeholder.
@@ -59,6 +61,9 @@ export default function CustomerHomePage() {
   const [purchased, setPurchased] = useState<Product[]>([]);
   const [heroIndex, setHeroIndex] = useState(0);
   const [heroIntervalMs, setHeroIntervalMs] = useState(6000);
+  const [heroPaused, setHeroPaused] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [categoryMarqueePaused, setCategoryMarqueePaused] = useState(false);
   const [bannersLoading, setBannersLoading] = useState(true);
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
   const [adminCollections, setAdminCollections] = useState<CollectionCard[]>([]);
@@ -74,6 +79,14 @@ export default function CustomerHomePage() {
   useEffect(() => {
     loadUserFromStorage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setPrefersReducedMotion(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
   }, []);
 
   // Cari bakiye / vadesi gecen ozeti
@@ -159,12 +172,12 @@ export default function CustomerHomePage() {
 
   // Hero carousel otomatik kaydirma (gecis suresi admin ayarindan gelir)
   useEffect(() => {
-    if (heroBanners.length <= 1) return;
+    if (heroBanners.length <= 1 || heroPaused || prefersReducedMotion) return;
     const interval = setInterval(() => {
       setHeroIndex((prev) => (prev + 1) % heroBanners.length);
     }, Math.max(2000, heroIntervalMs));
     return () => clearInterval(interval);
-  }, [heroBanners.length, heroIntervalMs]);
+  }, [heroBanners.length, heroIntervalMs, heroPaused, prefersReducedMotion]);
 
   const goPrev = useCallback(() => {
     setHeroIndex((prev) => (prev - 1 + heroBanners.length) % heroBanners.length);
@@ -251,7 +264,17 @@ export default function CustomerHomePage() {
           <section className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[3.5fr_1fr]">
             {/* Hero (carousel) */}
             {/* Kutu orani = yukleme orani: mobil 768x600, masaustu 2.8:1 (1680x600) -> gorsel tam gorunur, ekstra kirpma yok */}
-            <div className="relative aspect-[768/600] overflow-hidden rounded-2xl border border-[var(--line)] bg-[#12305c] lg:aspect-[2.8/1]">
+            <div
+              className="relative aspect-[768/600] overflow-hidden rounded-2xl border border-[var(--line)] bg-[#12305c] lg:aspect-[2.8/1]"
+              aria-label="Öne çıkan kampanyalar"
+              aria-roledescription="carousel"
+              onMouseEnter={() => setHeroPaused(true)}
+              onMouseLeave={() => setHeroPaused(false)}
+              onFocus={() => setHeroPaused(true)}
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHeroPaused(false);
+              }}
+            >
               {bannersLoading ? (
                 <div className="h-full w-full animate-pulse bg-gray-100" />
               ) : heroBanners.length > 0 ? (
@@ -279,13 +302,14 @@ export default function CustomerHomePage() {
                         </div>
                       </>
                     );
-                    const cls = `absolute inset-0 transition-opacity duration-700 ${index === heroIndex ? 'opacity-100' : 'pointer-events-none opacity-0'}`;
+                    const cls = `absolute inset-0 transition-opacity duration-700 motion-reduce:transition-none ${index === heroIndex ? 'opacity-100' : 'pointer-events-none opacity-0'}`;
                     return href ? (
                       <Link
                         key={banner.id}
                         href={href}
                         className={cls}
                         aria-hidden={index !== heroIndex}
+                        tabIndex={index === heroIndex ? 0 : -1}
                         onClick={() => logBannerClick(banner)}
                       >
                         {inner}
@@ -304,7 +328,7 @@ export default function CustomerHomePage() {
                       </button>
                       <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5">
                         {heroBanners.map((banner, index) => (
-                          <button key={banner.id} type="button" onClick={() => setHeroIndex(index)} aria-label={`Banner ${index + 1}`} className={`h-2 rounded-full transition-all ${index === heroIndex ? 'w-6 bg-white' : 'w-2 bg-white/50 hover:bg-white/80'}`} />
+                          <button key={banner.id} type="button" onClick={() => setHeroIndex(index)} aria-label={`Banner ${index + 1}`} aria-current={index === heroIndex} className={`h-2 rounded-full transition-all ${index === heroIndex ? 'w-6 bg-white' : 'w-2 bg-white/50 hover:bg-white/80'}`} />
                         ))}
                       </div>
                     </>
@@ -479,11 +503,22 @@ export default function CustomerHomePage() {
           {/* ── KATEGORI KESFI (kayan serit + gercek gorseller) ──────── */}
           {topCategories.length > 0 && (
             <section>
-              <div className="mb-3.5 flex items-baseline justify-between">
+              <div className="mb-3.5 flex items-center justify-between gap-3">
                 <h3 className="text-[18px] font-semibold tracking-tight text-[#14223b]">Kategori keşfi</h3>
-                <Link href="/products" className="flex items-center gap-1 text-[13px] font-medium text-[#15356b]">
-                  Tüm kategoriler <ArrowRight className="h-4 w-4" />
-                </Link>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCategoryMarqueePaused((paused) => !paused)}
+                    aria-pressed={categoryMarqueePaused}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#d8e0ec] bg-white px-2 py-1.5 text-[12px] font-medium text-[#15356b]"
+                  >
+                    {categoryMarqueePaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                    {categoryMarqueePaused ? 'Başlat' : 'Durdur'}
+                  </button>
+                  <Link href="/products" className="flex items-center gap-1 text-[13px] font-medium text-[#15356b]">
+                    Tüm kategoriler <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
               </div>
               {/* Kenarlar maskelenir; ic serit x2 kopyalanir -> kesintisiz dongu. Hover'da animasyon durur. */}
               <div
@@ -493,7 +528,10 @@ export default function CustomerHomePage() {
                   maskImage: 'linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent)',
                 }}
               >
-                <div className="flex w-max gap-3.5 animate-[bkr-marquee_46s_linear_infinite] group-hover:[animation-play-state:paused]">
+                <div
+                  className="flex w-max gap-3.5 animate-[bkr-marquee_46s_linear_infinite] group-hover:[animation-play-state:paused] group-focus-within:[animation-play-state:paused] motion-reduce:animate-none"
+                  style={{ animationPlayState: categoryMarqueePaused || prefersReducedMotion ? 'paused' : undefined }}
+                >
                   {[...topCategories, ...topCategories].map((category, idx) => {
                     const isClone = idx >= topCategories.length;
                     return (

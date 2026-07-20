@@ -8,7 +8,7 @@ import { Trash2, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 interface ConfirmDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   title: string;
   message: string;
   confirmLabel?: string;
@@ -57,11 +57,10 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const config = typeConfig[type];
 
-  const handleConfirm = () => {
-    onConfirm();
-    if (!isLoading) {
-      onClose();
-    }
+  const handleConfirm = async () => {
+    // Asenkron işlem tamamlanmadan pencereyi kapatma. Özellikle müşteri sepetinde
+    // kapanış ve Promise sonucu useConfirmDialog tarafından yönetilir.
+    await onConfirm();
   };
 
   return (
@@ -122,7 +121,7 @@ export function ConfirmDialog({
                     {cancelLabel}
                   </Button>
                   <Button
-                    onClick={handleConfirm}
+                    onClick={() => void handleConfirm()}
                     disabled={isLoading}
                     isLoading={isLoading}
                     className={config.confirmClass}

@@ -21,6 +21,17 @@ export const authApi = {
     const response = await apiClient.get<User>('/auth/me');
     return response.data;
   },
+
+  /**
+   * Change the signed-in user's B2B password.
+   */
+  changePassword: async (data: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ message: string }> => {
+    const response = await apiClient.put<{ message: string }>('/auth/password', data);
+    return response.data;
+  },
 };
 
 export default authApi;

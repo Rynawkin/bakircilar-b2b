@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Product, Category } from '@/types';
-import customerApi from '@/lib/api/customer';
+import customerApi, { CustomerCatalogSort } from '@/lib/api/customer';
 import { Button } from '@/components/ui/Button';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
+import { LoadErrorState } from '@/components/ui/LoadErrorState';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { FilterRail, RailFilters, RailCategory } from '@/components/customer/FilterRail';
 import { CatalogBannerCarousel } from '@/components/customer/CatalogBannerCarousel';
 import { FilterState } from '@/components/customer/AdvancedFilters';
-import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
@@ -30,26 +30,13 @@ const FILTER_CHIP_CLASS =
   'inline-flex items-center gap-1.5 rounded-full border border-[#d6e0f1] bg-[#eef2fa] px-[11px] py-[5px] text-[12px] font-medium text-[#15356b] transition-colors hover:border-[#fecaca] hover:bg-[#fef2f2] hover:text-[#b91c1c]';
 
 // Rail client-side filtreleri: stok durumu + sadece indirimli/anlasmali — products/page.tsx ile ayni.
-const railMatches = (product: Product, filters: RailFilters): boolean => {
-  const hasAgreement = Boolean(product.agreement);
-  const stock = product.availableStock ?? product.excessStock ?? 0;
-
-  if (filters.stockStatus === 'in' && !(stock > 0)) return false;
-  if (filters.stockStatus === 'supply' && stock > 0) return false;
-
-  if (filters.onlyAgreement && !hasAgreement) return false;
-
-  if (filters.onlyDiscount) {
-    const base = product.prices?.invoiced ?? 0;
-    const disc = product.excessPrices?.invoiced;
-    const isDiscounted = !hasAgreement && (product.excessStock ?? 0) > 0 && typeof disc === 'number' && disc > 0 && disc < base;
-    if (!isDiscounted) return false;
-  }
-
-  return true;
-};
-
 type LastPurchaseSort = 'none' | 'date-desc' | 'date-asc';
+
+const toApiSort = (sort: LastPurchaseSort): CustomerCatalogSort => {
+  if (sort === 'date-asc') return 'lastPurchasedAsc';
+  if (sort === 'none') return 'nameAsc';
+  return 'lastPurchasedDesc';
+};
 
 export default function PreviouslyPurchasedPage() {
   const { user, loadUserFromStorage } = useAuthStore();
@@ -75,6 +62,8 @@ export default function PreviouslyPurchasedPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
@@ -162,8 +151,15 @@ export default function PreviouslyPurchasedPage() {
       reqRef.current?.abort();
       const controller = new AbortController();
       reqRef.current = controller;
-      if (reset) setIsSearching(true);
-      else setIsLoadingMore(true);
+      if (reset) {
+        setIsSearching(true);
+        setIsLoadingMore(false);
+        setLoadError(null);
+        setLoadMoreError(null);
+      } else {
+        setIsLoadingMore(true);
+        setLoadMoreError(null);
+      }
       try {
         const data = await customerApi.getProducts(
           {
@@ -172,20 +168,46 @@ export default function PreviouslyPurchasedPage() {
             brands: brandCodes.length ? brandCodes.join(',') : undefined,
             warehouse: warehouse || undefined,
             search: debouncedNameSearch.trim() || undefined,
+            documentNo: debouncedSearch.trim() || undefined,
             mode: 'purchased',
-            sort: 'lastPurchasedDesc',
+            sort: toApiSort(lastPurchaseSort),
+            priceType: advancedFilters.priceType,
+            minPrice: advancedFilters.minPrice,
+            maxPrice: advancedFilters.maxPrice,
+            minStock: advancedFilters.minStock,
+            maxStock: advancedFilters.maxStock,
+            stockStatus: railFilters.stockStatus,
+            onlyDiscount: railFilters.onlyDiscount || undefined,
+            onlyAgreement: railFilters.onlyAgreement || undefined,
             limit: PAGE_SIZE,
             offset: nextOffset,
           },
           { signal: controller.signal }
         );
+        if (reqRef.current !== controller) return;
         const next = Array.isArray(data?.products) ? data.products : [];
         setProducts((prev) => (reset ? next : [...prev, ...next]));
         setOffset(nextOffset + next.length);
-        setHasMore(next.length === PAGE_SIZE);
+        setHasMore(
+          typeof data.hasMore === 'boolean'
+            ? data.hasMore
+            : typeof data.total === 'number'
+              ? nextOffset + next.length < data.total
+              : next.length === PAGE_SIZE
+        );
         setTotalCount(typeof data?.total === 'number' ? data.total : null);
       } catch (e) {
-        if (!isCanceled(e)) console.error('Urun yukleme:', e);
+        if (isCanceled(e) || reqRef.current !== controller) return;
+        console.error('Urun yukleme:', e);
+        if (reset) {
+          setProducts([]);
+          setTotalCount(null);
+          setOffset(0);
+          setHasMore(false);
+          setLoadError('Daha önce aldığınız ürünler şu anda yüklenemedi. Satın alma geçmişiniz silinmedi.');
+        } else {
+          setLoadMoreError('Daha fazla geçmiş ürün yüklenemedi. Mevcut ürünler korunuyor; tekrar deneyebilirsiniz.');
+        }
       } finally {
         if (reqRef.current === controller) {
           reqRef.current = null;
@@ -198,7 +220,17 @@ export default function PreviouslyPurchasedPage() {
         }
       }
     },
-    [selectedCategory, selectedCategoryIds, brandCodes, warehouse, debouncedNameSearch]
+    [
+      selectedCategory,
+      selectedCategoryIds,
+      brandCodes,
+      warehouse,
+      debouncedNameSearch,
+      debouncedSearch,
+      lastPurchaseSort,
+      advancedFilters,
+      railFilters,
+    ]
   );
 
   useEffect(() => {
@@ -206,7 +238,7 @@ export default function PreviouslyPurchasedPage() {
     setOffset(0);
     setHasMore(true);
     fetchProducts({ reset: true, offset: 0 });
-  }, [selectedCategory, brandCodes, warehouse, debouncedNameSearch, isStaticLoaded, fetchProducts]);
+  }, [isStaticLoaded, fetchProducts]);
 
   const combinedRailFilters = useMemo<RailFilters>(
     () => ({
@@ -217,35 +249,7 @@ export default function PreviouslyPurchasedPage() {
     [advancedFilters.minPrice, advancedFilters.maxPrice, railFilters]
   );
 
-  const filteredProducts = useMemo(() => {
-    let next = applyProductFilters(products, advancedFilters);
-
-    // Rail client-side filtre (stok durumu + sadece indirimli/anlasmali)
-    const railActive = railFilters.stockStatus !== 'all' || railFilters.onlyDiscount || railFilters.onlyAgreement;
-    if (railActive) next = next.filter((p) => railMatches(p, combinedRailFilters));
-
-    // Belge no ile client-side filtre (bu sayfaya ozel)
-    const normalizedDoc = documentNoFilter.trim().toLowerCase();
-    if (normalizedDoc) {
-      next = next.filter((product) =>
-        (product.lastSales || []).some((sale) => {
-          const documentValue = String(sale.documentNo || sale.orderNumber || '').toLowerCase();
-          return documentValue.includes(normalizedDoc);
-        })
-      );
-    }
-
-    // Son alis sıralaması (ayri state — advancedFilters.sortBy'dan bagimsiz)
-    if (lastPurchaseSort !== 'none') {
-      next = [...next].sort((a, b) => {
-        const aTs = a.lastSales?.[0]?.saleDate ? new Date(a.lastSales[0].saleDate).getTime() : 0;
-        const bTs = b.lastSales?.[0]?.saleDate ? new Date(b.lastSales[0].saleDate).getTime() : 0;
-        return lastPurchaseSort === 'date-desc' ? bTs - aTs : aTs - bTs;
-      });
-    }
-
-    return next;
-  }, [products, advancedFilters, railFilters, combinedRailFilters, documentNoFilter, lastPurchaseSort]);
+  const filteredProducts = products;
 
   const handleAdd = useCallback(async (args: ProductCardAddArgs) => { await addToCart(args); }, [addToCart]);
 
@@ -291,14 +295,7 @@ export default function PreviouslyPurchasedPage() {
     };
   }, [debouncedNameSearch, brandCodes, warehouse]);
 
-  const clientFilterActive =
-    railFilters.stockStatus !== 'all' ||
-    railFilters.onlyDiscount ||
-    railFilters.onlyAgreement ||
-    typeof advancedFilters.minPrice === 'number' ||
-    typeof advancedFilters.maxPrice === 'number' ||
-    Boolean(documentNoFilter.trim());
-  const displayCount = clientFilterActive ? filteredProducts.length : totalCount ?? filteredProducts.length;
+  const displayCount = totalCount ?? filteredProducts.length;
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -588,6 +585,12 @@ export default function PreviouslyPurchasedPage() {
             {/* Liste */}
             {isLoading ? (
               <div className={GRID}>{Array.from({ length: 12 }).map((_, i) => <ProductCardSkeleton key={i} />)}</div>
+            ) : loadError && products.length === 0 ? (
+              <LoadErrorState
+                title="Satın alma geçmişi yüklenemedi"
+                description={loadError}
+                onRetry={() => fetchProducts({ reset: true, offset: 0 })}
+              />
             ) : filteredProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-[14px] border border-[var(--line)] bg-white px-5 py-14 text-center">
                 <span className="mb-3.5 flex h-14 w-14 items-center justify-center rounded-[14px] bg-[#eef2fa] text-[#15356b]">
@@ -649,12 +652,17 @@ export default function PreviouslyPurchasedPage() {
                 </div>
                 {hasMore && (
                   <div className="mt-8 flex flex-col items-center gap-2.5">
+                    {loadMoreError && (
+                      <p role="alert" className="text-center text-sm font-medium text-amber-700">
+                        {loadMoreError}
+                      </p>
+                    )}
                     <Button
                       className="rounded-lg border border-[var(--line-strong)] bg-white px-6 font-semibold text-primary-600 hover:bg-[var(--surface-0)]"
                       onClick={() => { if (!isSearching && !isLoadingMore && hasMore) fetchProducts({ reset: false, offset }); }}
                       isLoading={isLoadingMore}
                     >
-                      Daha fazla yükle
+                      {loadMoreError ? 'Tekrar dene' : 'Daha fazla yükle'}
                     </Button>
                     {totalCount !== null && (
                       <span className="text-xs text-[var(--ink-3)]">

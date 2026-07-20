@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import customerApi from '@/lib/api/customer';
 import { OrderRequest } from '@/types';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { LoadErrorState } from '@/components/ui/LoadErrorState';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import Link from 'next/link';
@@ -16,13 +17,21 @@ export default function OrderRequestsPage() {
   const { user, loadUserFromStorage } = useAuthStore();
   const [requests, setRequests] = useState<OrderRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{
+    requestId: string;
+    type: 'selected' | 'all' | 'reject';
+  } | null>(null);
+  const actionLockRef = useRef(false);
   const [noteByRequestId, setNoteByRequestId] = useState<Record<string, string>>({});
   const [customerOrderNumberByRequestId, setCustomerOrderNumberByRequestId] = useState<Record<string, string>>({});
   const [deliveryLocationByRequestId, setDeliveryLocationByRequestId] = useState<Record<string, string>>({});
   const [selectedPriceTypes, setSelectedPriceTypes] = useState<Record<string, 'INVOICED' | 'WHITE'>>({});
   const [selectedItemsByRequest, setSelectedItemsByRequest] = useState<Record<string, Record<string, boolean>>>({});
   const [adjustedQuantities, setAdjustedQuantities] = useState<Record<string, number>>({});
+  const [convertedOrderByRequest, setConvertedOrderByRequest] = useState<
+    Record<string, { orderId: string; orderNumber: string }>
+  >({});
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -90,11 +99,14 @@ export default function OrderRequestsPage() {
 
   const fetchRequests = async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
       const { requests } = await customerApi.getOrderRequests();
       setRequests(requests);
     } catch (error) {
       console.error('Order requests not loaded:', error);
+      setRequests([]);
+      setLoadError('Sipariş talepleri şu anda yüklenemedi. Kayıtlarınız silinmedi.');
     } finally {
       setIsLoading(false);
     }
@@ -108,8 +120,12 @@ export default function OrderRequestsPage() {
     setSelectedPriceTypes(next);
   };
 
-  const handleConvert = async (request: OrderRequest, selectedIds?: string[]) => {
-    if (convertingId) return;
+  const handleConvert = async (
+    request: OrderRequest,
+    actionType: 'selected' | 'all',
+    selectedIds?: string[]
+  ) => {
+    if (actionLockRef.current) return;
     if (request.status === 'REJECTED') return;
 
     const pendingItems = request.items.filter((item) => item.status === 'PENDING');
@@ -160,40 +176,52 @@ export default function OrderRequestsPage() {
         }
       }
     }
-    setConvertingId(request.id);
+    actionLockRef.current = true;
+    setPendingAction({ requestId: request.id, type: actionType });
     try {
       const note = noteByRequestId[request.id]?.trim();
       const customerOrderNumber = customerOrderNumberByRequestId[request.id]?.trim();
       const deliveryLocation = deliveryLocationByRequestId[request.id]?.trim();
-      await customerApi.convertOrderRequest(request.id, {
+      const result = await customerApi.convertOrderRequest(request.id, {
         items,
         note: note || undefined,
         customerOrderNumber: customerOrderNumber || undefined,
         deliveryLocation: deliveryLocation || undefined,
       });
-      toast.success('Talep siparise cevrildi.');
-      fetchRequests();
+      setConvertedOrderByRequest((prev) => ({
+        ...prev,
+        [request.id]: { orderId: result.orderId, orderNumber: result.orderNumber },
+      }));
+      toast.success(`Talep siparişe çevrildi. Sipariş No: ${result.orderNumber}`, { duration: 6000 });
+      await fetchRequests();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Talep cevrilemedi.');
     } finally {
-      setConvertingId(null);
+      actionLockRef.current = false;
+      setPendingAction(null);
     }
   };
 
   const handleReject = async (request: OrderRequest) => {
-    if (convertingId) return;
+    if (actionLockRef.current) return;
     if (request.status !== 'PENDING') return;
+    const pendingItemCount = request.items.filter((item) => item.status === 'PENDING').length;
+    if (!window.confirm(`Bu talepteki ${pendingItemCount} bekleyen kalemi reddetmek istediğinizden emin misiniz?`)) {
+      return;
+    }
 
-    setConvertingId(request.id);
+    actionLockRef.current = true;
+    setPendingAction({ requestId: request.id, type: 'reject' });
     try {
       const note = noteByRequestId[request.id]?.trim();
       await customerApi.rejectOrderRequest(request.id, note || undefined);
       toast.success('Talep reddedildi.');
-      fetchRequests();
+      await fetchRequests();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Talep reddedilemedi.');
     } finally {
-      setConvertingId(null);
+      actionLockRef.current = false;
+      setPendingAction(null);
     }
   };
 
@@ -233,6 +261,12 @@ export default function OrderRequestsPage() {
           <div className="flex justify-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
           </div>
+        ) : loadError ? (
+          <LoadErrorState
+            title="Sipariş talepleri yüklenemedi"
+            description={loadError}
+            onRetry={() => void fetchRequests()}
+          />
         ) : requests.length === 0 ? (
           <div className="rounded-2xl border border-[var(--line)] bg-white">
             <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
@@ -253,6 +287,9 @@ export default function OrderRequestsPage() {
               const selectedCount = selectedIds.length;
 
               const itemCount = request.items.length;
+              const convertedOrder =
+                convertedOrderByRequest[request.id] ||
+                (request.order ? { orderId: request.order.id, orderNumber: request.order.orderNumber } : null);
 
               // Tahmini toplam: secili fiyat tipi/onay miktarina gore satir bazli onizleme
               const estimatedTotal = request.items.reduce((sum, item) => {
@@ -287,6 +324,15 @@ export default function OrderRequestsPage() {
                       )}
                       {request.status === 'CONVERTED' && (
                         <span className="badge-success"><CheckCircle2 className="h-3 w-3" />Siparişe çevrildi</span>
+                      )}
+                      {convertedOrder && (
+                        <Link
+                          href={`/my-orders/${convertedOrder.orderId}`}
+                          className="chip font-mono transition-colors hover:border-primary-200 hover:text-primary-700"
+                        >
+                          Sipariş No: {convertedOrder.orderNumber}
+                          <span aria-hidden="true">→</span>
+                        </Link>
                       )}
                       {request.status === 'REJECTED' && (
                         <span className="badge-danger"><XCircle className="h-3 w-3" />Reddedildi</span>
@@ -356,6 +402,7 @@ export default function OrderRequestsPage() {
                                 {canSelectItem && (
                                   <input
                                     type="checkbox"
+                                    aria-label={`${item.product.name} ürününü seç`}
                                     checked={isSelected}
                                     className="mt-1 h-4 w-4 flex-shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                                     onChange={(e) => {
@@ -370,10 +417,28 @@ export default function OrderRequestsPage() {
                                     }}
                                   />
                                 )}
+                                <Link
+                                  href={`/products/${item.product.id}`}
+                                  aria-label={`${item.product.name} ürün detayını aç`}
+                                  className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--line)] bg-white transition-colors hover:border-primary-300"
+                                >
+                                  {item.product.imageUrl ? (
+                                    <img src={item.product.imageUrl} alt={item.product.name} className="h-full w-full object-contain" />
+                                  ) : (
+                                    <Package className="h-5 w-5 text-[var(--ink-3)]" />
+                                  )}
+                                </Link>
                                 <div className="min-w-0">
-                                  <div className="font-semibold leading-snug text-[var(--ink-1)] break-words">{item.product.name}</div>
+                                  <Link
+                                    href={`/products/${item.product.id}`}
+                                    className="font-semibold leading-snug text-[var(--ink-1)] break-words transition-colors hover:text-primary-700 hover:underline"
+                                  >
+                                    {item.product.name}
+                                  </Link>
                                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                    <span className="chip font-mono">{item.product.mikroCode}</span>
+                                    <Link href={`/products/${item.product.id}`} className="chip font-mono hover:text-primary-700 hover:underline">
+                                      {item.product.mikroCode}
+                                    </Link>
                                     {!isSubUser && customerProductCode && (
                                       <span className="badge-success">Müşteri Kodu: {customerProductCode}</span>
                                     )}
@@ -576,17 +641,18 @@ export default function OrderRequestsPage() {
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <Button
-                          onClick={() => handleConvert(request, selectedIds)}
-                          isLoading={convertingId === request.id}
-                          disabled={selectedCount === 0}
+                          onClick={() => handleConvert(request, 'selected', selectedIds)}
+                          isLoading={pendingAction?.requestId === request.id && pendingAction.type === 'selected'}
+                          disabled={selectedCount === 0 || Boolean(pendingAction)}
                           className="w-full bg-primary-600 hover:bg-primary-700 text-white"
                         >
                           <ShoppingCart className="mr-1.5 h-4 w-4" />
                           Seçilenleri Siparişe Çevir
                         </Button>
                         <Button
-                          onClick={() => handleConvert(request)}
-                          isLoading={convertingId === request.id}
+                          onClick={() => handleConvert(request, 'all')}
+                          isLoading={pendingAction?.requestId === request.id && pendingAction.type === 'all'}
+                          disabled={Boolean(pendingAction)}
                           className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
                         >
                           <CheckCircle2 className="mr-1.5 h-4 w-4" />
@@ -595,7 +661,8 @@ export default function OrderRequestsPage() {
                         <Button
                           variant="danger"
                           onClick={() => handleReject(request)}
-                          isLoading={convertingId === request.id}
+                          isLoading={pendingAction?.requestId === request.id && pendingAction.type === 'reject'}
+                          disabled={Boolean(pendingAction)}
                           className="w-full"
                         >
                           <XCircle className="mr-1.5 h-4 w-4" />

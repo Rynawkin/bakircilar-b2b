@@ -244,6 +244,7 @@ export interface OrderRequest {
   status: 'PENDING' | 'CONVERTED' | 'REJECTED';
   note?: string;
   orderId?: string | null;
+  order?: { id: string; orderNumber: string } | null;
   createdAt: string;
   convertedAt?: string | null;
   requestedBy?: {
@@ -297,6 +298,7 @@ export type QuoteItemStatus = 'OPEN' | 'CONVERTED' | 'CLOSED';
 
 export interface QuoteItem {
   id: string;
+  productId?: string | null;
   productCode: string;
   productName: string;
   unit?: string;

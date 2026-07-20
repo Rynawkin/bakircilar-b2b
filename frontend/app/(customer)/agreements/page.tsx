@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Product, Category } from '@/types';
-import customerApi from '@/lib/api/customer';
+import customerApi, { CustomerCatalogSort } from '@/lib/api/customer';
 import { Button } from '@/components/ui/Button';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
+import { LoadErrorState } from '@/components/ui/LoadErrorState';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { FilterRail, RailFilters, RailCategory } from '@/components/customer/FilterRail';
 import { CatalogBannerCarousel } from '@/components/customer/CatalogBannerCarousel';
 import { FilterState } from '@/components/customer/AdvancedFilters';
-import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
@@ -22,25 +22,6 @@ import { ChevronRight, BadgeCheck, Search, ArrowDownUp, X, SlidersHorizontal, Wa
 // Rail'in stok durumu + indirim/anlasmali (client-side). Bu sayfa zaten anlasmali-only
 // (kaynak mode:'agreements') → "Sadece anlasmali" pre-checked ve zararsiz (hicbir kalemi elemez).
 // ProductCard mantigiyla tutarli — veri/fiyat mantigina dokunmaz.
-const railMatches = (product: Product, filters: RailFilters): boolean => {
-  const hasAgreement = Boolean(product.agreement);
-  const stock = product.availableStock ?? product.excessStock ?? 0;
-
-  if (filters.stockStatus === 'in' && !(stock > 0)) return false;
-  if (filters.stockStatus === 'supply' && stock > 0) return false;
-
-  if (filters.onlyAgreement && !hasAgreement) return false;
-
-  if (filters.onlyDiscount) {
-    const base = product.prices?.invoiced ?? 0;
-    const disc = product.excessPrices?.invoiced;
-    const isDiscounted = !hasAgreement && (product.excessStock ?? 0) > 0 && typeof disc === 'number' && disc > 0 && disc < base;
-    if (!isDiscounted) return false;
-  }
-
-  return true;
-};
-
 const PAGE_SIZE = 60;
 const CONTAINER = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
 const GRID = 'grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-3 2xl:grid-cols-4 min-[1800px]:grid-cols-5';
@@ -50,6 +31,18 @@ const FILTER_CHIP_CLASS =
   'inline-flex items-center gap-1.5 rounded-full border border-[#d6e0f1] bg-[#eef2fa] px-[11px] py-[5px] text-[12px] font-medium text-[#15356b] transition-colors hover:border-[#fecaca] hover:bg-[#fef2f2] hover:text-[#b91c1c]';
 
 const isCanceled = (e: any) => e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError' || e?.name === 'AbortError';
+
+const toApiSort = (sort: FilterState['sortBy']): CustomerCatalogSort => {
+  const sortMap: Partial<Record<FilterState['sortBy'], CustomerCatalogSort>> = {
+    'price-asc': 'priceAsc',
+    'price-desc': 'priceDesc',
+    'name-asc': 'nameAsc',
+    'name-desc': 'nameDesc',
+    'stock-asc': 'stockAsc',
+    'stock-desc': 'stockDesc',
+  };
+  return sortMap[sort] || 'nameAsc';
+};
 
 export default function AgreementProductsPage() {
   const { user, loadUserFromStorage } = useAuthStore();
@@ -75,6 +68,8 @@ export default function AgreementProductsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
@@ -90,7 +85,7 @@ export default function AgreementProductsPage() {
   );
   // Kategori rayi = FACET: sadece mevcut arama/marka/depo sonuclarinda gecen kok kategoriler.
   const [facetCategories, setFacetCategories] = useState<RailCategory[]>([]);
-  // Bu sayfada varsayilan sort = "Onerilen" (design). 'none' → applyProductFilters siralama yapmaz.
+  // Bu sayfada varsayilan siralama urun adidir.
   const [sortBy, setSortBy] = useState<FilterState['sortBy']>('none');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({ sortBy: 'none', priceType: 'invoiced' });
   const [railFilters, setRailFilters] = useState<Omit<RailFilters, 'minPrice' | 'maxPrice'>>({
@@ -142,8 +137,15 @@ export default function AgreementProductsPage() {
       reqRef.current?.abort();
       const controller = new AbortController();
       reqRef.current = controller;
-      if (reset) setIsSearching(true);
-      else setIsLoadingMore(true);
+      if (reset) {
+        setIsSearching(true);
+        setIsLoadingMore(false);
+        setLoadError(null);
+        setLoadMoreError(null);
+      } else {
+        setIsLoadingMore(true);
+        setLoadMoreError(null);
+      }
       try {
         const data = await customerApi.getProducts(
           {
@@ -153,18 +155,44 @@ export default function AgreementProductsPage() {
             search: debouncedSearch || undefined,
             warehouse: warehouse || undefined,
             mode: 'agreements',
+            sort: toApiSort(sortBy),
+            priceType: advancedFilters.priceType,
+            minPrice: advancedFilters.minPrice,
+            maxPrice: advancedFilters.maxPrice,
+            minStock: advancedFilters.minStock,
+            maxStock: advancedFilters.maxStock,
+            stockStatus: railFilters.stockStatus,
+            onlyDiscount: railFilters.onlyDiscount || undefined,
+            onlyAgreement: railFilters.onlyAgreement || undefined,
             limit: PAGE_SIZE,
             offset: nextOffset,
           },
           { signal: controller.signal }
         );
+        if (reqRef.current !== controller) return;
         const next = data.products;
         setProducts((prev) => (reset ? next : [...prev, ...next]));
         setOffset(nextOffset + next.length);
-        setHasMore(next.length === PAGE_SIZE);
+        setHasMore(
+          typeof data.hasMore === 'boolean'
+            ? data.hasMore
+            : typeof data.total === 'number'
+              ? nextOffset + next.length < data.total
+              : next.length === PAGE_SIZE
+        );
         setTotalCount(typeof data.total === 'number' ? data.total : null);
       } catch (e) {
-        if (!isCanceled(e)) console.error('Urun yukleme:', e);
+        if (isCanceled(e) || reqRef.current !== controller) return;
+        console.error('Urun yukleme:', e);
+        if (reset) {
+          setProducts([]);
+          setTotalCount(null);
+          setOffset(0);
+          setHasMore(false);
+          setLoadError('Anlaşmalı ürünler şu anda yüklenemedi. Anlaşma kayıtlarınız silinmedi.');
+        } else {
+          setLoadMoreError('Daha fazla anlaşmalı ürün yüklenemedi. Mevcut ürünler korunuyor; tekrar deneyebilirsiniz.');
+        }
       } finally {
         if (reqRef.current === controller) {
           reqRef.current = null;
@@ -177,7 +205,7 @@ export default function AgreementProductsPage() {
         }
       }
     },
-    [selectedCategory, selectedCategoryIds, brandCodes, debouncedSearch, warehouse]
+    [selectedCategory, selectedCategoryIds, brandCodes, debouncedSearch, warehouse, sortBy, advancedFilters, railFilters]
   );
 
   useEffect(() => {
@@ -185,7 +213,7 @@ export default function AgreementProductsPage() {
     setOffset(0);
     setHasMore(true);
     fetchProducts({ reset: true, offset: 0 });
-  }, [selectedCategory, brandCodes, debouncedSearch, warehouse, isStaticLoaded, fetchProducts]);
+  }, [isStaticLoaded, fetchProducts]);
 
   const combinedRailFilters = useMemo<RailFilters>(
     () => ({
@@ -196,18 +224,7 @@ export default function AgreementProductsPage() {
     [advancedFilters.minPrice, advancedFilters.maxPrice, railFilters]
   );
 
-  const filteredProducts = useMemo(() => {
-    // Shared fiyat araligi filtresi (sort'u sortBy uzerinden yonetiyoruz)
-    let base = applyProductFilters(products, { ...advancedFilters, sortBy: 'none' });
-    const railActive = railFilters.stockStatus !== 'all' || railFilters.onlyAgreement || railFilters.onlyDiscount;
-    if (railActive) base = base.filter((p) => railMatches(p, combinedRailFilters));
-
-    // Siralama: hepsini applyProductFilters'a delege (bu sayfada yerel sort katmani yok)
-    if (sortBy !== 'none') {
-      base = applyProductFilters(base, { ...advancedFilters, sortBy });
-    }
-    return base;
-  }, [products, advancedFilters, railFilters, combinedRailFilters, sortBy]);
+  const filteredProducts = products;
 
   const handleAdd = useCallback(async (args: ProductCardAddArgs) => { await addToCart(args); }, [addToCart]);
 
@@ -252,13 +269,7 @@ export default function AgreementProductsPage() {
     };
   }, [debouncedSearch, brandCodes, warehouse]);
 
-  const clientFilterActive =
-    railFilters.stockStatus !== 'all' ||
-    railFilters.onlyAgreement ||
-    railFilters.onlyDiscount ||
-    typeof advancedFilters.minPrice === 'number' ||
-    typeof advancedFilters.maxPrice === 'number';
-  const displayCount = clientFilterActive ? filteredProducts.length : totalCount ?? filteredProducts.length;
+  const displayCount = totalCount ?? filteredProducts.length;
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -540,6 +551,12 @@ export default function AgreementProductsPage() {
             {/* Liste */}
             {isLoading ? (
               <div className={GRID}>{Array.from({ length: 12 }).map((_, i) => <ProductCardSkeleton key={i} />)}</div>
+            ) : loadError && products.length === 0 ? (
+              <LoadErrorState
+                title="Anlaşmalı ürünler yüklenemedi"
+                description={loadError}
+                onRetry={() => fetchProducts({ reset: true, offset: 0 })}
+              />
             ) : filteredProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-[14px] border border-[var(--line)] bg-white px-5 py-14 text-center">
                 <span className="mb-3.5 flex h-14 w-14 items-center justify-center rounded-[14px] bg-primary-50 text-primary-600">
@@ -593,12 +610,17 @@ export default function AgreementProductsPage() {
                 </div>
                 {hasMore && (
                   <div className="mt-8 flex flex-col items-center gap-2.5">
+                    {loadMoreError && (
+                      <p role="alert" className="text-center text-sm font-medium text-amber-700">
+                        {loadMoreError}
+                      </p>
+                    )}
                     <Button
                       className="rounded-lg border border-[var(--line-strong)] bg-white px-6 font-semibold text-primary-600 hover:bg-[var(--surface-0)]"
                       onClick={() => { if (!isSearching && !isLoadingMore && hasMore) fetchProducts({ reset: false, offset }); }}
                       isLoading={isLoadingMore}
                     >
-                      Daha fazla yükle
+                      {loadMoreError ? 'Tekrar dene' : 'Daha fazla yükle'}
                     </Button>
                     {totalCount !== null && (
                       <span className="text-xs text-[var(--ink-3)]">

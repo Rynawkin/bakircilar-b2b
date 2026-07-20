@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { User, LoginRequest } from '@/types';
 import authApi from '../api/auth';
+import { useCartStore } from './cartStore';
 
 interface AuthState {
   user: User | null;
@@ -76,6 +77,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   lastActivity: Date.now(),
 
   login: async (data: LoginRequest) => {
+    // Aynı tarayıcıda hesap değiştirildiğinde önceki müşterinin sepeti görünmesin.
+    useCartStore.getState().clearCart();
     set({ isLoading: true, error: null });
     try {
       const response = await authApi.login(data);
@@ -100,6 +103,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
+    useCartStore.getState().clearCart();
     set({
       user: null,
       token: null,

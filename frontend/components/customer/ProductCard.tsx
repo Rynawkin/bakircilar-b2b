@@ -225,7 +225,15 @@ export function ProductCard({
       setQtyInput('1');
       setAdded(true);
       setTimeout(() => setAdded(false), 1400);
-      toast.success('Ürün sepete eklendi', { duration: 2000 });
+      toast.success(
+        <span className="flex items-center gap-3">
+          <span>Ürün sepete eklendi</span>
+          <Link href="/cart" className="shrink-0 font-semibold text-primary-700 underline underline-offset-2">
+            Sepete git
+          </Link>
+        </span>,
+        { duration: 4000 }
+      );
     } catch (error: any) {
       const message = error?.response?.data?.message || error?.response?.data?.error || 'Sepete eklenemedi';
       toast.error(message);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { CustomerNavigation } from '@/components/layout/CustomerNavigation';
@@ -19,7 +19,9 @@ export default function CustomerLayout({
 }) {
   const { user, loadUserFromStorage } = useAuthStore();
   const { cart, fetchCart } = useCartStore();
+  const [authHydrated, setAuthHydrated] = useState(false);
   const [mascotLoadError, setMascotLoadError] = useState(false);
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activityPathRef = useRef<string>('');
@@ -29,11 +31,34 @@ export default function CustomerLayout({
 
   useEffect(() => {
     loadUserFromStorage();
-    if (!CUSTOMER_MAINTENANCE_MODE) {
-      fetchCart();
+    setAuthHydrated(true);
+  }, [loadUserFromStorage]);
+
+  useEffect(() => {
+    if (!authHydrated) return;
+
+    if (!user) {
+      router.replace('/login');
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    if (user.role === 'CUSTOMER') return;
+
+    if (user.role === 'DEPOCU') {
+      router.replace('/warehouse');
+    } else if (user.role === 'DIVERSEY') {
+      router.replace('/diversey/stok');
+    } else if (['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP'].includes(user.role)) {
+      router.replace('/dashboard');
+    } else {
+      router.replace('/login');
+    }
+  }, [authHydrated, router, user]);
+
+  useEffect(() => {
+    if (!authHydrated || !user || user.role !== 'CUSTOMER' || CUSTOMER_MAINTENANCE_MODE) return;
+    fetchCart();
+  }, [authHydrated, fetchCart, user?.id, user?.role]);
 
   const currentPath = useMemo(() => {
     const query = searchParams?.toString();
@@ -128,7 +153,15 @@ export default function CustomerLayout({
 
   const cartItemCount = cart?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
 
-  if (CUSTOMER_MAINTENANCE_MODE && user?.role === 'CUSTOMER') {
+  if (!authHydrated || !user || user.role !== 'CUSTOMER') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--surface-0)]" role="status" aria-label="Oturum kontrol ediliyor">
+        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary-600" />
+      </div>
+    );
+  }
+
+  if (CUSTOMER_MAINTENANCE_MODE) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-amber-50 flex items-center justify-center px-6">
         <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white/90 shadow-2xl p-8 md:p-10 text-center">
@@ -156,7 +189,7 @@ export default function CustomerLayout({
     <ErrorBoundary>
       <div className="flex min-h-screen flex-col bg-[var(--surface-0)]">
         <CustomerNavigation cartItemCount={cartItemCount} />
-        <main className="flex-1 pb-16 lg:pb-0">{children}</main>
+        <main className="flex-1">{children}</main>
         <CustomerFooter />
       </div>
     </ErrorBoundary>

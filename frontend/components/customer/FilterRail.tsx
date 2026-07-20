@@ -50,6 +50,8 @@ interface FilterRailProps {
 
   /** Anlasma satiri sadece anlasma erisimi varken gosterilsin (nav ile tutarli) */
   showAgreementRow?: boolean;
+  /** Zaten yalniz indirimli urun gosteren sayfalarda gereksiz satiri gizler. */
+  showDiscountRow?: boolean;
 
   /** SIDE banner fallback hedefi */
   bannerHref?: string;
@@ -75,6 +77,7 @@ export function FilterRail({
   filters,
   onFiltersChange,
   showAgreementRow = true,
+  showDiscountRow = true,
   bannerHref = '/discounted-products',
 }: FilterRailProps) {
   const [sideBanner, setSideBanner] = useState<Banner | null>(null);
@@ -262,21 +265,23 @@ export function FilterRail({
           </button>
         </div>
         <div className="flex flex-col gap-0.5">
-          <button
-            type="button"
-            onClick={() => onFiltersChange({ onlyDiscount: !filters.onlyDiscount })}
-            className="flex items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[12.5px] text-[#14223b] transition-colors hover:bg-[#f6f8fc]"
-          >
-            <span className={checkBox(filters.onlyDiscount, 'emerald')}>
-              {filters.onlyDiscount && (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-              )}
-            </span>
-            <span className="min-w-0 flex-1">Sadece indirimli</span>
-            <Percent className="h-3.5 w-3.5 flex-none text-[#047857]" />
-          </button>
+          {showDiscountRow && (
+            <button
+              type="button"
+              onClick={() => onFiltersChange({ onlyDiscount: !filters.onlyDiscount })}
+              className="flex items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[12.5px] text-[#14223b] transition-colors hover:bg-[#f6f8fc]"
+            >
+              <span className={checkBox(filters.onlyDiscount, 'emerald')}>
+                {filters.onlyDiscount && (
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                )}
+              </span>
+              <span className="min-w-0 flex-1">Sadece indirimli</span>
+              <Percent className="h-3.5 w-3.5 flex-none text-[#047857]" />
+            </button>
+          )}
           {showAgreementRow && (
             <button
               type="button"

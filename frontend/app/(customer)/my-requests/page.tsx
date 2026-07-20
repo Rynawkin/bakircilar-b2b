@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
+import { LoadErrorState } from '@/components/ui/LoadErrorState';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
@@ -69,11 +70,13 @@ export default function CustomerRequestsPage() {
   const { loadUserFromStorage } = useAuthStore();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [view, setView] = useState<TaskView>('KANBAN');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<FilterValue>('ALL');
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
+  const tasksRequestSequenceRef = useRef(0);
 
   const [newRequest, setNewRequest] = useState(DEFAULT_REQUEST);
   const [creating, setCreating] = useState(false);
@@ -84,6 +87,11 @@ export default function CustomerRequestsPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const commentSubmittingRef = useRef(false);
+  const attachmentUploadingRef = useRef(false);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -120,7 +128,9 @@ export default function CustomerRequestsPage() {
   };
 
   const fetchTasks = async () => {
+    const requestId = ++tasksRequestSequenceRef.current;
     setIsLoading(true);
+    setLoadError(null);
     try {
       const params: any = {};
       if (debouncedSearch) params.search = debouncedSearch;
@@ -130,26 +140,33 @@ export default function CustomerRequestsPage() {
           : statusFilter;
       }
       const { tasks } = await customerApi.getTasks(params);
+      if (requestId !== tasksRequestSequenceRef.current) return;
       setTasks(tasks);
     } catch (error) {
+      if (requestId !== tasksRequestSequenceRef.current) return;
       console.error('Tasks not loaded:', error);
+      setTasks([]);
+      setLoadError('Talepleriniz şu anda yüklenemedi. Kayıtlarınız silinmedi.');
     } finally {
-      setIsLoading(false);
+      if (requestId === tasksRequestSequenceRef.current) setIsLoading(false);
     }
   };
 
   const handleViewChange = async (value: TaskView) => {
+    const previousView = view;
     setView(value);
     try {
       await customerApi.updateTaskPreferences({ defaultView: value });
     } catch (error) {
       console.error('Task view preference not saved:', error);
+      setView(previousView);
+      toast.error('Görünüm tercihi kaydedilemedi. Lütfen tekrar deneyin.');
     }
   };
 
   const handleCreateRequest = async () => {
     if (!newRequest.title.trim()) {
-      toast.error('Baslik gerekli');
+      toast.error('Başlık gerekli');
       return;
     }
     setCreating(true);
@@ -160,12 +177,12 @@ export default function CustomerRequestsPage() {
         type: newRequest.type,
         priority: newRequest.priority,
       });
-      toast.success('Talep gonderildi');
+      toast.success('Talep gönderildi');
       setNewRequest(DEFAULT_REQUEST);
       setCreateOpen(false);
       fetchTasks();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Talep olusturulamadi');
+      toast.error(error.response?.data?.error || 'Talep oluşturulamadı');
     } finally {
       setCreating(false);
     }
@@ -187,13 +204,17 @@ export default function CustomerRequestsPage() {
 
   const handleAddComment = async () => {
     if (!detailTask) return;
+    if (commentSubmittingRef.current) return;
     if (!commentText.trim()) {
       toast.error('Yorum gerekli');
       return;
     }
+    const body = commentText.trim();
+    commentSubmittingRef.current = true;
+    setCommentSubmitting(true);
     try {
       const { comment } = await customerApi.addTaskComment(detailTask.id, {
-        body: commentText.trim(),
+        body,
       });
       setDetailTask((prev) =>
         prev
@@ -207,19 +228,26 @@ export default function CustomerRequestsPage() {
           : prev
       );
       setCommentText('');
-      fetchTasks();
+      await fetchTasks();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Yorum eklenemedi');
+    } finally {
+      commentSubmittingRef.current = false;
+      setCommentSubmitting(false);
     }
   };
 
   const handleUploadAttachment = async () => {
+    if (attachmentUploadingRef.current) return;
     if (!detailTask || !attachmentFile) {
       toast.error('Dosya secin');
       return;
     }
+    const file = attachmentFile;
     const formData = new FormData();
-    formData.append('file', attachmentFile);
+    formData.append('file', file);
+    attachmentUploadingRef.current = true;
+    setAttachmentUploading(true);
     try {
       const { attachment } = await customerApi.addTaskAttachment(detailTask.id, formData);
       setDetailTask((prev) =>
@@ -234,9 +262,13 @@ export default function CustomerRequestsPage() {
           : prev
       );
       setAttachmentFile(null);
-      fetchTasks();
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+      await fetchTasks();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Dosya yuklenemedi');
+    } finally {
+      attachmentUploadingRef.current = false;
+      setAttachmentUploading(false);
     }
   };
 
@@ -342,7 +374,7 @@ export default function CustomerRequestsPage() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Input
               label="Arama"
-              placeholder="Baslik veya aciklama..."
+              placeholder="Başlık veya açıklama..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -353,7 +385,7 @@ export default function CustomerRequestsPage() {
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as FilterValue)}
               >
-                <option value="ALL">Tum Durumlar</option>
+                <option value="ALL">Tüm Durumlar</option>
                 {TASK_STATUS_ORDER.map((status) => (
                   <option key={status} value={status}>
                     {TASK_STATUS_LABELS[status]}
@@ -368,6 +400,12 @@ export default function CustomerRequestsPage() {
           <div className="flex items-center justify-center py-16">
             <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-primary-600"></div>
           </div>
+        ) : loadError ? (
+          <LoadErrorState
+            title="Talepler yüklenemedi"
+            description={loadError}
+            onRetry={() => void fetchTasks()}
+          />
         ) : view === 'KANBAN' ? (
           <div className="flex gap-3 overflow-x-auto pb-4">
             {visibleStatuses.map((status) => (
@@ -441,7 +479,7 @@ export default function CustomerRequestsPage() {
                   {tasks.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-[18px] py-12 text-center text-[var(--ink-3)]">
-                        Talep bulunamadi.
+                        Talep bulunamadı.
                       </td>
                     </tr>
                   )}
@@ -584,8 +622,9 @@ export default function CustomerRequestsPage() {
                   placeholder="Yorum yazin..."
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
+                  disabled={commentSubmitting}
                 />
-                <Button size="sm" onClick={handleAddComment}>
+                <Button size="sm" onClick={handleAddComment} isLoading={commentSubmitting} disabled={!commentText.trim()}>
                   Yorum Ekle
                 </Button>
               </div>
@@ -615,12 +654,19 @@ export default function CustomerRequestsPage() {
               </div>
               <div className="space-y-2">
                 <input
+                  ref={attachmentInputRef}
                   type="file"
                   className="block w-full text-sm text-[var(--ink-2)] file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--ink-2)] hover:file:bg-gray-200"
                   onChange={(e) => setAttachmentFile(e.target.files?.[0] || null)}
+                  disabled={attachmentUploading}
                 />
-                <Button size="sm" onClick={handleUploadAttachment}>
-                  Dosya Yukle
+                <Button
+                  size="sm"
+                  onClick={handleUploadAttachment}
+                  isLoading={attachmentUploading}
+                  disabled={!attachmentFile}
+                >
+                  Dosya Yükle
                 </Button>
               </div>
             </div>

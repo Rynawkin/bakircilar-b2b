@@ -21,7 +21,14 @@ class CollectionController {
     try {
       const result = await collectionService.getCollectionProductsForCustomer(
         req.params.id,
-        req.user!.userId
+        req.user!.userId,
+        {
+          search: typeof req.query.search === 'string' ? req.query.search : undefined,
+          sort: typeof req.query.sort === 'string' ? req.query.sort : undefined,
+          priceType: req.query.priceType === 'white' ? 'white' : req.query.priceType === 'invoiced' ? 'invoiced' : undefined,
+          limit: typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined,
+          offset: typeof req.query.offset === 'string' ? Number(req.query.offset) : undefined,
+        }
       );
       if (!result) {
         return res.status(404).json({ error: 'Koleksiyon bulunamadi' });

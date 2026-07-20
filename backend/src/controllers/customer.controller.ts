@@ -87,6 +87,223 @@ const buildLastSalesMap = (sales: MikroCustomerSaleMovement[]) => {
 const normalizeMikroCode = (value: string | null | undefined): string =>
   String(value || '').trim().toUpperCase();
 
+type CatalogSort =
+  | 'bestsellerValue'
+  | 'lastPurchasedDesc'
+  | 'lastPurchasedAsc'
+  | 'nameAsc'
+  | 'nameDesc'
+  | 'priceAsc'
+  | 'priceDesc'
+  | 'stockAsc'
+  | 'stockDesc'
+  | 'discountDesc';
+
+type CatalogControls = {
+  sort: CatalogSort;
+  priceType: 'invoiced' | 'white';
+  minPrice?: number;
+  maxPrice?: number;
+  minStock?: number;
+  maxStock?: number;
+  stockStatus: 'all' | 'in' | 'supply';
+  onlyDiscount: boolean;
+  onlyAgreement: boolean;
+};
+
+const readFiniteQueryNumber = (value: unknown): number | undefined => {
+  if (Array.isArray(value)) value = value[0];
+  if (value === undefined || value === null || String(value).trim() === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const readQueryBoolean = (value: unknown): boolean => {
+  if (Array.isArray(value)) value = value[0];
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'true' || normalized === '1';
+};
+
+const normalizeCatalogSort = (value: unknown, fallback: CatalogSort): CatalogSort => {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const aliases: Record<string, CatalogSort> = {
+    bestseller: 'bestsellerValue',
+    bestsellerValue: 'bestsellerValue',
+    lastPurchasedDesc: 'lastPurchasedDesc',
+    lastPurchasedAsc: 'lastPurchasedAsc',
+    nameAsc: 'nameAsc',
+    'name-asc': 'nameAsc',
+    nameDesc: 'nameDesc',
+    'name-desc': 'nameDesc',
+    priceAsc: 'priceAsc',
+    'price-asc': 'priceAsc',
+    priceDesc: 'priceDesc',
+    'price-desc': 'priceDesc',
+    stockAsc: 'stockAsc',
+    'stock-asc': 'stockAsc',
+    stockDesc: 'stockDesc',
+    'stock-desc': 'stockDesc',
+    discountDesc: 'discountDesc',
+    'discount-desc': 'discountDesc',
+  };
+  return aliases[String(raw || '')] || fallback;
+};
+
+const getCatalogControls = (
+  query: Request['query'],
+  fallbackSort: CatalogSort,
+  effectiveVisibility?: PriceVisibilityValue | null
+): CatalogControls => {
+  const requestedPriceType = Array.isArray(query.priceType) ? query.priceType[0] : query.priceType;
+  const stockStatusValue = Array.isArray(query.stockStatus) ? query.stockStatus[0] : query.stockStatus;
+  const stockStatus = stockStatusValue === 'in' || stockStatusValue === 'supply'
+    ? stockStatusValue
+    : 'all';
+
+  return {
+    sort: normalizeCatalogSort(query.sort, fallbackSort),
+    priceType:
+      effectiveVisibility === 'WHITE_ONLY'
+        ? 'white'
+        : effectiveVisibility === 'INVOICED_ONLY'
+          ? 'invoiced'
+          : requestedPriceType === 'white'
+            ? 'white'
+            : 'invoiced',
+    minPrice: readFiniteQueryNumber(query.minPrice),
+    maxPrice: readFiniteQueryNumber(query.maxPrice),
+    minStock: readFiniteQueryNumber(query.minStock),
+    maxStock: readFiniteQueryNumber(query.maxStock),
+    stockStatus,
+    onlyDiscount: readQueryBoolean(query.onlyDiscount),
+    onlyAgreement: readQueryBoolean(query.onlyAgreement),
+  };
+};
+
+const catalogPrice = (product: any, priceType: 'invoiced' | 'white'): number => {
+  const basePrice = Number(
+    product?.isBundle && product?.listPrices
+      ? product?.listPrices?.[priceType]
+      : product?.pricingMode === 'EXCESS'
+      ? product?.listPrices?.[priceType] ?? product?.prices?.[priceType]
+      : product?.prices?.[priceType]
+  );
+  const discountedPrice = Number(
+    product?.pricingMode === 'EXCESS'
+      ? product?.excessPrices?.[priceType] ?? product?.prices?.[priceType]
+      : product?.isBundle
+        ? product?.prices?.[priceType]
+        : product?.excessPrices?.[priceType]
+  );
+  const canShowDiscount = product?.isBundle
+    ? Boolean(product?.listPrices)
+    : product?.pricingMode === 'EXCESS' || (!product?.agreement && Number(product?.excessStock) > 0);
+  if (
+    canShowDiscount &&
+    Number.isFinite(discountedPrice) &&
+    discountedPrice > 0 &&
+    Number.isFinite(basePrice) &&
+    discountedPrice < basePrice - 0.001
+  ) {
+    return discountedPrice;
+  }
+  return Number.isFinite(basePrice) ? basePrice : 0;
+};
+
+const catalogStock = (product: any): number => {
+  const value = Number(product?.maxOrderQuantity ?? product?.availableStock ?? product?.excessStock ?? 0);
+  return Number.isFinite(value) ? value : 0;
+};
+
+const catalogDiscountRatio = (product: any, priceType: 'invoiced' | 'white'): number => {
+  const isBundleDiscount = Boolean(product?.isBundle && product?.listPrices);
+  const listPrice = isBundleDiscount || product?.pricingMode === 'EXCESS'
+    ? Number(product?.listPrices?.[priceType])
+    : Number(product?.prices?.[priceType]);
+  const discountedPrice = isBundleDiscount
+    ? Number(product?.prices?.[priceType])
+    : product?.pricingMode === 'EXCESS'
+      ? Number(product?.excessPrices?.[priceType] ?? product?.prices?.[priceType])
+      : Number(product?.excessPrices?.[priceType]);
+  if (!Number.isFinite(listPrice) || listPrice <= 0 || !Number.isFinite(discountedPrice) || discountedPrice <= 0) {
+    return 0;
+  }
+  return discountedPrice < listPrice - 0.001 ? (listPrice - discountedPrice) / listPrice : 0;
+};
+
+const applyCatalogControls = (
+  products: any[],
+  controls: CatalogControls,
+  purchasedOrder?: Map<string, number>,
+  preserveOrder = false
+): any[] => {
+  const filtered = products.filter((product) => {
+    const price = catalogPrice(product, controls.priceType);
+    const stock = catalogStock(product);
+
+    if (controls.minPrice !== undefined && price < controls.minPrice) return false;
+    if (controls.maxPrice !== undefined && price > controls.maxPrice) return false;
+    if (controls.minStock !== undefined && stock < controls.minStock) return false;
+    if (controls.maxStock !== undefined && stock > controls.maxStock) return false;
+    if (controls.stockStatus === 'in' && stock <= 0) return false;
+    if (controls.stockStatus === 'supply' && stock > 0) return false;
+    if (controls.onlyAgreement && !product?.agreement) return false;
+    if (controls.onlyDiscount) {
+      const isDiscountedMode = product?.pricingMode === 'EXCESS';
+      if (
+        (!isDiscountedMode && product?.agreement && !product?.isBundle) ||
+        catalogDiscountRatio(product, controls.priceType) <= 0
+      ) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const compareName = (a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || ''), 'tr');
+  const comparePrice = (a: any, b: any, direction: 1 | -1) => {
+    const aPrice = catalogPrice(a, controls.priceType);
+    const bPrice = catalogPrice(b, controls.priceType);
+    if (aPrice <= 0 && bPrice > 0) return 1;
+    if (bPrice <= 0 && aPrice > 0) return -1;
+    return (aPrice - bPrice) * direction || compareName(a, b);
+  };
+
+  if (preserveOrder) return filtered;
+
+  return [...filtered].sort((a, b) => {
+    switch (controls.sort) {
+      case 'nameAsc':
+        return compareName(a, b);
+      case 'nameDesc':
+        return compareName(b, a);
+      case 'priceAsc':
+        return comparePrice(a, b, 1);
+      case 'priceDesc':
+        return comparePrice(a, b, -1);
+      case 'stockAsc':
+        return catalogStock(a) - catalogStock(b) || compareName(a, b);
+      case 'stockDesc':
+        return catalogStock(b) - catalogStock(a) || compareName(a, b);
+      case 'discountDesc':
+        return catalogDiscountRatio(b, controls.priceType) - catalogDiscountRatio(a, controls.priceType) || compareName(a, b);
+      case 'lastPurchasedDesc': {
+        const aIndex = purchasedOrder?.get(normalizeMikroCode(a?.mikroCode)) ?? Number.MAX_SAFE_INTEGER;
+        const bIndex = purchasedOrder?.get(normalizeMikroCode(b?.mikroCode)) ?? Number.MAX_SAFE_INTEGER;
+        return aIndex - bIndex || compareName(a, b);
+      }
+      case 'lastPurchasedAsc': {
+        const aIndex = purchasedOrder?.get(normalizeMikroCode(a?.mikroCode)) ?? -1;
+        const bIndex = purchasedOrder?.get(normalizeMikroCode(b?.mikroCode)) ?? -1;
+        return bIndex - aIndex || compareName(a, b);
+      }
+      case 'bestsellerValue':
+      default:
+        return Number(b?.popularSalesValue || 0) - Number(a?.popularSalesValue || 0) || compareName(a, b);
+    }
+  });
+};
+
 const CUSTOMER_STATIC_CACHE_TTL_MS = 60 * 1000;
 const customerStaticCache = new Map<string, { expiresAt: number; value: any }>();
 
@@ -550,7 +767,12 @@ export class CustomerController {
       // Ana sayfa "one cikan" -> sadece yonetici isaretli urunler
       const featuredOnly = req.query.featured === 'true' || req.query.featured === '1';
       const requestedSort = typeof req.query.sort === 'string' ? req.query.sort : '';
-      const productSort = requestedSort || (isPurchased ? 'lastPurchasedDesc' : isAgreementMode ? 'nameAsc' : 'bestsellerValue');
+      const defaultProductSort: CatalogSort = isPurchased
+        ? 'lastPurchasedDesc'
+        : isAgreementMode
+          ? 'nameAsc'
+          : 'bestsellerValue';
+      const productSort = normalizeCatalogSort(requestedSort, defaultProductSort);
       const bestsellerOrderBy = [{ popularSalesValue: 'desc' as const }, { name: 'asc' as const }];
       const nameOrderBy = [{ name: 'asc' as const }];
       const searchTokens = splitSearchTokens(search as string | undefined);
@@ -651,7 +873,6 @@ export class CustomerController {
           where: { order: { userId: customer.id } },
           select: { mikroCode: true },
           orderBy: { createdAt: 'desc' },
-          take: 5000,
         });
         const localCodeSet = new Set<string>();
         for (const row of localPurchasedRows) {
@@ -680,7 +901,7 @@ export class CustomerController {
         lap('purchasedCodes');
         if (purchasedCodes.length === 0) {
           logTiming({ counts: { purchasedCodes: 0 }, reason: 'no-purchases' });
-          return res.json({ products: [], total: 0 });
+          return res.json({ products: [], total: 0, hasMore: false });
         }
       }
 
@@ -692,6 +913,39 @@ export class CustomerController {
       const effectiveVisibility = user?.parentCustomerId
         ? (customer.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
         : customer.priceVisibility;
+      const catalogControls = getCatalogControls(req.query, defaultProductSort, effectiveVisibility);
+      const purchasedOrder = new Map(
+        purchasedCodes.map((code, index) => [normalizeMikroCode(code), index])
+      );
+      const documentNoFilter = typeof req.query.documentNo === 'string'
+        ? req.query.documentNo.trim().toLocaleLowerCase('tr')
+        : '';
+      const hasPostEnrichmentCatalogControls =
+        Boolean(warehouse) ||
+        catalogControls.minPrice !== undefined ||
+        catalogControls.maxPrice !== undefined ||
+        catalogControls.minStock !== undefined ||
+        catalogControls.maxStock !== undefined ||
+        catalogControls.stockStatus !== 'all' ||
+        catalogControls.onlyDiscount ||
+        catalogControls.onlyAgreement;
+      const useNormalCatalogDbPaging =
+        (mode === undefined || mode === 'all') &&
+        Boolean(limit) &&
+        catalogControls.sort === 'bestsellerValue' &&
+        (!featuredOnly || !requestedSort) &&
+        !hasPostEnrichmentCatalogControls;
+      const useAgreementDbPaging =
+        isAgreementMode &&
+        Boolean(limit) &&
+        catalogControls.sort === 'nameAsc' &&
+        !hasPostEnrichmentCatalogControls;
+      const usePurchasedPreEnrichPaging =
+        isPurchased &&
+        Boolean(limit) &&
+        catalogControls.sort === 'lastPurchasedDesc' &&
+        !documentNoFilter &&
+        !hasPostEnrichmentCatalogControls;
 
       const now = new Date();
       let agreementRows: Array<{
@@ -728,10 +982,11 @@ export class CustomerController {
           }));
         }
 
-        // 1.2: Toplam anlasma sayisi (sayfalama disinda) - frontend "Toplam N urun" gosterimi icin.
-        const agreementTotal = await prisma.customerPriceAgreement.count({ where: agreementWhere });
+        const agreementDbTotal = useAgreementDbPaging
+          ? await prisma.customerPriceAgreement.count({ where: agreementWhere })
+          : undefined;
 
-        const agreementRows = await prisma.customerPriceAgreement.findMany({
+        const activeAgreementRows = await prisma.customerPriceAgreement.findMany({
           where: agreementWhere,
           select: {
             id: true,
@@ -754,6 +1009,9 @@ export class CustomerController {
                 vatRate: true,
                 currentCost: true,
                 lastEntryPrice: true,
+                popularSalesQuantity: true,
+                popularSalesValue: true,
+                popularSalesUpdatedAt: true,
                 excessStock: true,
                 imageUrl: true,
                 warehouseStocks: true,
@@ -772,16 +1030,17 @@ export class CustomerController {
           orderBy: {
             product: { name: 'asc' },
           },
-          ...(limit ? { skip: offset, take: limit } : {}),
+          ...(useAgreementDbPaging && limit ? { skip: offset, take: limit } : {}),
         });
         lap('agreementsQuery');
 
-        if (agreementRows.length == 0) {
+        if (activeAgreementRows.length === 0) {
           logTiming({ counts: { agreementRows: 0 } });
-          return res.json({ products: [], total: agreementTotal });
+          const total = agreementDbTotal ?? 0;
+          return res.json({ products: [], total, hasMore: offset < total });
         }
 
-        const agreementProducts = agreementRows.map((row) => row.product);
+        const agreementProducts = activeAgreementRows.map((row) => row.product);
         const priceStatsMap = await priceListService.getPriceStatsMap(
           agreementProducts.map((product) => product.mikroCode)
         );
@@ -803,7 +1062,7 @@ export class CustomerController {
           }
         }
 
-        let productsWithPrices = agreementRows.map((row) => {
+        let productsWithPrices = activeAgreementRows.map((row) => {
           const product = row.product;
           const prices = product.prices as unknown as ProductPrices;
           const customerPrices = pricingService.getPriceForCustomer(
@@ -874,7 +1133,15 @@ export class CustomerController {
           const warehouseExcessStocks = product.warehouseExcessStocks as Record<string, number>;
           const pendingByWarehouse = product.pendingCustomerOrdersByWarehouse as Record<string, number> || {};
           const availableWarehouseStocks = applyPendingOrders(warehouseStocks, pendingByWarehouse);
-          const availableStock = sumStocks(availableWarehouseStocks, includedWarehouses);
+          let availableStock = sumStocks(availableWarehouseStocks, includedWarehouses);
+          let excessStock = product.excessStock;
+          let maxOrderQuantity = availableStock;
+          if (warehouse) {
+            const warehouseKey = warehouse as string;
+            availableStock = availableWarehouseStocks?.[warehouseKey] || 0;
+            excessStock = warehouseExcessStocks?.[warehouseKey] || 0;
+            maxOrderQuantity = availableStock;
+          }
 
           return {
             id: product.id,
@@ -884,9 +1151,12 @@ export class CustomerController {
             unit2: product.unit2 || null,
             unit2Factor: product.unit2Factor ?? null,
             vatRate: product.vatRate ?? 0,
-            excessStock: product.excessStock,
+            popularSalesQuantity: product.popularSalesQuantity ?? 0,
+            popularSalesValue: product.popularSalesValue ?? 0,
+            popularSalesUpdatedAt: product.popularSalesUpdatedAt ?? null,
+            excessStock,
             availableStock,
-            maxOrderQuantity: availableStock,
+            maxOrderQuantity,
             imageUrl: product.imageUrl,
             warehouseStocks: availableWarehouseStocks,
             warehouseExcessStocks,
@@ -912,13 +1182,34 @@ export class CustomerController {
           };
         });
 
-        if (warehouse) {
+        if (warehouse && catalogControls.stockStatus !== 'supply') {
           productsWithPrices = productsWithPrices.filter((p) => p.maxOrderQuantity > 0);
         }
 
+        const controlledProducts = applyCatalogControls(productsWithPrices, catalogControls, purchasedOrder);
+        const total = useAgreementDbPaging
+          ? (agreementDbTotal ?? controlledProducts.length)
+          : controlledProducts.length;
+        const pagedProducts = useAgreementDbPaging
+          ? controlledProducts
+          : limit
+            ? controlledProducts.slice(offset, offset + limit)
+            : controlledProducts.slice(offset);
+
         lap('enrich');
-        logTiming({ counts: { agreementRows: agreementRows.length, products: productsWithPrices.length } });
-        return res.json({ products: productsWithPrices, total: agreementTotal });
+        logTiming({
+          counts: {
+            agreementRows: activeAgreementRows.length,
+            products: pagedProducts.length,
+            total,
+            dbPagingFastPath: useAgreementDbPaging,
+          },
+        });
+        return res.json({
+          products: pagedProducts,
+          total,
+          hasMore: offset + pagedProducts.length < total,
+        });
       }
 
       // Indirime sokulmamasi istenen urun kodlari (yalniz indirimli listeyi etkiler)
@@ -931,117 +1222,44 @@ export class CustomerController {
           ).map((p) => p.mikroCode)
         : [];
 
-      // Indirimli listede "gercekten indirimli" (excess fiyat < liste fiyat) filtresi
-      // DB sayfalamasindan SONRA calistigi icin sayfalar eksik doluyor ve frontend
-      // erken "bitti" sanip bazi indirimli urunleri hic gostermiyordu. Cozum: sayfa
-      // dolana kadar iteratif ek cekim (makul tarama ust siniriyla). offset burada
-      // filtreden GECEN urun sayisi uzerinden ilerler; frontend offset'i zaten
-      // teslim edilen urun adedinden hesapladigi icin tutarlidir.
+      // Indirim/fiyat/stok filtreleri zenginlestirilmis urun payload'i uzerinde
+      // uygulanir. Bu nedenle once tum eslesen adaylari alir, sayfalamayi en sonda yapariz.
       let discountedPageProducts: any[] = [];
       if (isDiscounted) {
-        const discountSort: 'bestsellerValue' | 'excessStock' =
-          productSort === 'bestsellerValue' ? 'bestsellerValue' : 'excessStock';
         const discountExcludeCodes = [...excludedProductCodes, ...discountExcludedCodes];
-        const EPS = 0.001;
-        const isRawGenuinelyDiscounted = (
-          rawProduct: any,
-          batchStatsMap: Map<string, any>,
-          batchAgreementMap: Map<string, any>
-        ): boolean => {
-          const rawPrices = rawProduct.prices as unknown as ProductPrices;
-          const rawCustomerPrices = pricingService.getPriceForCustomer(
-            rawPrices,
-            customer.customerType as any
+        discountedPageProducts = await stockService.getExcessStockProducts({
+          categoryId: categoryId as string,
+          categoryIds,
+          search: search as string,
+          excludeProductCodes: discountExcludeCodes,
+          sort: productSort === 'bestsellerValue' ? 'bestsellerValue' : 'excessStock',
+        });
+        if (brandCodes.length > 0) {
+          const requestedBrands = new Set(brandCodes);
+          discountedPageProducts = discountedPageProducts.filter((product) =>
+            requestedBrands.has(String(product?.brandCode || ''))
           );
-          const priceStats = batchStatsMap.get(rawProduct.mikroCode) || null;
-          const pair = resolveCustomerPriceListsForProduct(basePriceListPair, priceListRules, {
-            brandCode: rawProduct.brandCode,
-            categoryId: rawProduct.category?.id,
-          });
-          const rawListInvoiced = priceListService.getListPriceWithFallback(priceStats, pair.invoiced);
-          const rawListWhite = priceListService.getListPriceWithFallback(priceStats, pair.white);
-          if (rawListInvoiced <= 0 && rawListWhite <= 0) return false;
-          const rawAgreement = batchAgreementMap.get(rawProduct.id);
-          const rawAgreementActive = rawAgreement ? isAgreementActive(rawAgreement, now) : false;
-          const rawAgreementApplies =
-            rawAgreementActive && (Number(rawAgreement.minQuantity) || 1) <= 1;
-          const discPrices = rawAgreementApplies
-            ? applyAgreementPrices(rawCustomerPrices, rawAgreement)
-            : rawCustomerPrices;
-          const invoicedOff =
-            rawListInvoiced > 0 && Number(discPrices.invoiced) < rawListInvoiced - EPS;
-          const whiteOff = rawListWhite > 0 && Number(discPrices.white) < rawListWhite - EPS;
-          if (effectiveVisibility === 'WHITE_ONLY') return whiteOff;
-          if (effectiveVisibility === 'INVOICED_ONLY') return invoicedOff;
-          return invoicedOff || whiteOff;
-        };
-
-        if (!limit) {
-          // Limitsiz istekte eski davranis: tek cekim (filtre asagida yine uygulanir).
-          discountedPageProducts = await stockService.getExcessStockProducts({
-            categoryId: categoryId as string,
-            categoryIds,
-            search: search as string,
-            excludeProductCodes: discountExcludeCodes,
-            sort: discountSort,
-          });
-        } else {
-          const batchSize = Math.min(200, Math.max(limit * 2, 60));
-          const maxScan = Math.max(1200, offset + limit * 10);
-          let dbOffset = 0;
-          let skippedFiltered = 0;
-          let scanned = 0;
-          while (discountedPageProducts.length < limit && scanned < maxScan) {
-            const batch = await stockService.getExcessStockProducts({
-              categoryId: categoryId as string,
-              categoryIds,
-              search: search as string,
-              limit: batchSize,
-              offset: dbOffset,
-              excludeProductCodes: discountExcludeCodes,
-              sort: discountSort,
-            });
-            if (batch.length === 0) break;
-            dbOffset += batch.length;
-            scanned += batch.length;
-            const [batchStatsMap, batchAgreements] = await Promise.all([
-              priceListService.getPriceStatsMap(batch.map((p: any) => p.mikroCode)),
-              prisma.customerPriceAgreement.findMany({
-                where: {
-                  customerId: customer.id,
-                  productId: { in: batch.map((p: any) => p.id) },
-                },
-                select: {
-                  productId: true,
-                  priceInvoiced: true,
-                  priceWhite: true,
-                  minQuantity: true,
-                  validFrom: true,
-                  validTo: true,
-                },
-              }),
-            ]);
-            const batchAgreementMap = new Map(batchAgreements.map((row) => [row.productId, row]));
-            for (const rawProduct of batch) {
-              if (warehouse) {
-                const warehouseExcessQty =
-                  ((rawProduct.warehouseExcessStocks || {}) as Record<string, number>)[
-                    warehouse as string
-                  ] || 0;
-                if (warehouseExcessQty <= 0) continue;
-              }
-              if (!isRawGenuinelyDiscounted(rawProduct, batchStatsMap, batchAgreementMap)) continue;
-              if (skippedFiltered < offset) {
-                skippedFiltered += 1;
-                continue;
-              }
-              discountedPageProducts.push(rawProduct);
-              if (discountedPageProducts.length >= limit) break;
-            }
-            if (batch.length < batchSize) break;
-          }
         }
       }
+
+      const normalProductWhere: any = {
+        active: true,
+        hiddenFromCustomers: false,
+        ...(featuredOnly ? { isFeatured: true } : {}),
+        ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+        ...categoryFilter,
+        ...brandFilter,
+        ...(searchTokens.length > 0
+          ? {
+              AND: searchTokens.map((token) => ({
+                OR: [{ searchText: { contains: normalizeSearchText(token) } }],
+              })),
+            }
+          : {}),
+      };
+      const normalCatalogDbTotal = useNormalCatalogDbPaging
+        ? await prisma.product.count({ where: normalProductWhere })
+        : undefined;
 
       const products = isDiscounted
         ? discountedPageProducts
@@ -1125,23 +1343,7 @@ export class CustomerController {
               },
             })
           : await prisma.product.findMany({
-              where: {
-                active: true,
-                hiddenFromCustomers: false,
-                ...(featuredOnly ? { isFeatured: true } : {}),
-                ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
-                ...categoryFilter,
-                ...brandFilter,
-                ...(searchTokens.length > 0
-                  ? {
-                      AND: searchTokens.map((token) => ({
-                        OR: [
-                          { searchText: { contains: normalizeSearchText(token) } },
-                        ],
-                      })),
-                    }
-                  : {}),
-              },
+              where: normalProductWhere,
               select: {
 
                 id: true,
@@ -1202,7 +1404,7 @@ export class CustomerController {
               orderBy: featuredOnly
                 ? [{ featuredOrder: 'asc' as const }, { name: 'asc' as const }]
                 : productSort === 'bestsellerValue' ? bestsellerOrderBy : nameOrderBy,
-              ...(limit ? { skip: offset, take: limit } : {}),
+              ...(useNormalCatalogDbPaging && limit ? { skip: offset, take: limit } : {}),
             });
 
       // Indirime sokulmamasi istenen urunlerde fazla stogu sifirla -> her yerde normal fiyattan gosterilir.
@@ -1212,72 +1414,37 @@ export class CustomerController {
 
       lap('productsQuery');
 
+      const purchasedPreEnrichTotal = usePurchasedPreEnrichPaging ? products.length : undefined;
       let pageProducts = products;
       if (isPurchased) {
-        const orderIndex = new Map(purchasedCodes.map((code, index) => [normalizeMikroCode(code), index]));
         pageProducts = [...products].sort((a, b) => {
           if (productSort === 'lastPurchasedDesc') {
-            const aIndex = orderIndex.get(normalizeMikroCode(a.mikroCode)) ?? Number.MAX_SAFE_INTEGER;
-            const bIndex = orderIndex.get(normalizeMikroCode(b.mikroCode)) ?? Number.MAX_SAFE_INTEGER;
+            const aIndex = purchasedOrder.get(normalizeMikroCode(a.mikroCode)) ?? Number.MAX_SAFE_INTEGER;
+            const bIndex = purchasedOrder.get(normalizeMikroCode(b.mikroCode)) ?? Number.MAX_SAFE_INTEGER;
             if (aIndex !== bIndex) return aIndex - bIndex;
           }
           return a.name.localeCompare(b.name, 'tr');
         });
-        if (limit) {
+        if (usePurchasedPreEnrichPaging && limit) {
           pageProducts = pageProducts.slice(offset, offset + limit);
         }
       }
 
-      // 1.2: Sayfalamadan bagimsiz toplam urun sayisi (frontend "Toplam N urun" gosterimi icin).
-      // Fiyat/stok hesaplama mantigina dokunmaz; sadece ayni filtre uzerinden count alir.
-      let productsTotal: number | undefined;
-      if (isPurchased) {
-        // Purchased modunda DB sorgusu limitsiz cekildigi icin tum eslesen kayit sayisi = products.length.
-        productsTotal = products.length;
-      } else if (isDiscounted) {
-        const discountedWhere: any = {
-          excessStock: { gt: 0 },
-          active: true,
-          hiddenFromCustomers: false,
-        };
-        const allDiscountExcluded = [...excludedProductCodes, ...discountExcludedCodes];
-        if (allDiscountExcluded.length > 0) {
-          discountedWhere.mikroCode = { notIn: allDiscountExcluded };
-        }
-        if (categoryIds.length > 0) {
-          discountedWhere.categoryId = { in: categoryIds };
-        } else if (categoryId) {
-          discountedWhere.categoryId = categoryId as string;
-        }
-        if (searchTokens.length > 0) {
-          discountedWhere.AND = searchTokens.map((token) => ({
-            OR: [
-              { searchText: { contains: normalizeSearchText(token) } },
-            ],
-          }));
-        }
-        productsTotal = await prisma.product.count({ where: discountedWhere });
-      } else {
-        const listWhere: any = {
-          active: true,
-          hiddenFromCustomers: false,
-          ...(featuredOnly ? { isFeatured: true } : {}),
-          ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
-          ...categoryFilter,
-          ...brandFilter,
-          ...(searchTokens.length > 0
-            ? {
-                AND: searchTokens.map((token) => ({
-                  OR: [
-                    { searchText: { contains: normalizeSearchText(token) } },
-                  ],
-                })),
-              }
-            : {}),
-        };
-        productsTotal = await prisma.product.count({ where: listWhere });
+      if ((useNormalCatalogDbPaging || usePurchasedPreEnrichPaging) && pageProducts.length === 0) {
+        const total = useNormalCatalogDbPaging
+          ? (normalCatalogDbTotal ?? 0)
+          : (purchasedPreEnrichTotal ?? 0);
+        logTiming({
+          counts: {
+            products: products.length,
+            total,
+            returned: 0,
+            dbPagingFastPath: useNormalCatalogDbPaging,
+            preEnrichPurchasedPaging: usePurchasedPreEnrichPaging,
+          },
+        });
+        return res.json({ products: [], total, hasMore: offset < total });
       }
-      lap('countTotal');
 
       const priceStatsMap = await priceListService.getPriceStatsMap(
         pageProducts.map((product) => product.mikroCode)
@@ -1300,7 +1467,6 @@ export class CustomerController {
             orderBy: {
               order: { createdAt: 'desc' },
             },
-            take: Math.max(200, pageProducts.length * 5),
             select: {
               mikroCode: true,
               quantity: true,
@@ -1544,7 +1710,7 @@ export class CustomerController {
         });
       }
 
-      if (warehouse) {
+      if (warehouse && catalogControls.stockStatus !== 'supply') {
         productsWithPrices = productsWithPrices.filter((p) => p.maxOrderQuantity > 0);
       }
 
@@ -1567,14 +1733,50 @@ export class CustomerController {
         productsWithPrices = productsWithPrices.filter(isGenuinelyDiscounted);
       }
 
+      if (isPurchased && documentNoFilter) {
+        productsWithPrices = productsWithPrices.filter((product) =>
+          (product.lastSales || []).some((sale: any) =>
+            String(sale.documentNo || sale.orderNumber || '')
+              .toLocaleLowerCase('tr')
+              .includes(documentNoFilter)
+          )
+        );
+      }
+
+      const controlledProducts = applyCatalogControls(
+        productsWithPrices,
+        catalogControls,
+        purchasedOrder,
+        featuredOnly && !requestedSort
+      );
+      const responseAlreadyPaged = useNormalCatalogDbPaging || usePurchasedPreEnrichPaging;
+      const total = useNormalCatalogDbPaging
+        ? (normalCatalogDbTotal ?? controlledProducts.length)
+        : usePurchasedPreEnrichPaging
+          ? (purchasedPreEnrichTotal ?? controlledProducts.length)
+          : controlledProducts.length;
+      const pagedProducts = responseAlreadyPaged
+        ? controlledProducts
+        : limit
+          ? controlledProducts.slice(offset, offset + limit)
+          : controlledProducts.slice(offset);
+
       lap('enrich');
-      logTiming({ counts: { products: products.length, agreements: agreementRows.length, purchasedCodes: purchasedCodes.length } });
-      // 1.2: warehouse ve indirimli ("gercekten indirimli") filtreleri sorgu SONRASI sayfa
-      // uzerinde calistigindan DB count'u gercek gorunenle birebir eslesmez; bu durumlarda
-      // yaniltici olmamak icin total gondermeyiz (frontend yuklenen adedi gosterir).
+      logTiming({
+        counts: {
+          products: products.length,
+          agreements: agreementRows.length,
+          purchasedCodes: purchasedCodes.length,
+          total,
+          returned: pagedProducts.length,
+          dbPagingFastPath: useNormalCatalogDbPaging,
+          preEnrichPurchasedPaging: usePurchasedPreEnrichPaging,
+        },
+      });
       res.json({
-        products: productsWithPrices,
-        ...((warehouse || isDiscounted) ? {} : { total: productsTotal }),
+        products: pagedProducts,
+        total,
+        hasMore: offset + pagedProducts.length < total,
       });
     } catch (error) {
       next(error);
@@ -3250,9 +3452,27 @@ export class CustomerController {
    */
   async getOrders(req: Request, res: Response, next: NextFunction) {
     try {
-      const orders = await orderService.getUserOrders(req.user!.userId);
+      const { status, search, page, pageSize } = req.query;
+      const result = await orderService.getUserOrders(req.user!.userId, {
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined,
+        page: page !== undefined ? Number(page) : undefined,
+        pageSize: pageSize !== undefined ? Number(pageSize) : undefined,
+      });
 
-      res.json({ orders });
+      if (Array.isArray(result)) {
+        res.json({ orders: result });
+      } else {
+        res.json({
+          orders: result.orders,
+          pagination: {
+            total: result.total,
+            page: result.page,
+            pageSize: result.pageSize,
+            totalPages: Math.max(1, Math.ceil(result.total / result.pageSize)),
+          },
+        });
+      }
     } catch (error) {
       next(error);
     }
@@ -3268,7 +3488,18 @@ export class CustomerController {
       const order = await orderService.getOrderById(id);
 
       // KullanÄ±cÄ±nÄ±n kendi sipariÅŸi olduÄŸunu kontrol et
-      if (order.userId !== req.user!.userId) {
+      const isDirectOwner = order.userId === req.user!.userId;
+      let isRequestingSubUser = false;
+      if (!isDirectOwner && order.requestedById === req.user!.userId) {
+        const requestingUser = await prisma.user.findUnique({
+          where: { id: req.user!.userId },
+          select: { parentCustomerId: true },
+        });
+        isRequestingSubUser = requestingUser?.parentCustomerId === order.userId;
+      }
+
+      // Alt kullanıcı yalnız kendi oluşturduğu ve kendi ana carisine ait siparişi görebilir.
+      if (!isDirectOwner && !isRequestingSubUser) {
         return res.status(403).json({ error: 'Access denied' });
       }
 
@@ -3441,7 +3672,7 @@ export class CustomerController {
       const requestedCategoryId = typeof req.query.categoryId === 'string' ? req.query.categoryId.trim() : '';
       // Istenen kategori denenmemis set disindaysa: urun dondurme (ama kategori rayini koru).
       if (requestedCategoryId && !unboughtIdSet.has(requestedCategoryId)) {
-        return res.json({ products: [], totalCount: 0, categories });
+        return res.json({ products: [], totalCount: 0, total: 0, hasMore: false, categories });
       }
 
       const categoryWhere = requestedCategoryId
@@ -3450,7 +3681,7 @@ export class CustomerController {
 
       // Hic denenmemis kategori yoksa: bos liste.
       if (!requestedCategoryId && unboughtIdSet.size === 0) {
-        return res.json({ products: [], totalCount: 0, categories });
+        return res.json({ products: [], totalCount: 0, total: 0, hasMore: false, categories });
       }
 
       const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
@@ -3460,21 +3691,39 @@ export class CustomerController {
       const rawOffset = Number(req.query.offset);
       const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
 
-      // Sort: /products ile ayni cok-satan varsayilani (popularSalesValue desc).
-      const requestedSort = typeof req.query.sort === 'string' ? req.query.sort : '';
-      const productSort = requestedSort || 'bestsellerValue';
+      // Fiyat/stok tabanli kontroller zenginlestirilmis payload uzerinde, sayfalamadan once uygulanir.
+      const catalogControls = getCatalogControls(req.query, 'bestsellerValue', effectiveVisibility);
       const bestsellerOrderBy = [{ popularSalesValue: 'desc' as const }, { name: 'asc' as const }];
-      const nameOrderBy = [{ name: 'asc' as const }];
+      const warehouse = typeof req.query.warehouse === 'string' ? req.query.warehouse.trim() : '';
+      const useUnboughtDbPaging =
+        catalogControls.sort === 'bestsellerValue' &&
+        !warehouse &&
+        catalogControls.minPrice === undefined &&
+        catalogControls.maxPrice === undefined &&
+        catalogControls.minStock === undefined &&
+        catalogControls.maxStock === undefined &&
+        catalogControls.stockStatus === 'all' &&
+        !catalogControls.onlyDiscount &&
+        !catalogControls.onlyAgreement;
+      const searchTokens = splitSearchTokens(
+        typeof req.query.search === 'string' ? req.query.search : undefined
+      );
 
       const productWhere: any = {
         active: true,
         hiddenFromCustomers: false,
         ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
         ...categoryWhere,
+        ...(searchTokens.length > 0
+          ? {
+              AND: searchTokens.map((token) => ({
+                OR: [{ searchText: { contains: normalizeSearchText(token) } }],
+              })),
+            }
+          : {}),
       };
 
-      const [totalCount, products] = await Promise.all([
-        prisma.product.count({ where: productWhere }),
+      const [products, unboughtDbTotal] = await Promise.all([
         prisma.product.findMany({
           where: productWhere,
           select: {
@@ -3496,14 +3745,16 @@ export class CustomerController {
             prices: true,
             category: { select: { id: true, name: true } },
           },
-          orderBy: productSort === 'bestsellerValue' ? bestsellerOrderBy : nameOrderBy,
-          skip: offset,
-          take: limit,
+          orderBy: bestsellerOrderBy,
+          ...(useUnboughtDbPaging ? { skip: offset, take: limit } : {}),
         }),
+        useUnboughtDbPaging
+          ? prisma.product.count({ where: productWhere })
+          : Promise.resolve(undefined),
       ]);
 
       // /products ile AYNI serializasyon/fiyatlandirma -> ayni ProductCard payload'i.
-      const payload = await buildCustomerProductPayloads({
+      let payload = await buildCustomerProductPayloads({
         products: products as any,
         customer,
         priceListRules,
@@ -3512,7 +3763,39 @@ export class CustomerController {
         effectiveVisibility,
       });
 
-      res.json({ products: payload, totalCount, categories });
+      if (warehouse) {
+        payload = payload
+          .map((product) => {
+            const availableStock = Number(product.warehouseStocks?.[warehouse]) || 0;
+            const excessStock = Number(product.warehouseExcessStocks?.[warehouse]) || 0;
+            return { ...product, availableStock, excessStock, maxOrderQuantity: availableStock };
+          })
+          .filter(
+            (product) =>
+              catalogControls.stockStatus === 'supply' || product.maxOrderQuantity > 0
+          );
+      }
+
+      const controlledProducts = applyCatalogControls(
+        payload,
+        catalogControls,
+        undefined,
+        catalogControls.sort === 'bestsellerValue'
+      );
+      const totalCount = useUnboughtDbPaging
+        ? (unboughtDbTotal ?? controlledProducts.length)
+        : controlledProducts.length;
+      const pagedProducts = useUnboughtDbPaging
+        ? controlledProducts
+        : controlledProducts.slice(offset, offset + limit);
+
+      res.json({
+        products: pagedProducts,
+        totalCount,
+        total: totalCount,
+        hasMore: offset + pagedProducts.length < totalCount,
+        categories,
+      });
     } catch (error) {
       next(error);
     }

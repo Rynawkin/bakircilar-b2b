@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import customerApi from '@/lib/api/customer';
 import { Quote } from '@/types';
@@ -18,7 +19,15 @@ import {
   Package,
   ArrowLeft,
   Info,
+  AlertTriangle,
 } from 'lucide-react';
+
+const isQuoteExpired = (validityDate: string) => {
+  const datePart = validityDate.slice(0, 10);
+  const [year, month, day] = datePart.split('-').map(Number);
+  if (![year, month, day].every(Number.isFinite)) return false;
+  return new Date(year, month - 1, day, 23, 59, 59, 999).getTime() < Date.now();
+};
 
 const getStatusBadge = (status: string) => {
   switch (status) {
@@ -63,75 +72,105 @@ const getStatusBadge = (status: string) => {
 };
 
 export default function QuoteDetailPage() {
-  const router = useRouter();
   const params = useParams();
   const { user, loadUserFromStorage } = useAuthStore();
   const [quote, setQuote] = useState<Quote | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [action, setAction] = useState<'accept' | 'reject' | null>(null);
   const quoteId = params?.id as string;
 
   useEffect(() => {
     loadUserFromStorage();
   }, [loadUserFromStorage]);
 
-  useEffect(() => {
+  const fetchQuote = useCallback(async () => {
     if (!quoteId) return;
-    fetchQuote();
-  }, [quoteId]);
-
-  const fetchQuote = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const { quote } = await customerApi.getQuoteById(quoteId);
       setQuote(quote);
     } catch (error) {
       console.error('Teklif detayi alinmadi:', error);
-      toast.error('Teklif bulunamadı.');
+      setQuote(null);
+      setError('Teklif detayı yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [quoteId]);
+
+  useEffect(() => {
+    void fetchQuote();
+  }, [fetchQuote]);
 
   const handleAccept = async () => {
-    if (!quote) return;
+    if (!quote || action) return;
+    if (isQuoteExpired(quote.validityDate)) {
+      toast.error('Süresi dolmuş teklif üzerinde işlem yapılamaz.');
+      return;
+    }
     if (!confirm('Teklifi kabul etmek istiyor musunuz?')) return;
 
+    setAction('accept');
     try {
       await customerApi.acceptQuote(quote.id);
       toast.success('Teklif kabul edildi.');
-      fetchQuote();
+      await fetchQuote();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'İşlem başarısız.');
+    } finally {
+      setAction(null);
     }
   };
 
   const handleReject = async () => {
-    if (!quote) return;
+    if (!quote || action) return;
+    if (isQuoteExpired(quote.validityDate)) {
+      toast.error('Süresi dolmuş teklif üzerinde işlem yapılamaz.');
+      return;
+    }
     if (!confirm('Teklifi reddetmek istiyor musunuz?')) return;
 
+    setAction('reject');
     try {
       await customerApi.rejectQuote(quote.id);
       toast.success('Teklif reddedildi.');
-      fetchQuote();
+      await fetchQuote();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'İşlem başarısız.');
+    } finally {
+      setAction(null);
     }
   };
+
+  const expired = quote ? isQuoteExpired(quote.validityDate) : false;
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container-custom py-8">
-        <button
-          onClick={() => router.push('/my-quotes')}
+        <Link
+          href="/my-quotes"
           className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-primary-600"
         >
           <ArrowLeft className="h-4 w-4" />
           Tekliflerime Dön
-        </button>
+        </Link>
 
         {isLoading ? (
           <div className="flex justify-center py-12">
             <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary-600"></div>
+          </div>
+        ) : error ? (
+          <div className="card card-pad text-center">
+            <div className="flex flex-col items-center py-10">
+              <AlertTriangle className="mb-3 h-12 w-12 text-red-500" />
+              <h2 className="text-lg font-semibold text-gray-900">Teklif yüklenemedi</h2>
+              <p className="mt-1 max-w-md text-sm text-gray-500">{error}</p>
+              <Button className="mt-5" onClick={() => void fetchQuote()}>
+                Tekrar Dene
+              </Button>
+            </div>
           </div>
         ) : !quote ? (
           <div className="card card-pad text-center">
@@ -149,6 +188,7 @@ export default function QuoteDetailPage() {
                   <div className="mb-2 flex flex-wrap items-center gap-2.5">
                     <h2 className="text-xl font-bold text-gray-900">Teklif #{quote.quoteNumber}</h2>
                     {getStatusBadge(quote.status)}
+                    {expired && <span className="badge-danger">Süresi Doldu</span>}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                     <span className="inline-flex items-center gap-1.5">
@@ -196,7 +236,16 @@ export default function QuoteDetailPage() {
                 {quote.items.map((item) => (
                   <div key={item.id} className="flex items-start justify-between gap-4 px-5 py-4">
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-gray-900 break-words">{item.productName}</p>
+                      {item.productId ? (
+                        <Link
+                          href={`/products/${item.productId}`}
+                          className="font-semibold text-gray-900 break-words transition-colors hover:text-primary-700 hover:underline"
+                        >
+                          {item.productName}
+                        </Link>
+                      ) : (
+                        <p className="font-semibold text-gray-900 break-words">{item.productName}</p>
+                      )}
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                         <span className="font-mono text-gray-400">{item.productCode}</span>
                         {item.selectedUnit && (
@@ -220,15 +269,34 @@ export default function QuoteDetailPage() {
               </div>
 
               {quote.status === 'SENT_TO_MIKRO' && (
-                <div className="flex flex-wrap justify-end gap-3 border-t border-[var(--line)] bg-gray-50/60 px-5 py-4">
-                  <Button variant="danger" onClick={handleReject}>
+                <div className="border-t border-[var(--line)] bg-gray-50/60 px-5 py-4">
+                  {expired && (
+                    <p className="mb-3 text-right text-sm font-medium text-red-700">
+                      Teklifin geçerlilik süresi dolduğu için kabul veya ret işlemi yapılamaz.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap justify-end gap-3">
+                  <Button
+                    variant="danger"
+                    onClick={handleReject}
+                    isLoading={action === 'reject'}
+                    disabled={Boolean(action) || expired}
+                    title={expired ? 'Teklifin süresi dolduğu için işlem yapılamaz' : undefined}
+                  >
                     <XCircle className="mr-1.5 h-4 w-4" />
                     Teklifi Reddet
                   </Button>
-                  <Button variant="primary" onClick={handleAccept}>
+                  <Button
+                    variant="primary"
+                    onClick={handleAccept}
+                    isLoading={action === 'accept'}
+                    disabled={Boolean(action) || expired}
+                    title={expired ? 'Teklifin süresi dolduğu için işlem yapılamaz' : undefined}
+                  >
                     <CheckCircle2 className="mr-1.5 h-4 w-4" />
                     Teklifi Kabul Et
                   </Button>
+                  </div>
                 </div>
               )}
             </div>

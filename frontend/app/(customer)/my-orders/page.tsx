@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Order } from '@/types';
-import customerApi from '@/lib/api/customer';
+import customerApi, { type CustomerListPagination } from '@/lib/api/customer';
 import { apiClient } from '@/lib/api/client';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
@@ -20,7 +21,19 @@ import {
   ArrowRight,
   FileDown,
   RotateCcw,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
+
+const PAGE_SIZE = 10;
+const DEFAULT_PAGINATION: CustomerListPagination = {
+  total: 0,
+  page: 1,
+  pageSize: PAGE_SIZE,
+  totalPages: 1,
+};
 
 type WarehouseStatus =
   | 'PENDING'
@@ -56,28 +69,61 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [pendingWarehouseOrders, setPendingWarehouseOrders] = useState<PendingWarehouseOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [warehouseError, setWarehouseError] = useState<string | null>(null);
   const [reorderingId, setReorderingId] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<Order['status'] | ''>('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<CustomerListPagination>(DEFAULT_PAGINATION);
 
-  useEffect(() => {
-    loadUserFromStorage();
-    fetchOrders();
-  }, [loadUserFromStorage]);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const [ordersResponse, pendingResponse] = await Promise.all([
-        customerApi.getOrders(),
-        apiClient.get('/order-tracking/customer/pending-orders'),
-      ]);
+      const ordersResponse = await customerApi.getOrders({
+        status: status || undefined,
+        search: search || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+      });
       setOrders(ordersResponse.orders || []);
-      setPendingWarehouseOrders((pendingResponse.data || []) as PendingWarehouseOrder[]);
+      setPagination(
+        ordersResponse.pagination || {
+          total: ordersResponse.orders?.length || 0,
+          page,
+          pageSize: PAGE_SIZE,
+          totalPages: 1,
+        }
+      );
     } catch (error) {
       console.error('Siparisler yuklenemedi:', error);
+      setError('Siparişleriniz yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [page, search, status]);
+
+  const fetchPendingWarehouseOrders = useCallback(async () => {
+    setWarehouseError(null);
+    try {
+      const pendingResponse = await apiClient.get('/order-tracking/customer/pending-orders');
+      setPendingWarehouseOrders((pendingResponse.data || []) as PendingWarehouseOrder[]);
+    } catch (error) {
+      console.error('Depo surecindeki siparisler yuklenemedi:', error);
+      setWarehouseError('Depo sürecindeki açık siparişler yüklenemedi.');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUserFromStorage();
+    void fetchPendingWarehouseOrders();
+  }, [fetchPendingWarehouseOrders, loadUserFromStorage]);
+
+  useEffect(() => {
+    void fetchOrders();
+  }, [fetchOrders]);
 
   // Siparis durumu -> tek renk dili (.badge-*)
   const getStatusBadge = (status: string) => {
@@ -161,13 +207,12 @@ export default function OrdersPage() {
       <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6">
         {/* Breadcrumb */}
         <nav className="mb-3.5 flex items-center gap-1.5 text-[12px] text-[var(--ink-3)]">
-          <button
-            type="button"
-            onClick={() => router.push('/home')}
+          <Link
+            href="/home"
             className="text-[var(--ink-3)] transition-colors hover:text-[var(--ink-2)]"
           >
             Ana Sayfa
-          </button>
+          </Link>
           <span className="text-gray-300">/</span>
           <span className="font-medium text-[var(--ink-2)]">Siparişlerim</span>
         </nav>
@@ -185,12 +230,93 @@ export default function OrdersPage() {
           </div>
         </div>
 
+        <form
+          className="mb-5 flex flex-col gap-2 rounded-xl border border-[var(--line)] bg-white p-3 shadow-sm sm:flex-row sm:items-center"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setPage(1);
+            setSearch(searchInput.trim());
+          }}
+        >
+          <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-[var(--line)] px-3 focus-within:border-primary-300 focus-within:ring-2 focus-within:ring-primary-100">
+            <Search className="h-4 w-4 flex-shrink-0 text-[var(--ink-3)]" />
+            <span className="sr-only">Siparişlerde ara</span>
+            <input
+              type="search"
+              value={searchInput}
+              disabled={isLoading}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Sipariş no, ürün veya teslimat ara…"
+              className="min-w-0 flex-1 border-none bg-transparent text-sm text-[var(--ink-1)] outline-none placeholder:text-[var(--ink-3)] disabled:opacity-60"
+            />
+          </label>
+          <select
+            value={status}
+            disabled={isLoading}
+            onChange={(event) => {
+              setStatus(event.target.value as Order['status'] | '');
+              setPage(1);
+            }}
+            aria-label="Sipariş durumuna göre filtrele"
+            className="h-10 rounded-lg border border-[var(--line)] bg-white px-3 text-sm font-medium text-[var(--ink-2)] outline-none focus:border-primary-300 disabled:opacity-60"
+          >
+            <option value="">Tüm durumlar</option>
+            <option value="PENDING">Bekliyor</option>
+            <option value="APPROVED">Onaylandı</option>
+            <option value="REJECTED">Reddedildi</option>
+          </select>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-primary-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Ara
+          </button>
+          {(search || status) && (
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => {
+                setSearchInput('');
+                setSearch('');
+                setStatus('');
+                setPage(1);
+              }}
+              className="h-10 rounded-lg px-3 text-sm font-medium text-[var(--ink-3)] transition-colors hover:bg-[var(--surface-0)] hover:text-[var(--ink-1)] disabled:opacity-60"
+            >
+              Temizle
+            </button>
+          )}
+        </form>
+
         {isLoading ? (
           <div className="flex justify-center py-16">
             <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary-600"></div>
           </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-red-100 bg-white px-6 py-14 text-center">
+            <AlertTriangle className="mb-3 h-10 w-10 text-red-500" />
+            <h2 className="text-lg font-semibold text-[var(--ink-1)]">Siparişler yüklenemedi</h2>
+            <p className="mt-1 max-w-md text-sm text-[var(--ink-3)]">{error}</p>
+            <Button className="mt-5" onClick={() => void fetchOrders()}>
+              Tekrar Dene
+            </Button>
+          </div>
         ) : (
           <>
+            {warehouseError && (
+              <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span className="flex-1">{warehouseError}</span>
+                <button
+                  type="button"
+                  onClick={() => void fetchPendingWarehouseOrders()}
+                  className="font-semibold underline underline-offset-2"
+                >
+                  Tekrar dene
+                </button>
+              </div>
+            )}
             {/* ── Bolum 1: Depo Surecindeki Acik Siparisler ───────────── */}
             {pendingWarehouseOrders.length > 0 && (
               <div className="mb-8">
@@ -198,22 +324,22 @@ export default function OrdersPage() {
                   <h2 className="text-[15px] font-bold text-[var(--ink-1)]">
                     Depo Sürecindeki Açık Siparişler
                   </h2>
-                  <button
-                    type="button"
-                    onClick={() => router.push('/pending-orders')}
+                  <Link
+                    href="/pending-orders"
                     className="inline-flex items-center gap-1 text-[13px] font-medium text-primary-700 transition-colors hover:text-primary-900"
                   >
                     Tümünü gör
                     <ArrowRight className="h-3.5 w-3.5" strokeWidth={2.2} />
-                  </button>
+                  </Link>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
                   {pendingWarehouseOrders.slice(0, 6).map((order) => {
                     const status = warehouseStatusMeta[order.warehouseStatus || 'PENDING'];
                     return (
-                      <div
+                      <Link
                         key={order.mikroOrderNumber}
+                        href="/pending-orders"
                         className="rounded-xl border border-[var(--line)] bg-white p-[15px] transition-shadow hover:shadow-md"
                       >
                         <div className="mb-2.5 flex items-center justify-between gap-2">
@@ -235,7 +361,7 @@ export default function OrdersPage() {
                         <div className="text-[18px] font-semibold tracking-tight text-[var(--ink-1)]">
                           {formatCurrency(order.grandTotal)}
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>
@@ -251,12 +377,28 @@ export default function OrdersPage() {
                   <ClipboardList className="h-7 w-7" strokeWidth={1.7} />
                 </span>
                 <h3 className="mb-2 text-lg font-semibold text-[var(--ink-1)]">
-                  Henüz siparişiniz bulunmuyor
+                  {search || status ? 'Aramanıza uygun sipariş bulunamadı' : 'Henüz siparişiniz bulunmuyor'}
                 </h3>
                 <p className="mb-6 max-w-sm text-[13.5px] leading-relaxed text-[var(--ink-3)]">
-                  Ürünleri inceleyerek ilk siparişinizi oluşturabilirsiniz.
+                  {search || status
+                    ? 'Arama metnini veya durum filtresini değiştirip tekrar deneyin.'
+                    : 'Ürünleri inceleyerek ilk siparişinizi oluşturabilirsiniz.'}
                 </p>
-                <Button onClick={() => router.push('/products')}>Ürünleri İncele</Button>
+                {search || status ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSearchInput('');
+                      setSearch('');
+                      setStatus('');
+                      setPage(1);
+                    }}
+                  >
+                    Filtreleri Temizle
+                  </Button>
+                ) : (
+                  <Button onClick={() => router.push('/products')}>Ürünleri İncele</Button>
+                )}
               </div>
             ) : (
               <div className="flex flex-col gap-3">
@@ -268,12 +410,19 @@ export default function OrdersPage() {
                   const whMeta = wh ? warehouseStatusMeta[wh.warehouseStatus || 'PENDING'] : null;
                   const isReordering = reorderingId === order.id;
                   return (
-                    <div
+                    <article
                       key={order.id}
-                      className="rounded-xl border border-[var(--line)] bg-white px-[17px] py-[15px] transition-shadow hover:shadow-md"
+                      className="group relative rounded-xl border border-[var(--line)] bg-white px-[17px] py-[15px] transition-shadow hover:shadow-md"
                     >
+                      <Link
+                        href={`/my-orders/${order.id}`}
+                        aria-label={`${order.orderNumber} numaralı siparişin detayını gör`}
+                        className="absolute inset-0 z-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+                      >
+                        <span className="sr-only">Sipariş detayını gör</span>
+                      </Link>
                       {/* Ust satir: no + durum + tarih ── genel toplam */}
-                      <div className="flex flex-wrap items-center justify-between gap-3.5">
+                      <div className="pointer-events-none relative z-[1] flex flex-wrap items-center justify-between gap-3.5">
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="font-mono text-sm font-semibold text-[var(--ink-1)]">
                             #{order.orderNumber}
@@ -292,7 +441,7 @@ export default function OrdersPage() {
                       </div>
 
                       {/* Alt satir: meta bilgiler + aksiyonlar */}
-                      <div className="mt-[11px] flex flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[var(--line)] pt-[11px] text-[12px] text-[var(--ink-2)]">
+                      <div className="pointer-events-none relative z-[1] mt-[11px] flex flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[var(--line)] pt-[11px] text-[12px] text-[var(--ink-2)]">
                         <span>
                           Kalem:{' '}
                           <b className="font-semibold text-[var(--ink-1)]">{order.items.length}</b>
@@ -318,19 +467,23 @@ export default function OrdersPage() {
                           )}
                         </span>
 
-                        <div className="ml-auto flex flex-wrap items-center gap-2.5">
+                        <div className="pointer-events-auto relative z-10 ml-auto flex flex-wrap items-center gap-2.5">
+                          <Link
+                            href={`/my-orders/${order.id}`}
+                            className="text-[12.5px] font-semibold text-primary-700 transition-colors hover:text-primary-900 hover:underline"
+                          >
+                            Detayı gör →
+                          </Link>
                           {order.mikroOrderIds && order.mikroOrderIds.length > 0 && (
-                            <a
-                              href={`/api/order-tracking/customer/orders/${encodeURIComponent(
-                                order.mikroOrderIds[0]
-                              )}/pdf`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] bg-white px-3.5 py-[7px] text-[12.5px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                            <button
+                              type="button"
+                              disabled
+                              title="PDF şu an kullanılamıyor"
+                              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-[var(--line)] bg-gray-50 px-3.5 py-[7px] text-[12.5px] font-medium text-[var(--ink-3)] opacity-70"
                             >
                               <FileDown className="h-3.5 w-3.5" strokeWidth={2} />
-                              PDF indir
-                            </a>
+                              PDF şu an kullanılamıyor
+                            </button>
                           )}
                           <button
                             type="button"
@@ -343,9 +496,37 @@ export default function OrdersPage() {
                           </button>
                         </div>
                       </div>
-                    </div>
+                    </article>
                   );
                 })}
+              </div>
+            )}
+
+            {orders.length > 0 && (
+              <div className="mt-5 flex flex-col items-center justify-between gap-3 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-[var(--ink-3)] sm:flex-row">
+                <span>
+                  Toplam {pagination.total} sipariş · Sayfa {pagination.page} / {pagination.totalPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={pagination.page <= 1 || isLoading}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--line)] bg-white px-3 font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Önceki
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pagination.page >= pagination.totalPages || isLoading}
+                    onClick={() => setPage((current) => Math.min(pagination.totalPages, current + 1))}
+                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--line)] bg-white px-3 font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Sonraki
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             )}
           </>

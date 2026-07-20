@@ -5,15 +5,23 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import apiClient from '@/lib/api/client';
-import { Info, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react';
+import authApi from '@/lib/api/auth';
+import toast from 'react-hot-toast';
+import { Info, CheckCircle2, AlertCircle, ChevronRight, LockKeyhole } from 'lucide-react';
 
 export default function PreferencesPage() {
   const router = useRouter();
-  const { user, loadUserFromStorage, refreshUser } = useAuthStore();
+  const { user, loadUserFromStorage, refreshUser, logout } = useAuthStore();
   const [vatDisplayPreference, setVatDisplayPreference] = useState<'WITH_VAT' | 'WITHOUT_VAT'>('WITHOUT_VAT');
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -42,6 +50,47 @@ export default function PreferencesPage() {
       setMessage({ type: 'error', text: error.response?.data?.error || 'Ayarlar kaydedilemedi' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (isChangingPassword) return;
+    setPasswordError(null);
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Yeni şifreler birbiriyle eşleşmiyor.');
+      return;
+    }
+    if (newPassword.length < 10) {
+      setPasswordError('Yeni şifre en az 10 karakter olmalıdır.');
+      return;
+    }
+    if (new TextEncoder().encode(newPassword).length > 72) {
+      setPasswordError('Yeni şifre en fazla 72 bayt olabilir; Türkçe karakterler birden fazla bayt kullanabilir.');
+      return;
+    }
+    if (!/[a-zçğıöşü]/.test(newPassword) || !/[A-ZÇĞİÖŞÜ]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      setPasswordError('Yeni şifre en az bir büyük harf, bir küçük harf ve bir rakam içermelidir.');
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setPasswordError('Yeni şifre mevcut şifrenizden farklı olmalıdır.');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const result = await authApi.changePassword({ currentPassword, newPassword });
+      toast.success(result.message);
+      logout();
+      router.replace('/login');
+    } catch (error: any) {
+      setPasswordError(
+        error.response?.data?.details?.[0]?.message ||
+          error.response?.data?.error ||
+          'Şifre değiştirilemedi. Lütfen tekrar deneyin.'
+      );
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -187,6 +236,81 @@ export default function PreferencesPage() {
         >
           Ayarları Kaydet
         </Button>
+
+        <section className="mt-6 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm" aria-labelledby="password-heading">
+          <div className="mb-4 flex items-start gap-3">
+            <span className="flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-primary-50 text-primary-700">
+              <LockKeyhole className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 id="password-heading" className="text-base font-semibold text-[var(--ink-1)]">Şifre değiştir</h2>
+              <p className="mt-0.5 text-xs leading-relaxed text-[var(--ink-3)]">
+                Bu işlem yalnızca B2B giriş şifrenizi değiştirir; cari ve Mikro bilgileriniz değişmez.
+              </p>
+            </div>
+          </div>
+
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleChangePassword();
+            }}
+          >
+            <Input
+              type="password"
+              autoComplete="current-password"
+              label="Mevcut şifre"
+              value={currentPassword}
+              onChange={(event) => {
+                setCurrentPassword(event.target.value);
+                setPasswordError(null);
+              }}
+            />
+            <Input
+              type="password"
+              autoComplete="new-password"
+              label="Yeni şifre"
+              maxLength={72}
+              value={newPassword}
+              onChange={(event) => {
+                setNewPassword(event.target.value);
+                setPasswordError(null);
+              }}
+            />
+            <Input
+              type="password"
+              autoComplete="new-password"
+              label="Yeni şifre (tekrar)"
+              maxLength={72}
+              value={confirmPassword}
+              onChange={(event) => {
+                setConfirmPassword(event.target.value);
+                setPasswordError(null);
+              }}
+            />
+            {passwordError && (
+              <p
+                role="alert"
+                aria-live="polite"
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              >
+                {passwordError}
+              </p>
+            )}
+            <p className="text-xs text-[var(--ink-3)]">
+              En az 10 karakter; en az bir büyük harf, bir küçük harf ve bir rakam kullanın.
+            </p>
+            <Button
+              type="submit"
+              isLoading={isChangingPassword}
+              disabled={!currentPassword || !newPassword || !confirmPassword}
+              className="w-full sm:w-auto"
+            >
+              Şifremi değiştir
+            </Button>
+          </form>
+        </section>
       </div>
     </div>
   );

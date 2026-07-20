@@ -8,6 +8,7 @@
 import { prisma } from '../utils/prisma';
 import { CollectionSourceType, GiftTargetType } from '@prisma/client';
 import { buildCustomerProductPayloads, loadCustomerContext } from '../utils/customerProducts';
+import exclusionService from './exclusion.service';
 
 type CollectionInput = {
   title?: string;
@@ -25,6 +26,14 @@ type CollectionInput = {
   active?: boolean;
   validFrom?: string | null;
   validTo?: string | null;
+};
+
+type CustomerCollectionQuery = {
+  search?: string;
+  sort?: string;
+  priceType?: 'invoiced' | 'white';
+  limit?: number;
+  offset?: number;
 };
 
 const SOURCE_TO_STR: Record<CollectionSourceType, string> = {
@@ -201,7 +210,11 @@ class CollectionService {
   }
 
   /** MANUAL koleksiyonun urunlerini musteri-fiyatli getir (meta + products). */
-  async getCollectionProductsForCustomer(id: string, userId: string) {
+  async getCollectionProductsForCustomer(
+    id: string,
+    userId: string,
+    query: CustomerCollectionQuery = {}
+  ) {
     const collection = await prisma.collection.findUnique({ where: { id } });
     if (!collection || !collection.active) {
       return null;
@@ -232,16 +245,25 @@ class CollectionService {
 
     const productIds = collection.productIds || [];
     if (collection.sourceType !== CollectionSourceType.MANUAL || productIds.length === 0) {
-      return { collection: meta, products: [] };
+      return { collection: meta, products: [], total: 0, hasMore: false };
     }
 
-    const context = await loadCustomerContext(userId);
+    const [context, excludedProductCodes] = await Promise.all([
+      loadCustomerContext(userId),
+      exclusionService.getActiveProductCodeExclusions(),
+    ]);
+    const searchTokens = String(query.search || '')
+      .trim()
+      .toLocaleLowerCase('tr')
+      .split(/\s+/)
+      .filter(Boolean);
 
     const products = await prisma.product.findMany({
       where: {
         id: { in: productIds },
         active: true,
         hiddenFromCustomers: false,
+        ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
       },
       select: {
         id: true,
@@ -269,10 +291,27 @@ class CollectionService {
     const productMap = new Map(products.map((p) => [p.id, p]));
     const ordered = productIds
       .map((pid) => productMap.get(pid))
-      .filter(Boolean) as typeof products;
+      .filter(Boolean)
+      .filter((product) => {
+        if (searchTokens.length === 0) return true;
+        const haystack = `${product?.name || ''} ${product?.mikroCode || ''}`.toLocaleLowerCase('tr');
+        return searchTokens.every((token) => haystack.includes(token));
+      }) as typeof products;
+
+    const requestedSort = String(query.sort || '');
+    const offset = Number.isFinite(query.offset) && Number(query.offset) > 0
+      ? Math.floor(Number(query.offset))
+      : 0;
+    const limit = Number.isFinite(query.limit) && Number(query.limit) > 0
+      ? Math.min(Math.floor(Number(query.limit)), 200)
+      : undefined;
+    const useAdminOrderPreEnrichPaging = !requestedSort && Boolean(limit);
+    const productsToPrice = useAdminOrderPreEnrichPaging && limit
+      ? ordered.slice(offset, offset + limit)
+      : ordered;
 
     const payload = await buildCustomerProductPayloads({
-      products: ordered,
+      products: productsToPrice,
       customer: context.customer,
       priceListRules: context.priceListRules,
       basePriceListPair: context.basePriceListPair,
@@ -281,7 +320,84 @@ class CollectionService {
       isDiscounted: false,
     });
 
-    return { collection: meta, products: payload };
+    const priceType = context.effectiveVisibility === 'WHITE_ONLY'
+      ? 'white'
+      : context.effectiveVisibility === 'INVOICED_ONLY'
+        ? 'invoiced'
+        : query.priceType || 'invoiced';
+    const productPrice = (product: any) => {
+      const basePrice = Number(product?.prices?.[priceType]);
+      const excessPrice = Number(product?.excessPrices?.[priceType]);
+      if (
+        !product?.agreement &&
+        Number(product?.excessStock) > 0 &&
+        Number.isFinite(excessPrice) &&
+        excessPrice > 0 &&
+        Number.isFinite(basePrice) &&
+        excessPrice < basePrice - 0.001
+      ) {
+        return excessPrice;
+      }
+      return Number.isFinite(basePrice) ? basePrice : 0;
+    };
+    const productStock = (product: any) => {
+      const value = Number(product?.maxOrderQuantity ?? product?.availableStock ?? product?.excessStock ?? 0);
+      return Number.isFinite(value) ? value : 0;
+    };
+    const compareName = (a: any, b: any) =>
+      String(a?.name || '').localeCompare(String(b?.name || ''), 'tr');
+    const comparePrice = (a: any, b: any, direction: 1 | -1) => {
+      const aPrice = productPrice(a);
+      const bPrice = productPrice(b);
+      if (aPrice <= 0 && bPrice > 0) return 1;
+      if (bPrice <= 0 && aPrice > 0) return -1;
+      return (aPrice - bPrice) * direction || compareName(a, b);
+    };
+
+    const sortedPayload = [...payload];
+    switch (requestedSort) {
+      case 'nameAsc':
+      case 'name-asc':
+        sortedPayload.sort(compareName);
+        break;
+      case 'nameDesc':
+      case 'name-desc':
+        sortedPayload.sort((a, b) => compareName(b, a));
+        break;
+      case 'priceAsc':
+      case 'price-asc':
+        sortedPayload.sort((a, b) => comparePrice(a, b, 1));
+        break;
+      case 'priceDesc':
+      case 'price-desc':
+        sortedPayload.sort((a, b) => comparePrice(a, b, -1));
+        break;
+      case 'stockAsc':
+      case 'stock-asc':
+        sortedPayload.sort((a, b) => productStock(a) - productStock(b) || compareName(a, b));
+        break;
+      case 'stockDesc':
+      case 'stock-desc':
+        sortedPayload.sort((a, b) => productStock(b) - productStock(a) || compareName(a, b));
+        break;
+      default:
+        // Sort verilmediginde adminin koleksiyon sirasi geriye uyumlu olarak korunur.
+        break;
+    }
+
+    const total = useAdminOrderPreEnrichPaging ? ordered.length : sortedPayload.length;
+    const pagedProducts = useAdminOrderPreEnrichPaging
+      ? sortedPayload
+      : limit
+        ? sortedPayload.slice(offset, offset + limit)
+        : sortedPayload.slice(offset);
+
+    return {
+      collection: meta,
+      products: pagedProducts,
+      total,
+      hasMore: offset + pagedProducts.length < total,
+    };
   }
 }
 

@@ -61,8 +61,24 @@ export function GiftCampaignBanner() {
   const remaining = campaign.remaining || 0;
   const gifts = campaign.gifts || [];
 
-  // 2. buton metni (musteri tarafinda "kategorileri goster" davranisi)
-  const categoriesText = campaign.buttonText || 'Kategorileri Göster';
+  const scopeType = campaign.qualifyingScope?.type;
+  const firstCategoryId = campaign.qualifyingScope?.categoryIds?.[0];
+  const firstProductId = campaign.qualifyingScope?.productIds?.[0];
+  const scopeTarget = qualified
+    ? '/cart'
+    : scopeType === 'CATEGORY_IDS' && firstCategoryId
+      ? `/products?categoryId=${encodeURIComponent(firstCategoryId)}`
+      : scopeType === 'PRODUCT_IDS'
+        ? scopeProducts.length > 0
+          ? '#gift-campaign-products'
+          : firstProductId
+            ? `/products/${encodeURIComponent(firstProductId)}`
+            : '/products'
+        : scopeType === 'MISSING_CATEGORIES'
+          ? '/new-categories'
+          : '/products';
+  const defaultScopeText = scopeType === 'MISSING_CATEGORIES' ? 'Yeni Kategorileri Gör' : 'Kampanya Ürünlerini Gör';
+  const scopeButtonText = qualified ? 'Sepete Git' : campaign.buttonText || defaultScopeText;
 
   // Banner tik olcumu (best-effort; hata yutulur)
   const logBannerClick = () => {
@@ -124,7 +140,9 @@ export function GiftCampaignBanner() {
             </div>
             <p className="mt-2 text-[12.5px] font-medium">
               {qualified ? (
-                <span className="text-[#6ee7b7]">Tebrikler, hediye hakkı kazandınız! Sepette hediyenizi seçin.</span>
+                <Link href="/cart" onClick={logBannerClick} className="text-[#6ee7b7] underline decoration-[#6ee7b7]/60 underline-offset-2 hover:text-emerald-200">
+                  Tebrikler, hediye hakkı kazandınız! Sepette hediyenizi seçin.
+                </Link>
               ) : (
                 <span className="text-white/90">
                   Kampanya kapsamındaki ürünlerden <b className="font-semibold text-[#6ee7b7]">{formatCurrency(remaining)}</b> daha
@@ -173,13 +191,13 @@ export function GiftCampaignBanner() {
               <Gift className="h-4 w-4" />
               Hediyeleri Gör
             </button>
-            {/* Buton 2: hic alinmayan kategoriler sayfasi */}
+            {/* Buton 2: yeterlilikte sepet; aksi halde kampanya kapsamina uygun hedef */}
             <Link
-              href="/new-categories"
+              href={scopeTarget}
               onClick={logBannerClick}
               className="inline-flex items-center justify-center gap-1.5 rounded-[9px] bg-white/[.16] px-4 py-2.5 text-[13px] font-semibold text-white ring-1 ring-inset ring-white/35 transition-colors hover:bg-white/[.26]"
             >
-              {categoriesText}
+              {scopeButtonText}
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -188,7 +206,12 @@ export function GiftCampaignBanner() {
 
       {/* Kapsam PRODUCT_IDS: kampanya urunleri mini seridi */}
       {scopeProducts.length > 0 && (
-        <div className="relative z-10 mt-4 border-t border-white/15 pt-3">
+        <div
+          id="gift-campaign-products"
+          tabIndex={-1}
+          aria-label="Kampanya kapsamındaki ürünler"
+          className="relative z-10 mt-4 scroll-mt-28 border-t border-white/15 pt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+        >
           <div className="mb-2 text-[11.5px] font-semibold tracking-wide text-white/70">
             KAMPANYA KAPSAMINDAKİ ÜRÜNLER
           </div>

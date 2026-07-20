@@ -127,6 +127,7 @@ export class OrderRequestController {
           },
           requestedBy: { select: { id: true, name: true, email: true } },
           convertedBy: { select: { id: true, name: true, email: true } },
+          order: { select: { id: true, orderNumber: true } },
         },
         orderBy: { createdAt: 'desc' },
       });

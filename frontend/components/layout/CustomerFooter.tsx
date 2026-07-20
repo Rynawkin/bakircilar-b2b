@@ -5,7 +5,7 @@ import Link from 'next/link';
 export function CustomerFooter() {
   const year = new Date().getFullYear();
   return (
-    <footer className="mt-auto border-t border-[var(--line)] bg-white">
+    <footer className="mt-auto border-t border-[var(--line)] bg-white pb-[calc(56px+env(safe-area-inset-bottom))] lg:pb-0">
       <div className="mx-auto flex w-full max-w-[1900px] flex-col flex-wrap items-center justify-between gap-4 px-4 py-5 text-center sm:flex-row sm:text-left sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center justify-center gap-2.5">
           <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary-600 text-[13px] font-semibold text-white">B</span>
@@ -14,7 +14,7 @@ export function CustomerFooter() {
         <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[12.5px] text-[var(--ink-2)]">
           <Link href="/my-requests" className="hover:text-primary-700">Yardım / Talep</Link>
           <Link href="/profile" className="hover:text-primary-700">Hesabım</Link>
-          <span className="text-[var(--ink-3)]">KVKK</span>
+          <Link href="/kvkk" className="hover:text-primary-700">KVKK Taslağı</Link>
         </div>
       </div>
     </footer>
