@@ -83,6 +83,9 @@ test('passive activation verifies schema, updates only the passive flag and audi
     }
     throw new Error(`Beklenmeyen sorgu: ${sql}`);
   };
+  // Factory production ortaminda gercek Mikro servisini secebilir. Yazma yolu
+  // her kosulda bu test stub'ina donsun; gercek executeQueryOnce calismasin.
+  mikroMock.executeQueryOnce = async (sql: string) => mikroMock.executeQuery(sql);
   prismaMock.stockCreationLog.create = async (input: any) => {
     logInput = input;
     return {};
