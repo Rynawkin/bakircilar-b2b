@@ -3572,6 +3572,12 @@ class MikroService {
   /**
    * Ham SQL sorgusu çalıştır
    */
+  async executeQueryOnce(query: string): Promise<any[]> {
+    await this.connect();
+    const result = await this.pool!.request().query(query);
+    return result.recordset;
+  }
+
   async executeQuery(query: string): Promise<any[]> {
     let lastError: any;
     for (let attempt = 0; attempt < 2; attempt += 1) {

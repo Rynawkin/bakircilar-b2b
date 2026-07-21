@@ -10,7 +10,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 
 /**
  * Pasif Stoklar — Mikroda pasif olan stok kartlarini arayip aktiflestirme adayi olarak listeler.
- * "Aktiflestir" butonu, mevcut stok-acma formunu ?activate=CODE ile acar (Feature 1 formu yeniden kullanilir).
+ * "Aktiflestir" butonu mevcut kart icin salt aktivasyon on kontrolunu acar.
  * Yeni tema (Bakircilar Yonetim Paneli) gorsel diliyle; mantik minimum tutulur.
  */
 
@@ -110,8 +110,8 @@ export default function PassiveStocks() {
             Pasif Stoklar
           </h1>
           <div className="mt-1.5 max-w-3xl text-[13px] text-[#8b97ac]">
-            Mikro&apos;da pasif stoklari arayip aktiflestirin — aktiflestirirken zorunlu alanlar
-            (gorsel, ana saglayici, kategori, birim, maliyet/marj, min-max) doldurulur.
+            Mikro&apos;da pasif stoklari arayip aktiflestirin. Yeni stok acilmaz; mevcut kartin
+            yalnizca pasiflik durumu aktif yapilir.
           </div>
         </div>
 
@@ -128,7 +128,7 @@ export default function PassiveStocks() {
             />
           </div>
           <p className="mt-1.5 text-[11px] text-[#8b97ac]">
-            Yalnizca Mikro&apos;da pasif olan stok kartlari listelenir. Aktiflestirme, mevcut stok acma formunu acar.
+            Yalnizca Mikro&apos;da pasif olan stok kartlari listelenir. Ad, fiyat, maliyet, birim ve barkod bilgileri degistirilmez.
           </p>
         </div>
 

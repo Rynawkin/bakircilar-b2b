@@ -806,6 +806,10 @@ export class MikroMockService {
    * Ham SQL sorgusu çalıştır (Mock)
    * Order tracking için gerçek DB gerekli, mock'ta çalışmaz
    */
+  async executeQueryOnce(query: string): Promise<any[]> {
+    return this.executeQuery(query);
+  }
+
   async executeQuery(query: string): Promise<any[]> {
     console.warn('⚠️ [MOCK] executeQuery çağrıldı - Mock modda order tracking çalışmaz');
     return [];

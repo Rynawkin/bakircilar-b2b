@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { promises as fs } from 'fs';
 import stockCreateService from '../services/stock-create.service';
 
 class StockCreateController {
@@ -67,6 +68,16 @@ class StockCreateController {
   async preview(req: Request, res: Response) {
     try {
       const items = Array.isArray(req.body?.items) ? req.body.items : [];
+      // Gecis uyumlulugu: onceki web/mobil surumu aktivasyon on kontrolunde
+      // mode yerine tek item icinde stockCode gonderiyordu.
+      const legacyActivationCode = items.length === 1 ? String(items[0]?.stockCode || '') : '';
+      if (req.body?.mode === 'activate' || legacyActivationCode) {
+        const stockCode = String(req.body?.stockCode || legacyActivationCode);
+        const data = await stockCreateService.previewActivation(stockCode);
+        res.json(data);
+        return;
+      }
+
       const data = await stockCreateService.preview(items);
       res.json(data);
     } catch (error: any) {
@@ -133,46 +144,32 @@ class StockCreateController {
 
   async activate(req: Request, res: Response) {
     try {
-      // Sozlesme: multipart/form-data.
-      //   image   : File (ZORUNLU)
-      //   payload : JSON string = { item: <stok alanlari incl stockCode + calculateMinMax>,
-      //                             stockFamilyIds: string[], priceFamilyId: string|null }
-      if (!req.file) {
-        res.status(400).json({ error: 'Gorsel zorunlu - gorsel yuklemeden aktiflestirilemez' });
-        return;
+      // Aktivasyon yeni stok acma/guncelleme degildir. Yalnizca mevcut pasif
+      // Mikro stok kodu kabul edilir; stok karti alanlari bu endpoint'e alinmaz.
+      let legacyPayload: any = null;
+      if (!req.body?.stockCode && typeof req.body?.payload === 'string') {
+        try {
+          legacyPayload = JSON.parse(req.body.payload);
+        } catch {
+          legacyPayload = null;
+        }
       }
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(String(req.body?.payload ?? ''));
-      } catch {
-        res.status(400).json({ error: 'payload gecerli bir JSON degil' });
-        return;
-      }
-
-      const item = parsed?.item;
-      if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        res.status(400).json({ error: 'payload.item tek bir stok nesnesi olmalidir' });
-        return;
-      }
-
-      const stockFamilyIds = Array.isArray(parsed?.stockFamilyIds) ? parsed.stockFamilyIds : [];
-      const priceFamilyId =
-        parsed?.priceFamilyId === null || parsed?.priceFamilyId === undefined || parsed?.priceFamilyId === ''
-          ? null
-          : String(parsed.priceFamilyId);
-
-      const data = await stockCreateService.activateStock({
-        item,
-        imageFile: req.file,
-        stockFamilyIds,
-        priceFamilyId,
-        userId: req.user?.userId,
-      });
+      const stockCode = String(
+        req.body?.stockCode || legacyPayload?.item?.stockCode || legacyPayload?.item?.templateCode || ''
+      );
+      const data = await stockCreateService.activatePassiveStock(stockCode, req.user?.userId);
       res.json(data);
     } catch (error: any) {
       console.error('Stock activate failed:', error);
       res.status(400).json({ success: false, error: error.message || 'Stok aktiflestirilemedi' });
+    } finally {
+      // Eski istemci multipart gorsel gonderebilir; aktivasyon gorseli kullanmaz.
+      // Multer'in gecici dosyasini birakma.
+      if (req.file?.path) {
+        await fs.unlink(req.file.path).catch((cleanupError: any) => {
+          console.warn('Legacy stock activation upload cleanup failed:', cleanupError?.message || cleanupError);
+        });
+      }
     }
   }
 

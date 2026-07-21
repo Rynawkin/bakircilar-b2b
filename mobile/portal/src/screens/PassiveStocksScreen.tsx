@@ -545,7 +545,10 @@ export function PassiveStocksScreen() {
     if (formLoading || submitting) return;
     setFormLoading(true);
     try {
-      const response = await adminApi.previewStockCreate([buildItem()]);
+      const activationCode = selectedPassive?.code || asText(form.stockCode);
+      const response = mode === 'activate'
+        ? await adminApi.previewPassiveStockActivation(activationCode)
+        : await adminApi.previewStockCreate([buildItem()]);
       setPreviewRows(response.results || []);
       const row = response.results?.[0];
       if (row?.status === 'error') {
@@ -572,14 +575,14 @@ export function PassiveStocksScreen() {
       Alert.alert('Hata var', 'Hatali stok Mikroya yazilamaz.');
       return;
     }
-    if (!imageAsset) {
-      Alert.alert('Gorsel zorunlu', 'Stok acma ve pasif aktiflestirme icin gorsel secin.');
+    if (mode !== 'activate' && !imageAsset) {
+      Alert.alert('Gorsel zorunlu', 'Yeni stok acmak icin gorsel secin.');
       return;
     }
 
     const title = mode === 'activate' ? 'Pasif stok aktiflestirilsin mi?' : 'Yeni stok karti acilsin mi?';
     const message = mode === 'activate'
-      ? `${selectedPassive?.code || form.stockCode} Mikroda aktif hale getirilecek.`
+      ? `${selectedPassive?.code || form.stockCode} Mikroda aktif hale getirilecek. Yalnizca pasiflik durumu degisecek; diger stok bilgileri korunacak.`
       : 'Yeni stok karti Mikroda olusturulacak.';
     setSubmitConfirmOpen(true);
     Alert.alert(title, message, [
@@ -592,23 +595,26 @@ export function PassiveStocksScreen() {
           if (submitting) return;
           setSubmitting(true);
           try {
-            const formData = new FormData();
-            formData.append('image', {
-              uri: imageAsset.uri,
-              name: imageAsset.name || `${selectedPassive?.code || 'stock'}.jpg`,
-              type: imageAsset.mimeType || 'image/jpeg',
-            } as any);
-            formData.append(
-              'payload',
-              JSON.stringify({
-                item: buildItem(),
-                stockFamilyIds: selectedStockFamilyIds,
-                priceFamilyId: selectedPriceFamilyId,
-              })
-            );
-            const response = mode === 'activate'
-              ? await adminApi.activateStock(formData)
-              : await adminApi.createStock(formData);
+            let response;
+            if (mode === 'activate') {
+              response = await adminApi.activateStock(selectedPassive?.code || asText(form.stockCode));
+            } else {
+              const formData = new FormData();
+              formData.append('image', {
+                uri: imageAsset!.uri,
+                name: imageAsset!.name || `${selectedPassive?.code || 'stock'}.jpg`,
+                type: imageAsset!.mimeType || 'image/jpeg',
+              } as any);
+              formData.append(
+                'payload',
+                JSON.stringify({
+                  item: buildItem(),
+                  stockFamilyIds: selectedStockFamilyIds,
+                  priceFamilyId: selectedPriceFamilyId,
+                })
+              );
+              response = await adminApi.createStock(formData);
+            }
             hapticSuccess();
             Alert.alert('Tamamlandi', response.stockCode ? `${response.stockCode} islendi.` : 'Islem tamamlandi.');
             setMode('idle');
@@ -643,7 +649,7 @@ export function PassiveStocksScreen() {
             <Text style={styles.formTitle}>{mode === 'activate' ? 'Pasif Stok Aktiflestir' : 'Yeni Stok Ac'}</Text>
             <Text style={styles.formSubtitle}>
               {mode === 'activate'
-                ? `${selectedPassive?.code || form.stockCode || '-'} - gorsel ve zorunlu alanlar gerekir.`
+                ? `${selectedPassive?.code || form.stockCode || '-'} - yalnizca pasiflik durumu aktif yapilir.`
                 : `Sablon: ${form.templateCode || metadata?.defaultTemplateCode || '-'} - gorsel zorunlu.`}
             </Text>
           </View>
@@ -654,11 +660,19 @@ export function PassiveStocksScreen() {
 
         {formLoading ? <ActivityIndicator color={colors.primary} /> : null}
 
+        {mode === 'activate' ? (
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Aktivasyon ozeti</Text>
+            <Text style={styles.helper}>Yeni stok acilmaz. Mikroda yalnizca pasiflik durumu aktif yapilir; diger kart bilgileri korunur.</Text>
+            <TextInput style={[styles.input, styles.disabledInput]} value={selectedPassive?.code || asText(form.stockCode)} editable={false} />
+            <TextInput style={[styles.input, styles.disabledInput]} value={asText(form.name) || '-'} editable={false} />
+          </View>
+        ) : (
+          <>
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Temel bilgiler</Text>
           <TextInput style={styles.input} value={asText(form.templateCode)} onChangeText={(value) => patchForm({ templateCode: value })} placeholder="Sablon stok kodu" placeholderTextColor={colors.textMuted} autoCapitalize="characters" />
           {renderLookup('template', form.templateCode)}
-          {mode === 'activate' && <TextInput style={[styles.input, styles.disabledInput]} value={selectedPassive?.code || asText(form.stockCode)} editable={false} />}
           <TextInput style={styles.input} value={asText(form.name)} onChangeText={(value) => patchForm({ name: value })} placeholder="Stok adi" placeholderTextColor={colors.textMuted} />
           <TextInput style={styles.input} value={asText(form.foreignName)} onChangeText={(value) => patchForm({ foreignName: value })} placeholder="Tedarikci urun kodu / yabanci isim" placeholderTextColor={colors.textMuted} />
           <View style={styles.row}>
@@ -813,6 +827,8 @@ export function PassiveStocksScreen() {
             <Text style={styles.secondaryButtonText}>{imageAsset ? 'Gorseli Degistir' : 'Gorsel Sec'}</Text>
           </TouchableOpacity>
         </View>
+          </>
+        )}
 
         {previewStatus && (
           <View style={[styles.previewBox, previewStatus.status === 'error' && styles.previewError, previewStatus.status === 'warning' && styles.previewWarning]}>
@@ -841,7 +857,7 @@ export function PassiveStocksScreen() {
         <View style={styles.header}>
           <Text style={styles.kicker}>Stok Karti Operasyonu</Text>
           <Text style={styles.title}>Pasif Stoklar</Text>
-          <Text style={styles.subtitle}>Mikroda pasif olan stok kartlarini bulun, gorsel ve zorunlu alanlarla aktiflestirin veya yeni stok acin.</Text>
+          <Text style={styles.subtitle}>Mikroda pasif olan stok kartlarini bulun; mevcut kartin yalnizca pasiflik durumunu aktif yapin veya ayri olarak yeni stok acin.</Text>
           <View style={styles.heroStats}>
             <View style={styles.heroStat}>
               <Text style={styles.heroStatLabel}>Sonuc</Text>

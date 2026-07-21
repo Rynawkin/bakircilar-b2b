@@ -1947,16 +1947,21 @@ export const adminApi = {
       summary?: { valid?: number; warning?: number; error?: number; total?: number };
     };
   },
+  previewPassiveStockActivation: async (stockCode: string) => {
+    const response = await apiClient.post('/admin/stock-create/preview', { mode: 'activate', stockCode });
+    return response.data as {
+      results: StockCreatePreviewRow[];
+      summary?: { valid?: number; warning?: number; error?: number; total?: number };
+    };
+  },
   createStock: async (formData: FormData) => {
     const response = await apiClient.post('/admin/stock-create/create', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data as { success: boolean; stockCode?: string; productId?: string; warnings?: string[]; error?: string };
   },
-  activateStock: async (formData: FormData) => {
-    const response = await apiClient.post('/admin/stock-create/activate', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+  activateStock: async (stockCode: string) => {
+    const response = await apiClient.post('/admin/stock-create/activate', { stockCode });
     return response.data as { success: boolean; stockCode?: string; warnings?: string[]; error?: string };
   },
   listPassiveStocks: async (search: string, limit?: number) => {

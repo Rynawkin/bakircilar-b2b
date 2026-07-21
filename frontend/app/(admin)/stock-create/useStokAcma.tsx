@@ -405,8 +405,8 @@ export function useStokAcma() {
   const [updating, setUpdating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
-  // Pasif stok aktiflestirme modu: ?activate=CODE ile acilir. Form pasif stoktan prefill edilir,
-  // gorsel ZORUNLU (create ile ayni), submit = adminApi.activateStock.
+  // Pasif stok aktiflestirme modu: ?activate=CODE ile acilir. Formdaki mevcut stok
+  // bilgileri yalnizca referans icindir; Mikroda sadece pasiflik durumu degisir.
   const [activateMode, setActivateMode] = useState<string | null>(null);
   const [activating, setActivating] = useState(false);
   const appliedActivateRef = useRef('');
@@ -732,8 +732,7 @@ export function useStokAcma() {
     }
   };
 
-  // Pasif stogu aktiflestirme moduna al: edit ile ayni fetch yolu (getStock -> calculateMinMax dahil),
-  // ama editingStockCode DEGIL activateMode set edilir; gorsel zorunlu kalir, submit = activateStock.
+  // Pasif stogu aktiflestirme moduna al: mevcut kart salt-okunur ozet icin yuklenir.
   const loadStockForActivate = async (stockCode?: string | null) => {
     const code = String(stockCode || '').trim().toUpperCase();
     if (!code) return;
@@ -745,7 +744,7 @@ export function useStokAcma() {
       setActivateMode(code);
       setTemplateStock(null);
       appliedTemplateRef.current = code;
-      // Aktiflestirmede gorsel ZORUNLU; her zaman bos baslar. calculateMinMax backend'ten gelirse alinir, gelmezse true.
+      // Aktivasyon stok karti alanlarini yazmaz; gorsel de kullanilmaz.
       setForm({
         ...defaultForm(code),
         ...normalized,
@@ -787,7 +786,10 @@ export function useStokAcma() {
   const preview = async () => {
     setLoading(true);
     try {
-      const res = await apiClient.post('/admin/stock-create/preview', { items: [buildItem()] });
+      const payload = activateMode
+        ? { mode: 'activate', stockCode: activateMode }
+        : { items: [buildItem()] };
+      const res = await apiClient.post('/admin/stock-create/preview', payload);
       setPreviewRows(res.data.results || []);
       const summary = res.data.summary;
       if (summary?.error > 0) toast.error(`${summary.error} satir hatali`);
@@ -850,8 +852,8 @@ export function useStokAcma() {
     }
   };
 
-  // Pasif stok aktiflestirme: create ile AYNI multipart (image + payload), sadece endpoint ve
-  // item.stockCode farkli. Basaride pasif-stok listesine doner.
+  // Pasif stok aktiflestirme: yeni kart acmaz ve mevcut kart alanlarini guncellemez;
+  // backend'e yalnizca hedef stok kodu gider.
   const activateStock = async () => {
     if (!activateMode) return;
     if (!previewRows.length) {
@@ -862,32 +864,15 @@ export function useStokAcma() {
       toast.error('Hatali satirlar varken aktiflestirilemez');
       return;
     }
-    // Gorsel ZORUNLU: gorselsiz aktiflestirilmez (create ile ayni kapi).
-    if (!form.image) {
-      toast.error('Urun gorseli zorunlu. Devam etmeden once gorsel secin.');
-      return;
-    }
-    if (form.calculateMinMax !== true && form.calculateMinMax !== false) {
-      toast.error('Min-max hesaplansin mi secimini yapin (Evet/Hayir).');
-      return;
-    }
-    const confirmed = window.confirm(`${activateMode} pasif stok karti Mikroda aktiflestirilecek.${hasWarnings ? '\n\nUyarili alanlar var; devam etmek istiyor musunuz?' : ''}`);
+    const confirmed = window.confirm(
+      `${activateMode} kodlu mevcut stok Mikroda aktif hale getirilecek.\n\n` +
+      'Yalnizca pasiflik durumu degisecek; ad, fiyat, maliyet, birim, barkod ve diger stok bilgileri degismeyecek.'
+    );
     if (!confirmed) return;
 
     setActivating(true);
     try {
-      const formData = new FormData();
-      formData.append('image', form.image);
-      formData.append(
-        'payload',
-        JSON.stringify({
-          // Aktiflestirmede backend hedef karti bilsin diye item icine stockCode eklenir.
-          item: { ...buildItem(), stockCode: activateMode },
-          stockFamilyIds: form.stockFamilyIds,
-          priceFamilyId: form.priceFamilyId,
-        })
-      );
-      const res = await adminApi.activateStock(formData);
+      const res = await adminApi.activateStock(activateMode);
       if (res.warnings?.length) {
         res.warnings.forEach((warning) => toast(warning, { duration: 7000 }));
       }

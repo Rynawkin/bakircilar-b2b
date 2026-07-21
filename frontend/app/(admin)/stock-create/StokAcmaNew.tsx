@@ -119,6 +119,7 @@ export default function StokAcmaNew() {
 
   const newLogStatus = (status: string) => {
     if (status === 'CREATED') return 'bg-[#ecfdf5] text-[#047857] border border-[#a7f3d0]';
+    if (status === 'ACTIVATED') return 'bg-[#f5f3ff] text-[#6d28d9] border border-[#c4b5fd]';
     if (status === 'UPDATED') return 'bg-[#eef2fa] text-[#15356b] border border-[#d6e0f1]';
     return 'bg-[#fff7f7] text-[#b91c1c] border border-[#fecaca]';
   };
@@ -138,25 +139,44 @@ export default function StokAcmaNew() {
             {activateMode ? 'Pasif Stok Aktiflestir' : 'Yeni Stok Acma'}
           </h1>
           <div className="mt-1.5 text-[13px] text-[#8b97ac]">
-            {activateMode ? `Pasif stok ${activateMode} aktiflestiriliyor · gorsel zorunlu` : 'Mikro stok karti olustur · gorsel zorunlu'}
+            {activateMode
+              ? `Mevcut ${activateMode} stok kartinda yalnizca pasiflik durumu aktif yapilir`
+              : 'Mikro stok karti olustur · gorsel zorunlu'}
           </div>
         </div>
 
         {/* Siradaki kod / varsayilan sablon seridi */}
-        <div className="mb-4 flex flex-wrap items-center gap-5 rounded-xl bg-[#0c2247] px-[18px] py-[14px]">
-          <div>
-            <div className="text-[10.5px] text-[#7d93bd]">Siradaki Kod</div>
-            <div className="font-mono text-[15px] font-semibold text-white">{nextCode || '-'}</div>
+        {activateMode ? (
+          <div className="mb-4 flex flex-wrap items-center gap-5 rounded-xl bg-[#4c1d95] px-[18px] py-[14px] text-white">
+            <div>
+              <div className="text-[10.5px] text-[#ddd6fe]">Aktiflesecek Stok</div>
+              <div className="font-mono text-[15px] font-semibold">{activateMode}</div>
+            </div>
+            <div>
+              <div className="text-[10.5px] text-[#ddd6fe]">Mikroda Degisecek Alan</div>
+              <div className="text-[15px] font-semibold">Pasif → Aktif</div>
+            </div>
+            <div className="ml-auto flex items-center gap-2 text-[11.5px] text-[#ede9fe]">
+              <ShieldCheck className="h-4 w-4 text-[#a7f3d0]" />
+              Yeni stok kodu uretilmez; stok kartinin diger bilgileri korunur
+            </div>
           </div>
-          <div>
-            <div className="text-[10.5px] text-[#7d93bd]">Son Acilan Stok</div>
-            <div className="text-[15px] font-semibold text-white">{defaultTemplateCode || '-'}</div>
+        ) : (
+          <div className="mb-4 flex flex-wrap items-center gap-5 rounded-xl bg-[#0c2247] px-[18px] py-[14px]">
+            <div>
+              <div className="text-[10.5px] text-[#7d93bd]">Siradaki Kod</div>
+              <div className="font-mono text-[15px] font-semibold text-white">{nextCode || '-'}</div>
+            </div>
+            <div>
+              <div className="text-[10.5px] text-[#7d93bd]">Son Acilan Stok</div>
+              <div className="text-[15px] font-semibold text-white">{defaultTemplateCode || '-'}</div>
+            </div>
+            <div className="ml-auto flex items-center gap-2 text-[11.5px] text-[#9bb0d4]">
+              <ShieldCheck className="h-4 w-4 text-[#6ee7b7]" />
+              Guvenli yazim: sablon kopyala · referans dogrula · kod transaction kilidiyle uretilir
+            </div>
           </div>
-          <div className="ml-auto flex items-center gap-2 text-[11.5px] text-[#9bb0d4]">
-            <ShieldCheck className="h-4 w-4 text-[#6ee7b7]" />
-            Guvenli yazim: sablon kopyala · referans dogrula · kod transaction kilidiyle uretilir
-          </div>
-        </div>
+        )}
 
         {/* Ust aksiyonlar */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -193,7 +213,7 @@ export default function StokAcmaNew() {
                       {editingStockCode
                         ? 'Bu mod mevcut Mikro stok kartini gunceller; stok kodu degismez.'
                         : activateMode
-                        ? 'Pasif stok kartini zorunlu alanlarla doldurup aktiflestirin; stok kodu degismez.'
+                        ? 'Bu islem yeni stok acmaz; mevcut stok kartinda yalnizca pasiflik durumu degisir.'
                         : 'Zorunlu alanlari doldurun, once on kontrol calistirin.'}
                     </p>
                   </div>
@@ -238,7 +258,7 @@ export default function StokAcmaNew() {
                         {activateMode} - {form.name || 'Stok adi bos'}
                       </div>
                       <div className="mt-0.5 text-[11.5px] font-medium text-[#7c3aed]">
-                        Zorunlu alanlari (gorsel, saglayici, kategori, birim, maliyet/marj, min-max) doldurup "Aktiflestir" ile Mikroda aktif hale getirin.
+                        On kontrol hedef kartin mevcut ve pasif oldugunu dogrular. Aktivasyonda gorsel, fiyat, maliyet, birim, barkod veya aile bilgisi yazilmaz.
                       </div>
                     </div>
                     <button
@@ -250,6 +270,29 @@ export default function StokAcmaNew() {
                     </button>
                   </div>
                 )}
+
+                {activateMode && (
+                  <div className="grid gap-3 rounded-lg border border-[#e7ebf2] bg-[#fafbfd] p-4 text-[12px] sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8b97ac]">Stok Kodu</div>
+                      <div className="mt-1 font-mono font-semibold text-[#14223b]">{activateMode}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8b97ac]">Stok Adi</div>
+                      <div className="mt-1 font-semibold text-[#14223b]">{form.name || '-'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8b97ac]">Kategori</div>
+                      <div className="mt-1 font-mono font-semibold text-[#14223b]">{form.categoryCode || '-'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8b97ac]">Ana Saglayici</div>
+                      <div className="mt-1 font-mono font-semibold text-[#14223b]">{form.supplierCode || '-'}</div>
+                    </div>
+                  </div>
+                )}
+
+                <div className={activateMode ? 'hidden' : ''}>
 
                 {/* Aktif sablon seridi */}
                 {!editingStockCode && !activateMode && templateStock && (
@@ -781,6 +824,7 @@ export default function StokAcmaNew() {
                     </div>
                   </div>
                 </div>
+                </div>
               </div>
 
             {/* On kontrol / guncelleme paneli */}
@@ -793,6 +837,8 @@ export default function StokAcmaNew() {
                   <p className="mt-0.5 text-[12px] text-[#8b97ac]">
                     {editingStockCode
                       ? 'Formdaki bilgiler mevcut Mikro stok kartina yazilir. Kod sabit kalir.'
+                      : activateMode
+                      ? 'Hedef stokun Mikroda mevcut ve pasif oldugu kontrol edilir; yeni stok kodu uretilmez.'
                       : 'Kolonlar ve referanslar Mikroya yazmadan once kontrol edilir.'}
                   </p>
                 </div>
@@ -834,11 +880,8 @@ export default function StokAcmaNew() {
                           disabled={
                             activating ||
                             !previewRows.length ||
-                            hasErrors ||
-                            !form.image ||
-                            (form.calculateMinMax !== true && form.calculateMinMax !== false)
+                            hasErrors
                           }
-                          title={!form.image ? 'Once urun gorseli secin' : undefined}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-[#6d28d9] bg-[#6d28d9] px-[18px] py-[9px] text-[12.5px] font-semibold text-white transition hover:bg-[#5b21b6] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Save className="h-4 w-4" />
@@ -890,7 +933,9 @@ export default function StokAcmaNew() {
                           <div className="mt-1 text-[12px] font-medium">{row.item.name}</div>
                         </div>
                         <div className="text-[10px] font-semibold uppercase tracking-wide">
-                          {row.status === 'valid' ? 'Kayda hazir' : row.status === 'warning' ? 'Uyarili' : 'Hatali'}
+                          {row.status === 'valid'
+                            ? activateMode ? 'Aktiflestirmeye hazir' : 'Kayda hazir'
+                            : row.status === 'warning' ? 'Uyarili' : 'Hatali'}
                         </div>
                       </div>
                       {(row.errors.length > 0 || row.warnings.length > 0) && (

@@ -2918,16 +2918,11 @@ export const adminApi = {
     return response.data;
   },
 
-  // Pasif Stok Aktiflestir - pasif stok kartini gorsel + zorunlu alanlarla aktiflestirir.
-  // FormData: image (File, zorunlu) + payload JSON string { item (stockCode + calculateMinMax dahil), stockFamilyIds, priceFamilyId }
+  // Pasif Stok Aktiflestir - mevcut Mikro kartinda yalnizca pasiflik durumunu aktif yapar.
   activateStock: async (
-    formData: FormData
+    stockCode: string
   ): Promise<{ success: boolean; stockCode?: string; warnings?: string[]; error?: string }> => {
-    const response = await apiClient.post('/admin/stock-create/activate', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const response = await apiClient.post('/admin/stock-create/activate', { stockCode });
     return response.data;
   },
 
