@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import {
   CustomerType,
   HotSaleClosureAction,
@@ -14,6 +14,20 @@ import mikroService from './mikroFactory.service';
 import fieldSalesService from './field-sales.service';
 import orderService from './order.service';
 import { hashPassword } from '../utils/password';
+import {
+  INVOICED_PRICE_LIST_NOS,
+  RETAIL_PRICE_LIST_NOS,
+  STANDARD_PRICE_LIST_NOS,
+  isPriceListInPlane,
+} from '../config/price-list-registry';
+import type { PriceListPlane } from '../config/price-list-registry';
+import {
+  resolveCustomerPriceLists,
+  resolveCustomerPriceListsForProduct,
+  resolvePhysicalPriceListNoForPriceType,
+  type CustomerPriceListRule,
+} from '../utils/customerPricing';
+import { buildMikroEffectivePriceSql } from '../utils/mikro-price-list';
 
 type SqlRawValue = { raw: string };
 
@@ -34,11 +48,89 @@ type HotSaleItemInput = {
   orderRowNumber?: number | null;
 };
 
+type HotSalePricingCustomer = {
+  id: string;
+  mikroCariCode: string | null;
+  displayName: string | null;
+  mikroName: string | null;
+  name: string;
+  active: boolean;
+  isLocked: boolean;
+  sectorCode: string | null;
+  groupCode: string | null;
+  paymentPlanNo: number | null;
+  invoicedPriceListNo: number | null;
+  whitePriceListNo: number | null;
+  priceListRules: CustomerPriceListRule[];
+};
+
 type HotSalePaymentInput = {
   type?: HotSalePaymentType;
   amount?: number;
   referenceNo?: string;
   note?: string;
+};
+
+type NormalizedHotSaleItem = {
+  productCode: string;
+  productName: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  priceListNo: number;
+  vatRate: number;
+  currentCost: number;
+  currentCostVatIncluded: number;
+  note?: string;
+};
+
+type HotSaleStockDocumentKind = 'TRANSFER' | 'INVOICE' | 'DISPATCH';
+
+type HotSaleStockMovementExpectedLine = {
+  lineGuid: string;
+  rowNumber: number;
+  productCode: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  priceListNo: number;
+  customerCode: string;
+  sourceWarehouseNo: number;
+  targetWarehouseNo: number;
+  series: string;
+  kind: HotSaleStockDocumentKind;
+};
+
+type HotSaleCreateTransactionInput = {
+  operationKey: string;
+  userId: string;
+  scope?: StaffScope;
+  type: HotSaleTransactionType;
+  customerId?: string;
+  customerCode?: string;
+  customerName?: string;
+  paymentType?: HotSalePaymentType;
+  priceListNo?: number;
+  note?: string;
+  latitude?: number;
+  longitude?: number;
+  items: HotSaleItemInput[];
+  payments?: HotSalePaymentInput[];
+};
+
+type HotSaleCloseSessionInput = {
+  userId: string;
+  closingCash?: number;
+  endKm?: number;
+  latitude?: number;
+  longitude?: number;
+  note?: string;
+  counts: Array<{
+    productCode: string;
+    countedQty: number;
+    action?: HotSaleClosureAction;
+    note?: string;
+  }>;
 };
 
 type MikroColumnMeta = {
@@ -87,9 +179,52 @@ const HOT_CUSTOMER_PREFIX = '120.01.';
 const HOT_CUSTOMER_GROUP_CODE = 'SICAK';
 const HOT_CUSTOMER_SECTOR_CODE = 'SICAK';
 const HOT_CUSTOMER_REGION_CODE = '54';
+const HOT_SALE_SESSION_LOCK_TIMEOUT_MS = 30 * 60 * 1000;
 
 const normalizeCode = (value: unknown) => String(value || '').trim().toUpperCase();
 const escapeSql = (value: string) => String(value || '').replace(/'/g, "''");
+export const deterministicHotSaleLineGuid = (
+  operationKey: string,
+  lineIndex: number
+) => {
+  const bytes = createHash('sha256')
+    .update(`bakircilar-b2b:hot-sale-line:v1:${operationKey}:${lineIndex}`)
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-');
+};
+
+const sortNormalizedHotSaleItems = (
+  items: NormalizedHotSaleItem[]
+): NormalizedHotSaleItem[] =>
+  [...items].sort((left, right) => {
+    const leftKey = [
+      normalizeCode(left.productCode),
+      String(left.priceListNo),
+      String(left.unit || '').trim().toUpperCase(),
+      Number(left.quantity).toFixed(6),
+      Number(left.unitPrice).toFixed(6),
+      String(left.note || '').trim(),
+    ].join('|');
+    const rightKey = [
+      normalizeCode(right.productCode),
+      String(right.priceListNo),
+      String(right.unit || '').trim().toUpperCase(),
+      Number(right.quantity).toFixed(6),
+      Number(right.unitPrice).toFixed(6),
+      String(right.note || '').trim(),
+    ].join('|');
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  });
 const truncateValue = (value: unknown, maxLength?: number | null) => {
   const text = String(value ?? '');
   return maxLength && maxLength > 0 ? text.slice(0, maxLength) : text;
@@ -105,6 +240,285 @@ const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(String(value).replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+
+const withHotSaleSessionLock = async <T>(
+  sessionId: string,
+  task: () => Promise<T>
+): Promise<T> =>
+  prisma.$transaction(
+    async (lockTx) => {
+      const rows = await lockTx.$queryRaw<Array<{ locked: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(
+          hashtextextended(${'bakircilar-b2b:hot-sale-session:v1:' + sessionId}, 0)
+        ) AS locked
+      `;
+      if (!rows[0]?.locked) {
+        throw new AppError(
+          'Bu sicak satis oturumunda baska bir islem devam ediyor. Ayni islem anahtariyla tekrar deneyin.',
+          409,
+          ErrorCode.SYNC_IN_PROGRESS
+        );
+      }
+      return task();
+    },
+    {
+      maxWait: 5_000,
+      timeout: HOT_SALE_SESSION_LOCK_TIMEOUT_MS,
+    }
+  );
+
+const withHotSaleVehicleLock = async <T>(
+  vehicleId: string,
+  task: () => Promise<T>
+): Promise<T> =>
+  prisma.$transaction(
+    async (lockTx) => {
+      const rows = await lockTx.$queryRaw<Array<{ locked: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(
+          hashtextextended(${'bakircilar-b2b:hot-sale-vehicle:v1:' + vehicleId}, 0)
+        ) AS locked
+      `;
+      if (!rows[0]?.locked) {
+        throw new AppError(
+          'Bu sicak satis aracinda baska bir oturum islemi devam ediyor.',
+          409,
+          ErrorCode.SYNC_IN_PROGRESS
+        );
+      }
+      return task();
+    },
+    {
+      maxWait: 5_000,
+      timeout: HOT_SALE_SESSION_LOCK_TIMEOUT_MS,
+    }
+  );
+
+const hasExplicitNumber = (value: unknown) =>
+  value !== undefined && value !== null && value !== '';
+
+export const buildHotSaleRequestHash = (input: Record<string, any>): string => {
+  const hasOwn = (value: Record<string, any>, key: string) =>
+    Object.prototype.hasOwnProperty.call(value, key);
+  const canonical = {
+    type: String(input.type || ''),
+    customerId: String(input.customerId || '').trim() || null,
+    customerCode: normalizeCode(input.customerCode) || null,
+    customerName: String(input.customerName || '').trim() || null,
+    paymentType: input.paymentType ? String(input.paymentType) : null,
+    priceListNo: hasExplicitNumber(input.priceListNo)
+      ? Math.trunc(toNumber(input.priceListNo))
+      : null,
+    priceListExplicit: hasOwn(input, 'priceListNo'),
+    note: String(input.note || '').trim() || null,
+    latitude: hasExplicitNumber(input.latitude) ? toNumber(input.latitude) : null,
+    longitude: hasExplicitNumber(input.longitude) ? toNumber(input.longitude) : null,
+    items: (Array.isArray(input.items) ? input.items : []).map((item: any) => ({
+      productCode: normalizeCode(item?.productCode),
+      quantity: toNumber(item?.quantity),
+      unitPrice: hasExplicitNumber(item?.unitPrice)
+        ? toNumber(item.unitPrice)
+        : null,
+      unitPriceExplicit: hasOwn(item || {}, 'unitPrice'),
+      unit: String(item?.unit || '').trim().toUpperCase() || null,
+      priceListNo: hasExplicitNumber(item?.priceListNo)
+        ? Math.trunc(toNumber(item.priceListNo))
+        : null,
+      priceListExplicit: hasOwn(item || {}, 'priceListNo'),
+      note: String(item?.note || '').trim() || null,
+    })),
+    payments: (Array.isArray(input.payments) ? input.payments : []).map(
+      (payment: any) => ({
+        type: payment?.type ? String(payment.type) : null,
+        amount: hasExplicitNumber(payment?.amount)
+          ? toNumber(payment.amount)
+          : null,
+        amountExplicit: hasOwn(payment || {}, 'amount'),
+        referenceNo: String(payment?.referenceNo || '').trim() || null,
+        note: String(payment?.note || '').trim() || null,
+      })
+    ),
+  };
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+};
+
+export const resolveHotSaleLinePriceListNo = (input: {
+  plane: PriceListPlane;
+  anonymousDefaultPriceListNo: number;
+  transactionPriceListNo?: number | null;
+  itemPriceListNo?: number | null;
+  customer?: {
+    invoicedPriceListNo?: number | null;
+    whitePriceListNo?: number | null;
+    priceListRules?: CustomerPriceListRule[] | null;
+  } | null;
+  product?: { brandCode?: string | null; categoryId?: string | null } | null;
+}) => {
+  const explicitCandidate = hasExplicitNumber(input.itemPriceListNo)
+    ? Number(input.itemPriceListNo)
+    : hasExplicitNumber(input.transactionPriceListNo)
+      ? Number(input.transactionPriceListNo)
+      : null;
+
+  const resolved = explicitCandidate !== null
+    ? explicitCandidate
+    : input.customer
+      ? resolvePhysicalPriceListNoForPriceType(
+          resolveCustomerPriceListsForProduct(
+            resolveCustomerPriceLists(input.customer),
+            input.customer.priceListRules,
+            input.product || {}
+          ),
+          input.plane === 'RETAIL' ? 'WHITE' : 'INVOICED'
+        )
+      : input.anonymousDefaultPriceListNo;
+
+  if (!Number.isInteger(resolved) || !isPriceListInPlane(resolved, input.plane)) {
+    const allowed = input.plane === 'INVOICED'
+      ? INVOICED_PRICE_LIST_NOS
+      : RETAIL_PRICE_LIST_NOS;
+    throw new AppError(
+      `Gecersiz ${input.plane === 'INVOICED' ? 'faturali' : 'perakende'} fiyat listesi: ${String(resolved)}. Izin verilen listeler: ${allowed.join(', ')}`,
+      400,
+      ErrorCode.BAD_REQUEST
+    );
+  }
+
+  return resolved;
+};
+
+const SUPPORTED_HOT_SALE_TRANSACTION_TYPES = new Set<string>([
+  'CASH_INVOICE',
+  'INVOICED_DISPATCH',
+  'ORDER',
+]);
+const SUPPORTED_HOT_SALE_PAYMENT_TYPES = new Set<string>([
+  'CASH',
+  'CARD',
+  'TRANSFER',
+  'OPEN_ACCOUNT',
+  'MIXED',
+]);
+
+export const validateHotSaleTransactionInput = (input: unknown) => {
+  const value = input as Record<string, any> | null;
+  if (
+    !value
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      String(value.operationKey || '').trim()
+    )
+  ) {
+    throw new AppError(
+      'Gecersiz veya eksik sicak satis islem anahtari.',
+      400,
+      ErrorCode.BAD_REQUEST
+    );
+  }
+  if (!value || !SUPPORTED_HOT_SALE_TRANSACTION_TYPES.has(String(value.type || ''))) {
+    throw new AppError(
+      'Gecersiz sicak satis islem tipi.',
+      400,
+      ErrorCode.BAD_REQUEST
+    );
+  }
+  if (
+    value.paymentType !== undefined
+    && value.paymentType !== null
+    && !SUPPORTED_HOT_SALE_PAYMENT_TYPES.has(String(value.paymentType))
+  ) {
+    throw new AppError(
+      'Gecersiz sicak satis odeme tipi.',
+      400,
+      ErrorCode.BAD_REQUEST
+    );
+  }
+  if (!Array.isArray(value.items) || value.items.length === 0) {
+    throw new AppError(
+      'Satis/siparis icin en az bir urun zorunludur.',
+      400,
+      ErrorCode.BAD_REQUEST
+    );
+  }
+
+  const plane: PriceListPlane = value.type === 'CASH_INVOICE' ? 'RETAIL' : 'INVOICED';
+  const validateListNo = (candidate: unknown, label: string) => {
+    if (!hasExplicitNumber(candidate)) return;
+    const listNo = Number(candidate);
+    if (!Number.isInteger(listNo) || !isPriceListInPlane(listNo, plane)) {
+      throw new AppError(
+        `${label} satis tipiyle uyusmuyor.`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+  };
+  validateListNo(value.priceListNo, 'Fiyat listesi');
+
+  value.items.forEach((item: any, index: number) => {
+    const productCode = normalizeCode(item?.productCode);
+    const quantity = Number(item?.quantity);
+    if (!productCode || !Number.isFinite(quantity) || quantity <= 0) {
+      throw new AppError(
+        `Gecersiz sicak satis kalemi: ${index + 1}.`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+    if (
+      hasExplicitNumber(item?.unitPrice)
+      && (!Number.isFinite(Number(item.unitPrice)) || Number(item.unitPrice) < 0)
+    ) {
+      throw new AppError(
+        `Gecersiz birim fiyat: ${productCode}.`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+    validateListNo(item?.priceListNo, `${productCode} fiyat listesi`);
+  });
+
+  if (value.payments !== undefined) {
+    if (!Array.isArray(value.payments)) {
+      throw new AppError('Gecersiz odeme dagilimi.', 400, ErrorCode.BAD_REQUEST);
+    }
+    value.payments.forEach((payment: any, index: number) => {
+      if (!payment || typeof payment !== 'object' || Array.isArray(payment)) {
+        throw new AppError(
+          `Gecersiz odeme dagilimi: ${index + 1}.`,
+          400,
+          ErrorCode.BAD_REQUEST
+        );
+      }
+      if (
+        payment?.type !== undefined
+        && payment?.type !== null
+        && !SUPPORTED_HOT_SALE_PAYMENT_TYPES.has(String(payment.type))
+      ) {
+        throw new AppError(
+          `Gecersiz odeme tipi: ${index + 1}.`,
+          400,
+          ErrorCode.BAD_REQUEST
+        );
+      }
+      if (
+        hasExplicitNumber(payment?.amount)
+        && (!Number.isFinite(Number(payment.amount)) || Number(payment.amount) < 0)
+      ) {
+        throw new AppError(
+          `Gecersiz odeme tutari: ${index + 1}.`,
+          400,
+          ErrorCode.BAD_REQUEST
+        );
+      }
+    });
+  }
+};
+
+const standardPriceListSelectSql = STANDARD_PRICE_LIST_NOS
+  .map(
+    (listNo) =>
+      `CAST(${buildMikroEffectivePriceSql('sto_kod', listNo)} AS decimal(18,4)) AS price${listNo}`
+  )
+  .join(',\n        ');
 
 const signedStockQty = (type: HotSaleStockMovementType, quantity: number) => {
   const value = Math.abs(Number(quantity) || 0);
@@ -278,13 +692,13 @@ class HotSaleService {
     return 0;
   }
 
-  private stockMovementKindFilter(kind: 'TRANSFER' | 'INVOICE' | 'DISPATCH') {
+  private stockMovementKindFilter(kind: HotSaleStockDocumentKind) {
     if (kind === 'TRANSFER') return "ISNULL(sth_tip, 0) = 2 AND ISNULL(sth_cins, 0) = 6 AND ISNULL(sth_evraktip, 0) = 2";
     if (kind === 'DISPATCH') return "ISNULL(sth_tip, 1) = 1 AND ISNULL(sth_cins, 0) = 0 AND ISNULL(sth_evraktip, 0) = 1";
     return "ISNULL(sth_tip, 1) = 1 AND ISNULL(sth_cins, 0) = 0 AND ISNULL(sth_evraktip, 0) = 4";
   }
 
-  private async getNextStockMovementSequence(series: string, kind: 'TRANSFER' | 'INVOICE' | 'DISPATCH'): Promise<number> {
+  private async getNextStockMovementSequence(series: string, kind: HotSaleStockDocumentKind): Promise<number> {
     const rows = await mikroService.executeQuery(`
       SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 AS nextSira
       FROM STOK_HAREKETLERI WITH (NOLOCK)
@@ -298,8 +712,47 @@ class HotSaleService {
     return Math.trunc(next);
   }
 
-  private stockMovementSequenceBatch(series: string, kind: 'TRANSFER' | 'INVOICE' | 'DISPATCH', insertStatements: string[]) {
+  private stockMovementSequenceBatch(
+    series: string,
+    kind: HotSaleStockDocumentKind,
+    insertStatements: string[],
+    lineGuids: string[] = []
+  ) {
     const lockResource = `B2B_HOT_SEQ_${kind}_${series}`.slice(0, 200);
+    const guidListSql = lineGuids
+      .map((guid) => `CAST('${escapeSql(guid)}' as uniqueidentifier)`)
+      .join(', ');
+    const documentGuardSql = lineGuids.length > 0
+      ? `
+        DECLARE @existingLineCount int = 0;
+        DECLARE @existingSequenceCount int = 0;
+        SELECT
+          @existingLineCount = COUNT(*),
+          @existingSequenceCount = COUNT(DISTINCT sth_evrakno_sira),
+          @nextSira = MIN(sth_evrakno_sira)
+        FROM STOK_HAREKETLERI WITH (UPDLOCK, HOLDLOCK)
+        WHERE sth_Guid IN (${guidListSql});
+
+        IF @existingLineCount > 0
+        BEGIN
+          IF @existingLineCount <> ${lineGuids.length}
+            OR @existingSequenceCount <> 1
+            OR EXISTS (
+              SELECT 1
+              FROM STOK_HAREKETLERI
+              WHERE sth_Guid IN (${guidListSql})
+                AND (
+                  UPPER(sth_evrakno_seri) <> '${escapeSql(series.toUpperCase())}'
+                  OR ISNULL(sth_iptal, 0) <> 0
+                  OR NOT (${this.stockMovementKindFilter(kind)})
+                )
+            )
+            THROW 53102, 'SICAK islem anahtari farkli veya eksik evrak satirlarinda kullanilmis', 1;
+        END
+        ELSE
+          SET @nextSira = NULL;
+      `
+      : '';
     return `
       SET XACT_ABORT ON;
       BEGIN TRY
@@ -314,16 +767,21 @@ class HotSaleService {
         IF @lockResult < 0
           THROW 53100, 'SICAK evrak sira kilidi alinamadi', 1;
 
-        DECLARE @nextSira int;
-        SELECT @nextSira = ISNULL(MAX(sth_evrakno_sira), 0) + 1
-        FROM STOK_HAREKETLERI WITH (UPDLOCK, HOLDLOCK)
-        WHERE UPPER(sth_evrakno_seri) = '${escapeSql(series.toUpperCase())}'
-          AND ${this.stockMovementKindFilter(kind)};
+        DECLARE @nextSira int = NULL;
+        ${documentGuardSql}
 
-        IF @nextSira IS NULL OR @nextSira <= 0
-          THROW 53101, 'Mikro evrak sira numarasi alinamadi', 1;
+        IF @nextSira IS NULL
+        BEGIN
+          SELECT @nextSira = ISNULL(MAX(sth_evrakno_sira), 0) + 1
+          FROM STOK_HAREKETLERI WITH (UPDLOCK, HOLDLOCK)
+          WHERE UPPER(sth_evrakno_seri) = '${escapeSql(series.toUpperCase())}'
+            AND ${this.stockMovementKindFilter(kind)};
 
-        ${insertStatements.join(';\n        ')};
+          IF @nextSira IS NULL OR @nextSira <= 0
+            THROW 53101, 'Mikro evrak sira numarasi alinamadi', 1;
+
+          ${insertStatements.join(';\n          ')};
+        END
 
         COMMIT TRANSACTION;
         SELECT @nextSira AS sequence;
@@ -335,12 +793,122 @@ class HotSaleService {
     `;
   }
 
-  private async getStockMovementTemplate(kind: 'TRANSFER' | 'INVOICE' | 'DISPATCH') {
+  private async readStockMovementRowsByLineGuids(lineGuids: string[]) {
+    if (lineGuids.length === 0) return [];
+    const guidListSql = lineGuids
+      .map((guid) => `CAST('${escapeSql(guid)}' as uniqueidentifier)`)
+      .join(', ');
+    return mikroService.executeQueryOnce(`
+      SELECT
+        CONVERT(varchar(36), sth_Guid) AS lineGuid,
+        UPPER(LTRIM(RTRIM(ISNULL(sth_evrakno_seri, '')))) AS series,
+        ISNULL(sth_evrakno_sira, 0) AS sequence,
+        ISNULL(sth_satirno, -1) AS rowNumber,
+        UPPER(LTRIM(RTRIM(ISNULL(sth_stok_kod, '')))) AS productCode,
+        CAST(ISNULL(sth_miktar, 0) AS decimal(18,6)) AS quantity,
+        CAST(
+          CASE
+            WHEN ABS(ISNULL(sth_miktar, 0)) > 0.000001
+              THEN ISNULL(sth_tutar, 0) / sth_miktar
+            ELSE 0
+          END
+          AS decimal(18,6)
+        ) AS unitPrice,
+        CAST(ISNULL(sth_tutar, 0) AS decimal(18,6)) AS lineTotal,
+        ISNULL(sth_fiyat_liste_no, 0) AS priceListNo,
+        UPPER(LTRIM(RTRIM(ISNULL(sth_cari_kodu, '')))) AS customerCode,
+        ISNULL(sth_cikis_depo_no, 0) AS sourceWarehouseNo,
+        ISNULL(sth_giris_depo_no, 0) AS targetWarehouseNo,
+        ISNULL(sth_tip, 0) AS movementType,
+        ISNULL(sth_cins, 0) AS movementKind,
+        ISNULL(sth_evraktip, 0) AS documentType,
+        ISNULL(sth_iptal, 0) AS cancelled
+      FROM STOK_HAREKETLERI
+      WHERE sth_Guid IN (${guidListSql})
+      ORDER BY sth_satirno
+    `);
+  }
+
+  private assertStockMovementReadBack(
+    rows: any[],
+    expectedLines: HotSaleStockMovementExpectedLine[]
+  ): number {
+    if (rows.length !== expectedLines.length) {
+      throw new AppError(
+        `Mikro evrak read-back satir sayisi ${expectedLines.length} yerine ${rows.length}.`,
+        409,
+        ErrorCode.INVALID_INPUT
+      );
+    }
+
+    const rowByGuid = new Map(
+      rows.map((row) => [normalizeCode(row.lineGuid), row])
+    );
+    const expectedKindValues: Record<
+      HotSaleStockDocumentKind,
+      { movementType: number; movementKind: number; documentType: number }
+    > = {
+      TRANSFER: { movementType: 2, movementKind: 6, documentType: 2 },
+      INVOICE: { movementType: 1, movementKind: 0, documentType: 4 },
+      DISPATCH: { movementType: 1, movementKind: 0, documentType: 1 },
+    };
+    let sequence: number | null = null;
+
+    for (const expected of expectedLines) {
+      const row = rowByGuid.get(normalizeCode(expected.lineGuid));
+      const kindValues = expectedKindValues[expected.kind];
+      const rowSequence = Math.trunc(toNumber(row?.sequence));
+      const valid =
+        Boolean(row)
+        && Math.trunc(toNumber(row.cancelled)) === 0
+        && normalizeCode(row.series) === normalizeCode(expected.series)
+        && rowSequence > 0
+        && Math.trunc(toNumber(row.rowNumber)) === expected.rowNumber
+        && normalizeCode(row.productCode) === normalizeCode(expected.productCode)
+        && Math.abs(toNumber(row.quantity) - expected.quantity) <= 0.0001
+        && Math.abs(toNumber(row.unitPrice) - expected.unitPrice) <= 0.0001
+        && Math.abs(toNumber(row.lineTotal) - expected.lineTotal) <= 0.01
+        && Math.trunc(toNumber(row.priceListNo)) === expected.priceListNo
+        && normalizeCode(row.customerCode) === normalizeCode(expected.customerCode)
+        && Math.trunc(toNumber(row.sourceWarehouseNo)) === expected.sourceWarehouseNo
+        && Math.trunc(toNumber(row.targetWarehouseNo)) === expected.targetWarehouseNo
+        && Math.trunc(toNumber(row.movementType)) === kindValues.movementType
+        && Math.trunc(toNumber(row.movementKind)) === kindValues.movementKind
+        && Math.trunc(toNumber(row.documentType)) === kindValues.documentType;
+
+      if (!valid) {
+        throw new AppError(
+          `Mikro evrak read-back uyusmazligi: ${expected.productCode} satir ${expected.rowNumber}.`,
+          409,
+          ErrorCode.INVALID_INPUT
+        );
+      }
+      if (sequence === null) sequence = rowSequence;
+      if (sequence !== rowSequence) {
+        throw new AppError(
+          'Mikro evrak read-back satirlari birden fazla sira numarasina dagilmis.',
+          409,
+          ErrorCode.INVALID_INPUT
+        );
+      }
+    }
+
+    if (!sequence || sequence <= 0) {
+      throw new AppError(
+        'Mikro evrak read-back sira numarasi gecersiz.',
+        409,
+        ErrorCode.INVALID_INPUT
+      );
+    }
+    return sequence;
+  }
+
+  private async getStockMovementTemplate(kind: HotSaleStockDocumentKind) {
     const filter = this.stockMovementKindFilter(kind);
     const preferredSeries = kind === 'TRANSFER' ? 'DSV' : kind === 'DISPATCH' ? 'H' : 'FTR';
     const rows = await mikroService.executeQuery(`
       SELECT TOP 1 *
-      FROM STOK_HAREKETLERI WITH (NOLOCK)
+      FROM STOK_HAREKETLERI
       WHERE ${filter}
         AND UPPER(sth_evrakno_seri) = '${preferredSeries}'
       ORDER BY sth_tarih DESC, sth_evrakno_sira DESC, sth_satirno DESC
@@ -349,7 +917,7 @@ class HotSaleService {
 
     const fallback = await mikroService.executeQuery(`
       SELECT TOP 1 *
-      FROM STOK_HAREKETLERI WITH (NOLOCK)
+      FROM STOK_HAREKETLERI
       WHERE ${filter}
       ORDER BY sth_tarih DESC, sth_evrakno_sira DESC, sth_satirno DESC
     `);
@@ -367,28 +935,129 @@ class HotSaleService {
       SELECT
         sto_kod AS productCode,
         sto_isim AS productName,
+        NULLIF(LTRIM(RTRIM(ISNULL(sto_marka_kodu, ''))), '') AS brandCode,
         ISNULL(sto_birim1_ad, 'ADET') AS unit,
         ISNULL(sto_toptan_vergi, 0) AS vatCode,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 11, 0), 0) AS decimal(18,3)) AS hotStock,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) AS decimal(18,3)) AS stockMerkez,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) AS decimal(18,3)) AS stockTopca,
         CAST(ISNULL(sto_standartmaliyet, 0) AS decimal(18,4)) AS currentCost,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) AS decimal(18,4)) AS price1,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) AS decimal(18,4)) AS price2,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) AS decimal(18,4)) AS price3,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 4, 0, 1), 0) AS decimal(18,4)) AS price4,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 5, 0, 1), 0) AS decimal(18,4)) AS price5,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 6, 0, 1), 0) AS decimal(18,4)) AS price6,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 7, 0, 1), 0) AS decimal(18,4)) AS price7,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 8, 0, 1), 0) AS decimal(18,4)) AS price8,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 9, 0, 1), 0) AS decimal(18,4)) AS price9,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 10, 0, 1), 0) AS decimal(18,4)) AS price10
+        ${standardPriceListSelectSql}
       FROM STOKLAR WITH (NOLOCK)
       WHERE sto_kod IN (${codes.map((code) => `'${escapeSql(code)}'`).join(', ')})
     `);
     const map = new Map<string, any>();
     (rows as any[]).forEach((row) => map.set(normalizeCode(row.productCode), row));
     return map;
+  }
+
+  private async resolvePricingCustomer(
+    customerId?: string,
+    customerCode?: string,
+    scope: StaffScope = {}
+  ): Promise<HotSalePricingCustomer | null> {
+    const id = String(customerId || '').trim();
+    const code = normalizeCode(customerCode);
+    if (!id && !code) return null;
+    const sameLookupKey = Boolean(id && code && normalizeCode(id) === code);
+    const lookupWhere: Prisma.UserWhereInput = sameLookupKey
+      ? { OR: [{ id }, { mikroCariCode: code }] }
+      : id
+        ? { id }
+        : { mikroCariCode: code };
+    const assignedSectorCodes = (scope.assignedSectorCodes || [])
+      .map((sectorCode) => String(sectorCode || '').trim())
+      .filter(Boolean);
+    const scopeWhere: Prisma.UserWhereInput =
+      scope.role === UserRole.SALES_REP
+        ? {
+            OR: [
+              ...(assignedSectorCodes.length > 0
+                ? [{ sectorCode: { in: assignedSectorCodes } }]
+                : []),
+              { sectorCode: HOT_CUSTOMER_SECTOR_CODE },
+              { groupCode: HOT_CUSTOMER_GROUP_CODE },
+            ],
+          }
+        : {};
+
+    const customer = await prisma.user.findFirst({
+      where: {
+        AND: [
+          lookupWhere,
+          {
+            role: UserRole.CUSTOMER,
+            active: true,
+            isLocked: false,
+            parentCustomerId: null,
+            mikroCariCode: { not: null },
+          },
+          scopeWhere,
+        ],
+      },
+      select: {
+        id: true,
+        mikroCariCode: true,
+        displayName: true,
+        mikroName: true,
+        name: true,
+        active: true,
+        isLocked: true,
+        sectorCode: true,
+        groupCode: true,
+        paymentPlanNo: true,
+        invoicedPriceListNo: true,
+        whitePriceListNo: true,
+        priceListRules: {
+          select: {
+            brandCode: true,
+            categoryId: true,
+            invoicedPriceListNo: true,
+            whitePriceListNo: true,
+          },
+        },
+      },
+    });
+    if (!customer) {
+      throw new AppError(
+        'Cari bulunamadi, pasif/kilitli veya kullanici sektor kapsami disinda.',
+        403,
+        ErrorCode.FORBIDDEN
+      );
+    }
+    return customer;
+  }
+
+  private async getPricingCustomerForRetry(
+    customerId?: string | null
+  ): Promise<HotSalePricingCustomer | null> {
+    const id = String(customerId || '').trim();
+    if (!id) return null;
+    return prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        mikroCariCode: true,
+        displayName: true,
+        mikroName: true,
+        name: true,
+        active: true,
+        isLocked: true,
+        sectorCode: true,
+        groupCode: true,
+        paymentPlanNo: true,
+        invoicedPriceListNo: true,
+        whitePriceListNo: true,
+        priceListRules: {
+          select: {
+            brandCode: true,
+            categoryId: true,
+            invoicedPriceListNo: true,
+            whitePriceListNo: true,
+          },
+        },
+      },
+    });
   }
 
   private aggregateQuantities<T extends { productCode: string; quantity: number }>(items: T[]) {
@@ -437,13 +1106,28 @@ class HotSaleService {
     }
   }
 
-  private normalizeItems(items: HotSaleItemInput[], productMap: Map<string, any>, defaultPriceListNo: number) {
+  private normalizeItems(
+    items: HotSaleItemInput[],
+    productMap: Map<string, any>,
+    defaultPriceListNo: number,
+    priceListPlane: PriceListPlane
+  ): NormalizedHotSaleItem[] {
     return (Array.isArray(items) ? items : [])
       .map((item) => {
         const productCode = normalizeCode(item.productCode);
         const quantity = toNumber(item.quantity);
         const row = productMap.get(productCode);
-        const priceListNo = Math.min(Math.max(Math.trunc(toNumber(item.priceListNo, defaultPriceListNo)), 1), 10);
+        const priceListNo = Math.trunc(toNumber(item.priceListNo, defaultPriceListNo));
+        if (!isPriceListInPlane(priceListNo, priceListPlane)) {
+          const allowed = priceListPlane === 'INVOICED'
+            ? INVOICED_PRICE_LIST_NOS
+            : RETAIL_PRICE_LIST_NOS;
+          throw new AppError(
+            `Gecersiz ${priceListPlane === 'INVOICED' ? 'faturali' : 'perakende'} fiyat listesi: ${priceListNo}. Izin verilen listeler: ${allowed.join(', ')}`,
+            400,
+            ErrorCode.BAD_REQUEST
+          );
+        }
         const listPrice = toNumber(row?.[`price${priceListNo}`]);
         const unitPrice = item.unitPrice === undefined || item.unitPrice === null ? listPrice : toNumber(item.unitPrice);
         const vatCode = Math.max(Math.trunc(toNumber(row?.vatCode)), 0);
@@ -506,7 +1190,7 @@ class HotSaleService {
   }
 
   private async createStockMovementDocument(input: {
-    kind: 'TRANSFER' | 'INVOICE' | 'DISPATCH';
+    kind: HotSaleStockDocumentKind;
     series?: string;
     customerCode?: string;
     items: Array<{
@@ -524,20 +1208,88 @@ class HotSaleService {
     targetWarehouseNo?: number;
     vatZeroed?: boolean;
     paymentOp?: number;
+    documentGuid?: string;
   }): Promise<{ documentNo: string; sequence: number; totalAmount: number; vatAmount: number }> {
-    const series = normalizeCode(input.series || DEFAULT_HOT_SERIES) || DEFAULT_HOT_SERIES;
+    const requestedSeries = normalizeCode(input.series || DEFAULT_HOT_SERIES) || DEFAULT_HOT_SERIES;
     const items = input.items.filter((item) => item.productCode && Number(item.quantity) > 0);
     if (!items.length) {
       throw new AppError('Evrak icin urun yok.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    const template = await this.getStockMovementTemplate(input.kind);
     const columns = await this.getTableColumns('STOK_HAREKETLERI');
+    if (!columns.has('sth_Guid')) {
+      throw new AppError(
+        'Mikro STOK_HAREKETLERI.sth_Guid kolonu olmadan dogrulanabilir sicak satis yazilamaz.',
+        500,
+        ErrorCode.INTERNAL_SERVER_ERROR
+      );
+    }
     const zeroGuid = '00000000-0000-0000-0000-000000000000';
     const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
     const mikroUserNo = Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0 ? Math.trunc(mikroUserNoRaw) : 1;
     const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
-    const docGuid = randomUUID();
+    const docGuid = input.documentGuid || randomUUID();
+    const lineGuids = items.map((_, index) =>
+      deterministicHotSaleLineGuid(docGuid, index)
+    );
+    const sourceWarehouseNo =
+      input.kind === 'TRANSFER'
+        ? Math.max(Math.trunc(toNumber(input.sourceWarehouseNo, 1)), 1)
+        : HOT_WAREHOUSE_NO;
+    const targetWarehouseNo =
+      input.kind === 'TRANSFER'
+        ? Math.max(Math.trunc(toNumber(input.targetWarehouseNo, HOT_WAREHOUSE_NO)), 1)
+        : HOT_WAREHOUSE_NO;
+    const customerCode =
+      input.kind === 'TRANSFER' ? '' : normalizeCode(input.customerCode);
+    const expectedLinesForSeries = (
+      series: string
+    ): HotSaleStockMovementExpectedLine[] =>
+      items.map((item, index) => {
+        const quantity = Math.max(toNumber(item.quantity), 0);
+        const unitPrice = Math.max(toNumber(item.unitPrice), 0);
+        return {
+          lineGuid: lineGuids[index],
+          rowNumber: index,
+          productCode: normalizeCode(item.productCode),
+          quantity,
+          unitPrice: input.kind === 'TRANSFER' ? 0 : unitPrice,
+          lineTotal: input.kind === 'TRANSFER' ? 0 : quantity * unitPrice,
+          priceListNo:
+            input.kind === 'TRANSFER'
+              ? 0
+              : Math.max(Math.trunc(toNumber(item.priceListNo)), 0),
+          customerCode,
+          sourceWarehouseNo,
+          targetWarehouseNo,
+          series,
+          kind: input.kind,
+        };
+      });
+
+    let series = requestedSeries;
+    if (input.documentGuid) {
+      const existingRows = await this.readStockMovementRowsByLineGuids(lineGuids);
+      if (existingRows.length > 0) {
+        const existingSeries = Array.from(
+          new Set(existingRows.map((row) => normalizeCode(row.series)).filter(Boolean))
+        );
+        if (existingSeries.length !== 1) {
+          throw new AppError(
+            'Mikro evrak read-back satirlari tek bir seride degil.',
+            409,
+            ErrorCode.INVALID_INPUT
+          );
+        }
+        series = existingSeries[0];
+        this.assertStockMovementReadBack(
+          existingRows,
+          expectedLinesForSeries(series)
+        );
+      }
+    }
+
+    const template = await this.getStockMovementTemplate(input.kind);
     let totalAmount = 0;
     let vatAmount = 0;
     const insertStatements: string[] = [];
@@ -554,7 +1306,7 @@ class HotSaleService {
 
       const values: Record<string, unknown> = {
         ...template,
-        sth_Guid: this.raw(`CAST('${randomUUID()}' as uniqueidentifier)`),
+        sth_Guid: this.raw(`CAST('${lineGuids[index]}' as uniqueidentifier)`),
         sth_iptal: 0,
         sth_degisti: 0,
         sth_create_user: Math.max(Math.trunc(toNumber(template.sth_create_user)), mikroUserNo),
@@ -590,14 +1342,14 @@ class HotSaleService {
         values.sth_normal_iade = 0;
         values.sth_evraktip = 2;
         values.sth_cari_kodu = '';
-        values.sth_giris_depo_no = Math.max(Math.trunc(toNumber(input.targetWarehouseNo, HOT_WAREHOUSE_NO)), 1);
-        values.sth_cikis_depo_no = Math.max(Math.trunc(toNumber(input.sourceWarehouseNo, 1)), 1);
+        values.sth_giris_depo_no = targetWarehouseNo;
+        values.sth_cikis_depo_no = sourceWarehouseNo;
       } else {
         values.sth_tip = 1;
         values.sth_cins = 0;
         values.sth_normal_iade = 0;
         values.sth_evraktip = input.kind === 'DISPATCH' ? 1 : 4;
-        values.sth_cari_kodu = normalizeCode(input.customerCode);
+        values.sth_cari_kodu = customerCode;
         values.sth_giris_depo_no = HOT_WAREHOUSE_NO;
         values.sth_cikis_depo_no = HOT_WAREHOUSE_NO;
       }
@@ -611,8 +1363,37 @@ class HotSaleService {
       insertStatements.push(this.buildInsertSql('STOK_HAREKETLERI', values, columns));
     }
 
-    const sequenceRows = await mikroService.executeQuery(this.stockMovementSequenceBatch(series, input.kind, insertStatements));
-    const sequence = Math.trunc(toNumber((sequenceRows as any[])?.[0]?.sequence));
+    let sequence = 0;
+    const expectedLines = expectedLinesForSeries(series);
+    try {
+      const sequenceRows = await mikroService.executeQueryOnce(
+        this.stockMovementSequenceBatch(
+          series,
+          input.kind,
+          insertStatements,
+          lineGuids
+        )
+      );
+      sequence = Math.trunc(toNumber((sequenceRows as any[])?.[0]?.sequence));
+    } catch (error) {
+      const readBackRows = await this.readStockMovementRowsByLineGuids(
+        lineGuids
+      ).catch(() => []);
+      if (readBackRows.length === 0) throw error;
+      sequence = this.assertStockMovementReadBack(readBackRows, expectedLines);
+    }
+    const verifiedSequence = this.assertStockMovementReadBack(
+      await this.readStockMovementRowsByLineGuids(lineGuids),
+      expectedLines
+    );
+    if (sequence > 0 && sequence !== verifiedSequence) {
+      throw new AppError(
+        'Mikro yazim cevabi ile read-back sira numarasi uyusmuyor.',
+        409,
+        ErrorCode.INVALID_INPUT
+      );
+    }
+    sequence = verifiedSequence;
     if (!sequence || sequence <= 0) {
       throw new AppError('Mikro evrak sira numarasi alinamadi.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
     }
@@ -624,15 +1405,71 @@ class HotSaleService {
         customerCode: normalizeCode(input.customerCode) || DEFAULT_CASH_CUSTOMER,
         totalAmount,
         mikroUserNo,
+        documentGuid: input.documentGuid,
       });
+      if (!chaGuid) {
+        throw new AppError(
+          'Mikro fatura cari hareketi olusturulamadi veya dogrulanamadi.',
+          500,
+          ErrorCode.INTERNAL_SERVER_ERROR
+        );
+      }
       if (chaGuid) {
-        await mikroService.executeQuery(`
+        const updateRows = await mikroService.executeQueryOnce(`
           UPDATE STOK_HAREKETLERI
           SET sth_fat_uid = CAST('${escapeSql(chaGuid)}' as uniqueidentifier),
               sth_lastup_date = GETDATE()
-          WHERE UPPER(sth_evrakno_seri) = '${escapeSql(series)}'
+          WHERE sth_Guid IN (${lineGuids
+            .map((guid) => `CAST('${escapeSql(guid)}' as uniqueidentifier)`)
+            .join(', ')})
+            AND UPPER(sth_evrakno_seri) = '${escapeSql(series.toUpperCase())}'
             AND sth_evrakno_sira = ${sequence}
+            AND ${this.stockMovementKindFilter('INVOICE')};
+          SELECT @@ROWCOUNT AS affectedRows;
         `);
+        const affectedRows = Math.trunc(
+          toNumber((updateRows as any[])?.[0]?.affectedRows)
+        );
+        if (affectedRows !== items.length) {
+          throw new AppError(
+            `Mikro fatura baglantisi ${items.length} yerine ${affectedRows} satirda dogrulandi.`,
+            500,
+            ErrorCode.INTERNAL_SERVER_ERROR
+          );
+        }
+        const linkRows = await mikroService.executeQueryOnce(`
+          SELECT
+            COUNT(*) AS lineCount,
+            SUM(
+              CASE
+                WHEN sth_fat_uid = CAST('${escapeSql(chaGuid)}' as uniqueidentifier)
+                  THEN 1
+                ELSE 0
+              END
+            ) AS linkedCount
+          FROM STOK_HAREKETLERI
+          WHERE sth_Guid IN (${lineGuids
+            .map((guid) => `CAST('${escapeSql(guid)}' as uniqueidentifier)`)
+            .join(', ')})
+            AND UPPER(sth_evrakno_seri) = '${escapeSql(series.toUpperCase())}'
+            AND sth_evrakno_sira = ${sequence}
+            AND ${this.stockMovementKindFilter('INVOICE')};
+        `);
+        if (
+          Math.trunc(toNumber((linkRows as any[])?.[0]?.lineCount)) !== items.length
+          || Math.trunc(toNumber((linkRows as any[])?.[0]?.linkedCount))
+            !== items.length
+        ) {
+          throw new AppError(
+            'Mikro fatura-cari baglantisi read-back ile dogrulanamadi.',
+            500,
+            ErrorCode.INTERNAL_SERVER_ERROR
+          );
+        }
+        this.assertStockMovementReadBack(
+          await this.readStockMovementRowsByLineGuids(lineGuids),
+          expectedLines
+        );
       }
     }
 
@@ -650,22 +1487,14 @@ class HotSaleService {
     customerCode: string;
     totalAmount: number;
     mikroUserNo: number;
+    documentGuid?: string;
   }): Promise<string | null> {
     const totalAmount = Math.max(toNumber(params.totalAmount), 0);
     if (!params.invoiceSeries || params.invoiceSequence <= 0 || !params.customerCode || totalAmount <= 0) return null;
-    const existingRows = await mikroService.executeQuery(`
-      SELECT TOP 1 cha_Guid
-      FROM CARI_HESAP_HAREKETLERI WITH (NOLOCK)
-      WHERE UPPER(cha_evrakno_seri) = '${escapeSql(params.invoiceSeries)}'
-        AND cha_evrakno_sira = ${params.invoiceSequence}
-    `);
-    if ((existingRows as any[]).length > 0) {
-      return normalizeCode((existingRows as any[])[0]?.cha_Guid) || null;
-    }
 
     let templateRows = await mikroService.executeQuery(`
       SELECT TOP 1 *
-      FROM CARI_HESAP_HAREKETLERI WITH (NOLOCK)
+      FROM CARI_HESAP_HAREKETLERI
       WHERE UPPER(cha_evrakno_seri) = 'FTR'
       ORDER BY cha_evrakno_sira DESC, cha_satir_no DESC
     `);
@@ -673,7 +1502,7 @@ class HotSaleService {
     if (!template) {
       templateRows = await mikroService.executeQuery(`
         SELECT TOP 1 *
-        FROM CARI_HESAP_HAREKETLERI WITH (NOLOCK)
+        FROM CARI_HESAP_HAREKETLERI
         ORDER BY cha_tarihi DESC, cha_evrakno_sira DESC, cha_satir_no DESC
       `);
       template = (templateRows as any[])[0];
@@ -681,7 +1510,116 @@ class HotSaleService {
     if (!template) return null;
 
     const columns = await this.getTableColumns('CARI_HESAP_HAREKETLERI');
-    const guid = randomUUID();
+    const columnByLower = new Map(
+      Array.from(columns).map((column) => [column.toLowerCase(), column])
+    );
+    const cancelColumn = columnByLower.get('cha_iptal');
+    const identityTypeColumns = [
+      'cha_tip',
+      'cha_cinsi',
+      'cha_normal_iade',
+      'cha_evrak_tip',
+    ]
+      .map((column) => columnByLower.get(column))
+      .filter((column): column is string => Boolean(column));
+    const identityFilterSql = [
+      `UPPER(cha_evrakno_seri) = '${escapeSql(params.invoiceSeries)}'`,
+      `cha_evrakno_sira = ${params.invoiceSequence}`,
+      `ISNULL(cha_satir_no, 0) = 0`,
+      ...(cancelColumn ? [`ISNULL([${cancelColumn}], 0) = 0`] : []),
+      ...identityTypeColumns.map(
+        (column) =>
+          `ISNULL([${column}], 0) = ${Math.trunc(toNumber(template[column]))}`
+      ),
+    ].join('\n          AND ');
+    const guid = params.documentGuid
+      ? deterministicHotSaleLineGuid(
+          `${params.documentGuid}:cari`,
+          0
+        )
+      : randomUUID();
+    let existingGuidRow: any | null = null;
+    if (params.documentGuid) {
+      const guidRows = await mikroService.executeQuery(`
+        SELECT TOP 2 *
+        FROM CARI_HESAP_HAREKETLERI
+        WHERE cha_Guid = CAST('${escapeSql(guid)}' AS uniqueidentifier)
+      `);
+      if ((guidRows as any[]).length > 1) {
+        throw new AppError(
+          'Deterministic Mikro cari hareket kimligi birden fazla kayitla eslesiyor.',
+          409,
+          ErrorCode.INVALID_INPUT
+        );
+      }
+      existingGuidRow = (guidRows as any[])?.[0] || null;
+      if (existingGuidRow) {
+        const identityMatches =
+          normalizeCode(existingGuidRow.cha_evrakno_seri)
+            === normalizeCode(params.invoiceSeries)
+          && Math.trunc(toNumber(existingGuidRow.cha_evrakno_sira))
+            === params.invoiceSequence
+          && Math.trunc(toNumber(existingGuidRow.cha_satir_no)) === 0
+          && normalizeCode(existingGuidRow.cha_kod)
+            === normalizeCode(params.customerCode)
+          && Math.abs(toNumber(existingGuidRow.cha_meblag) - totalAmount) <= 0.01
+          && (!cancelColumn || toNumber(existingGuidRow[cancelColumn]) === 0)
+          && identityTypeColumns.every(
+            (column) =>
+              Math.trunc(toNumber(existingGuidRow[column]))
+              === Math.trunc(toNumber(template[column]))
+          );
+        if (!identityMatches) {
+          throw new AppError(
+            'Deterministic Mikro cari hareket kimligi farkli veya iptal edilmis bir kayitla eslesiyor.',
+            409,
+            ErrorCode.INVALID_INPUT
+          );
+        }
+      }
+    }
+    const existingRows = await mikroService.executeQuery(`
+      SELECT
+        cha_Guid,
+        LTRIM(RTRIM(ISNULL(cha_kod, ''))) AS customerCode,
+        CAST(ISNULL(cha_meblag, 0) AS decimal(18,4)) AS totalAmount
+      FROM CARI_HESAP_HAREKETLERI
+      WHERE ${identityFilterSql}
+    `);
+    if ((existingRows as any[]).length > 1) {
+      throw new AppError(
+        'Ayni fatura kimligiyle birden fazla aktif Mikro cari hareketi bulundu.',
+        409,
+        ErrorCode.INVALID_INPUT
+      );
+    }
+    if ((existingRows as any[]).length === 1) {
+      const existing = (existingRows as any[])[0];
+      if (
+        normalizeCode(existing.customerCode) !== normalizeCode(params.customerCode)
+        || Math.abs(toNumber(existing.totalAmount) - totalAmount) > 0.01
+        || (
+          existingGuidRow
+          && normalizeCode(existing.cha_Guid)
+            !== normalizeCode(existingGuidRow.cha_Guid)
+        )
+      ) {
+        throw new AppError(
+          'Ayni fatura seri/sira numarasinda farkli cari veya tutarli Mikro hareketi var.',
+          409,
+          ErrorCode.INVALID_INPUT
+        );
+      }
+      return normalizeCode(existing.cha_Guid) || null;
+    }
+    if (existingGuidRow) {
+      throw new AppError(
+        'Deterministic Mikro cari hareketi bulundu ancak aktif fatura kimligiyle eslesmedi.',
+        409,
+        ErrorCode.INVALID_INPUT
+      );
+    }
+
     const values: Record<string, unknown> = {
       ...template,
       cha_Guid: this.raw(`CAST('${guid}' as uniqueidentifier)`),
@@ -720,8 +1658,66 @@ class HotSaleService {
       cha_create_date: this.raw('GETDATE()'),
       cha_lastup_date: this.raw('GETDATE()'),
     };
-    await mikroService.executeQuery(this.buildInsertSql('CARI_HESAP_HAREKETLERI', values, columns));
-    return guid;
+    if (cancelColumn) values[cancelColumn] = 0;
+    const insertSql = this.buildInsertSql(
+      'CARI_HESAP_HAREKETLERI',
+      values,
+      columns
+    );
+    const lockResource = `B2B_HOT_CARI_${params.invoiceSeries}_${params.invoiceSequence}`.slice(0, 200);
+    const resultRows = await mikroService.executeQueryOnce(`
+      SET XACT_ABORT ON;
+      BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @lockResult int;
+        EXEC @lockResult = sp_getapplock
+          @Resource = N'${escapeSql(lockResource)}',
+          @LockMode = 'Exclusive',
+          @LockOwner = 'Transaction',
+          @LockTimeout = 15000;
+        IF @lockResult < 0
+          THROW 53110, 'SICAK cari hareket kilidi alinamadi', 1;
+
+        DECLARE @existingGuid uniqueidentifier = NULL;
+        DECLARE @existingCustomer nvarchar(50) = NULL;
+        DECLARE @existingAmount decimal(18,4) = NULL;
+        DECLARE @existingCount int = 0;
+        SELECT TOP 1
+          @existingGuid = cha_Guid,
+          @existingCustomer = LTRIM(RTRIM(ISNULL(cha_kod, ''))),
+          @existingAmount = CAST(ISNULL(cha_meblag, 0) AS decimal(18,4))
+        FROM CARI_HESAP_HAREKETLERI WITH (UPDLOCK, HOLDLOCK)
+        WHERE ${identityFilterSql};
+
+        SELECT @existingCount = COUNT(*)
+        FROM CARI_HESAP_HAREKETLERI WITH (UPDLOCK, HOLDLOCK)
+        WHERE ${identityFilterSql};
+
+        IF @existingCount > 1
+          THROW 53112, 'SICAK cari hareketi birden fazla aktif kayitla eslesiyor', 1;
+
+        IF @existingGuid IS NOT NULL
+          AND (
+            UPPER(ISNULL(@existingCustomer, '')) <> '${escapeSql(normalizeCode(params.customerCode))}'
+            OR ABS(ISNULL(@existingAmount, 0) - ${totalAmount}) > 0.01
+          )
+          THROW 53111, 'SICAK cari hareketi cari/tutar ile uyusmuyor', 1;
+
+        IF @existingGuid IS NULL
+        BEGIN
+          ${insertSql};
+          SET @existingGuid = CAST('${escapeSql(guid)}' as uniqueidentifier);
+        END
+
+        COMMIT TRANSACTION;
+        SELECT CONVERT(varchar(36), @existingGuid) AS chaGuid;
+      END TRY
+      BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+      END CATCH
+    `);
+    return normalizeCode((resultRows as any[])?.[0]?.chaGuid) || guid;
   }
 
   private async createMikroHotCustomer(input: {
@@ -1351,6 +2347,23 @@ class HotSaleService {
     note?: string;
     loadItems?: HotSaleItemInput[];
   }) {
+    return withHotSaleVehicleLock(
+      input.vehicleId,
+      () => this.startSessionLocked(input)
+    );
+  }
+
+  private async startSessionLocked(input: {
+    vehicleId: string;
+    userId: string;
+    sourceWarehouseNo?: number;
+    openingCash?: number;
+    startKm?: number;
+    latitude?: number;
+    longitude?: number;
+    note?: string;
+    loadItems?: HotSaleItemInput[];
+  }) {
     const vehicle = await prisma.hotSaleVehicle.findUnique({ where: { id: input.vehicleId } });
     if (!vehicle || !vehicle.active) throw new AppError('Aktif arac bulunamadi.', 404, ErrorCode.NOT_FOUND);
 
@@ -1364,7 +2377,7 @@ class HotSaleService {
     const sourceWarehouseNo = Math.max(Math.trunc(toNumber(input.sourceWarehouseNo, vehicle.defaultSourceWarehouseNo || 1)), 1);
     const rawLoadItems = Array.isArray(input.loadItems) ? input.loadItems : [];
     const productMap = await this.getProductRows(rawLoadItems.map((item) => normalizeCode(item.productCode)));
-    const loadItems = this.normalizeItems(rawLoadItems, productMap, 1);
+    const loadItems = this.normalizeItems(rawLoadItems, productMap, 1, 'RETAIL');
     let loadDocumentNo: string | null = null;
     if (loadItems.length > 0) {
       await this.validateWarehouseStock(sourceWarehouseNo, loadItems, `Kaynak depo ${sourceWarehouseNo}`);
@@ -1417,9 +2430,19 @@ class HotSaleService {
   }
 
   async addLoad(sessionId: string, input: { userId: string; sourceWarehouseNo?: number; items: HotSaleItemInput[] }) {
+    return withHotSaleSessionLock(
+      sessionId,
+      () => this.addLoadLocked(sessionId, input)
+    );
+  }
+
+  private async addLoadLocked(
+    sessionId: string,
+    input: { userId: string; sourceWarehouseNo?: number; items: HotSaleItemInput[] }
+  ) {
     const session = await this.assertOpenSession(sessionId);
     const productMap = await this.getProductRows(input.items.map((item) => normalizeCode(item.productCode)));
-    const items = this.normalizeItems(input.items, productMap, 1);
+    const items = this.normalizeItems(input.items, productMap, 1, 'RETAIL');
     if (!items.length) throw new AppError('Yuklenecek urun yok.', 400, ErrorCode.BAD_REQUEST);
     const sourceWarehouseNo = Math.max(Math.trunc(toNumber(input.sourceWarehouseNo, session.sourceWarehouseNo)), 1);
     await this.validateWarehouseStock(sourceWarehouseNo, items, `Kaynak depo ${sourceWarehouseNo}`);
@@ -1496,6 +2519,13 @@ class HotSaleService {
     const search = String(params.search || '').trim();
     const limitCap = search ? 120 : 1000;
     const limit = Math.max(1, Math.min(Math.trunc(toNumber(params.limit, search ? 40 : 500)), limitCap));
+    const customerKey = String(params.customerIdOrCode || '').trim();
+    const pricingCustomer = customerKey
+      ? await this.resolvePricingCustomer(customerKey, customerKey, params.scope)
+      : null;
+    const baseCustomerPriceLists = pricingCustomer
+      ? resolveCustomerPriceLists(pricingCustomer)
+      : null;
     let rows: any[] = [];
     const vehicleInventory = params.vehicleId ? await this.getVehicleInventory(params.vehicleId) : [];
     const vehicleCodeSet = new Set(vehicleInventory.map((row) => normalizeCode(row.productCode)));
@@ -1524,22 +2554,14 @@ class HotSaleService {
       SELECT TOP ${limit}
         sto_kod AS productCode,
         sto_isim AS productName,
+        NULLIF(LTRIM(RTRIM(ISNULL(sto_marka_kodu, ''))), '') AS brandCode,
         ISNULL(sto_birim1_ad, 'ADET') AS unit,
         ISNULL(sto_toptan_vergi, 0) AS vatCode,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 11, 0), 0) AS decimal(18,3)) AS hotStock,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) AS decimal(18,3)) AS stockMerkez,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) AS decimal(18,3)) AS stockTopca,
         CAST(ISNULL(sto_standartmaliyet, 0) AS decimal(18,4)) AS currentCost,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) AS decimal(18,4)) AS price1,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) AS decimal(18,4)) AS price2,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) AS decimal(18,4)) AS price3,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 4, 0, 1), 0) AS decimal(18,4)) AS price4,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 5, 0, 1), 0) AS decimal(18,4)) AS price5,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 6, 0, 1), 0) AS decimal(18,4)) AS price6,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 7, 0, 1), 0) AS decimal(18,4)) AS price7,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 8, 0, 1), 0) AS decimal(18,4)) AS price8,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 9, 0, 1), 0) AS decimal(18,4)) AS price9,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 10, 0, 1), 0) AS decimal(18,4)) AS price10
+        ${standardPriceListSelectSql}
       FROM STOKLAR WITH (NOLOCK)
       WHERE ISNULL(sto_pasif_fl, 0) = 0 AND ${where}
       ORDER BY ${vehicleOrder} sto_isim
@@ -1547,15 +2569,37 @@ class HotSaleService {
     }
     const codes = rows.map((row) => normalizeCode(row.productCode));
     const localProducts = codes.length
-      ? await prisma.product.findMany({ where: { mikroCode: { in: codes } }, select: { mikroCode: true, imageUrl: true, currentCost: true, lastEntryPrice: true } })
+      ? await prisma.product.findMany({
+          where: { mikroCode: { in: codes } },
+          select: {
+            mikroCode: true,
+            imageUrl: true,
+            currentCost: true,
+            lastEntryPrice: true,
+            brandCode: true,
+            categoryId: true,
+          },
+        })
       : [];
     const imageMap = new Map(localProducts.map((product) => [normalizeCode(product.mikroCode), product]));
     const vehicleStock = new Map(vehicleInventory.map((row) => [normalizeCode(row.productCode), row.quantity]));
     const products = rows.map((row) => {
       const code = normalizeCode(row.productCode);
       const local = imageMap.get(code);
+      const customerPriceLists = baseCustomerPriceLists
+        ? resolveCustomerPriceListsForProduct(
+            baseCustomerPriceLists,
+            pricingCustomer?.priceListRules,
+            {
+              brandCode: local?.brandCode || row.brandCode,
+              categoryId: local?.categoryId,
+            }
+          )
+        : null;
       const priceLists: Record<string, number> = {};
-      for (let i = 1; i <= 10; i += 1) priceLists[i] = toNumber(row[`price${i}`]);
+      for (const listNo of STANDARD_PRICE_LIST_NOS) {
+        priceLists[listNo] = toNumber(row[`price${listNo}`]);
+      }
       const vatRate = row.vatCode === 7 ? 0.1 : row.vatCode === 2 ? 0.01 : row.vatCode === 5 ? 0.2 : 0;
       const currentCost = toNumber(row.currentCost, toNumber(local?.currentCost));
       const vehicleQty = toNumber(row.vehicleLedgerStock, toNumber(vehicleStock.get(code)));
@@ -1575,6 +2619,13 @@ class HotSaleService {
         totalVisibleStock,
         stockStatus: vehicleQty > 0 ? 'IN_VEHICLE' : totalVisibleStock <= 0 ? 'NO_STOCK' : 'OTHER_STOCK',
         priceLists,
+        customerPriceLists: customerPriceLists
+          ? {
+              invoicedPriceListNo: customerPriceLists.invoiced,
+              whitePriceListNo: customerPriceLists.white,
+            }
+          : null,
+        pricingCustomerId: pricingCustomer?.id || null,
         imageUrl: local?.imageUrl || null,
         currentCost,
         currentCostVatIncluded: currentCost * (1 + vatRate),
@@ -1780,35 +2831,208 @@ class HotSaleService {
     }
   }
 
-  async createTransaction(sessionId: string, input: {
-    userId: string;
-    type: HotSaleTransactionType;
-    customerId?: string;
-    customerCode?: string;
-    customerName?: string;
-    paymentType?: HotSalePaymentType;
-    priceListNo?: number;
-    note?: string;
-    latitude?: number;
-    longitude?: number;
-    items: HotSaleItemInput[];
-    payments?: HotSalePaymentInput[];
-  }) {
-    const session = await this.assertOpenSession(sessionId);
-    const productMap = await this.getProductRows(input.items.map((item) => normalizeCode(item.productCode)));
-    const defaultPriceListNo = input.type === 'CASH_INVOICE' ? 5 : input.type === 'INVOICED_DISPATCH' ? 6 : 6;
-    const items = this.normalizeItems(input.items, productMap, input.priceListNo || defaultPriceListNo);
-    if (!items.length) throw new AppError('Satis/siparis icin urun yok.', 400, ErrorCode.BAD_REQUEST);
-    this.validatePriceFloor(input.type, items);
+  async createTransaction(sessionId: string, input: HotSaleCreateTransactionInput) {
+    return withHotSaleSessionLock(
+      sessionId,
+      async () => {
+        try {
+          return await this.createTransactionLocked(sessionId, input);
+        } catch (error: any) {
+          if (error?.errorCode !== ErrorCode.SYNC_IN_PROGRESS) {
+            await prisma.hotSaleTransaction.updateMany({
+              where: {
+                operationKey: String(input.operationKey || '').trim().toLowerCase(),
+                status: 'SYNC_FAILED',
+                syncError: 'PROCESSING',
+              },
+              data: {
+                syncError: String(error?.message || 'Sicak satis islemi tamamlanamadi.').slice(0, 1000),
+              },
+            }).catch(() => {});
+          }
+          throw error;
+        }
+      }
+    );
+  }
 
-    const customer = input.customerId
-      ? await prisma.user.findUnique({ where: { id: input.customerId }, select: { id: true, mikroCariCode: true, displayName: true, mikroName: true, name: true, paymentPlanNo: true } })
-      : null;
-    const customerCode =
-      normalizeCode(customer?.mikroCariCode || input.customerCode) ||
-      (input.paymentType === 'CARD' ? DEFAULT_CARD_CUSTOMER : DEFAULT_CASH_CUSTOMER);
-    const customerName = customer?.displayName || customer?.mikroName || customer?.name || input.customerName || customerCode;
-    const paymentType = input.paymentType || (input.type === 'INVOICED_DISPATCH' ? 'OPEN_ACCOUNT' : 'CASH');
+  private async createTransactionLocked(
+    sessionId: string,
+    input: HotSaleCreateTransactionInput
+  ) {
+    validateHotSaleTransactionInput(input);
+    const operationKey = String(input.operationKey).trim().toLowerCase();
+    const requestHash = buildHotSaleRequestHash(input as Record<string, any>);
+    let existingOperation = await prisma.hotSaleTransaction.findUnique({
+      where: { operationKey },
+      include: { items: true, payments: true },
+    });
+    if (existingOperation) {
+      if (
+        !existingOperation.requestHash
+        || existingOperation.requestHash !== requestHash
+      ) {
+        throw new AppError(
+          'Ayni sicak satis islem anahtari degistirilmis istekle kullanilamaz.',
+          409,
+          ErrorCode.INVALID_INPUT
+        );
+      }
+      if (
+        existingOperation.sessionId !== sessionId
+        || existingOperation.type !== input.type
+        || existingOperation.createdById !== input.userId
+      ) {
+        throw new AppError(
+          'Sicak satis islem anahtari farkli bir istek icin daha once kullanilmis.',
+          409,
+          ErrorCode.INVALID_INPUT
+        );
+      }
+      if (existingOperation.status === 'COMPLETED') {
+        return existingOperation;
+      }
+      if (existingOperation.status === 'CANCELLED') {
+        throw new AppError(
+          'Iptal edilmis sicak satis islemi ayni anahtarla yeniden uygulanamaz.',
+          409,
+          ErrorCode.ORDER_ALREADY_PROCESSED
+        );
+      }
+
+      const claimed = await prisma.hotSaleTransaction.updateMany({
+        where: {
+          id: existingOperation.id,
+          status: 'SYNC_FAILED',
+          updatedAt: existingOperation.updatedAt,
+        },
+        data: {
+          syncError: 'PROCESSING',
+          updatedAt: new Date(),
+        },
+      });
+      if (claimed.count !== 1) {
+        const latest = await prisma.hotSaleTransaction.findUnique({
+          where: { operationKey },
+          include: { items: true, payments: true },
+        });
+        if (latest?.status === 'COMPLETED') return latest;
+        throw new AppError(
+          'Bu sicak satis islemi baska bir istek tarafindan isleniyor.',
+          409,
+          ErrorCode.SYNC_IN_PROGRESS
+        );
+      }
+      existingOperation = await prisma.hotSaleTransaction.findUnique({
+        where: { operationKey },
+        include: { items: true, payments: true },
+      });
+    }
+
+    const session = await this.assertOpenSession(sessionId);
+    if (
+      input.scope?.role === UserRole.SALES_REP
+      && session.userId !== input.userId
+    ) {
+      throw new AppError(
+        'Bu sicak satis oturumu baska bir personele ait.',
+        403,
+        ErrorCode.FORBIDDEN
+      );
+    }
+    const priceListPlane: PriceListPlane = input.type === 'CASH_INVOICE' ? 'RETAIL' : 'INVOICED';
+    let customer: HotSalePricingCustomer | null;
+    let items: NormalizedHotSaleItem[];
+
+    if (existingOperation) {
+      customer = await this.getPricingCustomerForRetry(existingOperation.customerId);
+      items = existingOperation.items.map((item) => {
+        const priceListNo = Math.trunc(toNumber(item.priceListNo));
+        if (!isPriceListInPlane(priceListNo, priceListPlane)) {
+          throw new AppError(
+            `Kayitli sicak satis kaleminde gecersiz fiyat listesi: ${item.productCode}.`,
+            409,
+            ErrorCode.INVALID_INPUT
+          );
+        }
+        return {
+          productCode: normalizeCode(item.productCode),
+          productName: String(item.productName || item.productCode).trim(),
+          unit: String(item.unit || 'ADET').trim() || 'ADET',
+          quantity: toNumber(item.quantity),
+          unitPrice: toNumber(item.unitPrice),
+          priceListNo,
+          vatRate: toNumber(item.vatRate),
+          currentCost: 0,
+          currentCostVatIncluded: 0,
+          note: String(item.note || '').trim() || undefined,
+        };
+      });
+    } else {
+      const productCodes = input.items.map((item) => normalizeCode(item.productCode));
+      const [productMap, resolvedCustomer, localProducts] = await Promise.all([
+        this.getProductRows(productCodes),
+        this.resolvePricingCustomer(input.customerId, input.customerCode, input.scope),
+        prisma.product.findMany({
+          where: { mikroCode: { in: Array.from(new Set(productCodes.filter(Boolean))) } },
+          select: { mikroCode: true, brandCode: true, categoryId: true },
+        }),
+      ]);
+      customer = resolvedCustomer;
+      const productPricingMap = new Map(
+        localProducts.map((product) => [normalizeCode(product.mikroCode), product])
+      );
+      const defaultPriceListNo = input.type === 'CASH_INVOICE' ? 5 : 6;
+      const requestedDefaultPriceListNo = resolveHotSaleLinePriceListNo({
+        plane: priceListPlane,
+        anonymousDefaultPriceListNo: defaultPriceListNo,
+        transactionPriceListNo: input.priceListNo,
+        customer,
+      });
+      const itemsWithResolvedLists = input.items.map((item) => {
+        const productCode = normalizeCode(item.productCode);
+        const product = productPricingMap.get(productCode);
+        return {
+          ...item,
+          priceListNo: resolveHotSaleLinePriceListNo({
+            plane: priceListPlane,
+            anonymousDefaultPriceListNo: defaultPriceListNo,
+            transactionPriceListNo: input.priceListNo,
+            itemPriceListNo: item.priceListNo,
+            customer,
+            product: {
+              brandCode: product?.brandCode || productMap.get(productCode)?.brandCode,
+              categoryId: product?.categoryId,
+            },
+          }),
+        };
+      });
+      items = this.normalizeItems(
+        itemsWithResolvedLists,
+        productMap,
+        requestedDefaultPriceListNo,
+        priceListPlane
+      );
+    }
+    items = sortNormalizedHotSaleItems(items);
+    if (!items.length) throw new AppError('Satis/siparis icin urun yok.', 400, ErrorCode.BAD_REQUEST);
+    if (!existingOperation) this.validatePriceFloor(input.type, items);
+
+    const paymentType = existingOperation?.paymentType
+      || input.paymentType
+      || (input.type === 'CASH_INVOICE' ? 'CASH' : 'OPEN_ACCOUNT');
+    const customerCode = existingOperation
+      ? normalizeCode(existingOperation.customerCode)
+      : normalizeCode(customer?.mikroCariCode || input.customerCode)
+        || (paymentType === 'CARD' ? DEFAULT_CARD_CUSTOMER : DEFAULT_CASH_CUSTOMER);
+    const customerName = existingOperation
+      ? String(existingOperation.customerName || customerCode)
+      : customer?.displayName || customer?.mikroName || customer?.name || input.customerName || customerCode;
+    const operationNote = existingOperation?.note ?? (String(input.note || '').trim() || null);
+    const operationLatitude = existingOperation?.latitude
+      ?? (input.latitude === undefined ? null : toNumber(input.latitude));
+    const operationLongitude = existingOperation?.longitude
+      ?? (input.longitude === undefined ? null : toNumber(input.longitude));
 
     let mikroDocumentNo: string | null = null;
     let linkedOrderId: string | null = null;
@@ -1817,6 +3041,102 @@ class HotSaleService {
     let syncError: string | null = null;
     let totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     let vatAmount = input.type === 'CASH_INVOICE' ? 0 : items.reduce((sum, item) => sum + item.quantity * item.unitPrice * item.vatRate, 0);
+    const distinctPriceListNos = Array.from(
+      new Set(items.map((item) => item.priceListNo))
+    );
+    const transactionPriceListNo =
+      distinctPriceListNos.length === 1 ? distinctPriceListNos[0] : null;
+    const paymentRows = existingOperation
+      ? existingOperation.payments.map((payment) => ({
+          type: payment.type,
+          amount: toNumber(payment.amount),
+          referenceNo: String(payment.referenceNo || '').trim() || null,
+          note: String(payment.note || '').trim() || null,
+        }))
+      : (
+          input.payments?.length
+            ? input.payments
+            : [{ type: paymentType, amount: totalAmount }]
+        ).map((payment) => ({
+          type: payment.type || paymentType,
+          amount: toNumber(payment.amount, totalAmount),
+          referenceNo: String(payment.referenceNo || '').trim() || null,
+          note: String(payment.note || '').trim() || null,
+        }));
+    const paymentTotal = paymentRows.reduce(
+      (sum, payment) => sum + toNumber(payment.amount),
+      0
+    );
+    if (Math.abs(paymentTotal - totalAmount) > 0.01) {
+      throw new AppError(
+        `Odeme toplami (${paymentTotal.toFixed(2)}) satis toplamiyla (${totalAmount.toFixed(2)}) ayni olmali.`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+
+    if (!existingOperation) {
+      try {
+        existingOperation = await prisma.hotSaleTransaction.create({
+          data: {
+            operationKey,
+            requestHash,
+            sessionId,
+            type: input.type,
+            status: 'SYNC_FAILED',
+            customerId: customer?.id || null,
+            customerCode,
+            customerName,
+            paymentType,
+            priceListNo: transactionPriceListNo,
+            totalAmount,
+            vatAmount,
+            note: operationNote,
+            latitude: operationLatitude,
+            longitude: operationLongitude,
+            syncError: 'PROCESSING',
+            createdById: input.userId,
+            items: {
+              create: items.map((item) => ({
+                productCode: item.productCode,
+                productName: item.productName,
+                unit: item.unit,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                totalPrice: item.quantity * item.unitPrice,
+                vatRate: input.type === 'CASH_INVOICE' ? 0 : item.vatRate,
+                vatAmount: input.type === 'CASH_INVOICE'
+                  ? 0
+                  : item.quantity * item.unitPrice * item.vatRate,
+                priceListNo: item.priceListNo,
+                priceType: input.type === 'CASH_INVOICE' ? 'WHITE' : 'INVOICED',
+                note: item.note,
+              })),
+            },
+            payments: {
+              create: paymentRows,
+            },
+          },
+          include: { items: true, payments: true },
+        });
+      } catch (error: any) {
+        if (error?.code === 'P2002') {
+          throw new AppError(
+            'Bu sicak satis islemi baska bir istek tarafindan isleniyor.',
+            409,
+            ErrorCode.SYNC_IN_PROGRESS
+          );
+        }
+        throw error;
+      }
+    }
+    if (!existingOperation) {
+      throw new AppError(
+        'Sicak satis denetim kaydi olusturulamadi.',
+        500,
+        ErrorCode.INTERNAL_SERVER_ERROR
+      );
+    }
 
     try {
       if (input.type === 'CASH_INVOICE') {
@@ -1828,12 +3148,13 @@ class HotSaleService {
           items,
           vatZeroed: true,
           paymentOp: paymentType === 'CARD' ? 12 : 1,
+          documentGuid: operationKey,
         });
         mikroDocumentNo = doc.documentNo;
         totalAmount = doc.totalAmount;
         vatAmount = 0;
       } else if (input.type === 'INVOICED_DISPATCH') {
-        if (!customer?.id && !input.customerCode) {
+        if (!customer?.id && !customerCode) {
           throw new AppError('Faturali irsaliye icin cari zorunlu.', 400, ErrorCode.BAD_REQUEST);
         }
         await this.validateVehicleStock(session.vehicleId, items);
@@ -1844,6 +3165,7 @@ class HotSaleService {
           items,
           vatZeroed: false,
           paymentOp: 2,
+          documentGuid: operationKey,
         });
         mikroDocumentNo = doc.documentNo;
         totalAmount = doc.totalAmount;
@@ -1852,89 +3174,140 @@ class HotSaleService {
         if (!customer?.id) {
           throw new AppError('Siparis icin sistemde kayitli cari zorunlu.', 400, ErrorCode.BAD_REQUEST);
         }
-        const result = await orderService.createManualOrder({
-          customerId: customer.id,
-          warehouseNo: HOT_WAREHOUSE_NO,
-          description: input.note || 'Sicak satis siparisi',
-          documentDescription: input.note || undefined,
-          invoicedSeries: session.vehicle.defaultOrderSeries || DEFAULT_HOT_SERIES,
-          whiteSeries: session.vehicle.defaultOrderSeries || DEFAULT_HOT_SERIES,
-          requestedById: input.userId,
-          items: items.map((item) => ({
-            productCode: item.productCode,
-            productName: item.productName,
-            unit: item.unit,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            priceType: input.type === 'ORDER' ? 'INVOICED' : 'INVOICED',
-            vatZeroed: false,
-            lineDescription: item.note || item.productName,
-          })),
+        const operationToken = `[HOTSALE:${operationKey}]`;
+        const priorOrder = await prisma.order.findUnique({
+          where: { hotSaleOperationKey: operationKey },
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+            mikroOrderIds: true,
+            adminNote: true,
+          },
         });
+        let result: {
+          mikroOrderIds: string[];
+          orderId: string;
+          orderNumber: string;
+          mikroWriteStatus: 'APPROVED' | 'PARTIAL' | 'PENDING';
+          warning?: string;
+        };
+        if (priorOrder?.status === 'APPROVED') {
+          result = {
+            mikroOrderIds: priorOrder.mikroOrderIds,
+            orderId: priorOrder.id,
+            orderNumber: priorOrder.orderNumber,
+            mikroWriteStatus: 'APPROVED',
+          };
+        } else if (priorOrder) {
+          if (priorOrder.status !== 'PENDING') {
+            throw new AppError(
+              `Ayni islem anahtarina bagli siparis ${priorOrder.status} durumunda; otomatik devam ettirilemez.`,
+              409,
+              ErrorCode.INVALID_INPUT
+            );
+          }
+          const resumed = await orderService.approveOrderAndWriteToMikro(
+            priorOrder.id,
+            operationNote || priorOrder.adminNote || undefined,
+            {
+              invoiced:
+                session.vehicle.defaultOrderSeries || DEFAULT_HOT_SERIES,
+              white:
+                session.vehicle.defaultOrderSeries || DEFAULT_HOT_SERIES,
+            }
+          );
+          result = {
+            mikroOrderIds: resumed.mikroOrderIds,
+            orderId: priorOrder.id,
+            orderNumber: priorOrder.orderNumber,
+            mikroWriteStatus: 'APPROVED',
+          };
+        } else {
+          result = await orderService.createManualOrder({
+              customerId: customer.id,
+              hotSaleOperationKey: operationKey,
+              warehouseNo: HOT_WAREHOUSE_NO,
+              description: [
+                operationNote || 'Sicak satis siparisi',
+                operationToken,
+              ].join(' | '),
+              documentDescription: operationNote || undefined,
+              invoicedSeries: session.vehicle.defaultOrderSeries || DEFAULT_HOT_SERIES,
+              whiteSeries: session.vehicle.defaultOrderSeries || DEFAULT_HOT_SERIES,
+              requestedById: input.userId,
+              items: items.map((item) => ({
+                productCode: item.productCode,
+                productName: item.productName,
+                unit: item.unit,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                priceType: 'INVOICED',
+                priceListNo: item.priceListNo,
+                vatZeroed: false,
+                lineDescription: item.note || item.productName,
+              })),
+            });
+        }
         linkedOrderId = result.orderId;
         linkedOrderNumber = result.orderNumber;
         mikroDocumentNo = result.mikroOrderIds.join(', ');
+        if (result.mikroWriteStatus !== 'APPROVED') {
+          status = 'SYNC_FAILED';
+          syncError = result.warning || 'Mikro siparis yazimi tamamlanamadi.';
+        }
       }
     } catch (error: any) {
       status = 'SYNC_FAILED';
       syncError = error?.message || 'Mikro islemi basarisiz';
-      if (input.type !== 'ORDER') throw error;
+      await prisma.hotSaleTransaction.update({
+        where: { id: existingOperation.id },
+        data: { status: 'SYNC_FAILED', syncError },
+      }).catch(() => {});
+      throw error;
     }
 
     return prisma.$transaction(async (tx) => {
-      const transaction = await tx.hotSaleTransaction.create({
+      const claimed = await tx.hotSaleTransaction.updateMany({
+        where: {
+          id: existingOperation.id,
+          status: 'SYNC_FAILED',
+        },
         data: {
-          sessionId,
-          type: input.type,
           status,
-          customerId: customer?.id || null,
+          customerId: customer?.id || existingOperation.customerId || null,
           customerCode,
           customerName,
           paymentType,
-          priceListNo: input.priceListNo || defaultPriceListNo,
+          priceListNo: transactionPriceListNo,
           mikroDocumentNo,
           linkedOrderId,
           linkedOrderNumber,
           totalAmount,
           vatAmount,
-          note: String(input.note || '').trim() || null,
-          latitude: input.latitude === undefined ? null : toNumber(input.latitude),
-          longitude: input.longitude === undefined ? null : toNumber(input.longitude),
+          note: operationNote,
+          latitude: operationLatitude,
+          longitude: operationLongitude,
           syncError,
-          createdById: input.userId,
-          items: {
-            create: items.map((item) => ({
-              productCode: item.productCode,
-              productName: item.productName,
-              unit: item.unit,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.quantity * item.unitPrice,
-              vatRate: input.type === 'CASH_INVOICE' ? 0 : item.vatRate,
-              vatAmount: input.type === 'CASH_INVOICE' ? 0 : item.quantity * item.unitPrice * item.vatRate,
-              priceListNo: item.priceListNo,
-              priceType: input.type === 'CASH_INVOICE' ? 'WHITE' : 'INVOICED',
-              note: item.note,
-            })),
-          },
-          payments: {
-            create: (input.payments?.length ? input.payments : [{ type: paymentType, amount: totalAmount }]).map((payment) => ({
-              type: payment.type || paymentType,
-              amount: toNumber(payment.amount, totalAmount),
-              referenceNo: String(payment.referenceNo || '').trim() || null,
-              note: String(payment.note || '').trim() || null,
-            })),
-          },
         },
-        include: { items: true, payments: true },
       });
 
-      if (input.type === 'CASH_INVOICE' || input.type === 'INVOICED_DISPATCH') {
+      if (claimed.count === 0) {
+        return tx.hotSaleTransaction.findUniqueOrThrow({
+          where: { id: existingOperation.id },
+          include: { items: true, payments: true },
+        });
+      }
+
+      if (
+        status === 'COMPLETED'
+        && (input.type === 'CASH_INVOICE' || input.type === 'INVOICED_DISPATCH')
+      ) {
         await tx.hotSaleStockLedger.createMany({
           data: items.map((item) => ({
             sessionId,
             vehicleId: session.vehicleId,
-            transactionId: transaction.id,
+            transactionId: existingOperation.id,
             type: 'SALE',
             productCode: item.productCode,
             productName: item.productName,
@@ -1947,21 +3320,40 @@ class HotSaleService {
         });
       }
 
-      const cashAmount = transaction.payments
-        .filter((payment) => payment.type === 'CASH')
-        .reduce((sum, payment) => sum + payment.amount, 0);
-      if (cashAmount > 0) {
-        await tx.hotSaleSession.update({
-          where: { id: sessionId },
-          data: { expectedCash: { increment: cashAmount } },
-        });
+      if (status === 'COMPLETED' && input.type === 'CASH_INVOICE') {
+        const cashAmount = existingOperation.payments
+          .filter((payment) => payment.type === 'CASH')
+          .reduce((sum, payment) => sum + payment.amount, 0);
+        if (cashAmount > 0) {
+          await tx.hotSaleSession.update({
+            where: { id: sessionId },
+            data: { expectedCash: { increment: cashAmount } },
+          });
+        }
       }
 
-      return transaction;
+      return tx.hotSaleTransaction.findUniqueOrThrow({
+        where: { id: existingOperation.id },
+        include: { items: true, payments: true },
+      });
     });
   }
 
   async deliverOrderFromVehicle(sessionId: string, input: {
+    userId: string;
+    orderNumber: string;
+    note?: string;
+    latitude?: number;
+    longitude?: number;
+    items?: Array<{ orderGuid?: string; productCode?: string; quantity?: number }>;
+  }) {
+    return withHotSaleSessionLock(
+      sessionId,
+      () => this.deliverOrderFromVehicleLocked(sessionId, input)
+    );
+  }
+
+  private async deliverOrderFromVehicleLocked(sessionId: string, input: {
     userId: string;
     orderNumber: string;
     note?: string;
@@ -2087,21 +3479,31 @@ class HotSaleService {
     });
   }
 
-  async closeSession(sessionId: string, input: {
-    userId: string;
-    closingCash?: number;
-    endKm?: number;
-    latitude?: number;
-    longitude?: number;
-    note?: string;
-    counts: Array<{
-      productCode: string;
-      countedQty: number;
-      action?: HotSaleClosureAction;
-      note?: string;
-    }>;
-  }) {
+  async closeSession(sessionId: string, input: HotSaleCloseSessionInput) {
+    return withHotSaleSessionLock(
+      sessionId,
+      () => this.closeSessionLocked(sessionId, input)
+    );
+  }
+
+  private async closeSessionLocked(
+    sessionId: string,
+    input: HotSaleCloseSessionInput
+  ) {
     const session = await this.assertOpenSession(sessionId);
+    const unresolvedTransactions = await prisma.hotSaleTransaction.count({
+      where: {
+        sessionId,
+        status: 'SYNC_FAILED',
+      },
+    });
+    if (unresolvedTransactions > 0) {
+      throw new AppError(
+        `Oturum kapatilamaz: ${unresolvedTransactions} sicak satis islemi tamamlanmayi veya kontrollu iptali bekliyor.`,
+        409,
+        ErrorCode.SYNC_IN_PROGRESS
+      );
+    }
     const inventory = await this.getVehicleInventory(session.vehicleId);
     const countByCode = new Map((input.counts || []).map((row) => [normalizeCode(row.productCode), row]));
     const missingCounts = inventory.filter((row) => Math.abs(row.quantity) > 0.0001 && !countByCode.has(normalizeCode(row.productCode)));
@@ -2391,7 +3793,29 @@ class HotSaleService {
   async cancelTransactionLocally(transactionId: string, input: { userId: string; note?: string }) {
     const transaction = await prisma.hotSaleTransaction.findUnique({
       where: { id: transactionId },
-      include: { session: true, items: true },
+      select: { sessionId: true },
+    });
+    if (!transaction) throw new AppError('Sicak satis islemi bulunamadi.', 404, ErrorCode.NOT_FOUND);
+    return withHotSaleSessionLock(
+      transaction.sessionId,
+      () => this.cancelTransactionLocallyLocked(transactionId, input)
+    );
+  }
+
+  private async cancelTransactionLocallyLocked(
+    transactionId: string,
+    input: { userId: string; note?: string }
+  ) {
+    const transaction = await prisma.hotSaleTransaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        session: true,
+        items: true,
+        payments: true,
+        stockMovements: {
+          where: { type: 'SALE' },
+        },
+      },
     });
     if (!transaction) throw new AppError('Sicak satis islemi bulunamadi.', 404, ErrorCode.NOT_FOUND);
     if (transaction.status === 'CANCELLED') throw new AppError('Bu islem zaten iptal isaretli.', 400, ErrorCode.BAD_REQUEST);
@@ -2399,32 +3823,62 @@ class HotSaleService {
       throw new AppError('Kapali oturumdaki islem otomatik duzeltilemez. Once muhasebe/Mikro kontrolu gerekir.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    const shouldReverseStock = ['CASH_INVOICE', 'INVOICED_DISPATCH', 'ORDER_DELIVERY'].includes(transaction.type);
+    const stockReversalRows = transaction.stockMovements
+      .filter((movement) => Math.abs(toNumber(movement.quantity)) > 0.0001)
+      .map((movement) => ({
+        sessionId: transaction.sessionId,
+        vehicleId: transaction.session.vehicleId,
+        transactionId: transaction.id,
+        type: 'ADJUSTMENT' as const,
+        productCode: movement.productCode,
+        productName: movement.productName,
+        unit: movement.unit,
+        quantity: -toNumber(movement.quantity),
+        sourceWarehouseNo: HOT_WAREHOUSE_NO,
+        documentNo: transaction.mikroDocumentNo,
+        note: `Yerel iptal/geri alma: ${String(input.note || '').trim() || 'not yok'}`,
+        createdById: input.userId,
+      }));
+    const cashAmountToReverse =
+      transaction.status === 'COMPLETED'
+      && transaction.type === 'CASH_INVOICE'
+        ? transaction.payments
+            .filter((payment) => payment.type === 'CASH')
+            .reduce((sum, payment) => sum + toNumber(payment.amount), 0)
+        : 0;
+
     return prisma.$transaction(async (tx) => {
-      if (shouldReverseStock && transaction.items.length) {
-        await tx.hotSaleStockLedger.createMany({
-          data: transaction.items.map((item) => ({
-            sessionId: transaction.sessionId,
-            vehicleId: transaction.session.vehicleId,
-            transactionId: transaction.id,
-            type: 'ADJUSTMENT',
-            productCode: item.productCode,
-            productName: item.productName,
-            unit: item.unit,
-            quantity: Math.abs(toNumber(item.quantity)),
-            sourceWarehouseNo: HOT_WAREHOUSE_NO,
-            documentNo: transaction.mikroDocumentNo,
-            note: `Yerel iptal/geri alma: ${String(input.note || '').trim() || 'not yok'}`,
-            createdById: input.userId,
-          })),
-        });
-      }
-      return tx.hotSaleTransaction.update({
-        where: { id: transactionId },
+      const claimed = await tx.hotSaleTransaction.updateMany({
+        where: {
+          id: transactionId,
+          status: transaction.status,
+          updatedAt: transaction.updatedAt,
+        },
         data: {
           status: 'CANCELLED',
           syncError: `Yerel iptal/geri alma. Mikro evragi manuel kontrol edilmeli. ${String(input.note || '').trim()}`.trim(),
         },
+      });
+      if (claimed.count !== 1) {
+        throw new AppError(
+          'Sicak satis islemi baska bir islem tarafindan degistirildi.',
+          409,
+          ErrorCode.SYNC_IN_PROGRESS
+        );
+      }
+
+      if (stockReversalRows.length > 0) {
+        await tx.hotSaleStockLedger.createMany({ data: stockReversalRows });
+      }
+      if (cashAmountToReverse > 0) {
+        await tx.hotSaleSession.update({
+          where: { id: transaction.sessionId },
+          data: { expectedCash: { decrement: cashAmountToReverse } },
+        });
+      }
+
+      return tx.hotSaleTransaction.findUniqueOrThrow({
+        where: { id: transactionId },
         include: { items: true, payments: true, session: { include: { vehicle: true } } },
       });
     });

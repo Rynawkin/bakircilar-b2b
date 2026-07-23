@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { adminApi } from '@/lib/api/admin';
 import { getPriceListVerificationError } from '@/lib/utils/costPriceUpdate';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
+import { isStandardPriceListNo } from '@/lib/utils/priceLists';
 
 export type SortDirection = 'asc' | 'desc';
 export type ColumnId =
@@ -26,7 +27,9 @@ export type ColumnId =
   | 'list7'
   | 'list8'
   | 'list9'
-  | 'list10';
+  | 'list10'
+  | 'list13'
+  | 'list14';
 
 export const PAGE_SIZE = 200;
 export const VISIBLE_COLUMNS_KEY = 'cost-update-all-products-visible-columns-v1';
@@ -42,16 +45,18 @@ export const COLUMN_DEFS: Array<{ id: ColumnId; label: string }> = [
   { id: 'currentCost', label: 'Guncel Maliyet' },
   { id: 'lastEntryPrice', label: 'Son Giris Maliyeti' },
   { id: 'lastEntryDate', label: 'Son Giris Tarihi' },
-  { id: 'list1', label: 'Liste 1' },
-  { id: 'list2', label: 'Liste 2' },
-  { id: 'list3', label: 'Liste 3' },
-  { id: 'list4', label: 'Liste 4' },
-  { id: 'list5', label: 'Liste 5' },
-  { id: 'list6', label: 'Liste 6' },
-  { id: 'list7', label: 'Liste 7' },
-  { id: 'list8', label: 'Liste 8' },
-  { id: 'list9', label: 'Liste 9' },
-  { id: 'list10', label: 'Liste 10' },
+  { id: 'list1', label: 'Perakende 1 (Liste 1)' },
+  { id: 'list2', label: 'Perakende 2 (Liste 2)' },
+  { id: 'list3', label: 'Perakende 3 (Liste 3)' },
+  { id: 'list4', label: 'Perakende 4 (Liste 4)' },
+  { id: 'list5', label: 'Perakende 5 (Liste 5)' },
+  { id: 'list14', label: 'Perakende 6 (Liste 14)' },
+  { id: 'list6', label: 'Faturali 1 (Liste 6)' },
+  { id: 'list7', label: 'Faturali 2 (Liste 7)' },
+  { id: 'list8', label: 'Faturali 3 (Liste 8)' },
+  { id: 'list9', label: 'Faturali 4 (Liste 9)' },
+  { id: 'list10', label: 'Faturali 5 (Liste 10)' },
+  { id: 'list13', label: 'Faturali 6 (Liste 13)' },
 ];
 
 export const DEFAULT_COLUMNS: ColumnId[] = [
@@ -68,11 +73,13 @@ export const DEFAULT_COLUMNS: ColumnId[] = [
   'list3',
   'list4',
   'list5',
+  'list14',
   'list6',
   'list7',
   'list8',
   'list9',
   'list10',
+  'list13',
 ];
 
 export const toMoney = (value: unknown) => {
@@ -93,7 +100,7 @@ export const toDate = (value: unknown) => {
  * Klasik ve yeni gorunum bu hook'u tuketir; logic birebir korunmustur.
  * (Onceki CostUpdateAllProductsPage component'inin `return (` oncesindeki her sey aynen tasinmistir.)
  *
- * KRITIK: Mikro'ya maliyet + 10 fiyat listesi YAZAN handler'lar
+ * KRITIK: Mikro'ya maliyet + 12 ana fiyat listesi YAZAN handler'lar
  * (executeCostUpdate -> adminApi.updateUcarerProductCost) ve onlarin
  * onay/dogrulama akisi (updateCost + pendingUpdate modal mantigi) TEK SATIR
  * DEGISTIRILMEDEN buraya tasinmistir.
@@ -210,7 +217,7 @@ export function useTumUrunlerMaliyetGuncelleme() {
     if (key === 'lastEntryPrice') return Number(item?.lastEntryPrice ?? 0);
     if (key === 'lastEntryDate') return item?.lastEntryDate ? new Date(item.lastEntryDate).getTime() : 0;
     const listNo = Number(key.replace('list', ''));
-    if (listNo >= 1 && listNo <= 10) return Number(overridePriceList[listNo] ?? mikroPriceLists[listNo] ?? 0);
+    if (isStandardPriceListNo(listNo)) return Number(overridePriceList[listNo] ?? mikroPriceLists[listNo] ?? 0);
     return '';
   };
 
@@ -289,7 +296,7 @@ export function useTumUrunlerMaliyetGuncelleme() {
         });
       }
 
-      if (updatePriceLists) toast.success('Maliyet ve 10 fiyat listesi dogrulanarak guncellendi.');
+      if (updatePriceLists) toast.success('Maliyet ve 12 ana fiyat listesi dogrulanarak guncellendi.');
       else toast.success('Guncel maliyet guncellendi.');
     } catch (error: any) {
       toast.error(error?.response?.data?.error || error?.message || 'Guncelleme basarisiz');

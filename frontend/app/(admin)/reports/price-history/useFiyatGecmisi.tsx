@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { adminApi } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
+import { STANDARD_PRICE_LISTS } from '@/lib/utils/priceLists';
 // 13.3: xlsx statik degil; export aninda dinamik import edilir.
 
 export interface PriceListChange {
@@ -20,8 +21,12 @@ export interface PriceChange {
   category: string;
   changeDate: string;
   priceChanges: PriceListChange[];
+  consistencyApplicable?: boolean;
   isConsistent: boolean;
   updatedListsCount: number;
+  updatedStandardListsCount?: number;
+  expectedStandardListCount?: number;
+  updatedCampaignLists?: number[];
   missingLists: number[];
   avgChangePercent: number;
   changeDirection: 'increase' | 'decrease' | 'mixed';
@@ -31,6 +36,7 @@ export interface Summary {
   totalChanges: number;
   consistentChanges: number;
   inconsistentChanges: number;
+  consistencyNotApplicableChanges?: number;
   inconsistencyRate: number;
   avgIncreasePercent: number;
   avgDecreasePercent: number;
@@ -41,17 +47,18 @@ export interface Summary {
 }
 
 export const priceListNames: { [key: number]: string } = {
-  1: 'Perakende 1',
-  2: 'Perakende 2',
-  3: 'Perakende 3',
-  4: 'Perakende 4',
-  5: 'Perakende 5',
-  6: 'Faturalı 1',
-  7: 'Faturalı 2',
-  8: 'Faturalı 3',
-  9: 'Faturalı 4',
-  10: 'Faturalı 5',
+  ...Object.fromEntries(STANDARD_PRICE_LISTS.map((definition) => [definition.listNo, definition.label])),
+  11: 'Kampanya Faturalı',
+  12: 'Kampanya Perakende',
 };
+
+export const getExpectedListCount = (change: PriceChange) =>
+  change.consistencyApplicable === false
+    ? 0
+    : Number(change.expectedStandardListCount) ||
+      Number(change.updatedStandardListsCount || change.updatedListsCount || 0) +
+        (change.missingLists?.length || 0) ||
+      STANDARD_PRICE_LISTS.length;
 
 /**
  * Fiyat Gecmisi raporunun TUM is mantigi.
@@ -132,8 +139,16 @@ export function useFiyatGecmisi() {
       'Ürün Kodu': change.productCode,
       'Ürün Adı': change.productName,
       'Kategori': change.category,
-      'Güncellenen Liste Sayısı': change.updatedListsCount,
-      'Tutarlı': change.isConsistent ? 'Evet' : 'Hayır',
+      'Güncellenen Standart Liste Sayısı':
+        change.updatedStandardListsCount ?? change.updatedListsCount,
+      'Beklenen Standart Liste Sayısı': getExpectedListCount(change),
+      'Güncellenen Kampanya Listeleri': change.updatedCampaignLists?.join(', ') || 'Yok',
+      'Tutarlı':
+        change.consistencyApplicable === false
+          ? 'Uygulanamaz'
+          : change.isConsistent
+            ? 'Evet'
+            : 'Hayır',
       'Ort. Değişim %': change.avgChangePercent.toFixed(2),
       'Yön': change.changeDirection === 'increase' ? 'Artış' : change.changeDirection === 'decrease' ? 'Azalış' : 'Karışık',
       'Eksik Listeler': change.missingLists.join(', ') || 'Yok',

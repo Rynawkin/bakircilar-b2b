@@ -18,6 +18,11 @@ import stockService from './stock.service';
 import imageService from './image.service';
 import priceSyncService from './priceSync.service';
 import notificationService from './notification.service';
+import {
+  MikroSyncBusyError,
+  withMikroSyncLock,
+} from '../utils/mikro-sync-lock';
+import { runRequiredMikroSyncStages } from '../utils/mikro-sync-sequence';
 
 class SyncService {
   // 12.6: Ayni anda iki tam senkronun calismasini engelleyen kilit
@@ -127,19 +132,75 @@ class SyncService {
     }
 
     // Arka planda sync'i çalıştır (await etme!)
-    this.runFullSync(syncLog.id)
-      .catch((error) => {
-        console.error('❌ Background sync error:', error);
+    withMikroSyncLock(async () => {
+      const sequence = await runRequiredMikroSyncStages(
+        () => this.runFullSync(syncLog.id),
+        () => priceSyncService.syncPriceChangesWithinExistingLock()
+      );
+
+      if (!sequence.success) {
+        if (sequence.fullResult.success) {
+          const errorMessage =
+            sequence.error || 'Fiyat senkronizasyonu tamamlanamadi.';
+          await prisma.syncLog.update({
+            where: { id: syncLog.id },
+            data: {
+              status: 'FAILED',
+              errorMessage,
+              completedAt: new Date(),
+            },
+          });
+          await this.notifyAdmins(
+            'Senkronizasyon basarisiz',
+            `Stok senkronu tamamlandi ancak zorunlu fiyat senkronu basarisiz: ${errorMessage}`
+          );
+        }
+
+        return;
+      }
+
+      const stats = sequence.fullResult.stats;
+      const completedAt = new Date();
+      await prisma.$transaction([
+        prisma.settings.updateMany({
+          data: { lastSyncAt: completedAt },
+        }),
+        prisma.syncLog.update({
+          where: { id: syncLog.id },
+          data: {
+            status: 'SUCCESS',
+            categoriesCount: stats.categoriesUpdated,
+            productsCount: stats.productsUpdated,
+            completedAt,
+          },
+        }),
+      ]);
+      console.log('Stok ve fiyat senkronizasyonu tamamlandi.');
+    })
+      .catch(async (error) => {
+        const errorMessage =
+          error instanceof MikroSyncBusyError
+            ? error.message
+            : String(error?.message || error || 'Bilinmeyen senkronizasyon hatasi');
+        await prisma.syncLog
+          .update({
+            where: { id: syncLog.id },
+            data: {
+              status: 'FAILED',
+              errorMessage,
+              completedAt: new Date(),
+            },
+          })
+          .catch(() => {});
+        await this.notifyAdmins(
+          'Senkronizasyon basarisiz',
+          `Otomatik/manuel senkronizasyon baslatilamadi veya yarida kaldi: ${errorMessage}`
+        );
+        console.error('Background sync error:', error);
       })
       .finally(() => {
         this.isRunning = false;
       });
-
-    if (syncType === 'MANUAL') {
-      priceSyncService.syncPriceChanges().catch((error) => {
-        console.error('❌ Background price sync error:', error);
-      });
-    }
 
     return syncLog.id;
   }
@@ -189,26 +250,10 @@ class SyncService {
       const pricesCount = await pricingService.recalculateAllPrices(syncLogId);
       console.log(`✅ ${pricesCount} ürün için fiyatlar hesaplandı`);
 
-      // Settings'deki lastSyncAt güncelle
-      await prisma.settings.updateMany({
-        data: { lastSyncAt: new Date() },
-      });
-
-      // Sync log güncelle (resim sync artık ayrı)
-      await prisma.syncLog.update({
-        where: { id: syncLogId },
-        data: {
-          status: 'SUCCESS',
-          categoriesCount,
-          productsCount,
-          completedAt: new Date(),
-        },
-      });
-
       // 5. Stok alarmi bildirimleri (best-effort; senkron sonucunu etkilemez)
       await this.processStockAlerts();
 
-      console.log('🎉 Senkronizasyon tamamlandı!');
+      console.log('Tam stok senkronu adimlari tamamlandi; fiyat asamasina geciliyor.');
 
       return {
         success: true,

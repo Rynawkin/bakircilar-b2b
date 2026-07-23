@@ -1731,6 +1731,7 @@ export const adminApi = {
         quantity: number;
         unitPrice: number;
         priceType?: 'INVOICED' | 'WHITE';
+        priceListNo?: number;
         lineNote?: string;
         responsibilityCenter?: string;
       }>;
@@ -1776,6 +1777,7 @@ export const adminApi = {
       quantity: number;
       unitPrice: number;
       priceType?: 'INVOICED' | 'WHITE';
+      priceListNo?: number;
       vatZeroed?: boolean;
       manualVatRate?: number;
       lineDescription?: string;
@@ -2146,6 +2148,7 @@ export const adminApi = {
       perakende3: number;
       perakende4: number;
       perakende5: number;
+      perakende6: number;
       imageUrl: string | null;
     }>;
   }> => {
@@ -2155,14 +2158,20 @@ export const adminApi = {
 
   createWarehouseRetailSale: async (data: {
     paymentType: 'CASH' | 'CARD';
-    priceLevel: 1 | 2 | 3 | 4 | 5;
-    items: Array<{ productCode: string; quantity: number; unitPrice?: number }>;
+    priceLevel: 1 | 2 | 3 | 4 | 5 | 6;
+    items: Array<{
+      productCode: string;
+      quantity: number;
+      unitPrice?: number;
+      priceLevel?: 1 | 2 | 3 | 4 | 5 | 6;
+    }>;
   }): Promise<{
     invoiceNo: string;
     paymentType: 'CASH' | 'CARD';
     paymentLabel: string;
     customerCode: string;
-    priceLevel: 1 | 2 | 3 | 4 | 5;
+    priceLevel: 1 | 2 | 3 | 4 | 5 | 6;
+    priceListNo: number;
     totalAmount: number;
     lineCount: number;
     lines: Array<{
@@ -2172,6 +2181,8 @@ export const adminApi = {
       unitPrice: number;
       lineTotal: number;
       unit: string;
+      priceLevel: 1 | 2 | 3 | 4 | 5 | 6;
+      priceListNo: number;
     }>;
   }> => {
     const response = await apiClient.post('/order-tracking/admin/warehouse/retail/sales', data);
@@ -3332,8 +3343,12 @@ export const adminApi = {
           changeAmount: number;
           changePercent: number;
         }>;
+        consistencyApplicable?: boolean;
         isConsistent: boolean;
         updatedListsCount: number;
+        updatedStandardListsCount?: number;
+        expectedStandardListCount?: number;
+        updatedCampaignLists?: number[];
         missingLists: number[];
         avgChangePercent: number;
         changeDirection: 'increase' | 'decrease' | 'mixed';
@@ -3342,6 +3357,7 @@ export const adminApi = {
         totalChanges: number;
         consistentChanges: number;
         inconsistentChanges: number;
+        consistencyNotApplicableChanges?: number;
         inconsistencyRate: number;
         avgIncreasePercent: number;
         avgDecreasePercent: number;
@@ -4634,7 +4650,7 @@ export const adminApi = {
     return response.data;
   },
 
-  // Manuel liste override'i (null = temizle). Faturali 6-10, perakende 1-5.
+  // Manuel liste override'i (null = temizle). Faturali F1-F6, perakende P1-P6.
   setCustomerPriceListSuggestion: async (
     customerId: string,
     payload: {

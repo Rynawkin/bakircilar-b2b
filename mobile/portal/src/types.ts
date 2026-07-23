@@ -501,6 +501,7 @@ export interface PriceHistoryChange {
   changeDate: string;
   avgChangePercent: number;
   updatedListsCount: number;
+  consistencyApplicable?: boolean;
   isConsistent: boolean;
   changeDirection: 'increase' | 'decrease' | 'mixed';
 }
@@ -645,6 +646,7 @@ export interface HotSaleCartItem {
   quantity: number;
   unitPrice: number;
   priceListNo?: number;
+  priceLists?: Record<string, number>;
   vatRate?: number;
   currentCost?: number | null;
   currentCostVatIncluded?: number | null;

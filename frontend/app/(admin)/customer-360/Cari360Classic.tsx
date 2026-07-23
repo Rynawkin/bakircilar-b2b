@@ -32,6 +32,7 @@ import {
   retailListLabel,
   type Customer360Module,
 } from './useCari360';
+import { INVOICED_PRICE_LISTS, RETAIL_PRICE_LISTS } from '@/lib/utils/priceLists';
 
 export const StatusBadge = ({ value }: { value: unknown }) => (
   <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClass(value)}`}>
@@ -233,8 +234,8 @@ export default function Cari360Classic() {
                                 className="rounded-md border border-gray-300 px-3 py-2 text-sm"
                               >
                                 <option value="">Boş (sistem önerisi)</option>
-                                {[6, 7, 8, 9, 10].map((no) => (
-                                  <option key={no} value={no}>{`Faturalı ${no - 5} (Liste ${no})`}</option>
+                                {INVOICED_PRICE_LISTS.map((list) => (
+                                  <option key={list.listNo} value={list.listNo}>{`Faturalı ${list.tier} (Liste ${list.listNo})`}</option>
                                 ))}
                               </select>
                             </div>
@@ -246,8 +247,8 @@ export default function Cari360Classic() {
                                 className="rounded-md border border-gray-300 px-3 py-2 text-sm"
                               >
                                 <option value="">Boş (sistem önerisi)</option>
-                                {[1, 2, 3, 4, 5].map((no) => (
-                                  <option key={no} value={no}>{`Perakende ${no} (Liste ${no})`}</option>
+                                {RETAIL_PRICE_LISTS.map((list) => (
+                                  <option key={list.listNo} value={list.listNo}>{`Perakende ${list.tier} (Liste ${list.listNo})`}</option>
                                 ))}
                               </select>
                             </div>

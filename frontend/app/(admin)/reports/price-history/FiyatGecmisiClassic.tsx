@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
-import { useFiyatGecmisi, priceListNames } from './useFiyatGecmisi';
+import { getExpectedListCount, useFiyatGecmisi, priceListNames } from './useFiyatGecmisi';
 
 /**
  * Klasik gorunum: Fiyat Gecmisi raporu.
@@ -214,8 +214,8 @@ export default function FiyatGecmisiClassic() {
                   onChange={(e) => setConsistencyFilter(e.target.value)}
                 >
                   <option value="all">Tümü</option>
-                  <option value="consistent">Tutarlı (10 liste)</option>
-                  <option value="inconsistent">Tutarsız (&lt;10 liste)</option>
+                  <option value="consistent">Tutarlı (tüm standart listeler)</option>
+                  <option value="inconsistent">Tutarsız (eksik standart liste)</option>
                 </select>
               </div>
 
@@ -345,7 +345,11 @@ export default function FiyatGecmisiClassic() {
                             </div>
                           </div>
                           {getDirectionBadge(change.changeDirection)}
-                          {change.isConsistent ? (
+                          {change.consistencyApplicable === false ? (
+                            <Badge variant="outline">
+                              Standart kontrol dışı
+                            </Badge>
+                          ) : change.isConsistent ? (
                             <Badge variant="default" className="bg-green-600">
                               <CheckCircle className="h-3 w-3 mr-1" />
                               Tutarlı
@@ -353,7 +357,7 @@ export default function FiyatGecmisiClassic() {
                           ) : (
                             <Badge variant="destructive">
                               <AlertTriangle className="h-3 w-3 mr-1" />
-                              {change.updatedListsCount}/10 Liste
+                              {change.updatedListsCount}/{getExpectedListCount(change)} Liste
                             </Badge>
                           )}
                         </div>
@@ -401,7 +405,9 @@ export default function FiyatGecmisiClassic() {
                               </div>
                             ))}
                           </div>
-                          {!change.isConsistent && change.missingLists.length > 0 && (
+                          {change.consistencyApplicable !== false &&
+                            !change.isConsistent &&
+                            change.missingLists.length > 0 && (
                             <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
                               <div className="flex items-start gap-2">
                                 <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5" />

@@ -7,6 +7,8 @@ import imageService from './image.service';
 import familyCandidateService from './family-candidate.service';
 import reportsService from './reports.service';
 import { getUploadsDir } from '../utils/storage';
+import { STANDARD_PRICE_LIST_DEFINITIONS } from '../config/price-list-registry';
+import { randomUUID } from 'crypto';
 
 type LookupType = 'supplier' | 'brand' | 'category' | 'package' | 'template';
 type FactorDirection = 'larger' | 'smaller';
@@ -217,8 +219,84 @@ type StockPriceListRow = {
   baseCost: number;
 };
 
+const buildStockPriceListRows = (
+  item: Pick<NormalizedStockInput, 'costP' | 'costT' | 'margins'>
+): StockPriceListRow[] => {
+  if (
+    !Number.isFinite(item.costP) ||
+    !Number.isFinite(item.costT) ||
+    (item.costP <= 0 && item.costT <= 0)
+  ) {
+    return [];
+  }
+  if (item.costP <= 0 || item.costT <= 0) {
+    throw new Error(
+      'Standart fiyat listeleri kismi olusturulamaz: Maliyet P ve Maliyet T birlikte gecerli olmali.'
+    );
+  }
+
+  return STANDARD_PRICE_LIST_DEFINITIONS.flatMap((definition) => {
+    const marginSlot = Number(definition.marginSlot);
+    const marginMultiplier = toNumber(item.margins[marginSlot - 1], 0);
+    if (!Number.isFinite(marginMultiplier) || marginMultiplier <= 0) {
+      throw new Error(
+        `Standart fiyat listeleri olusturulamadi: Marj_${marginSlot} eksik veya gecersiz.`
+      );
+    }
+
+    // Stock-create UI adlari tarihsel olarak Mikro alanlarinin tersidir:
+    // item.costP -> Mikro MaliyetT (perakende), item.costT -> Mikro MaliyetP (faturali).
+    const baseCost = definition.costBasis === 'MALIYET_T' ? item.costP : item.costT;
+    if (!Number.isFinite(baseCost) || baseCost <= 0) return [];
+
+    return [{
+      listNo: definition.listNo,
+      value: roundMoney(baseCost * marginMultiplier),
+      marginMultiplier,
+      baseCost,
+    }];
+  });
+};
+
+export const stockCreatePriceListTestUtils = {
+  buildStockPriceListRows,
+};
+
 class StockCreateService {
   private stockColumnsCache: string[] | null = null;
+
+  private async assertPriceListUserColumns() {
+    const requiredColumns = [
+      'MaliyetP',
+      'MaliyetT',
+      'Marj_1',
+      'Marj_2',
+      'Marj_3',
+      'Marj_4',
+      'Marj_5',
+      'Marj_6',
+    ];
+    const rows = await mikroService.executeQuery(`
+      SELECT COLUMN_NAME AS columnName
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = N'dbo'
+        AND TABLE_NAME = N'STOKLAR_USER'
+        AND COLUMN_NAME IN (${requiredColumns.map((column) => `N'${column}'`).join(', ')})
+    `);
+    const availableColumns = new Set(
+      (rows || [])
+        .map((row: any) => normalizeText(row?.columnName ?? row?.COLUMN_NAME).toLowerCase())
+        .filter(Boolean)
+    );
+    const missingColumns = requiredColumns.filter(
+      (column) => !availableColumns.has(column.toLowerCase())
+    );
+    if (missingColumns.length > 0) {
+      throw new Error(
+        `Stok fiyat alanlari Mikroda hazir degil: STOKLAR_USER kolonlari eksik (${missingColumns.join(', ')}).`
+      );
+    }
+  }
 
   private async getStockInsertColumns() {
     if (this.stockColumnsCache) return this.stockColumnsCache;
@@ -240,7 +318,7 @@ class StockCreateService {
 
   private normalizeItem(input: StockCreateInput, rowNo: number): NormalizedStockInput {
     const margins = Array.isArray(input.margins) ? input.margins : [];
-    const normalizedMargins = [0, 1, 2, 3, 4].map((index) => {
+    const normalizedMargins = [0, 1, 2, 3, 4, 5].map((index) => {
       const value = margins[index];
       const numeric = toNumber(value, NaN);
       if (!Number.isFinite(numeric)) return normalizeText(value);
@@ -507,6 +585,15 @@ class StockCreateService {
           .join(' AND ')}`
       : '';
     const exactTemplateSearch = escapeSql(templateSearch);
+    const templateRelevanceOrder = exactTemplateSearch
+      ? `
+        CASE
+          WHEN sto_kod = N'${exactTemplateSearch}' THEN 0
+          WHEN sto_kod LIKE N'${exactTemplateSearch}%' THEN 1
+          WHEN sto_isim LIKE N'${exactTemplateSearch}%' THEN 2
+          ELSE 3
+        END,`
+      : '';
 
     const rows = await mikroService.executeQuery(`
       SELECT TOP ${safeLimit}
@@ -516,12 +603,7 @@ class StockCreateService {
       WHERE ISNULL(sto_pasif_fl, 0) = 0
         ${templateCondition}
       ORDER BY
-        CASE
-          WHEN N'${exactTemplateSearch}' <> N'' AND sto_kod = N'${exactTemplateSearch}' THEN 0
-          WHEN N'${exactTemplateSearch}' <> N'' AND sto_kod LIKE N'${exactTemplateSearch}%' THEN 1
-          WHEN N'${exactTemplateSearch}' <> N'' AND sto_isim LIKE N'${exactTemplateSearch}%' THEN 2
-          ELSE 3
-        END,
+        ${templateRelevanceOrder}
         CASE
           WHEN sto_kod LIKE N'B%' THEN TRY_CONVERT(int, SUBSTRING(sto_kod, 2, 20))
           ELSE NULL
@@ -536,6 +618,7 @@ class StockCreateService {
     if (!code) {
       throw new Error('Sablon stok kodu gerekli');
     }
+    await this.assertPriceListUserColumns();
 
     const rows = await mikroService.executeQuery(`
       SELECT TOP 1
@@ -597,7 +680,8 @@ class StockCreateService {
         u.Marj_2 AS margin2,
         u.Marj_3 AS margin3,
         u.Marj_4 AS margin4,
-        u.Marj_5 AS margin5
+        u.Marj_5 AS margin5,
+        u.Marj_6 AS margin6
       FROM STOKLAR s WITH (NOLOCK)
       LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = s.sto_sat_cari_kod
       LEFT JOIN STOK_MARKALARI m WITH (NOLOCK) ON m.mrk_kod = s.sto_marka_kodu
@@ -659,7 +743,7 @@ class StockCreateService {
       mainUnitWidthCm: mmToCmText(row.mainUnitWidthMm),
       mainUnitLengthCm: mmToCmText(row.mainUnitLengthMm),
       mainUnitHeightCm: mmToCmText(row.mainUnitHeightMm),
-      margins: [row.margin1, row.margin2, row.margin3, row.margin4, row.margin5].map(decimalText),
+      margins: [row.margin1, row.margin2, row.margin3, row.margin4, row.margin5, row.margin6].map(decimalText),
       barcode: normalizeText(row.barcode),
       extraUnits,
       refs: {
@@ -966,37 +1050,44 @@ class StockCreateService {
   }
 
   private buildPriceListRows(item: NormalizedStockInput): StockPriceListRow[] {
-    if (!Number.isFinite(item.costP) || !Number.isFinite(item.costT) || (item.costP <= 0 && item.costT <= 0)) return [];
-
-    const rows: StockPriceListRow[] = [];
-    item.margins.forEach((margin, index) => {
-      const marginMultiplier = toNumber(margin, 0);
-      if (!Number.isFinite(marginMultiplier) || marginMultiplier <= 0) return;
-      if (item.costP > 0) {
-        const value = roundMoney(item.costP * marginMultiplier);
-        rows.push({ listNo: index + 1, value, marginMultiplier, baseCost: item.costP });
-      }
-      if (item.costT > 0) {
-        const value = roundMoney(item.costT * marginMultiplier);
-        rows.push({ listNo: index + 6, value, marginMultiplier, baseCost: item.costT });
-      }
-    });
-    return rows;
+    return buildStockPriceListRows(item);
   }
 
   private buildMikroPriceListStatements(stockCodeSql: string, item: NormalizedStockInput) {
     const priceRows = this.buildPriceListRows(item);
     if (!priceRows.length) return '';
+    const expectedListNos = priceRows.map(({ listNo }) => listNo).join(', ');
+    const retailListNos = STANDARD_PRICE_LIST_DEFINITIONS
+      .filter((definition) => definition.plane === 'RETAIL')
+      .map((definition) => definition.listNo)
+      .join(', ');
+    const invoicedListNos = STANDARD_PRICE_LIST_DEFINITIONS
+      .filter((definition) => definition.plane === 'INVOICED')
+      .map((definition) => definition.listNo)
+      .join(', ');
 
-    return priceRows
-      .map(({ listNo, value }) => `
+    const writeStatements = priceRows
+      .map(({ listNo, value }) => {
+        const definition = STANDARD_PRICE_LIST_DEFINITIONS.find(
+          (entry) => entry.listNo === listNo
+        );
+        const unitPointerVariable =
+          definition?.plane === 'RETAIL'
+            ? '@retailPriceUnitPointer'
+            : '@invoicedPriceUnitPointer';
+        return `
         UPDATE STOK_SATIS_FIYAT_LISTELERI
         SET sfiyat_fiyati = ${toSqlNumber(value)},
             sfiyat_degisti = 1,
             sfiyat_lastup_user = 1,
             sfiyat_lastup_date = GETDATE()
         WHERE sfiyat_stokkod = ${stockCodeSql}
-          AND sfiyat_listesirano = ${listNo};
+          AND sfiyat_listesirano = ${listNo}
+          AND sfiyat_deposirano = 0
+          AND sfiyat_doviz = 0
+          AND sfiyat_odemeplan = 0
+          AND sfiyat_iptal = 0
+          AND ISNULL(sfiyat_hidden, 0) = 0;
 
         IF @@ROWCOUNT = 0
         BEGIN
@@ -1008,11 +1099,103 @@ class StockCreateService {
           VALUES
             (NEWID(), 0, 0, 0, 0, 0, 0, 1, 0,
              1, GETDATE(), 1, GETDATE(), N'', N'', N'',
-             ${stockCodeSql}, ${listNo}, 0, 0, 0, ${toSqlNumber(value)}, 0,
+             ${stockCodeSql}, ${listNo}, 0, 0, ${unitPointerVariable}, ${toSqlNumber(value)}, 0,
              N'', 0, 0, N'', 0);
         END
-      `)
+      `;
+      })
       .join('\n');
+
+    const expectedRows = priceRows
+      .map(({ listNo, value }) => `(${listNo}, ${toSqlNumber(value)})`)
+      .join(',\n          ');
+
+    return `
+      DECLARE @retailPriceUnitPointer tinyint = 0;
+      DECLARE @invoicedPriceUnitPointer tinyint = 0;
+
+      IF EXISTS (
+        SELECT pricePlane
+        FROM (
+          SELECT
+            CASE
+              WHEN sfiyat_listesirano IN (${retailListNos}) THEN N'RETAIL'
+              ELSE N'INVOICED'
+            END AS pricePlane,
+            sfiyat_birim_pntr
+          FROM STOK_SATIS_FIYAT_LISTELERI
+          WHERE sfiyat_stokkod = ${stockCodeSql}
+            AND sfiyat_listesirano IN (${expectedListNos})
+            AND sfiyat_deposirano = 0
+            AND sfiyat_doviz = 0
+            AND sfiyat_odemeplan = 0
+            AND sfiyat_iptal = 0
+            AND ISNULL(sfiyat_hidden, 0) = 0
+        ) unit_candidates
+        GROUP BY pricePlane
+        HAVING COUNT(DISTINCT sfiyat_birim_pntr) > 1
+      )
+        THROW 51004, 'Stok fiyat listelerinde ayni duzlem icin birim pointer belirsiz.', 1;
+
+      SELECT TOP 1 @retailPriceUnitPointer = sfiyat_birim_pntr
+      FROM STOK_SATIS_FIYAT_LISTELERI
+      WHERE sfiyat_stokkod = ${stockCodeSql}
+        AND sfiyat_listesirano IN (${retailListNos})
+        AND sfiyat_deposirano = 0
+        AND sfiyat_doviz = 0
+        AND sfiyat_odemeplan = 0
+        AND sfiyat_iptal = 0
+        AND ISNULL(sfiyat_hidden, 0) = 0
+      ORDER BY sfiyat_listesirano;
+
+      SELECT TOP 1 @invoicedPriceUnitPointer = sfiyat_birim_pntr
+      FROM STOK_SATIS_FIYAT_LISTELERI
+      WHERE sfiyat_stokkod = ${stockCodeSql}
+        AND sfiyat_listesirano IN (${invoicedListNos})
+        AND sfiyat_deposirano = 0
+        AND sfiyat_doviz = 0
+        AND sfiyat_odemeplan = 0
+        AND sfiyat_iptal = 0
+        AND ISNULL(sfiyat_hidden, 0) = 0
+      ORDER BY sfiyat_listesirano;
+
+      IF EXISTS (
+        SELECT sfiyat_listesirano
+        FROM STOK_SATIS_FIYAT_LISTELERI
+        WHERE sfiyat_stokkod = ${stockCodeSql}
+          AND sfiyat_listesirano IN (${expectedListNos})
+          AND sfiyat_deposirano = 0
+          AND sfiyat_doviz = 0
+          AND sfiyat_odemeplan = 0
+          AND sfiyat_iptal = 0
+          AND ISNULL(sfiyat_hidden, 0) = 0
+        GROUP BY sfiyat_listesirano
+        HAVING COUNT(*) > 1
+      )
+        THROW 51005, 'Standart fiyat listesinde birden fazla aktif canonical satir var.', 1;
+
+      ${writeStatements}
+
+      IF EXISTS (
+        SELECT 1
+        FROM (VALUES
+          ${expectedRows}
+        ) expected(listNo, expectedPrice)
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM STOK_SATIS_FIYAT_LISTELERI actual
+          WHERE actual.sfiyat_stokkod = ${stockCodeSql}
+            AND actual.sfiyat_listesirano = expected.listNo
+            AND actual.sfiyat_deposirano = 0
+            AND actual.sfiyat_doviz = 0
+            AND actual.sfiyat_odemeplan = 0
+            AND actual.sfiyat_iptal = 0
+            AND ISNULL(actual.sfiyat_hidden, 0) = 0
+            AND ABS(CAST(actual.sfiyat_fiyati AS float) - CAST(expected.expectedPrice AS float)) <= 0.005
+        )
+      )
+        THROW 51006, 'Standart fiyat listelerinin tamami Mikroda dogrulanamadi.', 1;
+    `;
   }
 
   private async syncProductPriceStats(stockCode: string, item: NormalizedStockInput) {
@@ -1066,6 +1249,38 @@ class StockCreateService {
       },
       update: data,
     });
+
+    const syncedAt = new Date();
+    await prisma.$transaction(
+      priceRows.map((row) => {
+        const currentMargin =
+          row.value > 0 && row.baseCost > 0
+            ? Math.round(((row.value - row.baseCost) / row.value) * 100 * 10000) / 10000
+            : null;
+        return prisma.productPriceListCurrent.upsert({
+          where: {
+            productCode_priceListNo: {
+              productCode: stockCode,
+              priceListNo: row.listNo,
+            },
+          },
+          create: {
+            productCode: stockCode,
+            priceListNo: row.listNo,
+            currentPrice: row.value,
+            currentCost: row.baseCost,
+            currentMargin,
+            syncedAt,
+          },
+          update: {
+            currentPrice: row.value,
+            currentCost: row.baseCost,
+            currentMargin,
+            syncedAt,
+          },
+        });
+      })
+    );
   }
 
   private async syncCreatedProduct(item: NormalizedStockInput, stockCode: string) {
@@ -1155,6 +1370,7 @@ class StockCreateService {
       );
     }
 
+    await this.assertPriceListUserColumns();
     const preview = await this.preview(itemsInput);
     const invalidRows = preview.results.filter((row) => row.errors.length > 0);
     if (invalidRows.length > 0) {
@@ -1171,13 +1387,18 @@ class StockCreateService {
     const declarations: string[] = [];
     const statements: string[] = [];
     const marginDate = toDateOnly();
+    // Deterministic per-request GUIDs make an uncertain COMMIT result
+    // independently discoverable without ever replaying the create batch.
+    const requestGuids = items.map(() => randomUUID());
 
     items.forEach((item, index) => {
       const columnList = columns.map((column) => `[${column.replace(/]/g, ']]')}]`).join(', ');
       const expressionList = columns.map((column) => this.buildStockColumnExpression(column, item, index)).join(', ');
       const templateCode = toSqlString(item.templateCode);
 
-      declarations.push(`DECLARE @guid${index} uniqueidentifier = NEWID();`);
+      declarations.push(
+        `DECLARE @guid${index} uniqueidentifier = ${toSqlString(requestGuids[index])};`
+      );
       declarations.push(`DECLARE @code${index} nvarchar(25) = N'B' + CONVERT(nvarchar(20), @baseNo + ${index + 1});`);
 
       statements.push(`
@@ -1203,6 +1424,7 @@ class StockCreateService {
               Marj_3 = ${toSqlString(item.margins[2])},
               Marj_4 = ${toSqlString(item.margins[3])},
               Marj_5 = ${toSqlString(item.margins[4])},
+              Marj_6 = ${toSqlString(item.margins[5])},
               MaliyetP = ${toSqlNumber(item.costT)},
               MaliyetT = ${toSqlNumber(item.costP)},
               MaliyetTarihi = ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')},
@@ -1212,9 +1434,9 @@ class StockCreateService {
         ELSE
         BEGIN
           INSERT INTO STOKLAR_USER
-            (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi, SKT)
+            (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, Marj_6, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi, SKT)
           VALUES
-            (@guid${index}, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${toSqlNumber(item.costT)}, ${toSqlNumber(item.costP)}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, N'', 0, N'');
+            (@guid${index}, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${toSqlString(item.margins[5])}, ${toSqlNumber(item.costT)}, ${toSqlNumber(item.costP)}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, N'', 0, N'');
         END
 
         ${this.buildMikroPriceListStatements(`@code${index}`, item)}
@@ -1261,7 +1483,42 @@ class StockCreateService {
       END CATCH
     `;
 
-    const createdRows = await mikroService.executeQuery(sql);
+    let createdRows: any[];
+    try {
+      // Creation is non-idempotent (MAX(B...)+1), so the generic reconnect
+      // retry must never replay it after an uncertain COMMIT response.
+      createdRows = await mikroService.executeQueryOnce(sql);
+    } catch (writeError) {
+      const expectedRowsSql = preview.results
+        .map(
+          (validation, index) =>
+            `(${validation.rowNo}, CONVERT(uniqueidentifier, ${toSqlString(requestGuids[index])}))`
+        )
+        .join(',\n          ');
+      let readbackRows: any[] = [];
+      try {
+        readbackRows = await mikroService.executeQuery(`
+          SELECT
+            expected.rowNo,
+            stock.sto_kod AS stockCode,
+            CONVERT(nvarchar(50), stock.sto_Guid) AS stockGuid
+          FROM (VALUES
+            ${expectedRowsSql}
+          ) expected(rowNo, stockGuid)
+          INNER JOIN STOKLAR stock WITH (NOLOCK)
+            ON stock.sto_Guid = expected.stockGuid
+          ORDER BY expected.rowNo
+        `);
+      } catch {
+        // Preserve the original write failure; a failed read-back is not
+        // evidence that the transaction did or did not commit.
+      }
+
+      if (readbackRows.length !== preview.results.length) {
+        throw writeError;
+      }
+      createdRows = readbackRows;
+    }
     const user = userId
       ? await prisma.user.findUnique({ where: { id: userId }, select: { name: true, displayName: true, mikroName: true, email: true } })
       : null;
@@ -1457,6 +1714,7 @@ class StockCreateService {
     if (!code) {
       throw new Error('Stok kodu gerekli');
     }
+    await this.assertPriceListUserColumns();
 
     const existingRows = await mikroService.executeQuery(`
       SELECT TOP 1
@@ -1582,7 +1840,9 @@ class StockCreateService {
           AND bar_master = 1;
       `;
 
-    await mikroService.executeQuery(`
+    // Do not replay a transaction after an uncertain COMMIT response. This
+    // edit is value-idempotent, so a caller may safely read back and retry.
+    await mikroService.executeQueryOnce(`
       SET XACT_ABORT ON;
       BEGIN TRY
         BEGIN TRANSACTION;
@@ -1610,6 +1870,7 @@ class StockCreateService {
               Marj_3 = ${toSqlString(item.margins[2])},
               Marj_4 = ${toSqlString(item.margins[3])},
               Marj_5 = ${toSqlString(item.margins[4])},
+              Marj_6 = ${toSqlString(item.margins[5])},
               MaliyetP = ${currentCostSql},
               MaliyetT = ${retailCostSql},
               MaliyetTarihi = CASE WHEN ${userCostChangedExpression} THEN ${toSqlString(marginDate)} ELSE MaliyetTarihi END,
@@ -1619,9 +1880,9 @@ class StockCreateService {
         ELSE
         BEGIN
           INSERT INTO STOKLAR_USER
-            (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi, SKT)
+            (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, Marj_6, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi, SKT)
           VALUES
-            (@stockGuid, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${currentCostSql}, ${retailCostSql}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, N'', 0, N'');
+            (@stockGuid, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${toSqlString(item.margins[5])}, ${currentCostSql}, ${retailCostSql}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, N'', 0, N'');
         END
 
         ${this.buildMikroPriceListStatements('@stockCode', item)}

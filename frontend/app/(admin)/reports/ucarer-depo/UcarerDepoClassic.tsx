@@ -1055,7 +1055,7 @@ export default function UcarerDepoClassic() {
                                 }))
                               }
                             />
-                            10 liste
+                            12 standart liste
                           </label>
                           <Button
                             size="sm"
@@ -1738,7 +1738,7 @@ export default function UcarerDepoClassic() {
                                       }))
                                     }
                                   />
-                                  10 liste
+                                  12 standart liste
                                 </label>
                                 <Button
                                   size="sm"

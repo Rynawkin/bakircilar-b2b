@@ -5,22 +5,23 @@
  * "bu cariye fiilen hangi fiyat listesinden satiyoruz?" sorusunun cevabini
  * faturali ve perakende (beyaz) duzlemler icin AYRI AYRI onermek.
  *
- * LISTE ESLEMESI (SABIT — Mikro STOK_SATIS_FIYAT_LISTELERI.sfiyat_listesirano):
- *   Dahili liste no 1..5  = "Perakende 1".."Perakende 5"  (beyaz/faturasiz duzlem)
- *   Dahili liste no 6..10 = "Faturali 1".."Faturali 5"    (faturali duzlem)
- *   Yani liste 6 = Faturali 1 (EN YUKSEK fiyat) ... liste 10 = Faturali 5 (EN DUSUK fiyat).
- *   Ayni sekilde liste 1 = Perakende 1 (en yuksek) ... liste 5 = Perakende 5 (en dusuk).
+ * LISTE ESLEMESI (price-list-registry.ts tek kaynaktir):
+ *   Fiziksel 1..5  = "Perakende 1".."Perakende 5"
+ *   Fiziksel 6..10 = "Faturali 1".."Faturali 5"
+ *   Fiziksel 11/12 = kampanya listeleri (standart oneriye aday degildir)
+ *   Fiziksel 13    = "Faturali 6"
+ *   Fiziksel 14    = "Perakende 6"
  *
  * KDV DUZLEMI NOTU:
  *   Mikro STOK_HAREKETLERI'nde sth_tutar satirin KDV-HARIC tutaridir; KDV ayri
  *   kolonda (sth_vergi) tutulur. Dolayisiyla:
  *     - Faturali satir (sth_vergi > 0): birim fiyat = sth_tutar/sth_miktar zaten
- *       KDV-haric net fiyattir ve faturali listeler (6-10, net fiyat) ile AYNI
+ *       KDV-haric net fiyattir ve standart faturali listeler ile AYNI
  *       duzlemdedir; ekstra KDV arindirma GEREKMEZ.
  *     - Beyaz satir (sth_vergi = 0): tahsil edilen tutarin tamami sth_tutar'dadir
- *       ve perakende listeleri (1-5) ile ayni duzlemde kiyaslanir.
- *   Satir tipi faturali ise SADECE 6-10, beyaz ise SADECE 1-5 icinden en yakin
- *   liste secilir; iki duzlem asla birbirine kiyaslanmaz.
+ *       ve standart perakende listeleri ile ayni duzlemde kiyaslanir.
+ *   Satir tipi faturali ise SADECE standart faturali, beyaz ise SADECE standart
+ *   perakende listelerinden en yakini secilir; iki duzlem asla karistirilmaz.
  *
  * Manuel tanim: manualInvoicedListNo / manualRetailListNo doluysa ekranlarda
  * sistem onerisi yerine manuel deger gosterilir ("manuel belirlenen oneri").
@@ -32,13 +33,17 @@
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import { AppError, ErrorCode } from '../types/errors';
+import {
+  getPriceListDefinition,
+  getPriceListLabel,
+  INVOICED_PRICE_LIST_NOS,
+  isPriceListInPlane,
+  isStandardPriceListNo,
+  RETAIL_PRICE_LIST_NOS,
+  STANDARD_PRICE_LIST_NOS,
+} from '../config/price-list-registry';
 
 // ==================== SABITLER ====================
-
-/** Perakende (beyaz) duzlem listeleri: 1-5. */
-const RETAIL_LIST_NOS = [1, 2, 3, 4, 5] as const;
-/** Faturali duzlem listeleri: 6-10 (liste 6 = Faturali 1 ... liste 10 = Faturali 5). */
-const INVOICED_LIST_NOS = [6, 7, 8, 9, 10] as const;
 
 /** Oneri uretmek icin duzlem basina gereken minimum satis satiri. */
 const MIN_LINES_PER_PLANE = 5;
@@ -61,10 +66,16 @@ const MAX_REL_DIFF = 0.5;
 
 // ==================== TIPLER ====================
 
+export const isPriceSnapshotCompleteForSuggestionWrites = (
+  _priceChunkTotal: number,
+  priceChunkFailures: number
+): boolean =>
+  Math.max(0, Math.trunc(Number(priceChunkFailures) || 0)) === 0;
+
 export type PriceListSource = 'MANUAL' | 'AUTO';
 
 export interface PriceListDisplaySide {
-  /** Dahili liste no (perakende 1-5, faturali 6-10) veya null (oneri yok). */
+  /** Registry'deki standart fiziksel liste no veya null (oneri yok). */
   listNo: number | null;
   /** Kullaniciya gosterilecek ad: "Faturali 3" / "Perakende 2". */
   label: string | null;
@@ -145,15 +156,10 @@ const createPlaneAggregate = (): PlaneAggregate => ({
 });
 
 /**
- * Dahili liste no -> gosterim adi.
- *   1..5  -> "Perakende 1".."Perakende 5"
- *   6..10 -> "Faturali 1".."Faturali 5"   (6 = Faturali 1 ... 10 = Faturali 5)
+ * Mikro fiziksel liste no -> registry gosterim adi.
  */
 export const getListLabel = (listNo: number | null | undefined): string | null => {
-  if (listNo === null || listNo === undefined || !Number.isInteger(listNo)) return null;
-  if (listNo >= 1 && listNo <= 5) return `Perakende ${listNo}`;
-  if (listNo >= 6 && listNo <= 10) return `Faturalı ${listNo - 5}`;
-  return null;
+  return getPriceListLabel(listNo);
 };
 
 /**
@@ -181,13 +187,17 @@ const assignNearestList = (
 };
 
 /**
- * Tutar-agirlikli medyan liste: listeler no'ya gore siralanir, kumulatif
+ * Tutar-agirlikli medyan liste: listeler ticari tier'a gore siralanir, kumulatif
  * agirlik toplam agirligin yarisina ulastigi listedeki deger secilir.
  */
 const weightedMedianList = (weightByList: Map<number, number>): number | null => {
   const entries = Array.from(weightByList.entries())
     .filter(([, weight]) => Number.isFinite(weight) && weight > 0)
-    .sort((a, b) => a[0] - b[0]);
+    .sort((a, b) => {
+      const tierA = getPriceListDefinition(a[0])?.tier ?? Number.MAX_SAFE_INTEGER;
+      const tierB = getPriceListDefinition(b[0])?.tier ?? Number.MAX_SAFE_INTEGER;
+      return tierA - tierB;
+    });
   if (entries.length === 0) return null;
   const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
   if (total <= 0) return null;
@@ -238,8 +248,8 @@ class PriceListSuggestionService {
    *  1) Aktif, mikroCariCode dolu CUSTOMER kullanicilari cek.
    *  2) Cari kodlarini 100'erli chunk'larla Mikro'dan son 12 ay satis satirlarini
    *     oku (chunk basina TOP 50000 guard, en yeni satirlar oncelikli).
-   *  3) Gecen distinct stok kodlarinin 10 liste fiyatini bulk cek (500'erli IN).
-   *  4) Her satiri kendi KDV duzlemindeki (faturali: 6-10, beyaz: 1-5) en yakin
+   *  3) Gecen distinct stok kodlarinin standart liste fiyatlarini bulk cek.
+   *  4) Her satiri kendi KDV duzlemindeki en yakin standart
    *     listeye ata; cari basina tutar-agirlikli dagilimdan agirlikli medyan al.
    *  5) Duzlem basina < MIN_LINES_PER_PLANE satir varsa o duzlemin onerisi null.
    *  6) Sonuclari 20'serli paralel chunk'larla User tablosuna yaz.
@@ -356,7 +366,7 @@ class PriceListSuggestionService {
       return { processed: 0, suggested: 0 };
     }
 
-    // ---- 2. adim: gecen urunlerin 10 liste fiyatini bulk cek ----
+    // ---- 2. adim: gecen urunlerin standart liste fiyatlarini bulk cek ----
     // listPriceMap: stok kodu -> (listesirano -> fiyat)
     const listPriceMap = new Map<string, Map<number, number>>();
     let priceChunkTotal = 0;
@@ -370,20 +380,37 @@ class PriceListSuggestionService {
           SELECT
             UPPER(LTRIM(RTRIM(sfiyat_stokkod))) AS productCode,
             sfiyat_listesirano AS listNo,
-            CAST(ISNULL(sfiyat_fiyati, 0) AS FLOAT) AS price
+            CAST(ISNULL(sfiyat_fiyati, 0) AS FLOAT) AS price,
+            COUNT(*) OVER (
+              PARTITION BY
+                UPPER(LTRIM(RTRIM(sfiyat_stokkod))),
+                sfiyat_listesirano
+            ) AS candidateCount
           FROM STOK_SATIS_FIYAT_LISTELERI WITH (NOLOCK)
-          WHERE sfiyat_listesirano BETWEEN 1 AND 10
+          WHERE sfiyat_listesirano IN (${STANDARD_PRICE_LIST_NOS.join(', ')})
             AND sfiyat_deposirano = 0
             AND sfiyat_doviz = 0
             AND sfiyat_odemeplan = 0
             AND sfiyat_iptal = 0
+            AND ISNULL(sfiyat_hidden, 0) = 0
             AND UPPER(LTRIM(RTRIM(sfiyat_stokkod))) IN (${inClause})
         `);
-        for (const row of Array.isArray(priceRows) ? priceRows : []) {
+        const normalizedPriceRows = Array.isArray(priceRows) ? priceRows : [];
+        const duplicate = normalizedPriceRows.find(
+          (row: any) => Number(row?.candidateCount || 0) > 1
+        );
+        if (duplicate) {
+          throw new Error(
+            `${String(duplicate.productCode || '').trim()} stokunun ` +
+              `${Number(duplicate.listNo)} numarali listesinde birden fazla ` +
+              'aktif canonical fiyat satiri var.'
+          );
+        }
+        for (const row of normalizedPriceRows) {
           const code = String(row?.productCode || '').trim().toUpperCase();
           const listNo = Number(row?.listNo);
           const price = Number(row?.price);
-          if (!code || !Number.isInteger(listNo) || listNo < 1 || listNo > 10) continue;
+          if (!code || !Number.isInteger(listNo) || !isStandardPriceListNo(listNo)) continue;
           if (!Number.isFinite(price) || price <= 0) continue; // 0/null liste fiyati atlanir
           if (!listPriceMap.has(code)) listPriceMap.set(code, new Map<number, number>());
           listPriceMap.get(code)!.set(listNo, price);
@@ -397,22 +424,24 @@ class PriceListSuggestionService {
       }
     }
 
-    // Liste fiyatlari TAMAMEN cekilemediyse hicbir satir listeye atanamaz ve tum
-    // cariler yanlislikla "liste eslesmesi yok" olarak yazilir; erken don.
-    if (priceChunkTotal > 0 && priceChunkFailures === priceChunkTotal) {
+    // Oneri yazimi tum fiyat snapshotinin ayni kosuda eksiksiz okunmasini
+    // gerektirir. Tek bir fiyat chunk'i bile basarisizsa (baglanti, sorgu veya
+    // duplicate-integrity hatasi) kalan carileri eksik urun/fiyat dagilimiyla
+    // guncellemek guvenli degildir; mevcut onerilerin tamamini koru.
+    if (!isPriceSnapshotCompleteForSuggestionWrites(priceChunkTotal, priceChunkFailures)) {
       console.error(
-        `Price list suggestion: TUM liste fiyati chunk sorgulari basarisiz (${priceChunkFailures}/${priceChunkTotal}); mevcut oneriler korunuyor, yazma yapilmadi.`
+        `Price list suggestion: fiyat snapshoti eksik (${priceChunkFailures}/${priceChunkTotal} chunk basarisiz); mevcut onerilerin tamami korunuyor, yazma yapilmadi.`
       );
       return { processed: 0, suggested: 0 };
     }
 
     // ---- 3. adim: satirlari duzlemine gore en yakin listeye ata ----
     for (const line of saleLines) {
-      // KDV duzlemi: satirda KDV varsa faturali (listeler 6-10), yoksa beyaz (1-5).
+      // KDV duzlemi: satirda KDV varsa faturali, yoksa beyaz/perakende.
       // sth_tutar KDV-haric oldugu icin iki durumda da birim fiyat liste ile ayni
       // duzlemdedir (dosya basindaki KDV DUZLEMI NOTU'na bak).
       const isInvoiced = line.vatAmount > 0;
-      const candidates = isInvoiced ? INVOICED_LIST_NOS : RETAIL_LIST_NOS;
+      const candidates = isInvoiced ? INVOICED_PRICE_LIST_NOS : RETAIL_PRICE_LIST_NOS;
       const assigned = assignNearestList(line.unitPrice, candidates, listPriceMap.get(line.productCode));
       if (!assigned) continue;
 
@@ -502,8 +531,8 @@ class PriceListSuggestionService {
    * manuel deger "manuel belirlenen oneri" olarak gosterilir.
    *
    * Kurallar:
-   *  - manualInvoicedListNo: 6-10 arasi tamsayi (Faturali 1-5) veya null.
-   *  - manualRetailListNo: 1-5 arasi tamsayi (Perakende 1-5) veya null.
+   *  - manualInvoicedListNo: registry'deki standart faturali liste veya null.
+   *  - manualRetailListNo: registry'deki standart perakende liste veya null.
    *  - Tum alanlar null ise manuel tanim TEMIZLENIR (setAt/setByName da null olur).
    */
   async setManual(
@@ -520,20 +549,26 @@ class PriceListSuggestionService {
 
     if (
       manualInvoicedListNo !== null &&
-      (!Number.isInteger(manualInvoicedListNo) || manualInvoicedListNo < 6 || manualInvoicedListNo > 10)
+      (
+        !Number.isInteger(manualInvoicedListNo) ||
+        !isPriceListInPlane(manualInvoicedListNo, 'INVOICED')
+      )
     ) {
       throw new AppError(
-        'Manuel faturalı liste 6-10 arası olmalıdır (6 = Faturalı 1 ... 10 = Faturalı 5).',
+        'Manuel faturalı liste geçerli bir standart faturalı liste olmalıdır.',
         400,
         ErrorCode.VALIDATION_ERROR
       );
     }
     if (
       manualRetailListNo !== null &&
-      (!Number.isInteger(manualRetailListNo) || manualRetailListNo < 1 || manualRetailListNo > 5)
+      (
+        !Number.isInteger(manualRetailListNo) ||
+        !isPriceListInPlane(manualRetailListNo, 'RETAIL')
+      )
     ) {
       throw new AppError(
-        'Manuel perakende liste 1-5 arası olmalıdır (Perakende 1-5).',
+        'Manuel perakende liste geçerli bir standart perakende liste olmalıdır.',
         400,
         ErrorCode.VALIDATION_ERROR
       );

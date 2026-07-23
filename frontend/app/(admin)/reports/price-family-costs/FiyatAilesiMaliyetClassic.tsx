@@ -193,7 +193,7 @@ export default function FiyatAilesiMaliyetClassic() {
         <Card>
           <CardHeader>
             <CardTitle>Aileler</CardTitle>
-            <CardDescription>Detay acarak stok bazinda maliyet ve 10 fiyat listesini guncelleyebilirsiniz.</CardDescription>
+            <CardDescription>Detay acarak stok bazinda maliyet ve 12 ana fiyat listesini guncelleyebilirsiniz.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto rounded-md border bg-white">
@@ -435,7 +435,7 @@ export default function FiyatAilesiMaliyetClassic() {
                                     setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: event.target.checked }))
                                   }
                                 />
-                                10 liste
+                                12 standart liste
                               </label>
                             </div>
                           </td>
@@ -468,7 +468,7 @@ export default function FiyatAilesiMaliyetClassic() {
                         <div>{formatCurrency(log.previousCost)} {'->'} {formatCurrency(log.newCost)}</div>
                         <div>{formatDate(log.previousCostDate)} {'->'} {formatDate(log.newCostDate)}</div>
                         <div className="text-gray-500">
-                          {new Date(log.createdAt).toLocaleString('tr-TR')} {log.updatePriceLists ? '/ 10 liste' : ''}
+                          {new Date(log.createdAt).toLocaleString('tr-TR')} {log.updatePriceLists ? '/ 12 standart liste' : ''}
                         </div>
                       </div>
                     ))}

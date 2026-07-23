@@ -15,8 +15,18 @@ import priceListService from './price-list.service';
 import pricingService from './pricing.service';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
+import { parseTier6Cutover } from '../utils/tier6-cutover';
+import {
+  CAMPAIGN_PRICE_LIST_NOS,
+  getPriceListDefinition,
+  getPriceListLabel,
+  LEGACY_STANDARD_PRICE_LIST_NOS,
+  STANDARD_PRICE_LIST_DEFINITIONS,
+  STANDARD_PRICE_LIST_NOS,
+} from '../config/price-list-registry';
 import { createHash, randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
+import * as sql from 'mssql';
 
 interface CostUpdateAlert {
   productCode: string;
@@ -134,8 +144,13 @@ interface PriceChange {
   category: string;
   changeDate: Date;
   priceChanges: PriceListChange[];
-  isConsistent: boolean; // true if all 10 lists changed on same date
+  consistencyApplicable: boolean;
+  isConsistent: boolean;
+  /** Backward-compatible count of standard lists only. */
   updatedListsCount: number;
+  updatedStandardListsCount: number;
+  expectedStandardListCount: number;
+  updatedCampaignLists: number[];
   missingLists: number[];
   avgChangePercent: number;
   changeDirection: 'increase' | 'decrease' | 'mixed';
@@ -147,6 +162,7 @@ interface PriceHistoryResponse {
     totalChanges: number;
     consistentChanges: number;
     inconsistentChanges: number;
+    consistencyNotApplicableChanges: number;
     inconsistencyRate: number;
     avgIncreasePercent: number;
     avgDecreasePercent: number;
@@ -2077,6 +2093,51 @@ export const marginReportTestUtils = {
 export class ReportsService {
   private ucarerMinMaxJob: UcarerMinMaxJobState | null = null;
 
+  private async assertStandardPriceUserColumns(): Promise<void> {
+    const requiredColumns = [
+      'MaliyetP',
+      'MaliyetT',
+      'Marj_1',
+      'Marj_2',
+      'Marj_3',
+      'Marj_4',
+      'Marj_5',
+      'Marj_6',
+    ];
+    let rows: any[];
+    try {
+      rows = await mikroService.executeQuery(`
+        SELECT COLUMN_NAME AS columnName
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo'
+          AND TABLE_NAME = N'STOKLAR_USER'
+          AND COLUMN_NAME IN (${requiredColumns.map((column) => `N'${column}'`).join(', ')})
+      `);
+    } catch (error: any) {
+      throw new AppError(
+        this.normalizeMikroErrorMessage(error, 'Mikro fiyat alani metadata kontrolu tamamlanamadi.'),
+        502,
+        ErrorCode.MIKRO_CONNECTION_ERROR
+      );
+    }
+
+    const availableColumns = new Set(
+      (rows || [])
+        .map((row: any) => String(row?.columnName ?? row?.COLUMN_NAME ?? '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const missingColumns = requiredColumns.filter(
+      (column) => !availableColumns.has(column.toLowerCase())
+    );
+    if (missingColumns.length > 0) {
+      throw new AppError(
+        `Fiyat listeleri guncellenemez: Mikro STOKLAR_USER kolonlari eksik (${missingColumns.join(', ')}).`,
+        409,
+        ErrorCode.INVALID_PROFIT_MARGIN
+      );
+    }
+  }
+
   private normalizeMikroErrorMessage(error: any, fallback: string): string {
     const rawMessage = String(error?.message || '').trim();
     const code = String(error?.code || '').trim();
@@ -3751,9 +3812,10 @@ export class ReportsService {
    * Fiyat GeÃ§miÅŸi Raporu
    *
    * Mikro'daki STOK_FIYAT_DEGISIKLIKLERI tablosundan tÃ¼m fiyat deÄŸiÅŸikliklerini listeler.
-   * Ã–nemli: Her Ã¼rÃ¼nÃ¼n 10 fiyat listesi olmalÄ± ve hepsi aynÄ± gÃ¼n gÃ¼ncellenmelidir.
-   * - Liste 1-5: Perakende (KDV Dahil Maliyet Ã— Marj_{1-5})
-   * - Liste 6-10: FaturalÄ± (KDV HariÃ§ Maliyet Ã— Marj_{1-5})
+   * Standart fiyat listeleri ayni gunde birlikte guncellenmelidir.
+   * Kampanya listeleri 11/12 bu tutarlilik kontrolune dahil edilmez.
+   * Gecis tarihi PRICE_LIST_TIER6_CUTOVER_DATE ile sabitlenene kadar, 13/14
+   * iceren gruplar yeni 12-listelik; diger gruplar eski 10-listelik setle okunur.
    */
   async getPriceHistory(options: {
     startDate?: string;
@@ -3788,68 +3850,139 @@ export class ReportsService {
 
     await mikroService.connect();
 
-    // Liste isimleri
-    const priceListNames: { [key: number]: string } = {
-      1: 'Perakende 1',
-      2: 'Perakende 2',
-      3: 'Perakende 3',
-      4: 'Perakende 4',
-      5: 'Perakende 5',
-      6: 'FaturalÄ± 1',
-      7: 'FaturalÄ± 2',
-      8: 'FaturalÄ± 3',
-      9: 'FaturalÄ± 4',
-      10: 'FaturalÄ± 5',
-    };
+    let tier6MikroCutoverDate: Date;
+    try {
+      tier6MikroCutoverDate = parseTier6Cutover(
+        process.env.PRICE_LIST_TIER6_CUTOVER_DATE
+      ).mikroWallClock;
+    } catch {
+      throw new AppError(
+        'Fiyat listesi 6 gecis tarihi yapilandirilmamis. PRICE_LIST_TIER6_CUTOVER_DATE zorunludur.',
+        503,
+        ErrorCode.REPORT_DATA_NOT_READY
+      );
+    }
 
     // 1. Fiyat deÄŸiÅŸikliklerini Ã§ek
-    let whereConditions = ['1=1'];
+    const whereConditions = ['1=1'];
+    const request = mikroService.pool!.request();
+    const productTokens = buildSearchTokens(productName);
+    const categoryTokens = buildSearchTokens(category);
 
     if (startDate) {
-      whereConditions.push(`fid_tarih >= '${startDate}'`);
+      whereConditions.push('fid_tarih >= @startDate');
+      request.input('startDate', sql.NVarChar(30), String(startDate).trim());
     }
     if (endDate) {
-      whereConditions.push(`fid_tarih <= '${endDate}'`);
+      whereConditions.push('fid_tarih <= @endDate');
+      request.input('endDate', sql.NVarChar(30), String(endDate).trim());
     }
     if (productCode) {
-      whereConditions.push(`fid_stok_kod LIKE '%${productCode}%'`);
+      whereConditions.push('fid_stok_kod LIKE @productCode');
+      request.input('productCode', sql.NVarChar(255), `%${String(productCode).trim()}%`);
     }
-    if (priceListNo) {
-      whereConditions.push(`fid_fiyat_no = ${priceListNo}`);
+    for (let index = 0; index < productTokens.length; index += 1) {
+      const parameterName = `productNameToken${index}`;
+      whereConditions.push(
+        `REPLACE(REPLACE(ISNULL(s.sto_isim, N''), N'ı', N'i'), N'I', N'i') ` +
+          `COLLATE Latin1_General_100_CI_AI LIKE @${parameterName}`
+      );
+      request.input(parameterName, sql.NVarChar(255), `%${productTokens[index]}%`);
+    }
+    for (let index = 0; index < categoryTokens.length; index += 1) {
+      const parameterName = `categoryToken${index}`;
+      whereConditions.push(
+        `N'Kategori Yok' COLLATE Latin1_General_100_CI_AI LIKE @${parameterName}`
+      );
+      request.input(parameterName, sql.NVarChar(255), `%${categoryTokens[index]}%`);
+    }
+    if (priceListNo !== undefined) {
+      if (!Number.isInteger(priceListNo)) {
+        throw new AppError(
+          'Gecersiz fiyat listesi numarasi',
+          400,
+          ErrorCode.VALIDATION_ERROR
+        );
+      }
+      whereConditions.push('fid_fiyat_no = @priceListNo');
+      request.input('priceListNo', sql.Int, priceListNo);
     }
 
     const whereClause = whereConditions.join(' AND ');
 
+    const outerPriceListFilter =
+      priceListNo === undefined ? '' : 'AND f.fid_fiyat_no = @priceListNo';
     const priceChangesQuery = `
-      SELECT TOP 10000
+      WITH LimitedRows AS (
+        SELECT TOP 10000
+          f.fid_stok_kod,
+          f.fid_tarih,
+          COUNT_BIG(*) OVER() AS totalMatchedRowCount
+        FROM STOK_FIYAT_DEGISIKLIKLERI f
+        LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
+        WHERE ${whereClause}
+          AND f.fid_eskifiy_tutar != f.fid_yenifiy_tutar
+          AND s.sto_pasif_fl = 0
+        ORDER BY f.fid_tarih DESC, f.fid_stok_kod, f.fid_fiyat_no
+      ),
+      BatchKeys AS (
+        SELECT DISTINCT fid_stok_kod, fid_tarih
+        FROM LimitedRows
+      ),
+      LimitState AS (
+        SELECT MAX(totalMatchedRowCount) AS totalMatchedRowCount
+        FROM LimitedRows
+      )
+      SELECT
         f.fid_stok_kod,
         f.fid_tarih,
         f.fid_fiyat_no,
         f.fid_eskifiy_tutar,
         f.fid_yenifiy_tutar,
         s.sto_isim,
-        'Kategori Yok' as kategori
+        'Kategori Yok' as kategori,
+        limitState.totalMatchedRowCount
       FROM STOK_FIYAT_DEGISIKLIKLERI f
+      INNER JOIN BatchKeys batch
+        ON batch.fid_stok_kod = f.fid_stok_kod
+       AND batch.fid_tarih = f.fid_tarih
+      CROSS JOIN LimitState limitState
       LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
-      
-      WHERE ${whereClause}
-        AND f.fid_eskifiy_tutar != f.fid_yenifiy_tutar
+      WHERE f.fid_eskifiy_tutar != f.fid_yenifiy_tutar
         AND s.sto_pasif_fl = 0
+        ${outerPriceListFilter}
       ORDER BY f.fid_tarih DESC, f.fid_stok_kod, f.fid_fiyat_no
     `;
 
-    const rawChanges = await mikroService.executeQuery(priceChangesQuery);
+    const rawChanges: any[] = Array.from(
+      (await request.query<any>(priceChangesQuery)).recordset
+    );
+    const totalMatchedRowCount = Number(
+      rawChanges[0]?.totalMatchedRowCount || 0
+    );
+    if (totalMatchedRowCount > 10000) {
+      await mikroService.disconnect();
+      throw new AppError(
+        `Fiyat gecmisi sorgusu ${totalMatchedRowCount} ham satir eslestirdi. ` +
+          'Eksik rapor gostermemek icin tarih veya urun filtresini daraltin.',
+        422,
+        ErrorCode.VALIDATION_ERROR,
+        {
+          matchedRowCount: totalMatchedRowCount,
+          maximumRows: 10000,
+        }
+      );
+    }
 
-    // 2. ÃœrÃ¼n adÄ± filtresi (SQL'de LIKE performans sorunu olabilir, sonradan filtrele)
+    // 2. SQL'deki TOP sinirindan once kaba token filtresi uygulandi. Buradaki
+    // normalizeSearchText kontrolu ayni adaylari uygulama semantigiyle kesinlestirir.
     let filteredChanges = rawChanges;
-    const productTokens = buildSearchTokens(productName);
     if (productTokens.length > 0) {
       filteredChanges = rawChanges.filter((c: any) => {
         const haystack = normalizeSearchText(c.sto_isim || '');
         return matchesSearchTokens(haystack, productTokens);
       });
     }
-    const categoryTokens = buildSearchTokens(category);
     if (categoryTokens.length > 0) {
       filteredChanges = filteredChanges.filter((c: any) => {
         const haystack = normalizeSearchText(c.kategori || '');
@@ -3873,7 +4006,9 @@ export class ReportsService {
     } = {};
 
     for (const change of filteredChanges) {
-      const key = `${change.fid_stok_kod}_${change.fid_tarih.toISOString().split('T')[0]}`;
+      // Mikro writes one timestamp for a batch. Calendar-day grouping merged
+      // unrelated batches from the same product and created false consistency.
+      const key = `${change.fid_stok_kod}_${change.fid_tarih.toISOString()}`;
 
       if (!groupedByProductAndDate[key]) {
         groupedByProductAndDate[key] = {
@@ -3898,11 +4033,27 @@ export class ReportsService {
     for (const key in groupedByProductAndDate) {
       const group = groupedByProductAndDate[key];
 
-      // Consistency check: 10 liste de gÃ¼ncellenmiÅŸ mi?
-      const updatedLists = group.changes.map(c => c.listNo);
-      const isConsistent = updatedLists.length === 10;
-      const missingLists = Array.from({ length: 10 }, (_, i) => i + 1)
-        .filter(n => !updatedLists.includes(n));
+      const updatedLists = Array.from(new Set(group.changes.map((change) => change.listNo)));
+      const updatedStandardLists = updatedLists.filter((listNo) =>
+        (STANDARD_PRICE_LIST_NOS as readonly number[]).includes(listNo)
+      );
+      const updatedCampaignLists = updatedLists.filter((listNo) =>
+        (CAMPAIGN_PRICE_LIST_NOS as readonly number[]).includes(listNo)
+      );
+      const usesTier6Set =
+        group.changeDate.getTime() >= tier6MikroCutoverDate.getTime();
+      const expectedLists = usesTier6Set
+        ? STANDARD_PRICE_LIST_NOS
+        : LEGACY_STANDARD_PRICE_LIST_NOS;
+      const consistencyApplicable =
+        priceListNo === undefined && updatedStandardLists.length > 0;
+      const missingLists = consistencyApplicable
+        ? expectedLists.filter(
+            (listNo) => !updatedStandardLists.includes(listNo)
+          )
+        : [];
+      const isConsistent =
+        consistencyApplicable && missingLists.length === 0;
 
       // PriceListChange'leri oluÅŸtur
       const priceListChanges: PriceListChange[] = group.changes.map(c => {
@@ -3913,23 +4064,27 @@ export class ReportsService {
 
         return {
           listNo: c.listNo,
-          listName: priceListNames[c.listNo] || `Liste ${c.listNo}`,
+          listName: getPriceListLabel(c.listNo) || `Liste ${c.listNo}`,
           oldPrice: c.oldPrice,
           newPrice: c.newPrice,
           changeAmount,
           changePercent,
         };
       });
+      const standardPriceListChanges = priceListChanges.filter((change) =>
+        (STANDARD_PRICE_LIST_NOS as readonly number[]).includes(change.listNo)
+      );
 
-      // Ortalama deÄŸiÅŸim yÃ¼zdesi
-      const avgChangePercent = priceListChanges.length > 0
-        ? priceListChanges.reduce((sum, c) => sum + c.changePercent, 0) / priceListChanges.length
+      // Standard KPI'lar kampanya 11/12 satirlarini bilerek disarida tutar.
+      const avgChangePercent = standardPriceListChanges.length > 0
+        ? standardPriceListChanges.reduce((sum, c) => sum + c.changePercent, 0) /
+          standardPriceListChanges.length
         : 0;
 
       // DeÄŸiÅŸim yÃ¶nÃ¼
       let direction: 'increase' | 'decrease' | 'mixed' = 'mixed';
-      const increases = priceListChanges.filter(c => c.changeAmount > 0).length;
-      const decreases = priceListChanges.filter(c => c.changeAmount < 0).length;
+      const increases = standardPriceListChanges.filter(c => c.changeAmount > 0).length;
+      const decreases = standardPriceListChanges.filter(c => c.changeAmount < 0).length;
 
       if (increases > 0 && decreases === 0) {
         direction = 'increase';
@@ -3943,8 +4098,12 @@ export class ReportsService {
         category: group.category,
         changeDate: group.changeDate,
         priceChanges: priceListChanges,
+        consistencyApplicable,
         isConsistent,
-        updatedListsCount: updatedLists.length,
+        updatedListsCount: updatedStandardLists.length,
+        updatedStandardListsCount: updatedStandardLists.length,
+        expectedStandardListCount: expectedLists.length,
+        updatedCampaignLists,
         missingLists,
         avgChangePercent,
         changeDirection: direction,
@@ -3958,9 +4117,9 @@ export class ReportsService {
 
     // Consistency filtresi
     if (consistencyStatus === 'consistent') {
-      filtered = filtered.filter(c => c.isConsistent);
+      filtered = filtered.filter(c => c.consistencyApplicable && c.isConsistent);
     } else if (consistencyStatus === 'inconsistent') {
-      filtered = filtered.filter(c => !c.isConsistent);
+      filtered = filtered.filter(c => c.consistencyApplicable && !c.isConsistent);
     }
 
     // DeÄŸiÅŸim yÃ¶nÃ¼ filtresi
@@ -4003,10 +4162,18 @@ export class ReportsService {
 
     // 7. Summary istatistikleri
     const totalChanges = filtered.length;
-    const consistentChanges = filtered.filter(c => c.isConsistent).length;
-    const inconsistentChanges = totalChanges - consistentChanges;
-    const inconsistencyRate = totalChanges > 0
-      ? (inconsistentChanges / totalChanges) * 100
+    const consistencyApplicableChanges = filtered.filter(
+      c => c.consistencyApplicable
+    );
+    const consistentChanges = consistencyApplicableChanges.filter(
+      c => c.isConsistent
+    ).length;
+    const inconsistentChanges =
+      consistencyApplicableChanges.length - consistentChanges;
+    const consistencyNotApplicableChanges =
+      totalChanges - consistencyApplicableChanges.length;
+    const inconsistencyRate = consistencyApplicableChanges.length > 0
+      ? (inconsistentChanges / consistencyApplicableChanges.length) * 100
       : 0;
 
     const increases = filtered.filter(c => c.avgChangePercent > 0);
@@ -4060,6 +4227,7 @@ export class ReportsService {
         totalChanges,
         consistentChanges,
         inconsistentChanges,
+        consistencyNotApplicableChanges,
         inconsistencyRate,
         avgIncreasePercent,
         avgDecreasePercent,
@@ -9835,6 +10003,25 @@ export class ReportsService {
     if (!Number.isFinite(costT) || costT <= 0) {
       throw new AppError('Gecerli bir Maliyet T girin.', 400, ErrorCode.BAD_REQUEST);
     }
+    // Marj_6 dahil gerekli custom alanlar canli metadata ile yazmadan once
+    // dogrulanir. Eksik semada maliyet yazip fiyatlari yarim birakmayiz.
+    await this.assertStandardPriceUserColumns();
+
+    const expectedPriceSqlValues = STANDARD_PRICE_LIST_DEFINITIONS
+      .map((definition) => {
+        const costVariable = definition.costBasis === 'MALIYET_T' ? '@costT' : '@costP';
+        return `(${definition.listNo}, ROUND(${costVariable} * @margin${definition.marginSlot}, 6))`;
+      })
+      .join(',\n              ');
+    const standardPriceListCount = STANDARD_PRICE_LIST_NOS.length;
+    const retailStandardListNos = STANDARD_PRICE_LIST_DEFINITIONS
+      .filter((definition) => definition.plane === 'RETAIL')
+      .map((definition) => definition.listNo)
+      .join(', ');
+    const invoicedStandardListNos = STANDARD_PRICE_LIST_DEFINITIONS
+      .filter((definition) => definition.plane === 'INVOICED')
+      .map((definition) => definition.listNo)
+      .join(', ');
 
     const shouldAuditPriceFamily = input.source === 'PRICE_FAMILY' || Boolean(input.priceFamilyId);
     const previousProduct = await prisma.product.findFirst({
@@ -9860,7 +10047,9 @@ export class ReportsService {
     try {
       // Maliyet ve fiyatlar tek SQL transaction'inda yazilir. Boylece fiyat
       // yaziminin herhangi bir adimi basarisizsa maliyet de geri alinir.
-      priceWriteRows = await mikroService.executeQuery(`
+      // A reconnect-level retry must not replay a write after an uncertain
+      // COMMIT. The caller can read back the same product and retry safely.
+      priceWriteRows = await mikroService.executeQueryOnce(`
         SET XACT_ABORT ON;
 
         BEGIN TRY
@@ -9878,6 +10067,9 @@ export class ReportsService {
           DECLARE @margin3 decimal(19,6);
           DECLARE @margin4 decimal(19,6);
           DECLARE @margin5 decimal(19,6);
+          DECLARE @margin6 decimal(19,6);
+          DECLARE @retailPriceUnitPointer tinyint = 0;
+          DECLARE @invoicedPriceUnitPointer tinyint = 0;
           DECLARE @expectedPrices TABLE (
             listNo int NOT NULL PRIMARY KEY,
             expectedPrice decimal(19,6) NOT NULL
@@ -9898,14 +10090,14 @@ export class ReportsService {
             SET @hasUserRow = 1;
 
           IF @updatePriceLists = 1 AND @hasUserRow = 0
-            THROW 51001, '10 liste guncellenemedi: stok kartinda Marj_1-Marj_5 kaydi yok.', 1;
+            THROW 51001, 'Standart fiyat listeleri guncellenemedi: stok kartinda Marj_1-Marj_6 kaydi yok.', 1;
 
           IF @hasUserRow = 0
           BEGIN
             INSERT INTO STOKLAR_USER
-              (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi)
+              (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, Marj_6, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi)
             VALUES
-              (@uid, GETDATE(), 0, 0, 0, '1', '1', '1', '1', '1', @costP, @costT, @todayText, @todayText, '', 0);
+              (@uid, GETDATE(), 0, 0, 0, '1', '1', '1', '1', '1', '1', @costP, @costT, @todayText, @todayText, '', 0);
           END
 
           IF @updatePriceLists = 1
@@ -9915,7 +10107,8 @@ export class ReportsService {
               @margin2 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_2))), ''), ',', '.')),
               @margin3 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_3))), ''), ',', '.')),
               @margin4 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_4))), ''), ',', '.')),
-              @margin5 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_5))), ''), ',', '.'))
+              @margin5 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_5))), ''), ',', '.')),
+              @margin6 = TRY_CONVERT(decimal(19,6), REPLACE(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), Marj_6))), ''), ',', '.'))
             FROM STOKLAR_USER WITH (UPDLOCK, HOLDLOCK)
             WHERE Record_uid = @uid;
 
@@ -9924,23 +10117,15 @@ export class ReportsService {
               OR @margin3 IS NULL OR @margin3 <= 0
               OR @margin4 IS NULL OR @margin4 <= 0
               OR @margin5 IS NULL OR @margin5 <= 0
-              THROW 51001, '10 liste guncellenemedi: Marj_1-Marj_5 alanlarinin tumu sifirdan buyuk ve sayisal olmali.', 1;
+              OR @margin6 IS NULL OR @margin6 <= 0
+              THROW 51001, 'Standart fiyat listeleri guncellenemedi: Marj_1-Marj_6 alanlarinin tumu sifirdan buyuk ve sayisal olmali.', 1;
 
             INSERT INTO @expectedPrices (listNo, expectedPrice)
             VALUES
-              (1, ROUND(@costT * @margin1, 6)),
-              (2, ROUND(@costT * @margin2, 6)),
-              (3, ROUND(@costT * @margin3, 6)),
-              (4, ROUND(@costT * @margin4, 6)),
-              (5, ROUND(@costT * @margin5, 6)),
-              (6, ROUND(@costP * @margin1, 6)),
-              (7, ROUND(@costP * @margin2, 6)),
-              (8, ROUND(@costP * @margin3, 6)),
-              (9, ROUND(@costP * @margin4, 6)),
-              (10, ROUND(@costP * @margin5, 6));
+              ${expectedPriceSqlValues};
 
-            IF (SELECT COUNT(*) FROM @expectedPrices WHERE expectedPrice > 0) <> 10
-              THROW 51001, '10 liste guncellenemedi: hesaplanan fiyatlardan biri gecersiz.', 1;
+            IF (SELECT COUNT(*) FROM @expectedPrices WHERE expectedPrice > 0) <> ${standardPriceListCount}
+              THROW 51001, 'Standart fiyat listeleri guncellenemedi: hesaplanan fiyatlardan biri gecersiz.', 1;
           END
 
           UPDATE STOKLAR
@@ -9959,6 +10144,69 @@ export class ReportsService {
 
           IF @updatePriceLists = 1
           BEGIN
+            IF EXISTS (
+              SELECT pricePlane
+              FROM (
+                SELECT
+                  CASE
+                    WHEN target.sfiyat_listesirano IN (${retailStandardListNos})
+                      THEN N'RETAIL'
+                    ELSE N'INVOICED'
+                  END AS pricePlane,
+                  target.sfiyat_birim_pntr
+                FROM STOK_SATIS_FIYAT_LISTELERI target
+                INNER JOIN @expectedPrices expected
+                  ON target.sfiyat_listesirano = expected.listNo
+                WHERE RTRIM(target.sfiyat_stokkod) = @productCode
+                  AND target.sfiyat_deposirano = 0
+                  AND target.sfiyat_doviz = 0
+                  AND target.sfiyat_odemeplan = 0
+                  AND target.sfiyat_iptal = 0
+                  AND ISNULL(target.sfiyat_hidden, 0) = 0
+              ) unit_candidates
+              GROUP BY pricePlane
+              HAVING COUNT(DISTINCT sfiyat_birim_pntr) > 1
+            )
+              THROW 51002, 'Stok fiyat listelerinde ayni duzlem icin birim pointer belirsiz.', 1;
+
+            SELECT TOP 1 @retailPriceUnitPointer = sfiyat_birim_pntr
+            FROM STOK_SATIS_FIYAT_LISTELERI
+            WHERE RTRIM(sfiyat_stokkod) = @productCode
+              AND sfiyat_listesirano IN (${retailStandardListNos})
+              AND sfiyat_deposirano = 0
+              AND sfiyat_doviz = 0
+              AND sfiyat_odemeplan = 0
+              AND sfiyat_iptal = 0
+              AND ISNULL(sfiyat_hidden, 0) = 0
+            ORDER BY sfiyat_listesirano;
+
+            SELECT TOP 1 @invoicedPriceUnitPointer = sfiyat_birim_pntr
+            FROM STOK_SATIS_FIYAT_LISTELERI
+            WHERE RTRIM(sfiyat_stokkod) = @productCode
+              AND sfiyat_listesirano IN (${invoicedStandardListNos})
+              AND sfiyat_deposirano = 0
+              AND sfiyat_doviz = 0
+              AND sfiyat_odemeplan = 0
+              AND sfiyat_iptal = 0
+              AND ISNULL(sfiyat_hidden, 0) = 0
+            ORDER BY sfiyat_listesirano;
+
+            IF EXISTS (
+              SELECT target.sfiyat_listesirano
+              FROM STOK_SATIS_FIYAT_LISTELERI target
+              INNER JOIN @expectedPrices expected
+                ON target.sfiyat_listesirano = expected.listNo
+              WHERE RTRIM(target.sfiyat_stokkod) = @productCode
+                AND target.sfiyat_deposirano = 0
+                AND target.sfiyat_doviz = 0
+                AND target.sfiyat_odemeplan = 0
+                AND target.sfiyat_iptal = 0
+                AND ISNULL(target.sfiyat_hidden, 0) = 0
+              GROUP BY target.sfiyat_listesirano
+              HAVING COUNT(*) > 1
+            )
+              THROW 51002, 'Standart fiyat listesinde birden fazla aktif canonical satir var.', 1;
+
             UPDATE target
             SET
               target.sfiyat_fiyati = expected.expectedPrice,
@@ -9972,14 +10220,20 @@ export class ReportsService {
               AND target.sfiyat_deposirano = 0
               AND target.sfiyat_doviz = 0
               AND target.sfiyat_odemeplan = 0
-              AND target.sfiyat_iptal = 0;
+              AND target.sfiyat_iptal = 0
+              AND ISNULL(target.sfiyat_hidden, 0) = 0;
 
             INSERT INTO STOK_SATIS_FIYAT_LISTELERI
               (sfiyat_Guid, sfiyat_DBCno, sfiyat_SpecRECno, sfiyat_iptal, sfiyat_fileid, sfiyat_hidden, sfiyat_kilitli, sfiyat_degisti, sfiyat_checksum, sfiyat_create_user, sfiyat_create_date,
                sfiyat_lastup_user, sfiyat_lastup_date, sfiyat_special1, sfiyat_special2, sfiyat_special3, sfiyat_stokkod, sfiyat_listesirano, sfiyat_deposirano, sfiyat_odemeplan, sfiyat_birim_pntr,
                sfiyat_fiyati, sfiyat_doviz, sfiyat_iskontokod, sfiyat_deg_nedeni, sfiyat_primyuzdesi, sfiyat_kampanyakod, sfiyat_doviz_kuru)
             SELECT
-              NEWID(), 0, 0, 0, 0, 0, 0, 1, 0, 1, GETDATE(), 1, GETDATE(), '', '', '', @productCode, expected.listNo, 0, 0, 0,
+              NEWID(), 0, 0, 0, 0, 0, 0, 1, 0, 1, GETDATE(), 1, GETDATE(), '', '', '', @productCode, expected.listNo, 0, 0,
+              CASE
+                WHEN expected.listNo IN (${retailStandardListNos})
+                  THEN @retailPriceUnitPointer
+                ELSE @invoicedPriceUnitPointer
+              END,
               expected.expectedPrice, 0, '', 0, 0, '', 0
             FROM @expectedPrices expected
             WHERE NOT EXISTS (
@@ -9991,6 +10245,7 @@ export class ReportsService {
                 AND existing.sfiyat_doviz = 0
                 AND existing.sfiyat_odemeplan = 0
                 AND existing.sfiyat_iptal = 0
+                AND ISNULL(existing.sfiyat_hidden, 0) = 0
             );
 
             IF EXISTS (
@@ -10005,10 +10260,11 @@ export class ReportsService {
                   AND actual.sfiyat_doviz = 0
                   AND actual.sfiyat_odemeplan = 0
                   AND actual.sfiyat_iptal = 0
+                  AND ISNULL(actual.sfiyat_hidden, 0) = 0
                   AND ABS(CAST(actual.sfiyat_fiyati AS float) - CAST(expected.expectedPrice AS float)) <= 0.005
               )
             )
-              THROW 51002, 'Mikro fiyat dogrulamasi basarisiz: 10 listenin tamami yazilamadi.', 1;
+              THROW 51002, 'Mikro fiyat dogrulamasi basarisiz: standart listelerin tamami yazilamadi.', 1;
           END
 
           COMMIT TRANSACTION;
@@ -10029,6 +10285,7 @@ export class ReportsService {
               AND sfiyat_doviz = 0
               AND sfiyat_odemeplan = 0
               AND sfiyat_iptal = 0
+              AND ISNULL(sfiyat_hidden, 0) = 0
             ORDER BY sfiyat_lastup_date DESC, sfiyat_create_date DESC
           ) actual
           ORDER BY expected.listNo;
@@ -10079,15 +10336,18 @@ export class ReportsService {
         affected: Number(row?.affected || 0),
         verified: Boolean(row?.verified),
       }))
-      .filter((row) => row.listNo >= 1 && row.listNo <= 10);
+      .filter((row) => STANDARD_PRICE_LIST_NOS.includes(row.listNo as any));
     const verifiedListNos = new Set(
       updatedLists.filter((row) => row.verified).map((row) => row.listNo)
     );
     const missingLists = updatePriceLists
-      ? Array.from({ length: 10 }, (_, idx) => idx + 1).filter((listNo) => !verifiedListNos.has(listNo))
+      ? STANDARD_PRICE_LIST_NOS.filter((listNo) => !verifiedListNos.has(listNo))
       : [];
 
-    if (updatePriceLists && (updatedLists.length !== 10 || missingLists.length > 0)) {
+    if (
+      updatePriceLists &&
+      (updatedLists.length !== STANDARD_PRICE_LIST_NOS.length || missingLists.length > 0)
+    ) {
       await this.logUcarerOperation({
         operationType: 'COST_UPDATE_FAILED',
         title: 'Mikro fiyat listesi sonucu dogrulanamadi',
@@ -10108,20 +10368,61 @@ export class ReportsService {
       );
     }
 
-    await prisma.product.updateMany({
-      where: { mikroCode: productCode },
-      data: {
-        currentCost: costP,
-        currentCostDate: newCostDate,
-      },
-    });
+    const postgresSyncOperations: Prisma.PrismaPromise<any>[] = [
+      prisma.product.updateMany({
+        where: { mikroCode: productCode },
+        data: {
+          currentCost: costP,
+          currentCostDate: newCostDate,
+        },
+      }),
+    ];
+    if (updatePriceLists) {
+      for (const row of updatedLists) {
+        const definition = getPriceListDefinition(row.listNo);
+        if (!definition || definition.kind !== 'STANDARD' || !row.verified) continue;
+        const baseCost = definition.costBasis === 'MALIYET_T' ? costT : costP;
+        const currentMargin =
+          row.actualValue > 0 && baseCost > 0
+            ? Math.round(((row.actualValue - baseCost) / row.actualValue) * 100 * 10000) / 10000
+            : null;
+        postgresSyncOperations.push(
+          prisma.productPriceListCurrent.upsert({
+            where: {
+              productCode_priceListNo: {
+                productCode,
+                priceListNo: row.listNo,
+              },
+            },
+            create: {
+              productCode,
+              priceListNo: row.listNo,
+              currentPrice: row.actualValue,
+              currentCost: baseCost,
+              currentMargin,
+              syncedAt: newCostDate,
+            },
+            update: {
+              currentPrice: row.actualValue,
+              currentCost: baseCost,
+              currentMargin,
+              syncedAt: newCostDate,
+            },
+          })
+        );
+      }
+    }
+    await prisma.$transaction(postgresSyncOperations);
 
     const response = {
       productCode,
       currentCost: costP,
       costP,
       costT,
-      priceListsUpdated: updatePriceLists && missingLists.length === 0 && updatedLists.length === 10,
+      priceListsUpdated:
+        updatePriceLists &&
+        missingLists.length === 0 &&
+        updatedLists.length === STANDARD_PRICE_LIST_NOS.length,
       updatedLists,
       missingLists,
       verificationStatus: updatePriceLists ? 'VERIFIED' as const : 'NOT_REQUESTED' as const,
@@ -10180,7 +10481,7 @@ export class ReportsService {
   /**
    * Tedarikci toplu maliyet uygulamasi icin ONIZLEME (SADECE OKUMA, Mikro YAZMA YOK).
    * updateUcarerProductCost ile AYNI formul: newCostP = newCostT * (1 + vat/200),
-   * liste(1+idx) = newCostT * Marj[idx], liste(6+idx) = newCostP * Marj[idx].
+   * standart liste fiziksel numara/maliyet/marj eslemesi merkezi registry'den gelir.
    */
   async computeSupplierApplyPreview(
     items: Array<{ productCode: string; newCostT: number }>
@@ -10212,6 +10513,9 @@ export class ReportsService {
     }
 
     const codes = normalized.map((it) => it.productCode);
+    if (codes.length > 0) {
+      await this.assertStandardPriceUserColumns();
+    }
 
     // 2) Prisma: name + vatRate (yuzde olarak; vatRate fraction (0.20) ise *100, default 20)
     const nameMap = new Map<string, string | null>();
@@ -10231,7 +10535,7 @@ export class ReportsService {
       }
     }
 
-    // 3) Mikro BATCH oku: STOKLAR + STOKLAR_USER (MaliyetT/MaliyetP/Marj_1..5)
+    // 3) Mikro BATCH oku: STOKLAR + STOKLAR_USER (MaliyetT/MaliyetP/Marj_1..6)
     const parseMargin = (value: unknown) => {
       const raw = String(value ?? '').trim().replace(',', '.');
       const num = Number(raw);
@@ -10261,7 +10565,8 @@ export class ReportsService {
           u.Marj_2,
           u.Marj_3,
           u.Marj_4,
-          u.Marj_5
+          u.Marj_5,
+          u.Marj_6
         FROM STOKLAR s WITH (NOLOCK)
         LEFT JOIN STOKLAR_USER u ON s.sto_Guid = u.Record_uid
         WHERE RTRIM(s.sto_kod) IN (${inClause})
@@ -10277,6 +10582,7 @@ export class ReportsService {
           parseMargin(row?.Marj_3),
           parseMargin(row?.Marj_4),
           parseMargin(row?.Marj_5),
+          parseMargin(row?.Marj_6),
         ]);
       }
 
@@ -10284,9 +10590,18 @@ export class ReportsService {
         SELECT
           RTRIM(sfiyat_stokkod) AS sfiyat_stokkod,
           sfiyat_listesirano,
-          sfiyat_fiyati
+          sfiyat_fiyati,
+          COUNT(*) OVER (
+            PARTITION BY RTRIM(sfiyat_stokkod), sfiyat_listesirano
+          ) AS candidateCount
         FROM STOK_SATIS_FIYAT_LISTELERI WITH (NOLOCK)
         WHERE RTRIM(sfiyat_stokkod) IN (${inClause})
+          AND sfiyat_listesirano IN (${STANDARD_PRICE_LIST_NOS.join(', ')})
+          AND sfiyat_deposirano = 0
+          AND sfiyat_doviz = 0
+          AND sfiyat_odemeplan = 0
+          AND sfiyat_iptal = 0
+          AND ISNULL(sfiyat_hidden, 0) = 0
       `);
       for (const row of priceRows || []) {
         const code = String(row?.sfiyat_stokkod || '').trim().toUpperCase();
@@ -10294,6 +10609,14 @@ export class ReportsService {
         const listNo = Number(row?.sfiyat_listesirano);
         const price = parseNum(row?.sfiyat_fiyati);
         if (!Number.isFinite(listNo) || price === null) continue;
+        if (Number(row?.candidateCount || 0) > 1) {
+          throw new AppError(
+            `${code} stokunun ${listNo} numarali fiyat listesinde birden ` +
+              'fazla aktif canonical satir var; onizleme durduruldu.',
+            409,
+            ErrorCode.INVALID_PRICE
+          );
+        }
         if (!listPriceMap.has(code)) listPriceMap.set(code, new Map<number, number>());
         listPriceMap.get(code)!.set(listNo, price);
       }
@@ -10310,8 +10633,18 @@ export class ReportsService {
       const mikroCostT = supplierNet * (1 + vatPct / 200);
       // Karsilastirma NET bazinda: mevcut MaliyetP (net) vs tedarikci net.
       const currentCostT = currentCostPMap.has(code) ? currentCostPMap.get(code)! : null;
-      const margins = marginsMap.get(code) || [0, 0, 0, 0, 0];
+      const margins = marginsMap.get(code) || [0, 0, 0, 0, 0, 0];
       const currentLists = listPriceMap.get(code) || new Map<number, number>();
+      const invalidMarginIndex = margins.findIndex(
+        (margin) => !Number.isFinite(margin) || margin <= 0
+      );
+      if (invalidMarginIndex >= 0) {
+        throw new AppError(
+          `${code} icin Marj_${invalidMarginIndex + 1} eksik veya gecersiz; fiyat onizlemesi olusturulmadi.`,
+          400,
+          ErrorCode.INVALID_PROFIT_MARGIN
+        );
+      }
 
       const costIncreasePct =
         currentCostT !== null && currentCostT > 0
@@ -10319,26 +10652,20 @@ export class ReportsService {
           : null;
 
       const priceLists: Array<{ listNo: number; oldPrice: number | null; newPrice: number; increasePct: number | null }> = [];
-      for (let idx = 0; idx < 5; idx += 1) {
-        const margin = margins[idx];
-        // liste(1+idx) = newCostT * Marj[idx], liste(6+idx) = newCostP * Marj[idx]
-        const listT = 1 + idx;
-        const listP = 6 + idx;
-        const newPriceT = mikroCostT * margin;
-        const newPriceP = mikroCostP * margin;
-        const oldT = currentLists.has(listT) ? currentLists.get(listT)! : null;
-        const oldP = currentLists.has(listP) ? currentLists.get(listP)! : null;
+      for (const definition of STANDARD_PRICE_LIST_DEFINITIONS) {
+        const margin = margins[Number(definition.marginSlot) - 1];
+        const listNo = definition.listNo;
+        const baseCost = definition.costBasis === 'MALIYET_T' ? mikroCostT : mikroCostP;
+        const newPrice = baseCost * margin;
+        const oldPrice = currentLists.has(listNo) ? currentLists.get(listNo)! : null;
         priceLists.push({
-          listNo: listT,
-          oldPrice: oldT,
-          newPrice: newPriceT,
-          increasePct: oldT !== null && oldT > 0 ? ((newPriceT - oldT) / oldT) * 100 : null,
-        });
-        priceLists.push({
-          listNo: listP,
-          oldPrice: oldP,
-          newPrice: newPriceP,
-          increasePct: oldP !== null && oldP > 0 ? ((newPriceP - oldP) / oldP) * 100 : null,
+          listNo,
+          oldPrice,
+          newPrice,
+          increasePct:
+            oldPrice !== null && oldPrice > 0
+              ? ((newPrice - oldPrice) / oldPrice) * 100
+              : null,
         });
       }
       priceLists.sort((a, b) => a.listNo - b.listNo);

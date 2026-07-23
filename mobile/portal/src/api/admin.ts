@@ -449,6 +449,7 @@ export interface WarehouseRetailProduct {
   perakende3: number;
   perakende4: number;
   perakende5: number;
+  perakende6: number;
   imageUrl: string | null;
 }
 
@@ -955,6 +956,7 @@ export const adminApi = {
       quantity: number;
       unitPrice: number;
       priceType?: 'INVOICED' | 'WHITE';
+      priceListNo?: number;
       vatZeroed?: boolean;
       manualVatRate?: number;
       lineDescription?: string;
@@ -1189,8 +1191,13 @@ export const adminApi = {
   },
   createWarehouseRetailSale: async (payload: {
     paymentType: 'CASH' | 'CARD';
-    priceLevel: 1 | 2 | 3 | 4 | 5;
-    items: Array<{ productCode: string; quantity: number; unitPrice?: number }>;
+    priceLevel: 1 | 2 | 3 | 4 | 5 | 6;
+    items: Array<{
+      productCode: string;
+      quantity: number;
+      unitPrice?: number;
+      priceLevel?: 1 | 2 | 3 | 4 | 5 | 6;
+    }>;
   }) => {
     const response = await apiClient.post('/order-tracking/admin/warehouse/retail/sales', payload);
     return response.data as {
@@ -1198,7 +1205,8 @@ export const adminApi = {
       paymentType: 'CASH' | 'CARD';
       paymentLabel: string;
       customerCode: string;
-      priceLevel: 1 | 2 | 3 | 4 | 5;
+      priceLevel: 1 | 2 | 3 | 4 | 5 | 6;
+      priceListNo: number;
       totalAmount: number;
       lineCount: number;
       lines: Array<{
@@ -1208,6 +1216,8 @@ export const adminApi = {
         unitPrice: number;
         lineTotal: number;
         unit: string;
+        priceLevel: 1 | 2 | 3 | 4 | 5 | 6;
+        priceListNo: number;
       }>;
     };
   },
@@ -2582,6 +2592,7 @@ export const adminApi = {
   createHotSaleTransaction: async (
     sessionId: string,
     payload: {
+      operationKey: string;
       type: HotSaleTransactionType;
       customerId?: string;
       customerCode?: string | null;

@@ -5,7 +5,7 @@
  * PostgreSQL'deki senkronize edilmiş verileri kullanıyoruz.
  */
 
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -48,6 +48,9 @@ interface ProductPriceInfo {
   priceList8: number;
   priceList9: number;
   priceList10: number;
+  priceList13: number;
+  priceList14: number;
+  priceLists: Record<string, number>;
 
   // Kar marjları
   marginList1: number;
@@ -60,6 +63,10 @@ interface ProductPriceInfo {
   marginList8: number;
   marginList9: number;
   marginList10: number;
+  marginList13: number | null;
+  marginList14: number | null;
+  marginLists: Record<string, number | null>;
+  costByPriceList: Record<string, number | null>;
 
   // İstatistikler
   totalChanges: number;
@@ -79,7 +86,128 @@ interface PriceChangeDetail {
   changePercent: number;
 }
 
+interface NormalizedPriceRow {
+  product_code: string;
+  price_list_no: number;
+  current_price: Prisma.Decimal | number | string;
+  current_cost: Prisma.Decimal | number | string | null;
+  current_margin: Prisma.Decimal | number | string | null;
+}
+
+const toNumber = (value: unknown, fallback = 0): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toNullableNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const groupNormalizedRows = (
+  rows: NormalizedPriceRow[]
+): Map<string, NormalizedPriceRow[]> => {
+  const grouped = new Map<string, NormalizedPriceRow[]>();
+  rows.forEach((row) => {
+    const productCode = String(row.product_code || '').trim();
+    if (!productCode) return;
+    const list = grouped.get(productCode) || [];
+    list.push(row);
+    grouped.set(productCode, list);
+  });
+  return grouped;
+};
+
+const mapProductPriceInfo = (
+  product: any,
+  normalizedRows: NormalizedPriceRow[] = []
+): ProductPriceInfo => {
+  const priceLists: Record<string, number> = {};
+  const marginLists: Record<string, number | null> = {};
+  const costByPriceList: Record<string, number | null> = {};
+
+  for (let listNo = 1; listNo <= 10; listNo += 1) {
+    priceLists[String(listNo)] = toNumber(product[`current_price_list_${listNo}`]);
+    marginLists[String(listNo)] = toNullableNumber(product[`current_margin_list_${listNo}`]);
+    costByPriceList[String(listNo)] = toNullableNumber(product.current_cost);
+  }
+
+  normalizedRows.forEach((row) => {
+    const listNo = Number(row.price_list_no);
+    if (!Number.isInteger(listNo)) return;
+    const key = String(listNo);
+    priceLists[key] = toNumber(row.current_price);
+    marginLists[key] = toNullableNumber(row.current_margin);
+    costByPriceList[key] = toNullableNumber(row.current_cost);
+  });
+
+  return {
+    productCode: product.product_code,
+    productName: product.product_name,
+    brand: product.brand,
+    category: product.category,
+    currentCost: toNumber(product.current_cost),
+    currentStock: toNumber(product.current_stock),
+    priceList1: priceLists['1'] || 0,
+    priceList2: priceLists['2'] || 0,
+    priceList3: priceLists['3'] || 0,
+    priceList4: priceLists['4'] || 0,
+    priceList5: priceLists['5'] || 0,
+    priceList6: priceLists['6'] || 0,
+    priceList7: priceLists['7'] || 0,
+    priceList8: priceLists['8'] || 0,
+    priceList9: priceLists['9'] || 0,
+    priceList10: priceLists['10'] || 0,
+    priceList13: priceLists['13'] || 0,
+    priceList14: priceLists['14'] || 0,
+    priceLists,
+    marginList1: marginLists['1'] || 0,
+    marginList2: marginLists['2'] || 0,
+    marginList3: marginLists['3'] || 0,
+    marginList4: marginLists['4'] || 0,
+    marginList5: marginLists['5'] || 0,
+    marginList6: marginLists['6'] || 0,
+    marginList7: marginLists['7'] || 0,
+    marginList8: marginLists['8'] || 0,
+    marginList9: marginLists['9'] || 0,
+    marginList10: marginLists['10'] || 0,
+    marginList13: marginLists['13'] ?? null,
+    marginList14: marginLists['14'] ?? null,
+    marginLists,
+    costByPriceList,
+    totalChanges: toNumber(product.total_changes),
+    firstChangeDate: product.first_change_date,
+    lastChangeDate: product.last_change_date,
+    daysSinceLastChange:
+      product.days_since_last_change === null ||
+      product.days_since_last_change === undefined
+        ? null
+        : toNumber(product.days_since_last_change),
+    avgChangeFrequencyDays: toNullableNumber(product.avg_change_frequency_days),
+  };
+};
+
 class PriceHistoryNewService {
+  private async getNormalizedPriceRows(productCodes: string[]): Promise<NormalizedPriceRow[]> {
+    const codes = Array.from(
+      new Set(productCodes.map((code) => String(code || '').trim()).filter(Boolean))
+    );
+    if (codes.length === 0) return [];
+
+    return prisma.$queryRaw<NormalizedPriceRow[]>(Prisma.sql`
+      SELECT
+        product_code,
+        price_list_no,
+        current_price,
+        current_cost,
+        current_margin
+      FROM product_price_list_current
+      WHERE product_code IN (${Prisma.join(codes)})
+      ORDER BY product_code, price_list_no
+    `);
+  }
+
   /**
    * Ürün listesi ve istatistikleri getirir
    */
@@ -108,54 +236,70 @@ class PriceHistoryNewService {
       sortOrder = 'desc',
     } = filters;
 
-    // WHERE conditions
-    const conditions: string[] = ['1=1'];
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+    const safeLimit = Number.isFinite(limit)
+      ? Math.min(200, Math.max(1, Math.floor(limit)))
+      : 50;
+
+    // User-controlled values are bound as parameters. The ORDER BY fragment
+    // below is selected only from a closed allow-list.
+    const conditions: Prisma.Sql[] = [Prisma.sql`1=1`];
 
     if (startDate && endDate) {
-      conditions.push(`first_change_date >= '${startDate}' AND last_change_date <= '${endDate}'`);
+      conditions.push(
+        Prisma.sql`first_change_date >= ${startDate}::timestamp AND last_change_date <= ${endDate}::timestamp`
+      );
     } else if (startDate) {
-      conditions.push(`first_change_date >= '${startDate}'`);
+      conditions.push(Prisma.sql`first_change_date >= ${startDate}::timestamp`);
     } else if (endDate) {
-      conditions.push(`last_change_date <= '${endDate}'`);
+      conditions.push(Prisma.sql`last_change_date <= ${endDate}::timestamp`);
     }
 
     if (productCode) {
-      conditions.push(`product_code ILIKE '%${productCode}%'`);
+      conditions.push(Prisma.sql`product_code ILIKE ${`%${productCode}%`}`);
     }
 
     if (productName) {
-      conditions.push(`product_name ILIKE '%${productName}%'`);
+      conditions.push(Prisma.sql`product_name ILIKE ${`%${productName}%`}`);
     }
 
     if (brand) {
-      conditions.push(`brand ILIKE '%${brand}%'`);
+      conditions.push(Prisma.sql`brand ILIKE ${`%${brand}%`}`);
     }
 
     if (category) {
-      conditions.push(`category ILIKE '%${category}%'`);
+      conditions.push(Prisma.sql`category ILIKE ${`%${category}%`}`);
     }
 
     if (hasStock) {
-      conditions.push(`current_stock > 0`);
+      conditions.push(Prisma.sql`current_stock > 0`);
     }
 
-    if (minDaysSinceChange !== undefined) {
-      conditions.push(`days_since_last_change >= ${minDaysSinceChange}`);
+    if (minDaysSinceChange !== undefined && Number.isFinite(minDaysSinceChange)) {
+      conditions.push(
+        Prisma.sql`days_since_last_change >= ${Math.floor(minDaysSinceChange)}`
+      );
     }
 
-    if (maxDaysSinceChange !== undefined) {
-      conditions.push(`days_since_last_change <= ${maxDaysSinceChange}`);
+    if (maxDaysSinceChange !== undefined && Number.isFinite(maxDaysSinceChange)) {
+      conditions.push(
+        Prisma.sql`days_since_last_change <= ${Math.floor(maxDaysSinceChange)}`
+      );
     }
 
-    if (minChangeFrequency !== undefined) {
-      conditions.push(`avg_change_frequency_days <= ${minChangeFrequency}`);
+    if (minChangeFrequency !== undefined && Number.isFinite(minChangeFrequency)) {
+      conditions.push(
+        Prisma.sql`avg_change_frequency_days <= ${Math.floor(minChangeFrequency)}`
+      );
     }
 
-    if (maxChangeFrequency !== undefined) {
-      conditions.push(`avg_change_frequency_days >= ${maxChangeFrequency}`);
+    if (maxChangeFrequency !== undefined && Number.isFinite(maxChangeFrequency)) {
+      conditions.push(
+        Prisma.sql`avg_change_frequency_days >= ${Math.floor(maxChangeFrequency)}`
+      );
     }
 
-    const whereClause = conditions.join(' AND ');
+    const whereClause = Prisma.join(conditions, ' AND ');
 
     // Sorting
     let orderByClause = 'last_change_date DESC';
@@ -172,62 +316,38 @@ class PriceHistoryNewService {
     }
 
     // Count
-    const countResult = await prisma.$queryRawUnsafe<any[]>(`
+    const countResult = await prisma.$queryRaw<any[]>(Prisma.sql`
       SELECT COUNT(*) as count
       FROM product_price_stats
       WHERE ${whereClause}
     `);
-    const totalRecords = parseInt(countResult[0]?.count || '0', 10);
-    const totalPages = Math.ceil(totalRecords / limit);
+    const totalRecords = toNumber(countResult[0]?.count);
+    const totalPages = Math.ceil(totalRecords / safeLimit);
 
     // Data
-    const offset = (page - 1) * limit;
-    const products = await prisma.$queryRawUnsafe<any[]>(`
+    const offset = (safePage - 1) * safeLimit;
+    const products = await prisma.$queryRaw<any[]>(Prisma.sql`
       SELECT *
       FROM product_price_stats
       WHERE ${whereClause}
-      ORDER BY ${orderByClause}
-      LIMIT ${limit} OFFSET ${offset}
+      ORDER BY ${Prisma.raw(orderByClause)}
+      LIMIT ${safeLimit} OFFSET ${offset}
     `);
+    const normalizedByProduct = groupNormalizedRows(
+      await this.getNormalizedPriceRows(products.map((product) => product.product_code))
+    );
 
     return {
-      products: products.map(p => ({
-        productCode: p.product_code,
-        productName: p.product_name,
-        brand: p.brand,
-        category: p.category,
-        currentCost: parseFloat(p.current_cost || '0'),
-        currentStock: parseFloat(p.current_stock || '0'),
-        priceList1: parseFloat(p.current_price_list_1 || '0'),
-        priceList2: parseFloat(p.current_price_list_2 || '0'),
-        priceList3: parseFloat(p.current_price_list_3 || '0'),
-        priceList4: parseFloat(p.current_price_list_4 || '0'),
-        priceList5: parseFloat(p.current_price_list_5 || '0'),
-        priceList6: parseFloat(p.current_price_list_6 || '0'),
-        priceList7: parseFloat(p.current_price_list_7 || '0'),
-        priceList8: parseFloat(p.current_price_list_8 || '0'),
-        priceList9: parseFloat(p.current_price_list_9 || '0'),
-        priceList10: parseFloat(p.current_price_list_10 || '0'),
-        marginList1: parseFloat(p.current_margin_list_1 || '0'),
-        marginList2: parseFloat(p.current_margin_list_2 || '0'),
-        marginList3: parseFloat(p.current_margin_list_3 || '0'),
-        marginList4: parseFloat(p.current_margin_list_4 || '0'),
-        marginList5: parseFloat(p.current_margin_list_5 || '0'),
-        marginList6: parseFloat(p.current_margin_list_6 || '0'),
-        marginList7: parseFloat(p.current_margin_list_7 || '0'),
-        marginList8: parseFloat(p.current_margin_list_8 || '0'),
-        marginList9: parseFloat(p.current_margin_list_9 || '0'),
-        marginList10: parseFloat(p.current_margin_list_10 || '0'),
-        totalChanges: parseInt(p.total_changes || '0', 10),
-        firstChangeDate: p.first_change_date,
-        lastChangeDate: p.last_change_date,
-        daysSinceLastChange: parseInt(p.days_since_last_change || '0', 10),
-        avgChangeFrequencyDays: p.avg_change_frequency_days ? parseFloat(p.avg_change_frequency_days) : null,
-      })),
+      products: products.map((product) =>
+        mapProductPriceInfo(
+          product,
+          normalizedByProduct.get(String(product.product_code || '').trim()) || []
+        )
+      ),
       totalRecords,
       totalPages,
-      page,
-      limit,
+      page: safePage,
+      limit: safeLimit,
     };
   }
 
@@ -239,10 +359,10 @@ class PriceHistoryNewService {
     changes: PriceChangeDetail[];
   }> {
     // Ürün bilgisi
-    const productResult = await prisma.$queryRawUnsafe<any[]>(`
+    const productResult = await prisma.$queryRaw<any[]>(Prisma.sql`
       SELECT *
       FROM product_price_stats
-      WHERE product_code = '${productCode}'
+      WHERE product_code = ${productCode}
       LIMIT 1
     `);
 
@@ -251,45 +371,16 @@ class PriceHistoryNewService {
     }
 
     const p = productResult[0];
-    const product: ProductPriceInfo = {
-      productCode: p.product_code,
-      productName: p.product_name,
-      brand: p.brand,
-      category: p.category,
-      currentCost: parseFloat(p.current_cost || '0'),
-      currentStock: parseFloat(p.current_stock || '0'),
-      priceList1: parseFloat(p.current_price_list_1 || '0'),
-      priceList2: parseFloat(p.current_price_list_2 || '0'),
-      priceList3: parseFloat(p.current_price_list_3 || '0'),
-      priceList4: parseFloat(p.current_price_list_4 || '0'),
-      priceList5: parseFloat(p.current_price_list_5 || '0'),
-      priceList6: parseFloat(p.current_price_list_6 || '0'),
-      priceList7: parseFloat(p.current_price_list_7 || '0'),
-      priceList8: parseFloat(p.current_price_list_8 || '0'),
-      priceList9: parseFloat(p.current_price_list_9 || '0'),
-      priceList10: parseFloat(p.current_price_list_10 || '0'),
-      marginList1: parseFloat(p.current_margin_list_1 || '0'),
-      marginList2: parseFloat(p.current_margin_list_2 || '0'),
-      marginList3: parseFloat(p.current_margin_list_3 || '0'),
-      marginList4: parseFloat(p.current_margin_list_4 || '0'),
-      marginList5: parseFloat(p.current_margin_list_5 || '0'),
-      marginList6: parseFloat(p.current_margin_list_6 || '0'),
-      marginList7: parseFloat(p.current_margin_list_7 || '0'),
-      marginList8: parseFloat(p.current_margin_list_8 || '0'),
-      marginList9: parseFloat(p.current_margin_list_9 || '0'),
-      marginList10: parseFloat(p.current_margin_list_10 || '0'),
-      totalChanges: parseInt(p.total_changes || '0', 10),
-      firstChangeDate: p.first_change_date,
-      lastChangeDate: p.last_change_date,
-      daysSinceLastChange: parseInt(p.days_since_last_change || '0', 10),
-      avgChangeFrequencyDays: p.avg_change_frequency_days ? parseFloat(p.avg_change_frequency_days) : null,
-    };
+    const product = mapProductPriceInfo(
+      p,
+      await this.getNormalizedPriceRows([productCode])
+    );
 
     // Fiyat değişim geçmişi
-    const changesResult = await prisma.$queryRawUnsafe<any[]>(`
+    const changesResult = await prisma.$queryRaw<any[]>(Prisma.sql`
       SELECT *
       FROM price_changes
-      WHERE product_code = '${productCode}'
+      WHERE product_code = ${productCode}
       ORDER BY change_date DESC, price_list_no ASC
       LIMIT 1000
     `);

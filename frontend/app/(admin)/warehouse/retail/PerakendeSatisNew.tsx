@@ -22,6 +22,7 @@ import {
   KEYBOARD_ROWS,
   NUMPAD_KEYS,
   NUMPAD_NUMBER_KEYS,
+  RETAIL_PRICE_LEVELS,
   type PriceLevel,
 } from './usePerakendeSatis';
 
@@ -288,7 +289,7 @@ export default function PerakendeSatisNew() {
             <div style={{ border: `1px solid ${borderSoft}`, borderRadius: 10, padding: 11 }}>
               <div style={{ fontSize: 11, color: inkSoft, marginBottom: 8 }}>Fiyat Listesi</div>
               <div style={{ display: 'flex', gap: 8 }}>
-                {[1, 2, 3, 4, 5].map((level) => {
+                {RETAIL_PRICE_LEVELS.map((level) => {
                   const active = priceLevel === level;
                   return (
                     <button
@@ -533,9 +534,9 @@ export default function PerakendeSatisNew() {
                       {item.productCode}
                     </div>
 
-                    {/* P1-P5 sepet ici */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 5, marginTop: 8 }}>
-                      {[1, 2, 3, 4, 5].map((level) => {
+                    {/* P1-P6 sepet ici */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 5, marginTop: 8 }}>
+                      {RETAIL_PRICE_LEVELS.map((level) => {
                         const value = item.priceOptions[level as PriceLevel];
                         const disabled = !Number.isFinite(value) || value <= 0;
                         const active = selectedPriceLevel === (level as PriceLevel);

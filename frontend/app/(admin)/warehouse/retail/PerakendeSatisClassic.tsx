@@ -13,6 +13,7 @@ import {
   KEYBOARD_ROWS,
   NUMPAD_KEYS,
   NUMPAD_NUMBER_KEYS,
+  RETAIL_PRICE_LEVELS,
   type PriceLevel,
 } from './usePerakendeSatis';
 
@@ -195,8 +196,8 @@ export default function PerakendeSatisClassic() {
 
                   <div className="rounded-xl border border-slate-200 bg-white p-2">
                     <p className="text-xs font-bold text-slate-500 mb-1">Fiyat Listesi</p>
-                    <div className="grid grid-cols-5 gap-1">
-                      {[1, 2, 3, 4, 5].map((level) => (
+                    <div className="grid grid-cols-6 gap-1">
+                      {RETAIL_PRICE_LEVELS.map((level) => (
                         <button
                           key={level}
                           onClick={() => setPriceLevel(level as PriceLevel)}
@@ -290,8 +291,8 @@ export default function PerakendeSatisClassic() {
                       <div key={item.productCode} className="rounded-lg border border-slate-200 bg-white p-2">
                         <p className="text-[13px] font-black text-slate-900 line-clamp-2">{item.productName}</p>
                         <p className="text-[11px] text-slate-500">{item.productCode}</p>
-                        <div className="mt-1 grid grid-cols-5 gap-1">
-                          {[1, 2, 3, 4, 5].map((level) => {
+                        <div className="mt-1 grid grid-cols-6 gap-1">
+                          {RETAIL_PRICE_LEVELS.map((level) => {
                             const value = item.priceOptions[level as PriceLevel];
                             const disabled = !Number.isFinite(value) || value <= 0;
                             const active = selectedPriceLevel === (level as PriceLevel);

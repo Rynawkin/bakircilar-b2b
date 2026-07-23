@@ -5,6 +5,15 @@ import { generateQuoteNumber } from "../utils/quoteNumber";
 import { generateOrderNumber } from "../utils/orderNumber";
 import { MikroCustomerSaleMovement } from "../types";
 import customerCategoryPurchaseService from "./customer-category-purchase.service";
+import {
+  STANDARD_PRICE_LIST_NOS,
+  isPriceListInPlane,
+  isStandardPriceListNo,
+} from "../config/price-list-registry";
+import {
+  resolveCustomerPriceLists,
+  resolveCustomerPriceListsForProduct,
+} from "../utils/customerPricing";
 type QuotePriceSource = "LAST_SALE" | "PRICE_LIST" | "MANUAL";
 type PriceType = "INVOICED" | "WHITE";
 interface QuoteItemInput {
@@ -442,7 +451,7 @@ class QuoteService {
       columnWidths:
         (user?.quoteColumnWidths as Record<string, number> | null) || null,
       poolSort: user?.quotePoolSort || "default",
-      poolPriceListNo: Number.isFinite(user?.quotePoolPriceListNo as number)
+      poolPriceListNo: isStandardPriceListNo(user?.quotePoolPriceListNo)
         ? Number(user?.quotePoolPriceListNo)
         : null,
       poolColorRules:
@@ -488,7 +497,7 @@ class QuoteService {
     if (data.poolPriceListNo !== undefined) {
       const listNo = Number(data.poolPriceListNo);
       updateData.quotePoolPriceListNo =
-        Number.isFinite(listNo) && listNo >= 1 && listNo <= 10 ? listNo : null;
+        isStandardPriceListNo(listNo) ? listNo : null;
     }
     if (data.poolColorRules !== undefined) {
       updateData.quotePoolColorRules = this.sanitizePoolColorRules(
@@ -515,7 +524,7 @@ class QuoteService {
       columnWidths:
         (user.quoteColumnWidths as Record<string, number> | null) || null,
       poolSort: user.quotePoolSort || "default",
-      poolPriceListNo: Number.isFinite(user.quotePoolPriceListNo as number)
+      poolPriceListNo: isStandardPriceListNo(user.quotePoolPriceListNo)
         ? Number(user.quotePoolPriceListNo)
         : null,
       poolColorRules:
@@ -582,7 +591,7 @@ class QuoteService {
     const productsWithLists = products.map((product) => {
       const priceStats = priceStatsMap.get(product.mikroCode) || null;
       const mikroPriceLists: Record<string, number> = {};
-      for (let listNo = 1; listNo <= 10; listNo += 1) {
+      for (const listNo of STANDARD_PRICE_LIST_NOS) {
         mikroPriceLists[listNo] = priceListService.getListPrice(
           priceStats,
           listNo,
@@ -783,7 +792,8 @@ class QuoteService {
       const priceSource = item.priceSource;
       const isManualLine = Boolean(item.manualLine);
       const priceType = normalizePriceType(item.priceType);
-      const vatZeroedLine = vatZeroed || Boolean(item.vatZeroed);
+      const vatZeroedLine =
+        priceType === 'WHITE' || vatZeroed || Boolean(item.vatZeroed);
       if (
         !priceSource ||
         !["LAST_SALE", "PRICE_LIST", "MANUAL"].includes(priceSource)
@@ -847,11 +857,14 @@ class QuoteService {
         throw new Error(`Manual line VAT rate must be 0.01, 0.1 or 0.2`);
       }
       let unitPrice = safeNumber(item.unitPrice, 0);
-      let priceListNo: number | undefined = item.priceListNo;
+      let priceListNo: number | undefined;
       if (priceSource === "PRICE_LIST") {
         const listNo = safeNumber(item.priceListNo, 0);
-        if (!listNo) {
-          throw new Error(`Price list not selected for item ${index + 1}`);
+        const expectedPlane = priceType === "WHITE" ? "RETAIL" : "INVOICED";
+        if (!isPriceListInPlane(listNo, expectedPlane)) {
+          throw new Error(
+            `Selected price list is not a standard ${priceType === "WHITE" ? "retail" : "invoiced"} list for item ${index + 1}`,
+          );
         }
         const priceStats = priceStatsMap.get(productCode) || null;
         const listPrice = priceListService.getListPrice(priceStats, listNo);
@@ -1118,7 +1131,8 @@ class QuoteService {
       const priceSource = item.priceSource;
       const isManualLine = Boolean(item.manualLine);
       const priceType = normalizePriceType(item.priceType);
-      const vatZeroedLine = vatZeroed || Boolean(item.vatZeroed);
+      const vatZeroedLine =
+        priceType === 'WHITE' || vatZeroed || Boolean(item.vatZeroed);
       if (
         !priceSource ||
         !["LAST_SALE", "PRICE_LIST", "MANUAL"].includes(priceSource)
@@ -1182,11 +1196,14 @@ class QuoteService {
         throw new Error(`Manual line VAT rate must be 0.01, 0.1 or 0.2`);
       }
       let unitPrice = safeNumber(item.unitPrice, 0);
-      let priceListNo: number | undefined = item.priceListNo;
+      let priceListNo: number | undefined;
       if (priceSource === "PRICE_LIST") {
         const listNo = safeNumber(item.priceListNo, 0);
-        if (!listNo) {
-          throw new Error(`Price list not selected for item ${index + 1}`);
+        const expectedPlane = priceType === "WHITE" ? "RETAIL" : "INVOICED";
+        if (!isPriceListInPlane(listNo, expectedPlane)) {
+          throw new Error(
+            `Selected price list is not a standard ${priceType === "WHITE" ? "retail" : "invoiced"} list for item ${index + 1}`,
+          );
         }
         const priceStats = priceStatsMap.get(productCode) || null;
         const listPrice = priceListService.getListPrice(priceStats, listNo);
@@ -1603,7 +1620,7 @@ class QuoteService {
       }
       const priceStats = priceStatsMap.get(item.productCode) || null;
       const mikroPriceLists: Record<string, number> = {};
-      for (let listNo = 1; listNo <= 10; listNo += 1) {
+      for (const listNo of STANDARD_PRICE_LIST_NOS) {
         mikroPriceLists[listNo] = priceListService.getListPrice(
           priceStats,
           listNo,
@@ -2662,6 +2679,9 @@ class QuoteService {
             district: true,
             hasEInvoice: true,
             paymentPlanNo: true,
+            customerType: true,
+            invoicedPriceListNo: true,
+            whitePriceListNo: true,
           },
         },
       },
@@ -2880,6 +2900,66 @@ class QuoteService {
         guidByProduct.set(row.productCode, list);
       }
     });
+    const [priceListSettings, priceListRules, selectedProducts] =
+      await Promise.all([
+        prisma.settings.findFirst({
+          select: { customerPriceLists: true },
+        }),
+        prisma.customerPriceListRule.findMany({
+          where: { customerId: quote.customerId },
+        }),
+        prisma.product.findMany({
+          where: {
+            id: {
+              in: selectedItems
+                .map((item) => item.productId)
+                .filter((id): id is string => Boolean(id)),
+            },
+          },
+          select: { id: true, brandCode: true, categoryId: true },
+        }),
+      ]);
+    const basePriceListPair = resolveCustomerPriceLists(
+      quote.customer,
+      priceListSettings
+    );
+    const selectedProductById = new Map(
+      selectedProducts.map((product) => [product.id, product])
+    );
+    const resolvedPriceListByItemId = new Map<string, number>();
+    selectedItems.forEach((item) => {
+      const priceType: PriceType =
+        item.priceType === "WHITE" ? "WHITE" : "INVOICED";
+      const expectedPlane = priceType === "WHITE" ? "RETAIL" : "INVOICED";
+      const storedListNo = Number(item.priceListNo);
+      const hasStoredListNo =
+        Number.isInteger(storedListNo) && storedListNo > 0;
+      if (hasStoredListNo && !isPriceListInPlane(storedListNo, expectedPlane)) {
+        throw new Error(
+          `Teklif satirinda ${priceType} duzlemine uymayan fiyat listesi var: ${storedListNo}`
+        );
+      }
+      const product = item.productId
+        ? selectedProductById.get(item.productId)
+        : undefined;
+      const pair = resolveCustomerPriceListsForProduct(
+        basePriceListPair,
+        priceListRules,
+        {
+          brandCode: product?.brandCode,
+          categoryId: product?.categoryId,
+        }
+      );
+      resolvedPriceListByItemId.set(
+        item.id,
+        hasStoredListNo
+          ? storedListNo
+          : priceType === "WHITE"
+            ? pair.white
+            : pair.invoiced
+      );
+    });
+
     const mappedItems = selectedItems.map((item) => {
       const satirNo = item.lineOrder - 1;
       let guid = guidBySatir.get(satirNo);
@@ -2902,6 +2982,7 @@ class QuoteService {
         unitPrice: item.unitPrice,
         vatRate: item.vatRate,
         vatZeroed: item.vatZeroed,
+        priceListNo: resolvedPriceListByItemId.get(item.id),
         priceType: item.priceType === "WHITE" ? "WHITE" : "INVOICED",
         lineDescription:
           item.lineDescription || (item.isManualLine ? item.productName : ""),
@@ -2932,6 +3013,7 @@ class QuoteService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           vatRate: item.vatZeroed ? 0 : item.vatRate,
+          priceListNo: item.priceListNo,
           lineDescription: item.lineDescription || undefined,
           responsibilityCenter: item.responsibilityCenter || undefined,
           reserveQty: Math.max(Number(item.reserveQty || 0), 0),
@@ -2963,6 +3045,7 @@ class QuoteService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           vatRate: 0,
+          priceListNo: item.priceListNo,
           lineDescription: item.lineDescription || undefined,
           responsibilityCenter: item.responsibilityCenter || undefined,
           reserveQty: Math.max(Number(item.reserveQty || 0), 0),
@@ -3031,6 +3114,7 @@ class QuoteService {
             selectedUnit: item.selectedUnit || item.unit || undefined,
             quantity: item.quantity,
             priceType: item.priceType === "WHITE" ? "WHITE" : "INVOICED",
+            priceListNo: resolvedPriceListByItemId.get(item.id),
             unitPrice: item.unitPrice,
             totalPrice: item.unitPrice * item.quantity,
             lineNote: item.lineDescription || undefined,

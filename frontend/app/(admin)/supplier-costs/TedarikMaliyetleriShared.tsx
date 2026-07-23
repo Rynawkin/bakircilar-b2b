@@ -60,7 +60,7 @@ export function SupplierCostDashboard({
             <p className="text-sm font-black uppercase tracking-[0.3em] text-amber-300">Satin alma kontrol merkezi</p>
             <h2 className="mt-3 text-3xl font-black tracking-tight lg:text-4xl">Fiyat teyidi, tedarik maliyeti ve ihale talepleri tek akista.</h2>
             <p className="mt-4 text-sm leading-6 text-slate-300">
-              Bekleyen talepleri fiyatlandir, gerekiyorsa satis onayina gonder, secilen maliyeti Ucarer Depo ile ayni Maliyet T/P ve 10 liste mantigiyla Mikroya uygula.
+              Bekleyen talepleri fiyatlandir, gerekiyorsa satis onayina gonder, secilen maliyeti Ucarer Depo ile ayni Maliyet T/P ve 12 standart liste mantigiyla Mikroya uygula.
             </p>
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
@@ -98,7 +98,7 @@ export function SupplierCostDashboard({
           </div>
           <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-lg font-black text-emerald-950">2. Maliyet uygulama</p>
-            <p className="mt-2 text-sm text-emerald-800">Maliyet T/P ve 10 liste secimi Ucarer Depo ile ayni backend fiyat motoruna baglidir.</p>
+            <p className="mt-2 text-sm text-emerald-800">Maliyet T/P ve 12 standart liste secimi Ucarer Depo ile ayni backend fiyat motoruna baglidir.</p>
           </div>
           <div className="rounded-[1.5rem] border border-sky-200 bg-sky-50 p-5">
             <p className="text-lg font-black text-sky-950">3. Ihale maliyeti</p>
@@ -141,7 +141,7 @@ const emptyRequestForm = {
     mainUnitWidthCm: '',
     mainUnitLengthCm: '',
     mainUnitHeightCm: '',
-    margins: ['2', '1,5', '1,3', '1,2', '1,15'],
+    margins: ['2', '1,5', '1,3', '1,2', '1,15', ''],
     barcode: '',
     notes: '',
     extraUnits: [],
@@ -400,7 +400,7 @@ export function PriceRequestsPanel({ canManage, initialRequestId }: { canManage:
       lines.push(`Yeni Maliyet T (girilen): ${money(costT)}`);
       if (change.percent !== null) lines.push(`Degisim: ${change.direction === 'up' ? '+' : ''}${percent(change.percent)}`);
       lines.push(offerForm.updatePriceLists !== false
-        ? 'Maliyet ve 10 satis listesi Mikroya yazilacak.'
+        ? 'Maliyet ve 12 standart satis listesi Mikroya yazilacak.'
         : 'Sadece Mikro maliyet alani yazilacak.');
       if (change.isBig) {
         lines.push('');
@@ -549,7 +549,7 @@ export function PriceRequestsPanel({ canManage, initialRequestId }: { canManage:
   const updateEditableMargin = (index: number, value: string) => {
     setEditableStockPayload((current: any) => {
       const next = { ...(current || {}) };
-      const margins = [...(next.margins || ['', '', '', '', ''])];
+      const margins = [...(next.margins || ['', '', '', '', '', ''])];
       margins[index] = value;
       return { ...next, margins };
     });
@@ -970,7 +970,7 @@ export function PriceRequestsPanel({ canManage, initialRequestId }: { canManage:
                               onChange={(event) => updateOfferForm({ updatePriceLists: event.target.checked })}
                               disabled={!offerForm.applyToSystem}
                             />
-                            10 listeyi mevcut marjlara gore guncelle
+                            12 standart listeyi mevcut marjlara gore guncelle
                           </label>
                         </div>
                       )}
@@ -1961,8 +1961,8 @@ function NewStockRequestFields({
         <Input label="Yeni ambalaj adi" value={payload.packageName} onChange={(e) => updatePayload({ packageName: e.target.value })} />
         <Input label="Raf / reyon kodu" value={payload.shelfCode} onChange={(e) => updatePayload({ shelfCode: e.target.value })} />
       </div>
-      <div className="grid gap-3 sm:grid-cols-5">
-        {[0, 1, 2, 3, 4].map((index) => (
+      <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {[0, 1, 2, 3, 4, 5].map((index) => (
           <Input key={index} label={`Marj ${index + 1}`} value={payload.margins?.[index] || ''} onChange={(e) => updateMargin(index, e.target.value)} inputMode="decimal" />
         ))}
       </div>
@@ -2471,8 +2471,8 @@ export function CostChangeSummary({
 }) {
   const change = computeCostChange(currentCost, newCostT);
   const big = change.isBig;
-  // Liste guncelleniyorsa Mikroya yazilacak satir: 1 maliyet + 10 satis listesi = 11; degilse sadece maliyet.
-  const affectedRows = updateLists ? 11 : 1;
+  // Liste guncelleniyorsa Mikroya yazilacak satir: 1 maliyet + 12 standart satis listesi = 13; degilse sadece maliyet.
+  const affectedRows = updateLists ? 13 : 1;
   return (
     <div
       className={cn(
@@ -2499,7 +2499,7 @@ export function CostChangeSummary({
         {change.percent === null
           ? 'Mevcut maliyet bos; degisim yuzdesi hesaplanamadi.'
           : updateLists
-            ? `Maliyet ve 10 satis listesi (toplam ${affectedRows} satir) Mikroya yazilacak.`
+            ? `Maliyet ve 12 standart satis listesi (toplam ${affectedRows} satir) Mikroya yazilacak.`
             : 'Sadece Mikro maliyet alani yazilacak (1 satir).'}
       </p>
       {big && (

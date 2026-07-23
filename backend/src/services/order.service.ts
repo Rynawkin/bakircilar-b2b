@@ -21,6 +21,7 @@ import { ProductPrices, MikroCustomerSaleMovement } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { applyLastPriceFloor, resolveLastPriceOverride } from '../utils/lastPrice';
+import { isPriceListInPlane } from '../config/price-list-registry';
 
 type PriceVisibilityValue = 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
 
@@ -35,6 +36,7 @@ type RepricedCartItem = {
   mikroCode: string;
   quantity: number;
   priceType: PriceType;
+  priceListNo: number;
   unitPrice: number;
   totalPrice: number;
   lineNote?: string | null;
@@ -68,6 +70,8 @@ type PaginatedUserOrders = {
   page: number;
   pageSize: number;
 };
+
+const HOT_SALE_WAREHOUSE_NO = 11;
 
 const isPriceTypeAllowed = (
   visibility: PriceVisibilityValue | null | undefined,
@@ -809,6 +813,18 @@ class OrderService {
       if (!isPriceTypeAllowed(effectiveVisibility, priceType)) {
         throw new Error(`Price type not allowed for ${product.mikroCode || product.name}`);
       }
+      const productPriceListPair = resolveCustomerPriceListsForProduct(
+        basePriceListPair,
+        priceListRules,
+        {
+          brandCode: product.brandCode,
+          categoryId: product.categoryId,
+        }
+      );
+      const selectedPriceListNo =
+        priceType === 'INVOICED'
+          ? productPriceListPair.invoiced
+          : productPriceListPair.white;
 
       // Paket satiri: siparise BILESENLERINE AYRILARAK yazilir. Boylece B2B admin sipariste
       // her urunu ayri satir + urun-basi karlilik gorur; Mikro'ya da dogal olarak gercek
@@ -829,6 +845,7 @@ class OrderService {
           mikroCode: c.mikroCode,
           quantity: c.quantity * quantity,
           priceType,
+          priceListNo: c.priceListNo,
           unitPrice: c.unitPrice,
           totalPrice: c.quantity * quantity * c.unitPrice,
           lineNote: setLabel,
@@ -857,14 +874,6 @@ class OrderService {
       if (itemIsExcess) {
         unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
       } else {
-        const productPriceListPair = resolveCustomerPriceListsForProduct(
-          basePriceListPair,
-          priceListRules,
-          {
-            brandCode: product.brandCode,
-            categoryId: product.categoryId,
-          }
-        );
         const listInvoiced = priceListService.getListPriceWithFallback(
           priceStats,
           productPriceListPair.invoiced
@@ -920,6 +929,7 @@ class OrderService {
         mikroCode: product.mikroCode,
         quantity,
         priceType,
+        priceListNo: selectedPriceListNo,
         unitPrice,
         totalPrice: quantity * unitPrice,
         lineNote: item.lineNote ? String(item.lineNote).trim() : null,
@@ -982,6 +992,34 @@ class OrderService {
       // havuzda ise eklenir; Mikro'ya 0,1 ₺ olarak yazilir (approveOrderAndWriteToMikro yolu).
       // Baraji SUNUCU yeniden hesaplar (client'a guvenmez). Musteri toplamina EKLENMEZ.
       const giftLines = await giftCampaignService.resolveGiftLineForOrder(userId);
+      const giftPriceListByProductId = new Map<string, number>();
+      if (giftLines.length > 0) {
+        const [giftPricingContext, giftProducts] = await Promise.all([
+          loadCartCustomerContext(userId),
+          prisma.product.findMany({
+            where: { id: { in: giftLines.map((gift) => gift.productId) } },
+            select: { id: true, brandCode: true, categoryId: true },
+          }),
+        ]);
+        const giftProductById = new Map(
+          giftProducts.map((product) => [product.id, product])
+        );
+        giftLines.forEach((gift) => {
+          const product = giftProductById.get(gift.productId);
+          const pair = resolveCustomerPriceListsForProduct(
+            giftPricingContext.basePriceListPair,
+            giftPricingContext.priceListRules,
+            {
+              brandCode: product?.brandCode,
+              categoryId: product?.categoryId,
+            }
+          );
+          giftPriceListByProductId.set(
+            gift.productId,
+            gift.priceType === 'WHITE' ? pair.white : pair.invoiced
+          );
+        });
+      }
 
       // 3. Sipariş numarası üret
       const lastOrder = await prisma.order.findFirst({
@@ -1028,6 +1066,7 @@ class OrderService {
                   selectedUnit: item.selectedUnit || undefined,
                   quantity: item.quantity,
                   priceType: item.priceType,
+                  priceListNo: item.priceListNo,
                   unitPrice: item.unitPrice,
                   totalPrice: item.totalPrice,
                   lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
@@ -1042,6 +1081,7 @@ class OrderService {
                   mikroCode: gift.mikroCode,
                   quantity: gift.quantity,
                   priceType: gift.priceType,
+                  priceListNo: giftPriceListByProductId.get(gift.productId),
                   unitPrice: gift.unitPrice,
                   totalPrice: gift.unitPrice * gift.quantity,
                   lineNote: gift.lineNote,
@@ -1084,6 +1124,8 @@ class OrderService {
       quantity: number;
       unitPrice: number;
       priceType?: 'INVOICED' | 'WHITE';
+      /** Mikro fiziksel standart liste numarasi; bos ise musteri varsayilani kullanilir. */
+      priceListNo?: number;
       vatZeroed?: boolean;
       manualVatRate?: number;
       lineDescription?: string;
@@ -1099,6 +1141,7 @@ class OrderService {
     whiteSeries?: string;
     whiteSira?: number;
     requestedById?: string;
+    hotSaleOperationKey?: string;
   }): Promise<{
     mikroOrderIds: string[];
     orderId: string;
@@ -1118,7 +1161,43 @@ class OrderService {
       whiteSeries,
       whiteSira,
       requestedById,
+      hotSaleOperationKey: hotSaleOperationKeyInput,
     } = input;
+    const hotSaleOperationKey =
+      String(hotSaleOperationKeyInput || '').trim().toLowerCase() || undefined;
+
+    const existingHotSaleOrderResult = async () => {
+      if (!hotSaleOperationKey) return null;
+      const existing = await prisma.order.findUnique({
+        where: { hotSaleOperationKey },
+        select: {
+          id: true,
+          userId: true,
+          orderNumber: true,
+          status: true,
+          mikroOrderIds: true,
+        },
+      });
+      if (!existing) return null;
+      if (existing.userId !== customerId) {
+        throw new Error('Hot-sale operation key belongs to another customer');
+      }
+      return {
+        mikroOrderIds: existing.mikroOrderIds,
+        orderId: existing.id,
+        orderNumber: existing.orderNumber,
+        mikroWriteStatus:
+          existing.status === 'APPROVED'
+            ? 'APPROVED' as const
+            : existing.mikroOrderIds.length > 0
+              ? 'PARTIAL' as const
+              : 'PENDING' as const,
+        warning:
+          existing.status === 'APPROVED'
+            ? undefined
+            : 'Ayni sicak satis islem anahtariyla olusturulan siparis onay bekliyor.',
+      };
+    };
 
     if (!customerId) {
       throw new Error('Customer is required');
@@ -1126,6 +1205,8 @@ class OrderService {
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Order items are required');
     }
+    const existingHotSaleOrder = await existingHotSaleOrderResult();
+    if (existingHotSaleOrder) return existingHotSaleOrder;
 
     const warehouseValueRaw = Number(warehouseNo);
     const warehouseValue =
@@ -1148,12 +1229,19 @@ class OrderService {
         city: true,
         district: true,
         hasEInvoice: true,
+        customerType: true,
+        invoicedPriceListNo: true,
+        whitePriceListNo: true,
       },
     });
 
     if (!customer || !customer.mikroCariCode) {
       throw new Error('Customer not found or missing Mikro cari code');
     }
+    const priceListSettings = await prisma.settings.findFirst({
+      select: { customerPriceLists: true },
+    });
+    const manualOrderPriceLists = resolveCustomerPriceLists(customer, priceListSettings);
 
     const productIds = items
       .map((item) => item.productId)
@@ -1201,6 +1289,20 @@ class OrderService {
       }
 
       const priceType: PriceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+      const requestedPriceListNo = Number(item.priceListNo);
+      const expectedPlane = priceType === 'WHITE' ? 'RETAIL' : 'INVOICED';
+      if (
+        item.priceListNo !== undefined &&
+        !isPriceListInPlane(requestedPriceListNo, expectedPlane)
+      ) {
+        throw new Error(`Invalid ${priceType} price list for line ${index + 1}`);
+      }
+      const priceListNo =
+        item.priceListNo !== undefined
+          ? requestedPriceListNo
+          : priceType === 'WHITE'
+            ? manualOrderPriceLists.white
+            : manualOrderPriceLists.invoiced;
       const manualVatRate = Number(item.manualVatRate);
       const vatRate =
         priceType === 'WHITE' || item.vatZeroed
@@ -1237,6 +1339,7 @@ class OrderService {
         // Faturali satirda KDV=0 secildiyse kalici isaretle; guncellemede KDV geri gelmesin.
         vatZeroed: priceType !== 'WHITE' && vatRate === 0,
         priceType,
+        priceListNo,
         lineDescription,
         responsibilityCenter: item.responsibilityCenter?.trim() || undefined,
         reserveQty,
@@ -1270,41 +1373,52 @@ class OrderService {
       0
     );
 
-    const order = await prisma.order.create({
-      data: {
-        orderNumber,
-        userId: customerId,
-        requestedById: requestedById || undefined,
-        status: 'PENDING',
-        totalAmount,
-        mikroOrderIds: [],
-        customerOrderNumber: documentNo?.trim() || undefined,
-        adminNote: description?.trim() || undefined,
-        items: {
-          create: normalizedItems.map((item) => ({
-            productId: item.productId,
-            productName: item.productName || item.productCode,
-            mikroCode: item.productCode,
-            unit: item.unit,
-            unit2: item.unit2 || undefined,
-            unit2Factor: item.unit2Factor ?? undefined,
-            selectedUnit: item.selectedUnit || item.unit,
-            quantity: item.quantity,
-            priceType: item.priceType,
-            unitPrice: item.unitPrice,
-            totalPrice: item.unitPrice * item.quantity,
-            lineNote: item.lineDescription || undefined,
-            responsibilityCenter: item.responsibilityCenter || undefined,
-            status: 'PENDING',
-            vatRate: item.vatRate,
-            vatZeroed: item.vatZeroed,
-          })),
+    let order;
+    try {
+      order = await prisma.order.create({
+        data: {
+          orderNumber,
+          hotSaleOperationKey,
+          userId: customerId,
+          requestedById: requestedById || undefined,
+          status: 'PENDING',
+          totalAmount,
+          mikroOrderIds: [],
+          customerOrderNumber: documentNo?.trim() || undefined,
+          adminNote: description?.trim() || undefined,
+          items: {
+            create: normalizedItems.map((item) => ({
+              productId: item.productId,
+              productName: item.productName || item.productCode,
+              mikroCode: item.productCode,
+              unit: item.unit,
+              unit2: item.unit2 || undefined,
+              unit2Factor: item.unit2Factor ?? undefined,
+              selectedUnit: item.selectedUnit || item.unit,
+              quantity: item.quantity,
+              priceType: item.priceType,
+              priceListNo: item.priceListNo,
+              unitPrice: item.unitPrice,
+              totalPrice: item.unitPrice * item.quantity,
+              lineNote: item.lineDescription || undefined,
+              responsibilityCenter: item.responsibilityCenter || undefined,
+              status: 'PENDING',
+              vatRate: item.vatRate,
+              vatZeroed: item.vatZeroed,
+            })),
+          },
         },
-      },
-      include: {
-        items: { select: { id: true, priceType: true, quantity: true } },
-      },
-    });
+        include: {
+          items: { select: { id: true, priceType: true, quantity: true } },
+        },
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002' && hotSaleOperationKey) {
+        const concurrentOrder = await existingHotSaleOrderResult();
+        if (concurrentOrder) return concurrentOrder;
+      }
+      throw error;
+    }
 
     const mikroOrderIds: string[] = [];
 
@@ -1344,6 +1458,7 @@ class OrderService {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: item.vatRate,
+            priceListNo: item.priceListNo,
             lineDescription: item.lineDescription || undefined,
             responsibilityCenter: item.responsibilityCenter || undefined,
             reserveQty: item.reserveQty || 0,
@@ -1356,6 +1471,9 @@ class OrderService {
           evrakSira: Number.isFinite(Number(invoicedSira)) ? Number(invoicedSira) : undefined,
           warehouseNo: warehouseValue,
           paymentPlanNo: customer.paymentPlanNo ?? undefined,
+          idempotencyKey: hotSaleOperationKey
+            ? `${hotSaleOperationKey}:INVOICED`
+            : undefined,
         });
         if (invoicedOrderId) {
           mikroOrderIds.push(invoicedOrderId);
@@ -1371,6 +1489,7 @@ class OrderService {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: 0,
+            priceListNo: item.priceListNo,
             lineDescription: item.lineDescription || undefined,
             responsibilityCenter: item.responsibilityCenter || undefined,
             reserveQty: item.reserveQty || 0,
@@ -1383,6 +1502,9 @@ class OrderService {
           evrakSira: Number.isFinite(Number(whiteSira)) ? Number(whiteSira) : undefined,
           warehouseNo: warehouseValue,
           paymentPlanNo: customer.paymentPlanNo ?? undefined,
+          idempotencyKey: hotSaleOperationKey
+            ? `${hotSaleOperationKey}:WHITE`
+            : undefined,
         });
         if (whiteOrderId) {
           mikroOrderIds.push(whiteOrderId);
@@ -1624,6 +1746,7 @@ class OrderService {
         quantity: number;
         unitPrice: number;
         priceType?: 'INVOICED' | 'WHITE';
+        priceListNo?: number;
         lineNote?: string;
         responsibilityCenter?: string;
       }>;
@@ -1637,6 +1760,9 @@ class OrderService {
             id: true,
             mikroCariCode: true,
             paymentPlanNo: true,
+            customerType: true,
+            invoicedPriceListNo: true,
+            whitePriceListNo: true,
           },
         },
         sourceQuote: { select: { quoteNumber: true } },
@@ -1670,6 +1796,16 @@ class OrderService {
     if (!input?.items || !Array.isArray(input.items) || input.items.length == 0) {
       throw new Error('Order items are required');
     }
+
+    const [updatePriceListSettings, updatePriceListRules] = await Promise.all([
+      prisma.settings.findFirst({
+        select: { customerPriceLists: true },
+      }),
+      prisma.customerPriceListRule.findMany({
+        where: { customerId: order.user.id },
+      }),
+    ]);
+    const updateOrderPriceLists = resolveCustomerPriceLists(order.user, updatePriceListSettings);
 
     const productIds = input.items
       .map((item) => item.productId)
@@ -1720,6 +1856,28 @@ class OrderService {
       }
 
       const priceType: PriceType = item.priceType == 'WHITE' ? 'WHITE' : 'INVOICED';
+      const requestedPriceListNo = Number(item.priceListNo);
+      const expectedPlane = priceType === 'WHITE' ? 'RETAIL' : 'INVOICED';
+      if (
+        item.priceListNo !== undefined &&
+        !isPriceListInPlane(requestedPriceListNo, expectedPlane)
+      ) {
+        throw new Error(`Invalid ${priceType} price list for line ${index + 1}`);
+      }
+      const productPriceListPair = resolveCustomerPriceListsForProduct(
+        updateOrderPriceLists,
+        updatePriceListRules,
+        {
+          brandCode: product.brandCode,
+          categoryId: product.categoryId,
+        }
+      );
+      const priceListNo =
+        item.priceListNo !== undefined
+          ? requestedPriceListNo
+          : priceType === 'WHITE'
+            ? productPriceListPair.white
+            : productPriceListPair.invoiced;
 
       // 3.6: Maliyet alti / asiri dusuk fiyat uyarisi (islemi engellemez; operator log'da gorur,
       // kullanici-yuzu uyari onay ekraninda gosterilir).
@@ -1752,6 +1910,8 @@ class OrderService {
         selectedUnit: item.selectedUnit?.trim() || item.unit?.trim() || product.unit || 'ADET',
         quantity,
         priceType,
+        priceListNo,
+        priceListNoWasProvided: item.priceListNo !== undefined,
         unitPrice,
         totalPrice: unitPrice * quantity,
         lineNote: lineNote || undefined,
@@ -2022,6 +2182,7 @@ class OrderService {
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               vatRate: item.priceType === 'WHITE' ? 0 : Number(item.vatRate || 0.2),
+              priceListNo: item.priceListNo,
               lineDescription: item.lineNote || item.productName,
               responsibilityCenter: item.responsibilityCenter || undefined,
               reserveQty: 0,
@@ -2100,9 +2261,17 @@ class OrderService {
           const vatZeroed = existing?.vatZeroed === true;
           const vatRate = resolveExistingVatRate(existing, item);
 
-          const { vatRate: _vatRate, status: _status, ...itemForCreate } = item as any;
+          const {
+            vatRate: _vatRate,
+            status: _status,
+            priceListNoWasProvided,
+            ...itemForCreate
+          } = item as any;
           return {
             ...itemForCreate,
+            priceListNo: priceListNoWasProvided
+              ? item.priceListNo
+              : existing?.priceListNo ?? item.priceListNo,
             status,
             approvedQuantity:
               status === 'APPROVED'
@@ -2299,7 +2468,13 @@ class OrderService {
           description: `B2B Sipariş ${order.orderNumber} - Faturalı${adminNote ? ` | ${adminNote}` : ''}`,
           documentDescription: deliveryDescription || undefined,
           evrakSeri: invoicedSeries,
+          warehouseNo: order.hotSaleOperationKey
+            ? HOT_SALE_WAREHOUSE_NO
+            : undefined,
           paymentPlanNo: order.user.paymentPlanNo ?? undefined,
+          idempotencyKey: order.hotSaleOperationKey
+            ? `${order.hotSaleOperationKey}:INVOICED`
+            : undefined,
         });
 
         mikroOrderIds.push(invoicedOrderId);
@@ -2318,7 +2493,13 @@ class OrderService {
           description: `B2B Sipariş ${order.orderNumber} - Beyaz${adminNote ? ` | ${adminNote}` : ''}`,
           documentDescription: deliveryDescription || undefined,
           evrakSeri: whiteSeries,
+          warehouseNo: order.hotSaleOperationKey
+            ? HOT_SALE_WAREHOUSE_NO
+            : undefined,
           paymentPlanNo: order.user.paymentPlanNo ?? undefined,
+          idempotencyKey: order.hotSaleOperationKey
+            ? `${order.hotSaleOperationKey}:WHITE`
+            : undefined,
         });
 
         mikroOrderIds.push(whiteOrderId);
@@ -2384,7 +2565,14 @@ class OrderService {
   private buildMikroOrderLines(
     item: any,
     whiteZeroVat: boolean
-  ): Array<{ productCode: string; quantity: number; unitPrice: number; vatRate: number; lineDescription?: string }> {
+  ): Array<{
+    productCode: string;
+    quantity: number;
+    unitPrice: number;
+    vatRate: number;
+    priceListNo: number;
+    lineDescription?: string;
+  }> {
     const comps = Array.isArray(item?.bundleComponents) ? item.bundleComponents : null;
     if (comps && comps.length > 0) {
       const bundleQty = Number(item.quantity) || 0;
@@ -2397,6 +2585,7 @@ class OrderService {
           quantity: (Number(c.quantity) || 0) * bundleQty,
           unitPrice: Number(c.unitPrice) || 0,
           vatRate: whiteZeroVat ? 0 : (Number(c.vatRate) || 0),
+          priceListNo: Number(c.priceListNo) || Number(item.priceListNo) || (whiteZeroVat ? 1 : 6),
           lineDescription: setLabel,
         }));
     }
@@ -2405,6 +2594,7 @@ class OrderService {
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       vatRate: whiteZeroVat ? 0 : this.resolveItemVatRate(item),
+      priceListNo: Number(item.priceListNo) || (whiteZeroVat ? 1 : 6),
       lineDescription: this.buildMikroLineDescription(item),
     }];
   }

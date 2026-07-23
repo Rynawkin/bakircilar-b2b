@@ -3,6 +3,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { Prisma } from '@prisma/client';
 import https from 'https';
 import crypto from 'crypto';
 import { prisma } from '../utils/prisma';
@@ -51,6 +52,12 @@ import { splitSearchTokens, normalizeSearchText } from '../utils/search';
 import { getUploadsDir } from '../utils/storage';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 import { invalidateCustomerStaticCache } from './customer.controller';
+import {
+  INVOICED_PRICE_LIST_NOS,
+  RETAIL_PRICE_LIST_NOS,
+  STANDARD_PRICE_LIST_NOS,
+  isPriceListInPlane,
+} from '../config/price-list-registry';
 
 const DEFAULT_CUSTOMER_PRICE_LISTS = {
   BAYI: { invoiced: 6, white: 1 },
@@ -141,7 +148,7 @@ const buildProductsWithPriceLists = async (products: any[]) => {
     const priceStats = priceStatsMap.get(product.mikroCode) || null;
     const mikroPriceLists: Record<string, number> = {};
 
-    for (let listNo = 1; listNo <= 10; listNo += 1) {
+    for (const listNo of STANDARD_PRICE_LIST_NOS) {
       mikroPriceLists[listNo] = priceListService.getListPrice(priceStats, listNo);
     }
 
@@ -721,17 +728,11 @@ export class AdminController {
       if (priceListStatus === 'missing' || priceListStatus === 'available') {
         const availableRows = await prisma.$queryRaw<{ product_code: string }[]>`
           SELECT DISTINCT product_code
-          FROM product_price_stats
-          WHERE COALESCE(current_price_list_1, 0) > 0
-             OR COALESCE(current_price_list_2, 0) > 0
-             OR COALESCE(current_price_list_3, 0) > 0
-             OR COALESCE(current_price_list_4, 0) > 0
-             OR COALESCE(current_price_list_5, 0) > 0
-             OR COALESCE(current_price_list_6, 0) > 0
-             OR COALESCE(current_price_list_7, 0) > 0
-             OR COALESCE(current_price_list_8, 0) > 0
-             OR COALESCE(current_price_list_9, 0) > 0
-             OR COALESCE(current_price_list_10, 0) > 0
+          FROM product_price_list_current
+          WHERE price_list_no IN (${Prisma.join(
+            STANDARD_PRICE_LIST_NOS.map((listNo) => Prisma.sql`${listNo}`)
+          )})
+            AND current_price > 0
         `;
         const availableCodes = availableRows.map((row) => row.product_code);
 
@@ -918,7 +919,7 @@ export class AdminController {
         const priceStats = priceStatsMap.get(product.mikroCode) || null;
         const mikroPriceLists: Record<string, number> = {};
 
-        for (let listNo = 1; listNo <= 10; listNo += 1) {
+        for (const listNo of STANDARD_PRICE_LIST_NOS) {
           mikroPriceLists[listNo] = priceListService.getListPrice(priceStats, listNo);
         }
 
@@ -1891,12 +1892,16 @@ export class AdminController {
             return res.status(400).json({ error: 'Brand or category is required' });
           }
 
-          if (!Number.isFinite(invoiced) || invoiced < 6 || invoiced > 10) {
-            return res.status(400).json({ error: 'Invoiced price list must be between 6 and 10' });
+          if (!isPriceListInPlane(invoiced, 'INVOICED')) {
+            return res.status(400).json({
+              error: `Invoiced price list must be one of: ${INVOICED_PRICE_LIST_NOS.join(', ')}`,
+            });
           }
 
-          if (!Number.isFinite(white) || white < 1 || white > 5) {
-            return res.status(400).json({ error: 'White price list must be between 1 and 5' });
+          if (!isPriceListInPlane(white, 'RETAIL')) {
+            return res.status(400).json({
+              error: `White price list must be one of: ${RETAIL_PRICE_LIST_NOS.join(', ')}`,
+            });
           }
 
           const key = `${brandCode || ''}::${categoryId || ''}`;
@@ -5346,7 +5351,7 @@ export class AdminController {
 
   /**
    * GET /api/admin/reports/price-margin-consistency
-   * Maliyet P/T x Marj_1..5 ile canli Mikro liste 1..10 fiyatlarini karsilastirir.
+   * Maliyet P/T x Marj_1..6 ile canli Mikro standart liste fiyatlarini karsilastirir.
    */
   async getPriceMarginConsistency(req: Request, res: Response, next: NextFunction) {
     try {
@@ -6679,7 +6684,7 @@ export class AdminController {
 
   /**
    * PUT /api/admin/customers/:id/price-list-suggestion
-   * Manuel liste override'i (null = temizle). Faturali 6-10, perakende 1-5.
+   * Manuel liste override'i (null = temizle). Yalniz standart listeler kabul edilir.
    */
   setCustomerPriceListSuggestion = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -6690,15 +6695,17 @@ export class AdminController {
 
       const parseListNo = (
         value: unknown,
-        min: number,
-        max: number,
+        plane: 'INVOICED' | 'RETAIL',
         label: string
       ): number | null | undefined => {
         if (value === undefined) return undefined;
         if (value === null) return null;
         const parsed = Math.trunc(Number(value));
-        if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
-          throw new Error(`${label} ${min}-${max} araliginda olmalidir.`);
+        if (!isPriceListInPlane(parsed, plane)) {
+          const allowed = plane === 'INVOICED'
+            ? INVOICED_PRICE_LIST_NOS
+            : RETAIL_PRICE_LIST_NOS;
+          throw new Error(`${label} su listelerden biri olmalidir: ${allowed.join(', ')}.`);
         }
         return parsed;
       };
@@ -6706,8 +6713,8 @@ export class AdminController {
       let manualInvoicedListNo: number | null | undefined;
       let manualRetailListNo: number | null | undefined;
       try {
-        manualInvoicedListNo = parseListNo(req.body?.manualInvoicedListNo, 6, 10, 'Faturali liste no');
-        manualRetailListNo = parseListNo(req.body?.manualRetailListNo, 1, 5, 'Perakende liste no');
+        manualInvoicedListNo = parseListNo(req.body?.manualInvoicedListNo, 'INVOICED', 'Faturali liste no');
+        manualRetailListNo = parseListNo(req.body?.manualRetailListNo, 'RETAIL', 'Perakende liste no');
       } catch (validationError: any) {
         return res.status(400).json({ error: validationError?.message || 'Gecersiz liste no.' });
       }

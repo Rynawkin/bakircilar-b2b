@@ -1,6 +1,6 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import stockCreateService from './stock-create.service';
+import stockCreateService, { stockCreatePriceListTestUtils } from './stock-create.service';
 import mikroService from './mikroFactory.service';
 import { prisma } from '../utils/prisma';
 
@@ -14,6 +14,53 @@ afterEach(() => {
   mikroMock.executeQuery = originalExecuteQuery;
   mikroMock.executeQueryOnce = originalExecuteQueryOnce;
   prismaMock.stockCreationLog.create = originalLogCreate;
+});
+
+test('stock price rows map tier 6 to physical lists 13/14 without touching campaign lists', () => {
+  const rows = stockCreatePriceListTestUtils.buildStockPriceListRows({
+    // Stock-create UI costP maps to Mikro MaliyetT; costT maps to Mikro MaliyetP.
+    costP: 120,
+    costT: 100,
+    margins: ['1', '1,1', '1,2', '1,3', '1,4', '1,5'],
+  } as any);
+
+  assert.deepEqual(
+    rows.map((row) => row.listNo),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14]
+  );
+  assert.equal(rows.find((row) => row.listNo === 13)?.value, 150);
+  assert.equal(rows.find((row) => row.listNo === 13)?.baseCost, 100);
+  assert.equal(rows.find((row) => row.listNo === 14)?.value, 180);
+  assert.equal(rows.find((row) => row.listNo === 14)?.baseCost, 120);
+  assert.equal(rows.some((row) => row.listNo === 11 || row.listNo === 12), false);
+});
+
+test('stock price rows fail closed when Marj_6 is missing', () => {
+  assert.throws(
+    () =>
+      stockCreatePriceListTestUtils.buildStockPriceListRows({
+        costP: 120,
+        costT: 100,
+        margins: ['1', '1,1', '1,2', '1,3', '1,4'],
+      } as any),
+    /Marj_6 eksik veya gecersiz/
+  );
+});
+
+test('empty template lookup omits the constant relevance ORDER BY expression', async () => {
+  let query = '';
+  mikroMock.executeQuery = async (sql: string) => {
+    query = sql;
+    return [];
+  };
+
+  await stockCreateService.searchLookups('template', '', 30);
+
+  assert.doesNotMatch(query, /WHEN\s+N''\s+<>\s+N''/i);
+  assert.match(
+    query,
+    /ORDER BY\s+CASE\s+WHEN sto_kod LIKE N'B%'/i
+  );
 });
 
 test('activation preview accepts the existing passive stock itself and keeps its code', async () => {

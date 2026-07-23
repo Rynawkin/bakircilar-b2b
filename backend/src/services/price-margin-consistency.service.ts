@@ -1,5 +1,9 @@
 import { prisma } from '../utils/prisma';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
+import {
+  STANDARD_PRICE_LIST_DEFINITIONS,
+  STANDARD_PRICE_LIST_NOS,
+} from '../config/price-list-registry';
 import mikroService from './mikro.service';
 
 export type PriceMarginListStatus =
@@ -87,7 +91,7 @@ class PriceMarginConsistencyService {
   private lastLoadAttemptAt = 0;
 
   private buildPriceAggregationColumns() {
-    return Array.from({ length: 10 }, (_, index) => index + 1)
+    return STANDARD_PRICE_LIST_NOS
       .flatMap((listNo) => [
         `MAX(CASE WHEN sfiyat_listesirano = ${listNo} THEN CAST(sfiyat_fiyati AS float) END) AS price${listNo}`,
         `MIN(CASE WHEN sfiyat_listesirano = ${listNo} THEN CAST(sfiyat_fiyati AS float) END) AS minPrice${listNo}`,
@@ -98,7 +102,7 @@ class PriceMarginConsistencyService {
   }
 
   private buildPriceSelectionColumns() {
-    return Array.from({ length: 10 }, (_, index) => index + 1)
+    return STANDARD_PRICE_LIST_NOS
       .flatMap((listNo) => [
         `p.price${listNo}`,
         `p.minPrice${listNo}`,
@@ -109,6 +113,37 @@ class PriceMarginConsistencyService {
   }
 
   private async loadFreshSnapshot(): Promise<Snapshot> {
+    const requiredUserColumns = [
+      'MaliyetP',
+      'MaliyetT',
+      'Marj_1',
+      'Marj_2',
+      'Marj_3',
+      'Marj_4',
+      'Marj_5',
+      'Marj_6',
+    ];
+    const metadataRows = await mikroService.executeQuery(`
+      SELECT COLUMN_NAME AS columnName
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = N'dbo'
+        AND TABLE_NAME = N'STOKLAR_USER'
+        AND COLUMN_NAME IN (${requiredUserColumns.map((column) => `N'${column}'`).join(', ')})
+    `);
+    const availableUserColumns = new Set(
+      (metadataRows || [])
+        .map((row: any) => String(row?.columnName ?? row?.COLUMN_NAME ?? '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const missingUserColumns = requiredUserColumns.filter(
+      (column) => !availableUserColumns.has(column.toLowerCase())
+    );
+    if (missingUserColumns.length > 0) {
+      throw new Error(
+        `Fiyat-marj raporu calistirilamadi: Mikro STOKLAR_USER kolonlari eksik (${missingUserColumns.join(', ')}).`
+      );
+    }
+
     const priceColumns = this.buildPriceAggregationColumns();
     const priceSelectionColumns = this.buildPriceSelectionColumns();
     const mikroRowsPromise = mikroService.executeQuery(`
@@ -117,11 +152,12 @@ class PriceMarginConsistencyService {
           sfiyat_stokkod AS productCode,
           ${priceColumns}
         FROM STOK_SATIS_FIYAT_LISTELERI WITH (NOLOCK)
-        WHERE sfiyat_listesirano BETWEEN 1 AND 10
+        WHERE sfiyat_listesirano IN (${STANDARD_PRICE_LIST_NOS.join(', ')})
           AND sfiyat_deposirano = 0
           AND sfiyat_doviz = 0
           AND sfiyat_odemeplan = 0
           AND sfiyat_iptal = 0
+          AND ISNULL(sfiyat_hidden, 0) = 0
         GROUP BY sfiyat_stokkod
       )
       SELECT
@@ -137,6 +173,7 @@ class PriceMarginConsistencyService {
         u.Marj_3 AS margin3,
         u.Marj_4 AS margin4,
         u.Marj_5 AS margin5,
+        u.Marj_6 AS margin6,
         ${priceSelectionColumns}
       FROM STOKLAR s WITH (NOLOCK)
       LEFT JOIN STOKLAR_USER u WITH (NOLOCK) ON s.sto_guid = u.Record_uid
@@ -168,14 +205,14 @@ class PriceMarginConsistencyService {
       const product = productByCode.get(productCode);
       const costP = parsePositiveNumber(raw?.costP);
       const costT = parsePositiveNumber(raw?.costT);
-      const margins = Array.from({ length: 5 }, (_, index) =>
+      const margins = Array.from({ length: 6 }, (_, index) =>
         parsePositiveNumber(raw?.[`margin${index + 1}`])
       );
 
-      const listChecks: PriceMarginListCheck[] = Array.from({ length: 10 }, (_, index) => {
-        const listNo = index + 1;
-        const marginNo = listNo <= 5 ? listNo : listNo - 5;
-        const costType: 'T' | 'P' = listNo <= 5 ? 'T' : 'P';
+      const listChecks: PriceMarginListCheck[] = STANDARD_PRICE_LIST_DEFINITIONS.map((definition) => {
+        const listNo = definition.listNo;
+        const marginNo = Number(definition.marginSlot);
+        const costType: 'T' | 'P' = definition.costBasis === 'MALIYET_T' ? 'T' : 'P';
         const baseCost = costType === 'T' ? costT : costP;
         const margin = margins[marginNo - 1];
         const actualPrice = parseNullableNumber(raw?.[`price${listNo}`]);
@@ -188,12 +225,7 @@ class PriceMarginConsistencyService {
         if (!baseCost) status = 'MISSING_COST';
         else if (!margin) status = 'MISSING_MARGIN';
         else if (!actualPrice || priceRowCount === 0) status = 'MISSING_PRICE';
-        else if (
-          priceRowCount > 1 &&
-          minPrice !== null &&
-          maxPrice !== null &&
-          Math.abs(maxPrice - minPrice) > REPORT_TOLERANCE
-        ) status = 'DUPLICATE_PRICE';
+        else if (priceRowCount > 1) status = 'DUPLICATE_PRICE';
         else if (expectedPrice !== null && Math.abs(actualPrice - expectedPrice) > REPORT_TOLERANCE) {
           status = 'PRICE_MISMATCH';
         }
@@ -339,7 +371,7 @@ class PriceMarginConsistencyService {
         normalizeSearchText(`${row.mainSupplierCode || ''} ${row.mainSupplierName || ''}`) !== supplier
       ) return false;
 
-      const checks = selectedListNo >= 1 && selectedListNo <= 10
+      const checks = STANDARD_PRICE_LIST_NOS.includes(selectedListNo as any)
         ? row.listChecks.filter((check) => check.listNo === selectedListNo)
         : row.listChecks;
       if (issueType === 'PROBLEM' && !checks.some((check) => check.status !== 'OK')) return false;

@@ -70,6 +70,7 @@ export interface BundleComponentSnapshot {
   quantity: number;   // paket BASINA adet
   unitPrice: number;  // iskonto GOMULU birim fiyat (verilen priceType duzleminde)
   vatRate: number;    // faturali icin; beyazda Mikro'ya 0 yazilir
+  priceListNo: number; // Mikro fiziksel standart liste numarasi
 }
 
 export interface BundleContentLine {
@@ -89,6 +90,8 @@ interface ComponentPriced {
   useDiscountedPrice: boolean;
   unitInvoiced: number; // KDV haric net, iskonto YOK (baz)
   unitWhite: number;    // KDV/2 dahil, iskonto YOK (baz)
+  invoicedPriceListNo: number;
+  whitePriceListNo: number;
   availableForBundles: number;
   missing: boolean;     // bilesen pasif/gizli/silinmis -> paket saglikli degil
 }
@@ -161,6 +164,8 @@ async function priceComponents(
         useDiscountedPrice: item.useDiscountedPrice,
         unitInvoiced: 0,
         unitWhite: 0,
+        invoicedPriceListNo: 6,
+        whitePriceListNo: 1,
         availableForBundles: 0,
         missing: true,
       });
@@ -169,13 +174,17 @@ async function priceComponents(
 
     let unitInvoiced = 0;
     let unitWhite = 0;
+    let invoicedPriceListNo = 6;
+    let whitePriceListNo = 1;
     if (planes.invoiced) {
       const inv = await resolveCartUnitPrices({ context: ctx, product, priceType: 'INVOICED', totalQuantity: qty });
       unitInvoiced = (item.useDiscountedPrice && inv.hasExcessDiscount) ? inv.excessUnitPrice : inv.listUnitPrice;
+      invoicedPriceListNo = inv.priceListNo;
     }
     if (planes.white) {
       const wht = await resolveCartUnitPrices({ context: ctx, product, priceType: 'WHITE', totalQuantity: qty });
       unitWhite = (item.useDiscountedPrice && wht.hasExcessDiscount) ? wht.excessUnitPrice : wht.listUnitPrice;
+      whitePriceListNo = wht.priceListNo;
     }
 
     const availableStock = sumStocks(
@@ -197,6 +206,8 @@ async function priceComponents(
       useDiscountedPrice: item.useDiscountedPrice,
       unitInvoiced,
       unitWhite,
+      invoicedPriceListNo,
+      whitePriceListNo,
       availableForBundles,
       missing: false,
     });
@@ -407,6 +418,10 @@ export async function buildOrderBundleComponents(
         quantity: c.quantity,
         unitPrice: round4(base * (1 - d)), // iskonto gomulu birim fiyat
         vatRate: c.vatRate,
+        priceListNo:
+          priceType === 'INVOICED'
+            ? c.invoicedPriceListNo
+            : c.whitePriceListNo,
       };
     });
   if (components.length === 0) return null;

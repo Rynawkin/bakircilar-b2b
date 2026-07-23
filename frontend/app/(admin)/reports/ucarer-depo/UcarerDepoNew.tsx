@@ -863,7 +863,7 @@ export default function UcarerDepoNew() {
                               checked={h.isPriceListUpdateChecked(code)}
                               onChange={(e) => h.setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: e.target.checked }))}
                             />
-                            10 liste
+                            12 standart liste
                           </label>
                           <button type="button" className={btnSmGhost} onClick={() => updateProductCost(code)} disabled={Boolean(updatingCostByCode[code])}>
                             {updatingCostByCode[code] ? '...' : 'Guncelle'}
@@ -1651,7 +1651,7 @@ export default function UcarerDepoNew() {
                                     checked={h.isPriceListUpdateChecked(code)}
                                     onChange={(e) => h.setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: e.target.checked }))}
                                   />
-                                  10 liste
+                                  12 standart liste
                                 </label>
                                 <button type="button" className={btnSmGhost} onClick={() => updateProductCost(code)} disabled={Boolean(updatingCostByCode[code])}>
                                   {updatingCostByCode[code] ? '...' : 'Guncelle'}

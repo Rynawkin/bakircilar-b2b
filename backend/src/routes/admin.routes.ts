@@ -37,8 +37,70 @@ import { invalidateCacheMiddleware } from '../middleware/cache.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { upload, taskUpload, invoiceUpload, supplierPriceListUpload, quoteItemImageUpload } from '../middleware/upload.middleware';
 import { z } from 'zod';
+import {
+  INVOICED_PRICE_LIST_NOS,
+  RETAIL_PRICE_LIST_NOS,
+} from '../config/price-list-registry';
 
 const router = Router();
+
+const invoicedPriceListNoSchema = z.number().int().refine(
+  (listNo) => (INVOICED_PRICE_LIST_NOS as readonly number[]).includes(listNo),
+  { message: 'Faturali fiyat listesi 6, 7, 8, 9, 10 veya 13 olmalidir' }
+);
+const retailPriceListNoSchema = z.number().int().refine(
+  (listNo) => (RETAIL_PRICE_LIST_NOS as readonly number[]).includes(listNo),
+  { message: 'Perakende fiyat listesi 1, 2, 3, 4, 5 veya 14 olmalidir' }
+);
+
+const hotSalePaymentTypeSchema = z.enum(['CASH', 'CARD', 'TRANSFER', 'OPEN_ACCOUNT', 'MIXED']);
+const hotSaleTransactionItemSchema = z.object({
+  productCode: z.string().trim().min(1).max(50),
+  quantity: z.number().finite().positive(),
+  unitPrice: z.number().finite().nonnegative().nullable().optional(),
+  unit: z.string().trim().min(1).max(20).optional(),
+  priceListNo: z.number().int().nullable().optional(),
+  note: z.string().trim().max(500).optional(),
+}).strict();
+const hotSaleTransactionSchema = z.object({
+  operationKey: z.string().uuid(),
+  type: z.enum(['CASH_INVOICE', 'INVOICED_DISPATCH', 'ORDER']),
+  customerId: z.string().uuid().optional(),
+  customerCode: z.string().trim().min(1).max(50).nullable().optional(),
+  customerName: z.string().trim().max(255).nullable().optional(),
+  paymentType: hotSalePaymentTypeSchema.optional(),
+  priceListNo: z.number().int().nullable().optional(),
+  note: z.string().trim().max(1000).nullable().optional(),
+  latitude: z.number().finite().min(-90).max(90).optional(),
+  longitude: z.number().finite().min(-180).max(180).optional(),
+  items: z.array(hotSaleTransactionItemSchema).min(1).max(500),
+  payments: z.array(z.object({
+    type: hotSalePaymentTypeSchema.optional(),
+    amount: z.number().finite().nonnegative().optional(),
+    referenceNo: z.string().trim().max(100).optional(),
+    note: z.string().trim().max(500).optional(),
+  }).strict()).max(20).optional(),
+}).strict().superRefine((payload, ctx) => {
+  const allowed = payload.type === 'CASH_INVOICE'
+    ? RETAIL_PRICE_LIST_NOS as readonly number[]
+    : INVOICED_PRICE_LIST_NOS as readonly number[];
+  if (payload.priceListNo !== undefined && payload.priceListNo !== null && !allowed.includes(payload.priceListNo)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['priceListNo'],
+      message: 'Satis tipi ile fiyat listesi duzlemi uyusmuyor',
+    });
+  }
+  payload.items.forEach((item, index) => {
+    if (item.priceListNo !== undefined && item.priceListNo !== null && !allowed.includes(item.priceListNo)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['items', index, 'priceListNo'],
+        message: 'Satis tipi ile kalem fiyat listesi duzlemi uyusmuyor',
+      });
+    }
+  });
+});
 
 // TÃ¼m route'lar authentication gerektirir, role kontrolÃ¼ route bazÄ±nda yapÄ±lÄ±r
 router.use(authenticate);
@@ -58,6 +120,8 @@ const createCustomerSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']),
   mikroCariCode: z.string().min(1, 'Mikro cari code is required'),
+  invoicedPriceListNo: invoicedPriceListNoSchema.nullable().optional(),
+  whitePriceListNo: retailPriceListNoSchema.nullable().optional(),
   priceVisibility: z.enum(['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH']).optional(),
 });
 
@@ -402,13 +466,13 @@ const updateCustomerSchema = z.object({
   email: z.string().optional(),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']).optional(),
   active: z.boolean().optional(),
-  invoicedPriceListNo: z.number().nullable().optional(),
-  whitePriceListNo: z.number().nullable().optional(),
+  invoicedPriceListNo: invoicedPriceListNoSchema.nullable().optional(),
+  whitePriceListNo: retailPriceListNoSchema.nullable().optional(),
   priceVisibility: z.enum(['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH']).optional(),
   useLastPrices: z.boolean().optional(),
   lastPriceGuardType: z.enum(['COST', 'PRICE_LIST']).optional(),
-  lastPriceGuardInvoicedListNo: z.number().nullable().optional(),
-  lastPriceGuardWhiteListNo: z.number().nullable().optional(),
+  lastPriceGuardInvoicedListNo: invoicedPriceListNoSchema.nullable().optional(),
+  lastPriceGuardWhiteListNo: retailPriceListNoSchema.nullable().optional(),
   lastPriceCostBasis: z.enum(['CURRENT_COST', 'LAST_ENTRY']).optional(),
   lastPriceMinCostPercent: z.number().optional(),
 });
@@ -463,8 +527,8 @@ const customerPriceListRulesSchema = z.object({
     z.object({
       brandCode: z.string().optional().nullable(),
       categoryId: z.string().optional().nullable(),
-      invoicedPriceListNo: z.number(),
-      whitePriceListNo: z.number(),
+      invoicedPriceListNo: invoicedPriceListNoSchema,
+      whitePriceListNo: retailPriceListNoSchema,
     })
   ),
 });
@@ -535,7 +599,12 @@ router.get('/hot-sales/orders', requirePermission('admin:hot-sales'), hotSaleCon
 router.post('/hot-sales/sessions', requirePermission('admin:hot-sales'), hotSaleController.startSession);
 router.get('/hot-sales/sessions/:sessionId', requirePermission('admin:hot-sales'), hotSaleController.sessionDetail);
 router.post('/hot-sales/sessions/:sessionId/load', requirePermission('admin:hot-sales'), hotSaleController.addLoad);
-router.post('/hot-sales/sessions/:sessionId/transactions', requirePermission('admin:hot-sales'), hotSaleController.createTransaction);
+router.post(
+  '/hot-sales/sessions/:sessionId/transactions',
+  requirePermission('admin:hot-sales'),
+  validateBody(hotSaleTransactionSchema),
+  hotSaleController.createTransaction
+);
 router.post('/hot-sales/sessions/:sessionId/order-delivery', requirePermission('admin:hot-sales'), hotSaleController.deliverOrder);
 router.post('/hot-sales/sessions/:sessionId/close', requirePermission('admin:hot-sales'), hotSaleController.closeSession);
 router.get('/hot-sales/vehicles/:vehicleId/inventory', requirePermission('admin:hot-sales'), hotSaleController.inventory);

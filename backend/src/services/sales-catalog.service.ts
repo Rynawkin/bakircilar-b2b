@@ -4,6 +4,10 @@ import { AppError, ErrorCode } from '../types/errors';
 import priceListService from './price-list.service';
 import mikroService from './mikroFactory.service';
 import { normalizeSearchText, splitSearchTokens } from '../utils/search';
+import {
+  STANDARD_PRICE_LIST_NOS,
+  isStandardPriceListNo,
+} from '../config/price-list-registry';
 
 const STATUS_VALUES = new Set(['DRAFT', 'PUBLISHED', 'ARCHIVED']);
 const PRICE_BASIS_VALUES = new Set([
@@ -280,7 +284,7 @@ class SalesCatalogService {
     if (input.betweenPercent !== undefined) data.betweenPercent = clamp(input.betweenPercent, 0, 100, 50);
     if (input.priceListNo !== undefined) {
       const listNo = Math.trunc(Number(input.priceListNo));
-      data.priceListNo = listNo >= 1 && listNo <= 10 ? listNo : null;
+      data.priceListNo = isStandardPriceListNo(listNo) ? listNo : null;
     }
     if (input.vatMode !== undefined) data.vatMode = normalizeEnum(input.vatMode, VAT_VALUES, 'EXCLUDED');
     if (input.roundingMode !== undefined) data.roundingMode = normalizeEnum(input.roundingMode, ROUNDING_VALUES, 'NEAREST_1');
@@ -349,7 +353,11 @@ class SalesCatalogService {
       throw new AppError('Eski maliyetleri dislamak icin minimum maliyet tarihi secin.', 400, ErrorCode.INVALID_INPUT);
     }
     if (data.priceBasis === 'PRICE_LIST' && !data.priceListNo) {
-      throw new AppError('Fiyat listesi yontemi icin 1-10 arasinda liste secin.', 400, ErrorCode.INVALID_INPUT);
+      throw new AppError(
+        `Fiyat listesi yontemi icin standart listelerden birini secin: ${STANDARD_PRICE_LIST_NOS.join(', ')}.`,
+        400,
+        ErrorCode.INVALID_INPUT
+      );
     }
     const validFrom = data.validFrom instanceof Date ? data.validFrom : null;
     const validTo = data.validTo instanceof Date ? data.validTo : null;

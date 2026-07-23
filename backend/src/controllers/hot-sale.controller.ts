@@ -169,6 +169,7 @@ class HotSaleController {
       const transaction = await hotSaleService.createTransaction(String(req.params.sessionId), {
         ...(req.body || {}),
         userId: req.user?.userId || '',
+        scope: scopeFromRequest(req),
       });
       res.json({ transaction });
     } catch (error) {

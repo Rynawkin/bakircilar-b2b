@@ -148,7 +148,7 @@ export const defaultForm = (templateCode = ''): StockForm => ({
   mainUnitWidthCm: '',
   mainUnitLengthCm: '',
   mainUnitHeightCm: '',
-  margins: ['', '', '', '', ''],
+  margins: ['', '', '', '', '', ''],
   barcode: '',
   notes: '',
   extraUnits: [],
@@ -541,7 +541,10 @@ export function useStokAcma() {
     mainUnitWidthCm: String(raw?.mainUnitWidthCm || ''),
     mainUnitLengthCm: String(raw?.mainUnitLengthCm || ''),
     mainUnitHeightCm: String(raw?.mainUnitHeightCm || ''),
-    margins: Array.isArray(raw?.margins) && raw.margins.length === 5 ? raw.margins.map((value: unknown) => String(value ?? '')) : defaultForm().margins,
+    margins: Array.from(
+      { length: 6 },
+      (_, index) => String(Array.isArray(raw?.margins) ? raw.margins[index] ?? '' : '')
+    ),
     extraUnits: Array.isArray(raw?.extraUnits) ? raw.extraUnits.map((unit: ExtraUnit) => ({ ...emptyExtraUnit(unit.index), ...unit })) : [],
   });
 

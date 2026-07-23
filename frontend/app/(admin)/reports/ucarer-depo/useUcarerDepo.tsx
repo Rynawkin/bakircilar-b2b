@@ -1873,7 +1873,7 @@ export function useUcarerDepo() {
       setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
       setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
       if (updatePriceLists) {
-        toast.success('Maliyet ve 10 fiyat listesi dogrulanarak guncellendi.');
+        toast.success('Maliyet ve 12 ana fiyat listesi dogrulanarak guncellendi.');
       } else {
         toast.success('Guncel maliyet guncellendi.');
       }

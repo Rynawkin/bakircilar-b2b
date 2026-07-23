@@ -22,6 +22,7 @@ import { PortalStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { getApiErrorMessage } from '../utils/errors';
 import { hapticSuccess } from '../utils/haptics';
+import { getStandardPriceListDefinition } from '../utils/priceLists';
 import { buildSearchVariants } from '../utils/search';
 
 const formatMoney = (value: any) =>
@@ -83,6 +84,11 @@ type DraftQuoteLine = {
   unit?: string | null;
   unitPrice?: number | null;
   priceType?: 'INVOICED' | 'WHITE';
+  priceSource: 'PRICE_LIST' | 'MANUAL';
+  priceListNo?: number | null;
+  invoicedPriceListNo?: number | null;
+  whitePriceListNo?: number | null;
+  customerPriceSource?: 'AGREEMENT' | 'PRICE_LIST';
   invoicedPrice?: number | null;
   whitePrice?: number | null;
   lastSalePrice?: number | null;
@@ -290,6 +296,8 @@ export function FieldSalesScreen() {
     const lastSales = customerPrice.lastSales || product.lastSales || [];
     const invoicedPrice = toFiniteNumber(customerPrice.invoiced);
     const whitePrice = toFiniteNumber(customerPrice.white);
+    const invoicedPriceListNo = toFiniteNumber(customerPrice.priceListNo);
+    const whitePriceListNo = toFiniteNumber(customerPrice.whitePriceListNo);
     const lastSalePrice = toFiniteNumber(lastSales?.[0]?.unitPrice);
     const costInfo = product.cost || {};
     const cost =
@@ -305,6 +313,20 @@ export function FieldSalesScreen() {
         : lastSalePrice && lastSalePrice > 0
           ? lastSalePrice
           : null;
+    const priceType: 'INVOICED' | 'WHITE' =
+      invoicedPrice && invoicedPrice > 0
+        ? 'INVOICED'
+        : whitePrice && whitePrice > 0
+          ? 'WHITE'
+          : 'INVOICED';
+    const selectedListNo =
+      priceType === 'WHITE' ? whitePriceListNo : invoicedPriceListNo;
+    const selectedDefinition = getStandardPriceListDefinition(selectedListNo);
+    const isAgreement = customerPrice.source === 'AGREEMENT';
+    const isValidListPrice =
+      !isAgreement &&
+      selectedDefinition?.type ===
+        (priceType === 'WHITE' ? 'RETAIL' : 'INVOICED');
 
     return {
       productCode: code,
@@ -312,7 +334,13 @@ export function FieldSalesScreen() {
       quantity: 1,
       unit: product.unit,
       unitPrice,
-      priceType: invoicedPrice && invoicedPrice > 0 ? 'INVOICED' : whitePrice && whitePrice > 0 ? 'WHITE' : 'INVOICED',
+      priceType,
+      priceSource: isValidListPrice ? 'PRICE_LIST' : 'MANUAL',
+      priceListNo: isValidListPrice ? selectedListNo : null,
+      invoicedPriceListNo,
+      whitePriceListNo,
+      customerPriceSource:
+        customerPrice.source === 'AGREEMENT' ? 'AGREEMENT' : 'PRICE_LIST',
       invoicedPrice,
       whitePrice,
       lastSalePrice,
@@ -352,7 +380,13 @@ export function FieldSalesScreen() {
     const nextPrice = parseMoneyInput(value);
     setQuoteDraft((current) => current.map((line) => (
       line.productCode === code
-        ? { ...line, unitPrice: nextPrice ?? 0, priceType: line.priceType || 'INVOICED' }
+        ? {
+            ...line,
+            unitPrice: nextPrice ?? 0,
+            priceType: line.priceType || 'INVOICED',
+            priceSource: 'MANUAL',
+            priceListNo: null,
+          }
         : line
     )));
   };
@@ -367,10 +401,23 @@ export function FieldSalesScreen() {
             ? line.lastSalePrice
             : line.invoicedPrice;
       if (!nextPrice || nextPrice <= 0) return line;
+      const nextPriceType = priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+      const nextListNo =
+        nextPriceType === 'WHITE'
+          ? line.whitePriceListNo
+          : line.invoicedPriceListNo;
+      const listDefinition = getStandardPriceListDefinition(nextListNo);
+      const isListPrice =
+        priceType !== 'LAST_SALE' &&
+        line.customerPriceSource !== 'AGREEMENT' &&
+        listDefinition?.type ===
+          (nextPriceType === 'WHITE' ? 'RETAIL' : 'INVOICED');
       return {
         ...line,
         unitPrice: nextPrice,
-        priceType: priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+        priceType: nextPriceType,
+        priceSource: isListPrice ? 'PRICE_LIST' : 'MANUAL',
+        priceListNo: isListPrice ? nextListNo : null,
       };
     }));
   };
@@ -392,6 +439,11 @@ export function FieldSalesScreen() {
         quantity: line.quantity,
         unitPrice: line.unitPrice || undefined,
         priceType: line.priceType,
+        priceSource: line.priceSource,
+        priceListNo:
+          line.priceSource === 'PRICE_LIST'
+            ? line.priceListNo || undefined
+            : undefined,
       })),
     });
   };
@@ -640,6 +692,11 @@ export function FieldSalesScreen() {
                         quantity: 1,
                         unitPrice: draftLine?.unitPrice || undefined,
                         priceType: draftLine?.priceType,
+                        priceSource: draftLine?.priceSource,
+                        priceListNo:
+                          draftLine?.priceSource === 'PRICE_LIST'
+                            ? draftLine.priceListNo || undefined
+                            : undefined,
                       }]
                     : undefined,
                 });

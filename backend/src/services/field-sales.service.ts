@@ -9,6 +9,7 @@ import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '
 import { hashPassword } from '../utils/password';
 import customerCategoryPurchaseService from './customer-category-purchase.service';
 import quoteService from './quote.service';
+import { STANDARD_PRICE_LIST_NOS } from '../config/price-list-registry';
 
 type StaffScope = {
   role?: string;
@@ -622,7 +623,7 @@ class FieldSalesService {
       const local = productByCode.get(code) || null;
       const stats = priceStatsMap.get(code) || null;
       const priceLists: Record<string, number> = {};
-      for (let listNo = 1; listNo <= 10; listNo += 1) {
+      for (const listNo of STANDARD_PRICE_LIST_NOS) {
         priceLists[listNo] = priceListService.getListPrice(stats, listNo);
       }
 
@@ -635,10 +636,10 @@ class FieldSalesService {
         : null;
       const agreement = agreementByCode.get(code) || null;
       const listInvoiced = productPair
-        ? priceListService.getListPriceWithFallback(stats, productPair.invoiced, { min: 6, max: 10 })
+        ? priceListService.getListPriceWithFallback(stats, productPair.invoiced)
         : 0;
       const listWhite = productPair
-        ? priceListService.getListPriceWithFallback(stats, productPair.white, { min: 1, max: 5 })
+        ? priceListService.getListPriceWithFallback(stats, productPair.white)
         : 0;
       const categoryCode = String(readFirst(row, ['Kategori kodu']) || local?.category?.mikroCode || '').trim();
       const categoryLastPurchase = categoryCode ? categoryLastMap.get(normalizeCode(categoryCode)) || null : null;
@@ -699,6 +700,7 @@ class FieldSalesService {
               marj3: readNumber(row, ['Marj_3']),
               marj4: readNumber(row, ['Marj_4']),
               marj5: readNumber(row, ['Marj_5']),
+              marj6: readNumber(row, ['Marj_6']),
             },
           };
 

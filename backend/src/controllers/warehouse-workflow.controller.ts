@@ -375,7 +375,7 @@ class WarehouseWorkflowController {
       if (!['CASH', 'CARD'].includes(String(paymentType || ''))) {
         return res.status(400).json({ error: 'Odeme tipi gecersiz' });
       }
-      if (!Number.isFinite(priceLevel) || priceLevel < 1 || priceLevel > 5) {
+      if (!Number.isFinite(priceLevel) || priceLevel < 1 || priceLevel > 6) {
         return res.status(400).json({ error: 'Perakende fiyat seviyesi gecersiz' });
       }
       if (!items.length) {
@@ -384,7 +384,7 @@ class WarehouseWorkflowController {
 
       const result = await warehouseWorkflowService.createRetailSale({
         paymentType,
-        priceLevel: priceLevel as 1 | 2 | 3 | 4 | 5,
+        priceLevel: priceLevel as 1 | 2 | 3 | 4 | 5 | 6,
         items,
         userId: req.user?.userId,
       });

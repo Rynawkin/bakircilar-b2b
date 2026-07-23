@@ -15,6 +15,7 @@ import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
+import { getStandardPriceListDefinition } from '@/lib/utils/priceLists';
 
 /**
  * Cari 360 ekraninin TUM mantigi (state/effect/handler/turetilmis deger).
@@ -43,17 +44,17 @@ export interface Customer360SearchRow {
   manualListNote?: string | null;
 }
 
-// Liste no -> etiket eslemesi: 6-10 = Faturali 1-5 (6 = Faturali 1, en yuksek fiyat),
-// 1-5 = Perakende 1-5.
 export const invoicedListLabel = (no: number | null | undefined) => {
   if (no === null || no === undefined) return '-';
-  if (no >= 6 && no <= 10) return `Faturalı ${no - 5}`;
+  const definition = getStandardPriceListDefinition(no);
+  if (definition?.type === 'INVOICED') return `Faturalı ${definition.tier}`;
   return `Liste ${no}`;
 };
 
 export const retailListLabel = (no: number | null | undefined) => {
   if (no === null || no === undefined) return '-';
-  if (no >= 1 && no <= 5) return `Perakende ${no}`;
+  const definition = getStandardPriceListDefinition(no);
+  if (definition?.type === 'RETAIL') return `Perakende ${definition.tier}`;
   return `Liste ${no}`;
 };
 

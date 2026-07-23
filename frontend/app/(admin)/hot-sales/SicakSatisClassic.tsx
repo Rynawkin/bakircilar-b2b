@@ -58,6 +58,7 @@ export default function SicakSatisClassic() {
     setPaymentType,
     priceListNo,
     setPriceListNo,
+    hotSalePriceListNos,
     cart,
     loadCart,
     deliveryQuantities,
@@ -218,7 +219,7 @@ export default function SicakSatisClassic() {
                       <option value="OPEN_ACCOUNT">Acik Hesap</option>
                     </select>
                     <select value={priceListNo} onChange={(e) => setPriceListNo(Number(e.target.value))} className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black">
-                      {Array.from({ length: 10 }, (_, index) => index + 1).map((listNo) => (
+                      {hotSalePriceListNos.map((listNo) => (
                         <option key={listNo} value={listNo}>{priceLabel(listNo)}</option>
                       ))}
                     </select>
@@ -249,6 +250,7 @@ export default function SicakSatisClassic() {
                     value={productSearch}
                     onChange={setProductSearch}
                     products={products}
+                    priceListNos={hotSalePriceListNos}
                     actionLabel={activeSession ? 'Sepete Ekle' : 'Oturum gerekli'}
                     onAdd={(product: any, listNo?: number) => addToCart(product, 'sale', listNo)}
                   />
@@ -264,6 +266,7 @@ export default function SicakSatisClassic() {
                   submitLabel={saleType === 'ORDER' ? 'Siparis Olustur' : saleType === 'INVOICED_DISPATCH' ? 'Irsaliye Kes' : 'Satis Faturasi Kes'}
                   disabled={submitting || !activeSession || priceViolations.length > 0 || saleStockViolations.length > 0}
                   saleType={saleType}
+                  priceListNos={hotSalePriceListNos}
                   mode="sale"
                 />
               </section>
@@ -847,7 +850,7 @@ function NewCustomerPanel({ form, onChange, onSubmit, submitting }: { form: NewC
   );
 }
 
-function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
+function ProductSearch({ value, onChange, products, onAdd, actionLabel, priceListNos = [] }: any) {
   return (
     <div>
       <label className="mb-1 block text-sm font-black">Urun Ara</label>
@@ -880,7 +883,7 @@ function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 border-t border-white/70 p-3 text-xs">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((listNo) => (
+                {priceListNos.map((listNo: number) => (
                   <button key={listNo} type="button" onClick={() => onAdd(product, listNo)} className="rounded-2xl bg-white px-2 py-2 text-left font-black shadow-sm hover:bg-slate-950 hover:text-white">
                     {priceLabel(listNo)}: {formatCurrency(product.priceLists?.[listNo] || 0)}
                   </button>
@@ -897,7 +900,7 @@ function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
   );
 }
 
-function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemove, onSubmit, submitLabel, disabled, hidePrice, saleType, mode = 'sale', sourceWarehouseNo }: any) {
+function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemove, onSubmit, submitLabel, disabled, hidePrice, saleType, mode = 'sale', sourceWarehouseNo, priceListNos = [] }: any) {
   return (
     <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
       <div className="mb-3 flex items-center justify-between">
@@ -931,7 +934,7 @@ function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemo
                   }}
                   className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black"
                 >
-                  {Array.from({ length: 10 }, (_, index) => index + 1).map((listNo) => (
+                  {priceListNos.map((listNo: number) => (
                     <option key={listNo} value={listNo}>{priceLabel(listNo)}</option>
                   ))}
                 </select>

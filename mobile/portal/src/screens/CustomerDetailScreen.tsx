@@ -18,6 +18,11 @@ import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Agreement, Customer, CustomerContact, CustomerSubUser, Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { getApiErrorMessage } from '../utils/errors';
+import {
+  INVOICED_PRICE_LISTS,
+  RETAIL_PRICE_LISTS,
+  getStandardPriceListShortLabel,
+} from '../utils/priceLists';
 
 const CUSTOMER_TYPES = ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'] as const;
 const PRICE_VISIBILITY = ['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH'] as const;
@@ -309,7 +314,9 @@ export function CustomerDetailScreen() {
                   <Text style={styles.heroMetricLabel} numberOfLines={1}>Anlasma</Text>
                 </View>
                 <View style={styles.heroMetric}>
-                  <Text style={styles.heroMetricValue} numberOfLines={1}>{invoicedList || '-'}</Text>
+                  <Text style={styles.heroMetricValue} numberOfLines={1}>
+                    {invoicedList ? getStandardPriceListShortLabel(Number(invoicedList)) : '-'}
+                  </Text>
                   <Text style={styles.heroMetricLabel} numberOfLines={1}>Fiyat Listesi</Text>
                 </View>
               </View>
@@ -348,23 +355,45 @@ export function CustomerDetailScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+              <Text style={styles.helper}>Faturali fiyat listesi</Text>
               <View style={styles.row}>
-                <TextInput
-                  style={[styles.input, styles.smallInput]}
-                  placeholder="Faturali liste"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="numeric"
-                  value={invoicedList}
-                  onChangeText={setInvoicedList}
-                />
-                <TextInput
-                  style={[styles.input, styles.smallInput]}
-                  placeholder="Beyaz liste"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="numeric"
-                  value={whiteList}
-                  onChangeText={setWhiteList}
-                />
+                <TouchableOpacity
+                  style={[styles.segmentButton, !invoicedList && styles.segmentButtonActive]}
+                  onPress={() => setInvoicedList('')}
+                >
+                  <Text style={!invoicedList ? styles.segmentTextActive : styles.segmentText}>Genel</Text>
+                </TouchableOpacity>
+                {INVOICED_PRICE_LISTS.map((list) => (
+                  <TouchableOpacity
+                    key={list.listNo}
+                    style={[styles.segmentButton, invoicedList === String(list.listNo) && styles.segmentButtonActive]}
+                    onPress={() => setInvoicedList(String(list.listNo))}
+                  >
+                    <Text style={invoicedList === String(list.listNo) ? styles.segmentTextActive : styles.segmentText}>
+                      {list.shortLabel}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.helper}>Beyaz / perakende fiyat listesi</Text>
+              <View style={styles.row}>
+                <TouchableOpacity
+                  style={[styles.segmentButton, !whiteList && styles.segmentButtonActive]}
+                  onPress={() => setWhiteList('')}
+                >
+                  <Text style={!whiteList ? styles.segmentTextActive : styles.segmentText}>Genel</Text>
+                </TouchableOpacity>
+                {RETAIL_PRICE_LISTS.map((list) => (
+                  <TouchableOpacity
+                    key={list.listNo}
+                    style={[styles.segmentButton, whiteList === String(list.listNo) && styles.segmentButtonActive]}
+                    onPress={() => setWhiteList(String(list.listNo))}
+                  >
+                    <Text style={whiteList === String(list.listNo) ? styles.segmentTextActive : styles.segmentText}>
+                      {list.shortLabel}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
               <View style={styles.row}>
                 <TouchableOpacity

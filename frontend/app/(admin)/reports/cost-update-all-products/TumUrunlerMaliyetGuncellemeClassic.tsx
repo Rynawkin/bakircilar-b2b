@@ -67,7 +67,7 @@ export default function TumUrunlerMaliyetGuncellemeClassic() {
             </Button>
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">Tum Urunler Maliyet ve Fiyat Guncelleme</h1>
-          <p className="text-sm text-gray-600">Tum aktif urunleri gor, kolonlarini sec, sirala ve maliyet + 10 liste guncelle.</p>
+          <p className="text-sm text-gray-600">Tum aktif urunleri gor, kolonlarini sec, sirala ve maliyet + 12 standart liste guncelle.</p>
         </div>
         <Button variant="outline" onClick={() => loadData(false)} disabled={refreshing}>
           <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -229,7 +229,7 @@ export default function TumUrunlerMaliyetGuncellemeClassic() {
                                 checked={shouldUpdatePriceLists(code)}
                                 onChange={(e) => setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: e.target.checked }))}
                               />
-                              10 liste
+                              12 standart liste
                             </label>
                             <Button size="sm" variant="outline" onClick={() => updateCost(item)} disabled={Boolean(updatingByCode[code])}>
                               {updatingByCode[code] ? '...' : 'Guncelle'}
@@ -275,7 +275,7 @@ export default function TumUrunlerMaliyetGuncellemeClassic() {
                     })}`
                   : 'Hesaplanamadi'}
               </p>
-              <p className="text-xs text-gray-600">10 fiyat listesi de bu maliyete gore guncellenecek.</p>
+              <p className="text-xs text-gray-600">12 ana fiyat listesi de bu maliyete gore guncellenecek.</p>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <Button

@@ -95,7 +95,7 @@ const defaultForm = (templateCode = 'B108423'): StockCreateInput => ({
   mainUnitWidthCm: '',
   mainUnitLengthCm: '',
   mainUnitHeightCm: '',
-  margins: ['', '', '', '', ''],
+  margins: ['', '', '', '', '', ''],
   barcode: '',
   notes: '',
   extraUnits: [],
@@ -299,7 +299,7 @@ export function PassiveStocksScreen() {
   };
 
   const patchMargin = (index: number, value: string) => {
-    const margins = [...(form.margins || ['', '', '', '', ''])];
+    const margins = [...(form.margins || ['', '', '', '', '', ''])];
     margins[index] = value;
     patchForm({ margins });
   };
@@ -376,7 +376,7 @@ export function PassiveStocksScreen() {
     ...form,
     stockCode: mode === 'activate' ? selectedPassive?.code || form.stockCode : undefined,
     templateCode: form.templateCode || metadata?.defaultTemplateCode || 'B108423',
-    margins: form.margins || ['', '', '', '', ''],
+    margins: form.margins || ['', '', '', '', '', ''],
     calculateMinMax: form.calculateMinMax !== false,
   });
 
@@ -637,7 +637,7 @@ export function PassiveStocksScreen() {
 
   const renderForm = () => {
     if (mode === 'idle') return null;
-    const margins = form.margins || ['', '', '', '', ''];
+    const margins = form.margins || ['', '', '', '', '', ''];
     const extraUnits = Array.isArray(form.extraUnits) ? form.extraUnits : [];
     const visibleStockFamilies = stockFamilyOptions.filter((family) => familyMatches(family, stockFamilySearch)).slice(0, 16);
     const visiblePriceFamilies = priceFamilyOptions.filter((family) => familyMatches(family, priceFamilySearch)).slice(0, 16);

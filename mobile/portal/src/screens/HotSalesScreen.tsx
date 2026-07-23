@@ -28,10 +28,20 @@ import {
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { getApiErrorMessage } from '../utils/errors';
 import { hapticSuccess } from '../utils/haptics';
+import {
+  getStoredValue,
+  setStoredValue,
+} from '../storage/kv';
+import {
+  getStandardPriceListDefinition,
+  getStandardPriceListsForPriceType,
+  getStandardPriceListNosForPriceType,
+  getStandardPriceListLabel,
+  getStandardPriceListShortLabel,
+} from '../utils/priceLists';
 
 type ViewKey = 'dashboard' | 'sale' | 'load' | 'orders' | 'close' | 'report' | 'manage';
 
-const priceLists = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const sourceWarehouses = [
   { value: 1, label: 'Merkez' },
   { value: 6, label: 'Topca' },
@@ -81,6 +91,170 @@ const sessionUserName = (session?: HotSaleSession | null) =>
 
 const productPrice = (product: HotSaleProduct, listNo: number) =>
   n(product.priceLists?.[String(listNo)] ?? product.priceLists?.[listNo as any]);
+
+type HotSalePricePair = {
+  invoicedPriceListNo?: number | null;
+  whitePriceListNo?: number | null;
+};
+
+const createOperationKey = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    const digit = char === 'x' ? value : (value & 0x3) | 0x8;
+    return digit.toString(16);
+  });
+
+type SaleOperationState = 'PENDING' | 'COMPLETED' | 'CANCELLED';
+
+type StoredSaleOperation = {
+  signature: string;
+  operationKey: string;
+  state: SaleOperationState;
+};
+
+type SessionSaleOperation = StoredSaleOperation & {
+  sessionId: string;
+};
+
+class HotSaleClientGuardError extends Error {}
+
+const pendingSaleOperationStorageKey = (sessionId: string) =>
+  `b2b-hot-sale-pending-${sessionId}`;
+
+const createPayloadSignature = (payload: unknown) => {
+  const serialized = JSON.stringify(payload);
+  let first = 2166136261;
+  let second = 2246822519;
+
+  for (let index = 0; index < serialized.length; index += 1) {
+    const code = serialized.charCodeAt(index);
+    first = Math.imul(first ^ code, 16777619);
+    second = Math.imul(second ^ code, 3266489917);
+  }
+
+  return `v1:${serialized.length}:${(first >>> 0).toString(16).padStart(8, '0')}${(second >>> 0).toString(16).padStart(8, '0')}`;
+};
+
+const parseStoredSaleOperation = (value: string | null): StoredSaleOperation | null => {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (
+      typeof parsed?.signature !== 'string'
+      || typeof parsed?.operationKey !== 'string'
+      || !parsed.signature
+      || !parsed.operationKey
+    ) {
+      return null;
+    }
+    const state: SaleOperationState =
+      parsed.state === 'COMPLETED' || parsed.state === 'CANCELLED'
+        ? parsed.state
+        : 'PENDING';
+    return {
+      signature: parsed.signature,
+      operationKey: parsed.operationKey,
+      state,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const readStoredSaleOperation = async (sessionId: string) => {
+  try {
+    return parseStoredSaleOperation(
+      await getStoredValue(pendingSaleOperationStorageKey(sessionId))
+    );
+  } catch {
+    return null;
+  }
+};
+
+const persistSaleOperation = async (
+  sessionId: string,
+  operation: StoredSaleOperation
+) => {
+  try {
+    const storageKey = pendingSaleOperationStorageKey(sessionId);
+    await setStoredValue(storageKey, JSON.stringify(operation));
+    const stored = parseStoredSaleOperation(await getStoredValue(storageKey));
+    return stored?.signature === operation.signature
+      && stored.operationKey === operation.operationKey
+      && stored.state === operation.state;
+  } catch {
+    return false;
+  }
+};
+
+const selectCurrentSaleOperation = (
+  stored: StoredSaleOperation | null,
+  inMemory: SessionSaleOperation | null,
+  sessionId: string
+) => {
+  const scopedMemory = inMemory?.sessionId === sessionId ? inMemory : null;
+  if (
+    stored
+    && scopedMemory
+    && stored.signature === scopedMemory.signature
+    && stored.operationKey === scopedMemory.operationKey
+    && scopedMemory.state !== 'PENDING'
+  ) {
+    return scopedMemory;
+  }
+  return stored || scopedMemory;
+};
+
+const isTerminalCancellationError = (error: any) =>
+  Number(error?.response?.status) === 409
+  && String(error?.response?.data?.errorCode || '') === 'ORDER_ALREADY_PROCESSED';
+
+const getServerTerminalOperationState = (
+  sessionData: any,
+  operationKey: string
+): Extract<SaleOperationState, 'COMPLETED' | 'CANCELLED'> | null => {
+  const transaction = (sessionData?.session?.transactions || []).find(
+    (row: any) => String(row?.operationKey || '').toLowerCase() === operationKey.toLowerCase()
+  );
+  const status = String(transaction?.status || '').toUpperCase();
+  return status === 'COMPLETED' || status === 'CANCELLED' ? status : null;
+};
+
+type HotSaleProductPricing = {
+  customerPriceLists?: HotSalePricePair | null;
+  pricingCustomerId?: string | null;
+};
+
+type HotSaleCartPricing = HotSaleProductPricing & {
+  priceListExplicit?: boolean;
+  unitPriceExplicit?: boolean;
+};
+
+const implicitPriceListNo = (
+  saleType: HotSaleTransactionType,
+  pair?: HotSalePricePair | null
+) => {
+  const fallback = pair
+    ? (saleType === 'CASH_INVOICE' ? 1 : 6)
+    : (saleType === 'CASH_INVOICE' ? 5 : 6);
+  const candidate = saleType === 'CASH_INVOICE'
+    ? Number(pair?.whitePriceListNo)
+    : Number(pair?.invoicedPriceListNo);
+  const allowed = getStandardPriceListNosForPriceType(
+    saleType === 'CASH_INVOICE' ? 'WHITE' : 'INVOICED'
+  );
+  return allowed.includes(candidate) ? candidate : fallback;
+};
+
+const pairedPriceListNo = (
+  listNo: number | null | undefined,
+  priceType: 'INVOICED' | 'WHITE'
+) => {
+  const current = getStandardPriceListDefinition(listNo);
+  if (!current) return null;
+  return getStandardPriceListsForPriceType(priceType)
+    .find((definition) => definition.tier === current.tier)?.listNo ?? null;
+};
 
 function Metric({ label, value, tone }: { label: string; value: string | number; tone?: 'red' | 'green' | 'amber' }) {
   return (
@@ -168,7 +342,9 @@ export function HotSalesScreen() {
   const [loadCart, setLoadCart] = useState<HotSaleCartItem[]>([]);
   const [saleType, setSaleType] = useState<HotSaleTransactionType>('CASH_INVOICE');
   const [paymentType, setPaymentType] = useState<HotSalePaymentType>('CASH');
-  const [priceListNo, setPriceListNo] = useState(5);
+  const [priceListNo, setPriceListNoState] = useState(5);
+  const [priceListOverridden, setPriceListOverridden] = useState(false);
+  const saleOperationRef = useRef<SessionSaleOperation | null>(null);
 
   const [orderSearch, setOrderSearch] = useState('');
   const [openOrders, setOpenOrders] = useState<HotSaleOpenOrder[]>([]);
@@ -192,6 +368,43 @@ export function HotSalesScreen() {
   const productRequestSeqRef = useRef(0);
   const orderRequestSeqRef = useRef(0);
   const reportRequestSeqRef = useRef(0);
+  const previousSaleTypeRef = useRef<HotSaleTransactionType>(saleType);
+  const previousCustomerIdRef = useRef<string | null>(null);
+
+  const priceLists = useMemo(
+    () => getStandardPriceListNosForPriceType(saleType === 'CASH_INVOICE' ? 'WHITE' : 'INVOICED'),
+    [saleType]
+  );
+
+  useEffect(() => {
+    if (priceListOverridden || products.length === 0) return;
+    const byCode = new Map(products.map((product) => [product.productCode, product]));
+    setCart((prev) => prev.map((item) => {
+      const pricing = item as HotSaleCartItem & HotSaleCartPricing;
+      if (pricing.priceListExplicit) return item;
+      const product = byCode.get(item.productCode);
+      if (!product) return item;
+      const productPricing = product as HotSaleProduct & HotSaleProductPricing;
+      const productPair =
+        selectedCustomer?.id && productPricing.pricingCustomerId === selectedCustomer.id
+          ? productPricing.customerPriceLists
+          : selectedCustomer as (HotSaleCustomer & HotSalePricePair) | null;
+      const nextListNo = implicitPriceListNo(
+        saleType,
+        productPair
+      );
+      return {
+        ...item,
+        priceListNo: nextListNo,
+        unitPrice: pricing.unitPriceExplicit
+          ? item.unitPrice
+          : productPrice(product, nextListNo),
+        priceLists: product.priceLists || item.priceLists,
+        customerPriceLists: productPricing.customerPriceLists || null,
+        pricingCustomerId: productPricing.pricingCustomerId || null,
+      };
+    }));
+  }, [products, priceListOverridden, saleType, selectedCustomer]);
 
   const beginSubmitting = () => {
     if (submittingRef.current) return false;
@@ -217,6 +430,14 @@ export function HotSalesScreen() {
 
   const saleTotal = useMemo(() => cart.reduce((sum, item) => sum + n(item.quantity) * n(item.unitPrice), 0), [cart]);
   const loadTotalQty = useMemo(() => loadCart.reduce((sum, item) => sum + n(item.quantity), 0), [loadCart]);
+  const customerPricingPending = Boolean(
+    selectedCustomer?.id
+    && !priceListOverridden
+    && cart.some((item) => {
+      const pricing = item as HotSaleCartItem & HotSaleCartPricing;
+      return !pricing.priceListExplicit && pricing.pricingCustomerId !== selectedCustomer.id;
+    })
+  );
 
   const loadDashboard = useCallback(async () => {
     const requestSeq = dashboardRequestSeqRef.current + 1;
@@ -252,6 +473,29 @@ export function HotSalesScreen() {
       const result = await adminApi.getHotSaleSession(sessionId);
       if (requestSeq !== sessionRequestSeqRef.current) return;
       setSessionDetail(result);
+      const storedOperation = await readStoredSaleOperation(sessionId);
+      if (storedOperation?.state === 'PENDING') {
+        const terminalState = getServerTerminalOperationState(
+          result,
+          storedOperation.operationKey
+        );
+        if (terminalState) {
+          const terminalOperation: StoredSaleOperation = {
+            ...storedOperation,
+            state: terminalState,
+          };
+          saleOperationRef.current = {
+            sessionId,
+            ...terminalOperation,
+          };
+          if (!await persistSaleOperation(sessionId, terminalOperation)) {
+            Alert.alert(
+              'Guvenlik kaydi dogrulanamadi',
+              'Ayni sicak satis islemini yeniden gondermeyin ve yoneticiye bildirin.'
+            );
+          }
+        }
+      }
       setSelectedSessionId(sessionId);
       setClosingCash(String(result.session.closingCash ?? result.session.openingCash ?? 0));
       setClosingCounts((prev) => {
@@ -285,11 +529,81 @@ export function HotSalesScreen() {
   }, [selectedSessionId, loadSession]);
 
   useEffect(() => {
-    const selected = saleTypes.find((item) => item.value === saleType);
-    if (selected) setPriceListNo(selected.priceList);
+    const typeChanged = previousSaleTypeRef.current !== saleType;
+    const currentCustomerId = selectedCustomer?.id || null;
+    const customerChanged = previousCustomerIdRef.current !== currentCustomerId;
+    const defaultPriceListNo = implicitPriceListNo(
+      saleType,
+      selectedCustomer as HotSaleCustomer & HotSalePricePair
+    );
+    setPriceListNoState(defaultPriceListNo);
+    setPriceListOverridden(false);
     if (saleType === 'INVOICED_DISPATCH') setPaymentType('OPEN_ACCOUNT');
     if (saleType === 'CASH_INVOICE' && paymentType === 'OPEN_ACCOUNT') setPaymentType('CASH');
-  }, [saleType]);
+
+    if (typeChanged || customerChanged) {
+      if (cart.length > 0) {
+        Alert.alert(
+          'Fiyat listesi guncellendi',
+          typeChanged
+            ? 'Sepetteki kalemler yeni satis tipinin fiyat duzlemine tasindi.'
+            : 'Sepetteki varsayilan fiyatlar secilen cariye gore guncellendi.'
+        );
+      }
+      setCart((prev) => {
+        if (prev.length === 0) return prev;
+        return prev.map((item) => {
+          const pricing = item as HotSaleCartItem & HotSaleCartPricing;
+          const samePricingCustomer =
+            Boolean(currentCustomerId) && pricing.pricingCustomerId === currentCustomerId;
+          const customerPair = samePricingCustomer
+            ? pricing.customerPriceLists
+            : selectedCustomer as (HotSaleCustomer & HotSalePricePair) | null;
+          const pairedExplicitList = typeChanged && pricing.priceListExplicit
+            ? pairedPriceListNo(
+                item.priceListNo,
+                saleType === 'CASH_INVOICE' ? 'WHITE' : 'INVOICED'
+              )
+            : null;
+          const nextListNo = pairedExplicitList
+            ?? (pricing.priceListExplicit
+              ? Number(item.priceListNo)
+              : implicitPriceListNo(saleType, customerPair));
+          return {
+            ...item,
+            priceListNo: nextListNo,
+            unitPrice: pricing.unitPriceExplicit
+              ? item.unitPrice
+              : n(item.priceLists?.[String(nextListNo)]),
+          };
+        });
+      });
+    }
+    previousSaleTypeRef.current = saleType;
+    previousCustomerIdRef.current = currentCustomerId;
+  }, [
+    saleType,
+    selectedCustomer?.id,
+    (selectedCustomer as (HotSaleCustomer & HotSalePricePair) | null)?.invoicedPriceListNo,
+    (selectedCustomer as (HotSaleCustomer & HotSalePricePair) | null)?.whitePriceListNo,
+  ]);
+
+  const setPriceListNo = (nextListNo: number) => {
+    if (!priceLists.includes(nextListNo)) return;
+    setPriceListNoState(nextListNo);
+    setPriceListOverridden(true);
+    setCart((prev) => prev.map((item) => {
+      const pricing = item as HotSaleCartItem & HotSaleCartPricing;
+      if (pricing.priceListExplicit) return item;
+      return {
+        ...item,
+        priceListNo: nextListNo,
+        unitPrice: pricing.unitPriceExplicit
+          ? item.unitPrice
+          : n(item.priceLists?.[String(nextListNo)]),
+      };
+    }));
+  };
 
   const selectSession = (session: HotSaleSession) => {
     setSelectedSessionId(session.id);
@@ -375,9 +689,24 @@ export function HotSalesScreen() {
     }
   };
 
+  const effectiveProductPriceListNo = (product: HotSaleProduct) => {
+    if (priceListOverridden) return priceListNo;
+    const productPricing = product as HotSaleProduct & HotSaleProductPricing;
+    const productPair =
+      selectedCustomer?.id && productPricing.pricingCustomerId === selectedCustomer.id
+        ? productPricing.customerPriceLists
+        : selectedCustomer as (HotSaleCustomer & HotSalePricePair) | null;
+    return implicitPriceListNo(
+      saleType,
+      productPair
+    );
+  };
+
   const upsertCart = (target: 'sale' | 'load', product: HotSaleProduct) => {
     const setter = target === 'load' ? setLoadCart : setCart;
     const code = product.productCode;
+    const productPricing = product as HotSaleProduct & HotSaleProductPricing;
+    const selectedListNo = effectiveProductPriceListNo(product);
     setter((prev) => {
       const exists = prev.find((item) => item.productCode === code);
       if (exists) {
@@ -390,8 +719,9 @@ export function HotSalesScreen() {
           productName: product.productName,
           unit: product.unit,
           quantity: 1,
-          unitPrice: target === 'load' ? 0 : productPrice(product, priceListNo),
-          priceListNo,
+          unitPrice: target === 'load' ? 0 : productPrice(product, selectedListNo),
+          priceListNo: selectedListNo,
+          priceLists: product.priceLists || {},
           vatRate: product.vatRate,
           currentCost: product.currentCost,
           currentCostVatIncluded: product.currentCostVatIncluded,
@@ -399,6 +729,10 @@ export function HotSalesScreen() {
           hotWarehouseStock: product.hotWarehouseStock,
           stockMerkez: product.stockMerkez,
           stockTopca: product.stockTopca,
+          customerPriceLists: productPricing.customerPriceLists || null,
+          pricingCustomerId: productPricing.pricingCustomerId || null,
+          priceListExplicit: false,
+          unitPriceExplicit: false,
         },
       ];
     });
@@ -407,7 +741,24 @@ export function HotSalesScreen() {
 
   const updateCart = (target: 'sale' | 'load', code: string, patch: Partial<HotSaleCartItem>) => {
     const setter = target === 'load' ? setLoadCart : setCart;
-    setter((prev) => prev.map((item) => (item.productCode === code ? { ...item, ...patch } : item)));
+    setter((prev) => prev.map((item) => {
+      if (item.productCode !== code) return item;
+      const pricing = item as HotSaleCartItem & HotSaleCartPricing;
+      const priceListChanged =
+        target === 'sale'
+        && patch.priceListNo !== undefined
+        && patch.priceListNo !== item.priceListNo;
+      const unitPriceChangedDirectly =
+        target === 'sale'
+        && patch.unitPrice !== undefined
+        && patch.priceListNo === undefined;
+      return {
+        ...item,
+        ...patch,
+        priceListExplicit: pricing.priceListExplicit || priceListChanged,
+        unitPriceExplicit: pricing.unitPriceExplicit || unitPriceChangedDirectly,
+      };
+    }));
   };
 
   const removeCart = (target: 'sale' | 'load', code: string) => {
@@ -498,6 +849,13 @@ export function HotSalesScreen() {
       Alert.alert('Cari gerekli', 'Irsaliye ve siparis icin cari secilmeli.');
       return;
     }
+    if (customerPricingPending) {
+      Alert.alert(
+        'Fiyatlar yenilenmeli',
+        'Secilen carinin urun bazli fiyatlari icin urun aramasini tekrar calistirin.'
+      );
+      return;
+    }
     Alert.alert('Islem kaydedilsin mi?', `${typeInfo?.label || 'Satis'} icin toplam ${money(saleTotal)}. Mikro islemi olusabilir.`, [
       { text: 'Vazgec', style: 'cancel' },
       {
@@ -505,26 +863,165 @@ export function HotSalesScreen() {
         onPress: async () => {
           if (!beginSubmitting()) return;
           try {
-            const result = await adminApi.createHotSaleTransaction(activeSession.id, {
+            const payload = {
               type: saleType,
               customerId: selectedCustomer?.id,
               customerCode: selectedCustomer?.mikroCariCode,
-              customerName: customerName(selectedCustomer),
+              customerName: selectedCustomer ? customerName(selectedCustomer) : undefined,
               paymentType,
-              priceListNo,
-              items: cart.map((item) => ({
-                productCode: item.productCode,
-                quantity: n(item.quantity),
-                unitPrice: n(item.unitPrice),
-                priceListNo: item.priceListNo || priceListNo,
-                unit: item.unit || undefined,
-              })),
-            });
-            setCart([]);
-            await loadSession(activeSession.id);
-            await loadDashboard();
-            hapticSuccess();
-            Alert.alert('Kaydedildi', result.transaction.mikroDocumentNo || result.transaction.linkedOrderNumber || 'Islem olustu.');
+              ...(priceListOverridden ? { priceListNo } : {}),
+              items: cart.map((item) => {
+                const pricing = item as HotSaleCartItem & HotSaleCartPricing;
+                return {
+                  productCode: item.productCode,
+                  quantity: n(item.quantity),
+                  ...(pricing.unitPriceExplicit ? { unitPrice: n(item.unitPrice) } : {}),
+                  ...(pricing.priceListExplicit && item.priceListNo
+                    ? { priceListNo: item.priceListNo }
+                    : {}),
+                  unit: item.unit || undefined,
+                };
+              }) as any,
+            };
+            const signature = createPayloadSignature(payload);
+            const persistedOperation = await readStoredSaleOperation(activeSession.id);
+            let currentOperation = selectCurrentSaleOperation(
+              persistedOperation,
+              saleOperationRef.current,
+              activeSession.id
+            );
+            if (currentOperation?.state === 'PENDING') {
+              try {
+                const liveSession = await adminApi.getHotSaleSession(activeSession.id);
+                const terminalState = getServerTerminalOperationState(
+                  liveSession,
+                  currentOperation.operationKey
+                );
+                if (terminalState) {
+                  const terminalOperation: StoredSaleOperation = {
+                    signature: currentOperation.signature,
+                    operationKey: currentOperation.operationKey,
+                    state: terminalState,
+                  };
+                  saleOperationRef.current = {
+                    sessionId: activeSession.id,
+                    ...terminalOperation,
+                  };
+                  if (!await persistSaleOperation(activeSession.id, terminalOperation)) {
+                    throw new HotSaleClientGuardError(
+                      'Islemin sunucu durumu bulundu, ancak yerel guvenlik kaydi dogrulanamadi. Ayni satisi yeniden gondermeyin ve yoneticiye bildirin.'
+                    );
+                  }
+                  currentOperation = terminalOperation;
+                }
+              } catch (error) {
+                if (error instanceof HotSaleClientGuardError) throw error;
+                // Reusing the same pending key remains idempotent if the read-only status check is unavailable.
+              }
+            }
+
+            if (currentOperation?.state === 'PENDING' && currentOperation.signature !== signature) {
+              throw new HotSaleClientGuardError(
+                'Bu oturumda sonucu kesinlesmemis baska bir satis var. Yeni bir sepet gondermeden once onceki sepeti aynen kurup tekrar kontrol edin.'
+              );
+            }
+            if (currentOperation?.state === 'COMPLETED' && currentOperation.signature === signature) {
+              throw new HotSaleClientGuardError(
+                'Bu satis istegi daha once tamamlandi. Ayni sepet ikinci kez gonderilmedi.'
+              );
+            }
+            if (currentOperation?.state === 'CANCELLED' && currentOperation.signature === signature) {
+              throw new HotSaleClientGuardError(
+                'Bu satis istegi iptal edilmis. Sepeti kontrol edip degistirmeden ayni istegi yeniden gonderemezsiniz.'
+              );
+            }
+
+            const pendingOperation: StoredSaleOperation =
+              currentOperation?.state === 'PENDING' && currentOperation.signature === signature
+                ? {
+                    signature: currentOperation.signature,
+                    operationKey: currentOperation.operationKey,
+                    state: 'PENDING',
+                  }
+                : {
+                    signature,
+                    operationKey: createOperationKey(),
+                    state: 'PENDING',
+                  };
+            saleOperationRef.current = {
+              sessionId: activeSession.id,
+              ...pendingOperation,
+            };
+            if (!await persistSaleOperation(activeSession.id, pendingOperation)) {
+              throw new HotSaleClientGuardError(
+                'Islem anahtari cihazda guvenli saklanamadi. Satis gonderilmedi.'
+              );
+            }
+
+            let result: Awaited<ReturnType<typeof adminApi.createHotSaleTransaction>>;
+            try {
+              result = await adminApi.createHotSaleTransaction(activeSession.id, {
+                ...payload,
+                operationKey: pendingOperation.operationKey,
+              });
+            } catch (error: any) {
+              if (isTerminalCancellationError(error)) {
+                const cancelledOperation: StoredSaleOperation = {
+                  ...pendingOperation,
+                  state: 'CANCELLED',
+                };
+                saleOperationRef.current = {
+                  sessionId: activeSession.id,
+                  ...cancelledOperation,
+                };
+                if (!await persistSaleOperation(activeSession.id, cancelledOperation)) {
+                  throw new HotSaleClientGuardError(
+                    'Islem iptal edilmis, ancak yerel guvenlik kaydi dogrulanamadi. Bu ekrani kapatmadan yoneticiye bildirin ve ayni satisi yeniden gondermeyin.'
+                  );
+                }
+                throw new HotSaleClientGuardError(
+                  'Islem iptal edilmis. Sepet korundu; kontrol edip degistirmeden ayni istegi yeniden gonderemezsiniz.'
+                );
+              }
+              throw error;
+            }
+
+            const transactionStatus = String(result.transaction?.status || '').toUpperCase();
+            if (transactionStatus === 'COMPLETED' || transactionStatus === 'CANCELLED') {
+              const terminalOperation: StoredSaleOperation = {
+                ...pendingOperation,
+                state: transactionStatus,
+              };
+              saleOperationRef.current = {
+                sessionId: activeSession.id,
+                ...terminalOperation,
+              };
+              if (!await persistSaleOperation(activeSession.id, terminalOperation)) {
+                throw new HotSaleClientGuardError(
+                  transactionStatus === 'COMPLETED'
+                    ? 'Islem tamamlandi, ancak yerel guvenlik kaydi dogrulanamadi. Ayni satisi yeniden gondermeyin ve yoneticiye bildirin.'
+                    : 'Islem iptal edildi, ancak yerel guvenlik kaydi dogrulanamadi. Ayni satisi yeniden gondermeyin ve yoneticiye bildirin.'
+                );
+              }
+            }
+
+            if (transactionStatus === 'COMPLETED') {
+              setCart([]);
+              await loadSession(activeSession.id);
+              await loadDashboard();
+              hapticSuccess();
+              Alert.alert('Kaydedildi', result.transaction.mikroDocumentNo || result.transaction.linkedOrderNumber || 'Islem olustu.');
+            } else if (transactionStatus === 'CANCELLED') {
+              Alert.alert(
+                'Islem iptal edilmis',
+                'Sepet korundu; kontrol edip degistirmeden ayni istegi yeniden gonderemezsiniz.'
+              );
+            } else {
+              Alert.alert(
+                'Islem henuz tamamlanmadi',
+                'Sepet ve islem anahtari korunuyor. Ayni istekle tekrar deneyin.'
+              );
+            }
           } catch (err: any) {
             Alert.alert('Satis kaydedilemedi', getApiErrorMessage(err, 'Islem tamamlanamadi.'));
           } finally {
@@ -954,7 +1451,9 @@ export function HotSalesScreen() {
             <Text style={styles.stockPill} numberOfLines={1}>Topca {numberText(product.stockTopca)}</Text>
           </View>
           <View style={styles.cardHeader}>
-            <Text style={styles.priceText} numberOfLines={1}>Liste {priceListNo}: {money(productPrice(product, priceListNo))}</Text>
+            <Text style={styles.priceText} numberOfLines={1}>
+              {getStandardPriceListLabel(effectiveProductPriceListNo(product))}: {money(productPrice(product, effectiveProductPriceListNo(product)))}
+            </Text>
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.addButton} onPress={() => upsertCart('sale', product)}>
                 <Text style={styles.addButtonText}>Satis</Text>
@@ -1027,7 +1526,7 @@ export function HotSalesScreen() {
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
           {priceLists.map((listNo) => (
-            <Chip key={listNo} label={`L${listNo}`} active={priceListNo === listNo} onPress={() => setPriceListNo(listNo)} />
+            <Chip key={listNo} label={getStandardPriceListShortLabel(listNo)} active={priceListNo === listNo} onPress={() => setPriceListNo(listNo)} />
           ))}
         </ScrollView>
       </View>

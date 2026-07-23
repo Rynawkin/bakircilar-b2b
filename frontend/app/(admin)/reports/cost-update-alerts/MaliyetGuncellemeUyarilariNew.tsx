@@ -21,13 +21,13 @@ import { useMaliyetGuncellemeUyarilari } from './useMaliyetGuncellemeUyarilari';
  * filtre/ozet/satir-aksiyon dusurulmemistir. Ozellikle:
  *  - handleManualSync (Tekrar Senkronize Et), fetchData (Yenile), handleExportExcel
  *  - per-row Maliyet Guncelle: T input -> P otomatik (yarim KDV), P input (manuel override),
- *    "10 liste" checkbox (updatePriceLists), Guncelle butonu -> updateProductCost
+ *    "12 standart liste" checkbox (updatePriceLists), Guncelle butonu -> updateProductCost
  *    => adminApi.updateUcarerProductCost (Mikro'ya maliyet/fiyat YAZAR). Mantik degismedi.
  *  - sticky Urun Kodu + Urun Adi kolonlari + alt senkron yatay scrollbar korunmustur
  *    (hook'taki tableScrollRef/querySelector('table') mantigi gercek <table> ister).
  *
  * Tasarim referansi: design HTML'de bu ekrana ozel data-screen-label yok; brief 4.9.4 +
- * "Tedarik Maliyetleri" / "Ucarer Depo" ekranlarindaki maliyet-giris (T/P input + "10 liste"
+ * "Tedarik Maliyetleri" / "Ucarer Depo" ekranlarindaki maliyet-giris (T/P input + "12 standart liste"
  * checkbox + Guncelle) ve genel rapor stili (beyaz kart #fff / border #e7ebf2 / radius 12px;
  * tablo basligi #fafbfd; primary #15356b; ink #14223b/#51607a/#8b97ac).
  */
@@ -732,7 +732,7 @@ export default function MaliyetGuncellemeUyarilariNew() {
                                   outline: 'none',
                                 }}
                               />
-                              {/* 10 liste checkbox (updatePriceLists). Mantik degismedi. */}
+                              {/* 12 standart liste checkbox (updatePriceLists). */}
                               <label
                                 style={{
                                   display: 'inline-flex',
@@ -752,7 +752,7 @@ export default function MaliyetGuncellemeUyarilariNew() {
                                   }}
                                   style={{ width: 14, height: 14, accentColor: PRIMARY }}
                                 />
-                                10 liste
+                                12 standart liste
                               </label>
                               {/* Guncelle -> updateProductCost -> adminApi.updateUcarerProductCost (Mikro YAZAR). */}
                               <button

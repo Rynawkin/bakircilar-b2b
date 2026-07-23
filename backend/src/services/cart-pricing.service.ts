@@ -6,6 +6,7 @@ import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { applyLastPriceFloor, resolveLastPriceOverride } from '../utils/lastPrice';
+import { isStandardPriceListNo } from '../config/price-list-registry';
 
 export type CartPriceType = 'INVOICED' | 'WHITE';
 export type CartPriceMode = 'LIST' | 'EXCESS';
@@ -127,12 +128,12 @@ const fetchPriceChangeSnapshots = async (
     if (!code) return;
     const bucket = result.get(code);
     if (!bucket) return;
-    // priceListNo: 1-10 disi (0 = fid_fiyat_no eksik, null = eski satir) gecersiz.
+    // priceListNo: yalniz standart musteri listeleri endekslenebilir.
+    // Kampanya 11/12 bu akisa bilerek dahil edilmez.
     const listNoRaw = Number(row.priceListNo);
     bucket.push({
       changedAt: row.changedAt,
-      priceListNo:
-        Number.isInteger(listNoRaw) && listNoRaw >= 1 && listNoRaw <= 10 ? listNoRaw : null,
+      priceListNo: isStandardPriceListNo(listNoRaw) ? listNoRaw : null,
       oldPrice: toFiniteNumber(row.oldPrice),
       newPrice: toFiniteNumber(row.newPrice),
     });
@@ -213,7 +214,7 @@ export const computeIndexedLastSalePrice = (params: {
   if (!Number.isFinite(saleTime)) return fallback;
 
   const listNo = Number(params.listNo);
-  if (!Number.isInteger(listNo) || listNo < 1 || listNo > 10) return fallback;
+  if (!isStandardPriceListNo(listNo)) return fallback;
 
   // Sadece verilen listenin degisiklik kayitlari (changedAt ASC sirali gelir).
   const listSnapshots = (params.snapshots || []).filter(
@@ -572,6 +573,12 @@ export const resolveCartUnitPrices = async (params: {
     excessUnitPrice,
     excessQuantityLimit: hasExcessDiscount ? excessQuantityLimit : 0,
     hasExcessDiscount,
+    // Mikro fiziksel liste numarasi. Fiyat anlasma/son fiyat/fazla stok ile
+    // degisse bile siparis satirinda hangi standart listenin baz alindigi izlenir.
+    priceListNo:
+      priceType === 'INVOICED'
+        ? productPriceListPair.invoiced
+        : productPriceListPair.white,
   };
 };
 

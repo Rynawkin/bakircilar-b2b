@@ -15,7 +15,7 @@ import {
   Package,
   AlertTriangle,
 } from 'lucide-react';
-import { useFiyatGecmisi, priceListNames } from './useFiyatGecmisi';
+import { getExpectedListCount, useFiyatGecmisi, priceListNames } from './useFiyatGecmisi';
 
 /**
  * Yeni gorunum: Fiyat Gecmisi raporu.
@@ -365,8 +365,8 @@ export default function FiyatGecmisiNew() {
               style={{ ...inputStyle, cursor: 'pointer' }}
             >
               <option value="all">Tümü</option>
-              <option value="consistent">Tutarlı (10 liste)</option>
-              <option value="inconsistent">Tutarsız (&lt;10 liste)</option>
+              <option value="consistent">Tutarlı (tüm standart listeler)</option>
+              <option value="inconsistent">Tutarsız (eksik standart liste)</option>
             </select>
           </div>
 
@@ -560,7 +560,24 @@ export default function FiyatGecmisiNew() {
                             <div style={{ fontSize: 11, color: FAINT }}>Ortalama değişim</div>
                           </div>
                           <DirectionBadge direction={change.changeDirection} />
-                          {change.isConsistent ? (
+                          {change.consistencyApplicable === false ? (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                height: 22,
+                                padding: '0 9px',
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                background: '#f3f4f6',
+                                color: MUTED,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Standart kontrol dışı
+                            </span>
+                          ) : change.isConsistent ? (
                             <span
                               style={{
                                 display: 'inline-flex',
@@ -596,7 +613,7 @@ export default function FiyatGecmisiNew() {
                               }}
                             >
                               <AlertTriangle size={12} strokeWidth={2} />
-                              {change.updatedListsCount}/10 Liste
+                              {change.updatedListsCount}/{getExpectedListCount(change)} Liste
                             </span>
                           )}
                           <ChevronDown
@@ -674,7 +691,9 @@ export default function FiyatGecmisiNew() {
                               );
                             })}
                           </div>
-                          {!change.isConsistent && change.missingLists.length > 0 && (
+                          {change.consistencyApplicable !== false &&
+                            !change.isConsistent &&
+                            change.missingLists.length > 0 && (
                             <div
                               style={{
                                 marginTop: 4,

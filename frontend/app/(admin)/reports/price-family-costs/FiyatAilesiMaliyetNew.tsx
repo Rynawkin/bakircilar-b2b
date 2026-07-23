@@ -450,7 +450,7 @@ export default function FiyatAilesiMaliyetNew() {
         <div style={{ padding: '14px 16px', borderBottom: `1px solid ${SOFT_LINE}` }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: INK }}>Aileler</div>
           <div style={{ fontSize: 12, color: FAINT, marginTop: 2 }}>
-            Detay acarak stok bazinda maliyet ve 10 fiyat listesini guncelleyebilirsiniz.
+            Detay acarak stok bazinda maliyet ve 12 ana fiyat listesini guncelleyebilirsiniz.
           </div>
         </div>
 
@@ -854,7 +854,7 @@ export default function FiyatAilesiMaliyetNew() {
                                     setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: event.target.checked }))
                                   }
                                 />
-                                10 liste
+                                12 standart liste
                               </label>
                             </div>
                           </td>
@@ -925,7 +925,7 @@ export default function FiyatAilesiMaliyetNew() {
                         </div>
                         <div style={{ color: FAINT, marginTop: 2 }}>
                           {new Date(log.createdAt).toLocaleString('tr-TR')}{' '}
-                          {log.updatePriceLists ? '/ 10 liste' : ''}
+                          {log.updatePriceLists ? '/ 12 standart liste' : ''}
                         </div>
                       </div>
                     ))}

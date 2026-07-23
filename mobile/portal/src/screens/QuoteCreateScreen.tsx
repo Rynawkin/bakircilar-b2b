@@ -21,6 +21,13 @@ import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Customer, CustomerContact, Product, LastSale, Quote, QuoteItem } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { normalizeSearchText } from '../utils/search';
+import {
+  STANDARD_PRICE_LISTS,
+  STANDARD_PRICE_LIST_NOS,
+  getStandardPriceListDefinition,
+  getStandardPriceListNosForPriceType,
+  getStandardPriceListShortLabel,
+} from '../utils/priceLists';
 
 const buildDefaultValidityDate = () => {
   const date = new Date();
@@ -68,18 +75,9 @@ type FamilyActionConfirm = {
   alternateProduct: Product;
 };
 
-const PRICE_LIST_LABELS: Record<number, string> = {
-  1: 'Perakende Satis 1',
-  2: 'Perakende Satis 2',
-  3: 'Perakende Satis 3',
-  4: 'Perakende Satis 4',
-  5: 'Perakende Satis 5',
-  6: 'Toptan Satis 1',
-  7: 'Toptan Satis 2',
-  8: 'Toptan Satis 3',
-  9: 'Toptan Satis 4',
-  10: 'Toptan Satis 5',
-};
+const PRICE_LIST_LABELS: Record<number, string> = Object.fromEntries(
+  STANDARD_PRICE_LISTS.map((definition) => [definition.listNo, definition.label])
+);
 
 const POOL_SORT_OPTIONS: Array<{ value: PoolSortOption; label: string }> = [
   { value: 'default', label: 'Varsayilan' },
@@ -180,11 +178,7 @@ const getPoolPriceLabel = (listNo: number) => {
   return PRICE_LIST_LABELS[listNo] || `Liste ${listNo}`;
 };
 
-const getPriceListShortCode = (listNo: number) => {
-  if (listNo >= 1 && listNo <= 5) return `P${listNo}`;
-  if (listNo >= 6 && listNo <= 10) return `F${listNo - 5}`;
-  return `L${listNo}`;
-};
+const getPriceListShortCode = getStandardPriceListShortLabel;
 
 const formatDateShort = (value?: string | null) => {
   if (!value) return '-';
@@ -254,6 +248,8 @@ export function QuoteCreateScreen() {
         quantity?: number;
         unitPrice?: number;
         priceType?: 'INVOICED' | 'WHITE';
+        priceSource?: 'PRICE_LIST' | 'MANUAL';
+        priceListNo?: number;
       }>;
       autoAddProduct?: boolean;
     };
@@ -266,7 +262,11 @@ export function QuoteCreateScreen() {
   const prefillProductName = String(routeParams.productName || '').trim();
   const productPrefills = Array.isArray(routeParams.productPrefills) ? routeParams.productPrefills : [];
   const productPrefillKey = productPrefills
-    .map((item) => `${item.productCode}:${item.quantity || 1}:${item.unitPrice || ''}:${item.priceType || ''}`)
+    .map(
+      (item) =>
+        `${item.productCode}:${item.quantity || 1}:${item.unitPrice || ''}:` +
+        `${item.priceType || ''}:${item.priceSource || ''}:${item.priceListNo || ''}`
+    )
     .join('|');
   const prefillProductTerm = prefillProductCode || prefillProductName;
   const shouldAutoAddPrefillProduct = routeParams.autoAddProduct === true;
@@ -325,7 +325,7 @@ export function QuoteCreateScreen() {
   const savingRef = useRef(false);
   const savingPoolRef = useRef(false);
 
-  const priceListOptions = Array.from({ length: 10 }, (_, index) => index + 1);
+  const priceListOptions = STANDARD_PRICE_LIST_NOS;
 
   const loadCustomers = async (append = false, searchOverride?: string) => {
     if (customerLocked) return;
@@ -804,7 +804,8 @@ export function QuoteCreateScreen() {
   };
 
   const buildQuoteItem = (product: Product): QuoteItemForm => {
-    const listNo = poolPriceListNo || 1;
+    const listNo = poolPriceListNo || 6;
+    const listDefinition = getStandardPriceListDefinition(listNo);
     const listPrice = getMikroListPrice(product.mikroPriceLists || {}, listNo);
     return {
       id: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -820,11 +821,11 @@ export function QuoteCreateScreen() {
       priceSource: 'PRICE_LIST',
       priceListNo: listNo,
       unitPrice: listPrice || 0,
-      priceType: 'INVOICED',
+      priceType: listDefinition?.type === 'RETAIL' ? 'WHITE' : 'INVOICED',
       mikroPriceLists: product.mikroPriceLists || {},
       lastSales: product.lastSales || [],
       selectedSaleIndex: undefined,
-      vatZeroed: false,
+      vatZeroed: listDefinition?.type === 'RETAIL',
       lineDescription: '',
       manualMarginEntry: undefined,
       manualMarginCost: undefined,
@@ -835,8 +836,22 @@ export function QuoteCreateScreen() {
   };
 
   const buildQuoteItemFromExisting = (item: QuoteItem, index: number): QuoteItemForm => {
-    const priceSource = item.priceSource || (item.priceListNo ? 'PRICE_LIST' : 'MANUAL');
-    const listNo = item.priceListNo ?? poolPriceListNo ?? 1;
+    const requestedPriceSource: QuoteItemForm['priceSource'] =
+      item.priceSource || (item.priceListNo ? 'PRICE_LIST' : 'MANUAL');
+    const requestedListNo = item.priceListNo ?? undefined;
+    const listDefinition = getStandardPriceListDefinition(requestedListNo);
+    const priceType =
+      item.priceType ||
+      (listDefinition?.type === 'RETAIL' ? 'WHITE' : 'INVOICED');
+    const expectedListType = priceType === 'WHITE' ? 'RETAIL' : 'INVOICED';
+    const hasCompatiblePriceList =
+      requestedPriceSource === 'PRICE_LIST' &&
+      requestedListNo !== undefined &&
+      listDefinition?.type === expectedListType;
+    const priceSource: QuoteItemForm['priceSource'] =
+      requestedPriceSource === 'PRICE_LIST' && !hasCompatiblePriceList
+        ? 'MANUAL'
+        : requestedPriceSource;
     return {
       id: item.id || `edit-${index}-${Date.now()}`,
       productId: item.productId || '',
@@ -849,13 +864,19 @@ export function QuoteCreateScreen() {
       warehouseStocks: item.warehouseStocks || {},
       quantity: item.quantity || 1,
       priceSource,
-      priceListNo: priceSource === 'PRICE_LIST' ? listNo : undefined,
+      priceListNo:
+        priceSource === 'PRICE_LIST' && hasCompatiblePriceList
+          ? requestedListNo
+          : undefined,
       unitPrice: item.unitPrice || 0,
-      priceType: item.priceType || 'INVOICED',
+      priceType,
       mikroPriceLists: item.mikroPriceLists || {},
       lastSales: item.lastSales || [],
       selectedSaleIndex: priceSource === 'LAST_SALE' ? 0 : undefined,
-      vatZeroed: item.vatZeroed || false,
+      vatZeroed:
+        priceType === 'WHITE'
+        || item.vatZeroed
+        || false,
       manualVatRate: item.manualVatRate ?? undefined,
       isManualLine: item.isManualLine || false,
       lineDescription: item.lineDescription || '',
@@ -905,17 +926,48 @@ export function QuoteCreateScreen() {
           const item = buildQuoteItem(product);
           const quantity = Number(prefill.quantity);
           item.quantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
-          const unitPrice = Number(prefill.unitPrice);
-          if (Number.isFinite(unitPrice) && unitPrice > 0) {
-            item.unitPrice = unitPrice;
-            item.priceSource = 'MANUAL';
-            item.priceListNo = undefined;
-            item.manualPriceInput = unitPrice.toFixed(2);
-          }
           if (prefill.priceType === 'WHITE') {
             item.priceType = 'WHITE';
+            item.vatZeroed = true;
           } else if (prefill.priceType === 'INVOICED') {
             item.priceType = 'INVOICED';
+            item.vatZeroed = vatZeroed;
+          }
+          const unitPrice = Number(prefill.unitPrice);
+          const hasPositivePrefillPrice =
+            Number.isFinite(unitPrice) && unitPrice > 0;
+          const requestedDefinition = getStandardPriceListDefinition(
+            prefill.priceListNo
+          );
+          const requestedType =
+            item.priceType === 'WHITE' ? 'RETAIL' : 'INVOICED';
+          const hasCompatiblePrefillList =
+            prefill.priceSource === 'PRICE_LIST' &&
+            requestedDefinition?.type === requestedType;
+          if (hasCompatiblePrefillList && prefill.priceListNo !== undefined) {
+            item.priceSource = 'PRICE_LIST';
+            item.priceListNo = prefill.priceListNo;
+            item.unitPrice = hasPositivePrefillPrice
+              ? unitPrice
+              : getMikroListPrice(item.mikroPriceLists, prefill.priceListNo) || 0;
+            item.manualPriceInput = '';
+          } else if (
+            prefill.priceSource !== undefined ||
+            hasPositivePrefillPrice
+          ) {
+            item.unitPrice = hasPositivePrefillPrice ? unitPrice : 0;
+            item.priceSource = 'MANUAL';
+            item.priceListNo = undefined;
+            item.manualPriceInput = hasPositivePrefillPrice
+              ? unitPrice.toFixed(2)
+              : '';
+          }
+          if (item.priceSource === 'PRICE_LIST') {
+            const allowedLists = getStandardPriceListNosForPriceType(item.priceType);
+            if (!item.priceListNo || !allowedLists.includes(item.priceListNo)) {
+              item.priceListNo = allowedLists[0];
+              item.unitPrice = getMikroListPrice(item.mikroPriceLists, item.priceListNo) || 0;
+            }
           }
           nextItems.push(item);
         });
@@ -1033,7 +1085,13 @@ export function QuoteCreateScreen() {
   const handlePriceSourceChange = (item: QuoteItemForm, value: QuoteItemForm['priceSource']) => {
     if (!value) return;
     if (value === 'PRICE_LIST') {
-      const listNo = item.priceListNo || poolPriceListNo || 1;
+      const allowedLists = getStandardPriceListNosForPriceType(item.priceType);
+      const listNo =
+        item.priceListNo && allowedLists.includes(item.priceListNo)
+          ? item.priceListNo
+          : poolPriceListNo && allowedLists.includes(poolPriceListNo)
+            ? poolPriceListNo
+            : allowedLists[0];
       const price = getMikroListPrice(item.mikroPriceLists, listNo);
       updateItem(item.id, {
         priceSource: value,
@@ -1072,10 +1130,48 @@ export function QuoteCreateScreen() {
   };
 
   const handlePriceListChange = (item: QuoteItemForm, value: number) => {
+    const definition = getStandardPriceListDefinition(value);
+    if (!definition) return;
     const listPrice = getMikroListPrice(item.mikroPriceLists, value);
     updateItem(item.id, {
       priceListNo: value,
       unitPrice: listPrice || 0,
+      priceType: definition.type === 'RETAIL' ? 'WHITE' : 'INVOICED',
+      vatZeroed: definition.type === 'RETAIL' ? true : vatZeroed,
+    });
+  };
+
+  const handlePriceTypeChange = (
+    item: QuoteItemForm,
+    priceType: 'INVOICED' | 'WHITE'
+  ) => {
+    if (item.priceSource !== 'PRICE_LIST') {
+      updateItem(item.id, {
+        priceType,
+        vatZeroed: priceType === 'WHITE' ? true : vatZeroed,
+      });
+      return;
+    }
+    const allowedLists = getStandardPriceListNosForPriceType(priceType);
+    const currentDefinition = item.priceListNo
+      ? getStandardPriceListDefinition(item.priceListNo)
+      : undefined;
+    const sameTierListNo = currentDefinition
+      ? STANDARD_PRICE_LISTS.find(
+          (definition) =>
+            definition.type === (priceType === 'WHITE' ? 'RETAIL' : 'INVOICED')
+            && definition.tier === currentDefinition.tier
+        )?.listNo
+      : undefined;
+    const priceListNo =
+      item.priceListNo && allowedLists.includes(item.priceListNo)
+        ? item.priceListNo
+        : sameTierListNo || allowedLists[0];
+    updateItem(item.id, {
+      priceType,
+      priceListNo,
+      unitPrice: getMikroListPrice(item.mikroPriceLists, priceListNo) || 0,
+      vatZeroed: priceType === 'WHITE' ? true : vatZeroed,
     });
   };
 
@@ -1263,7 +1359,12 @@ export function QuoteCreateScreen() {
     }
 
     const missingPrice = quoteItems.some((item) => {
-      if (item.priceSource === 'PRICE_LIST' && !item.priceListNo) return true;
+      if (item.priceSource === 'PRICE_LIST') {
+        const definition = getStandardPriceListDefinition(item.priceListNo);
+        const expectedType =
+          item.priceType === 'WHITE' ? 'RETAIL' : 'INVOICED';
+        if (!item.priceListNo || definition?.type !== expectedType) return true;
+      }
       if (item.priceSource === 'LAST_SALE' && item.selectedSaleIndex === undefined) return true;
       return item.unitPrice <= 0;
     });
@@ -1290,7 +1391,7 @@ export function QuoteCreateScreen() {
         priceSource: item.priceSource,
         priceListNo: item.priceSource === 'PRICE_LIST' ? item.priceListNo : undefined,
         priceType: item.priceType,
-        vatZeroed: vatZeroed || item.vatZeroed,
+        vatZeroed: vatZeroed || item.priceType === 'WHITE' || item.vatZeroed,
         manualLine: item.isManualLine || false,
         manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
         lineDescription: item.lineDescription || (item.isManualLine ? item.productName : undefined),
@@ -1984,7 +2085,7 @@ export function QuoteCreateScreen() {
                         styles.segmentButton,
                         item.priceType === 'INVOICED' && styles.segmentButtonActive,
                       ]}
-                      onPress={() => updateItem(item.id, { priceType: 'INVOICED' })}
+                      onPress={() => handlePriceTypeChange(item, 'INVOICED')}
                     >
                       <Text
                         style={
@@ -2001,7 +2102,7 @@ export function QuoteCreateScreen() {
                         styles.segmentButton,
                         item.priceType === 'WHITE' && styles.segmentButtonActive,
                       ]}
-                      onPress={() => updateItem(item.id, { priceType: 'WHITE' })}
+                      onPress={() => handlePriceTypeChange(item, 'WHITE')}
                     >
                       <Text
                         style={
@@ -2073,7 +2174,7 @@ export function QuoteCreateScreen() {
                       styles.segmentButton,
                       item.priceType === 'INVOICED' && styles.segmentButtonActive,
                     ]}
-                    onPress={() => updateItem(item.id, { priceType: 'INVOICED' })}
+                    onPress={() => handlePriceTypeChange(item, 'INVOICED')}
                   >
                     <Text
                       style={
@@ -2090,7 +2191,7 @@ export function QuoteCreateScreen() {
                       styles.segmentButton,
                       item.priceType === 'WHITE' && styles.segmentButtonActive,
                     ]}
-                    onPress={() => updateItem(item.id, { priceType: 'WHITE' })}
+                    onPress={() => handlePriceTypeChange(item, 'WHITE')}
                   >
                     <Text
                       style={
@@ -2111,7 +2212,7 @@ export function QuoteCreateScreen() {
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.optionRow}
                 >
-                  {priceListOptions.map((option) => {
+                  {getStandardPriceListNosForPriceType(item.priceType).map((option) => {
                     const listPrice = getMikroListPrice(item.mikroPriceLists, option);
                     const isActive = item.priceListNo === option;
                     const shortCode = getPriceListShortCode(option);

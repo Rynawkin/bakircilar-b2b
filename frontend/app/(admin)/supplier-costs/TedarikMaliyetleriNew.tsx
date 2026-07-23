@@ -383,7 +383,7 @@ export default function TedarikMaliyetleriNew() {
                       <span className="text-[12px]" style={{ color: INK }}>Mikro <b className="font-semibold">{money(selectedProduct.currentCost)}</b></span>
                     </div>
 
-                    {/* Kaydederken Mikro guncelle + 10 liste */}
+                    {/* Kaydederken Mikro guncelle + 12 standart liste */}
                     <div className="mt-3 rounded-lg border border-[#fde68a] bg-[#fffbeb] p-3">
                       <label className="flex items-start gap-2.5 text-[12px] font-semibold" style={{ color: '#92400e' }}>
                         <input type="checkbox" checked={applyAfterSave} onChange={(event) => setApplyAfterSave(event.target.checked)} className="mt-0.5" style={{ accentColor: PRIMARY }} />
@@ -396,7 +396,7 @@ export default function TedarikMaliyetleriNew() {
                       </label>
                       <label className="mt-2.5 flex items-center gap-2 text-[12px] font-semibold" style={{ color: '#b45309' }}>
                         <input type="checkbox" checked={applyAfterSaveLists} onChange={(event) => setApplyAfterSaveLists(event.target.checked)} disabled={!applyAfterSave} style={{ accentColor: PRIMARY }} />
-                        10 listeyi mevcut marjlara gore guncelle
+                        12 standart listeyi mevcut marjlara gore guncelle
                       </label>
                     </div>
 
@@ -525,7 +525,7 @@ export default function TedarikMaliyetleriNew() {
             />
             <label className="mt-3 flex items-center gap-2 rounded-lg border border-[#fde68a] bg-[#fffbeb] p-2.5 text-[12px] font-semibold" style={{ color: '#b45309' }}>
               <input type="checkbox" checked={applyUpdateLists} onChange={(event) => setApplyUpdateLists(event.target.checked)} style={{ accentColor: PRIMARY }} />
-              Liste 1-10 satis fiyatlarini mevcut marjlara gore guncelle
+              12 ana satis fiyat listesini mevcut marjlara gore guncelle
             </label>
             {/* 6.1: Esik ustu degisimde ek/ikinci onay (parmak hatasi yakalar). */}
             {computeCostChange(applyTarget.currentCost, applyTarget.normalizedCostT).isBig && (
@@ -815,7 +815,7 @@ function ReportSectionNew({ title, icon: Icon, rows, tone, onOpenProduct }: any)
 function CostChangeSummaryNew({ currentCost, newCostT, updateLists }: { currentCost: any; newCostT: any; updateLists: boolean }) {
   const change = computeCostChange(currentCost, newCostT);
   const big = change.isBig;
-  const affectedRows = updateLists ? 11 : 1;
+  const affectedRows = updateLists ? 13 : 1;
   return (
     <div
       className="mt-3 rounded-lg border p-3"
@@ -844,7 +844,7 @@ function CostChangeSummaryNew({ currentCost, newCostT, updateLists }: { currentC
         {change.percent === null
           ? 'Mevcut maliyet bos; degisim yuzdesi hesaplanamadi.'
           : updateLists
-            ? `Maliyet ve 10 satis listesi (toplam ${affectedRows} satir) Mikroya yazilacak.`
+            ? `Maliyet ve 12 standart satis listesi (toplam ${affectedRows} satir) Mikroya yazilacak.`
             : 'Sadece Mikro maliyet alani yazilacak (1 satir).'}
       </p>
       {big && (

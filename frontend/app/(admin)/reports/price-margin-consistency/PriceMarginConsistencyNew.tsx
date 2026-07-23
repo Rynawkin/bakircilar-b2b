@@ -26,6 +26,10 @@ import {
   usePriceMarginConsistency,
   type IssueFilter,
 } from './usePriceMarginConsistency';
+import {
+  STANDARD_PRICE_LISTS,
+  getStandardPriceListLabel,
+} from '@/lib/utils/priceLists';
 
 const ISSUE_CLASSES: Record<PriceMarginListStatus, string> = {
   OK: 'border-emerald-200 bg-emerald-50 text-emerald-700',
@@ -212,7 +216,9 @@ export default function PriceMarginConsistencyNew() {
             </select>
             <select value={listNo} onChange={(event) => { setListNo(Number(event.target.value)); setPage(1); }} className={fieldClass}>
               <option value={0}>Tum listeler</option>
-              {Array.from({ length: 10 }, (_, index) => index + 1).map((number) => <option key={number} value={number}>Liste {number}</option>)}
+              {STANDARD_PRICE_LISTS.map((list) => (
+                <option key={list.listNo} value={list.listNo}>{list.label} (Liste {list.listNo})</option>
+              ))}
             </select>
             <select value={category} onChange={(event) => { setCategory(event.target.value); setPage(1); }} className={fieldClass}>
               <option value="">Tum kategoriler</option>
@@ -342,7 +348,7 @@ export default function PriceMarginConsistencyNew() {
                           onClick={() => openRepair([row])}
                           disabled={!repairable}
                           className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-[#15356b] hover:border-[#15356b] disabled:cursor-not-allowed disabled:text-slate-400"
-                          title={repairable ? '10 listeyi maliyet ve marjdan yeniden hesapla' : 'Maliyet veya marj eksik'}
+                          title={repairable ? '12 standart listeyi maliyet ve marjdan yeniden hesapla' : 'Maliyet veya marj eksik'}
                         >
                           <Wrench className="h-3.5 w-3.5" /> Duzelt
                         </button>
@@ -370,7 +376,7 @@ export default function PriceMarginConsistencyNew() {
                               <tbody>
                                 {checks.map((check) => (
                                   <tr key={check.listNo} className="border-t border-slate-100">
-                                    <td className="px-3 py-2 font-semibold">Liste {check.listNo}</td>
+                                    <td className="px-3 py-2 font-semibold">{getStandardPriceListLabel(check.listNo)} (Liste {check.listNo})</td>
                                     <td className="px-3 py-2 text-slate-600">Maliyet {operationalCostType(check.costType)} / Marj {check.marginNo}</td>
                                     <td className="px-3 py-2 text-right tabular-nums">{formatMoney(check.baseCost)}</td>
                                     <td className="px-3 py-2 text-right tabular-nums">{check.margin === null ? '-' : check.margin.toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</td>
@@ -428,7 +434,7 @@ export default function PriceMarginConsistencyNew() {
           <div className="w-full max-w-xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
-                <h2 className="text-base font-bold text-slate-900">10 Fiyat Listesini Duzelt</h2>
+                <h2 className="text-base font-bold text-slate-900">12 Standart Fiyat Listesini Duzelt</h2>
                 <p className="mt-0.5 text-xs text-slate-500">{repairRows.length} urun</p>
               </div>
               <button type="button" onClick={closeRepair} disabled={repairing} className="rounded p-1.5 text-slate-500 hover:bg-slate-100" title="Kapat">
@@ -439,7 +445,7 @@ export default function PriceMarginConsistencyNew() {
               <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
                 <div className="flex gap-2">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
-                  <span>Maliyet P/T degismeden korunacak; liste 1-10 mevcut marjlardan yeniden hesaplanacak ve Mikro'da geri okunarak dogrulanacak.</span>
+                  <span>Maliyet P/T degismeden korunacak; 12 ana fiyat listesi (kampanya 11/12 haric) mevcut marjlardan yeniden hesaplanacak ve Mikro'da geri okunarak dogrulanacak.</span>
                 </div>
               </div>
               <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">

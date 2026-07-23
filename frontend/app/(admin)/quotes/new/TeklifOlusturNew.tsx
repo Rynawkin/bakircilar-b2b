@@ -35,6 +35,7 @@ import type { LastOrder, LastQuote } from './useTeklifOlustur';
 import {
   POOL_SORT_OPTIONS,
   PRICE_LIST_LABELS,
+  getQuotePriceLists,
   buildPriceListSuggestionDisplay,
   getFamilyMarginToneClass,
   getColumnDisplayName,
@@ -156,6 +157,7 @@ export default function TeklifOlusturNew() {
     handleOrderSeriesChange,
     handlePriceListChange,
     handlePriceSourceChange,
+    handlePriceTypeChange,
     handleQuantityChange,
     handleRecommendationAdd,
     handleReserveQuantityChange,
@@ -1317,20 +1319,16 @@ export default function TeklifOlusturNew() {
                                 </div>
                               </td>
                               <td className="px-3 py-2">
-                                {isOrderMode && (
-                                  <select
-                                    value={item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED'}
-                                    onChange={(e) =>
-                                      updateItem(item.id, {
-                                        priceType: e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED',
-                                      })
-                                    }
-                                    className="mb-1 w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-1 text-[11px]"
-                                  >
-                                    <option value="INVOICED">Fatural?</option>
-                                    <option value="WHITE">Beyaz</option>
-                                  </select>
-                                )}
+                                <select
+                                  value={item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED'}
+                                  onChange={(e) =>
+                                    handlePriceTypeChange(item, e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED')
+                                  }
+                                  className="mb-1 w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-1 text-[11px]"
+                                >
+                                  <option value="INVOICED">Fatural?</option>
+                                  <option value="WHITE">Beyaz</option>
+                                </select>
                                 {item.isManualLine ? (
                                   <span className="text-[12px] text-[#51607a]">Manuel</span>
                                 ) : (
@@ -1363,8 +1361,8 @@ export default function TeklifOlusturNew() {
                                     className="rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-1 text-[12.5px]"
                                   >
                                     <option value="">Liste sec</option>
-                                    {Object.keys(PRICE_LIST_LABELS).map((key) => {
-                                      const listNo = Number(key);
+                                    {getQuotePriceLists(item.priceType).map((definition) => {
+                                      const listNo = definition.listNo;
                                       const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
                                       const displayListPrice = convertPriceFromBaseUnit(
                                         listPrice,
@@ -1374,7 +1372,7 @@ export default function TeklifOlusturNew() {
                                         item.unit2Factor
                                       );
                                       return (
-                                        <option key={key} value={key}>
+                                        <option key={listNo} value={listNo}>
                                           {PRICE_LIST_LABELS[listNo]} (
                                           {listPrice ? formatCurrency(displayListPrice) : 'Fiyat yok'})
                                         </option>
@@ -1850,24 +1848,19 @@ export default function TeklifOlusturNew() {
                           </div>
                         )}
 
-                        {/* Siparis modu: fiyat tipi (faturali/beyaz) */}
-                        {isOrderMode && (
-                          <div className="mt-3">
-                            <label className="block text-[11px] text-[#8b97ac] mb-0.5">Fiyat Tipi</label>
-                            <select
-                              value={item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED'}
-                              onChange={(e) =>
-                                updateItem(item.id, {
-                                  priceType: e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED',
-                                })
-                              }
-                              className="w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-2 text-[12.5px]"
-                            >
-                              <option value="INVOICED">Faturali</option>
-                              <option value="WHITE">Beyaz</option>
-                            </select>
-                          </div>
-                        )}
+                        <div className="mt-3">
+                          <label className="block text-[11px] text-[#8b97ac] mb-0.5">Fiyat Tipi</label>
+                          <select
+                            value={item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED'}
+                            onChange={(e) =>
+                              handlePriceTypeChange(item, e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED')
+                            }
+                            className="w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-2 text-[12.5px]"
+                          >
+                            <option value="INVOICED">Faturali</option>
+                            <option value="WHITE">Beyaz</option>
+                          </select>
+                        </div>
 
                         {/* Fiyat kaynagi */}
                         <div className="mt-3">
@@ -1907,8 +1900,8 @@ export default function TeklifOlusturNew() {
                               className="w-full rounded-[9px] border border-[#d8e0ec] bg-white px-2 py-2 text-[12.5px]"
                             >
                               <option value="">Liste sec</option>
-                              {Object.keys(PRICE_LIST_LABELS).map((key) => {
-                                const listNo = Number(key);
+                              {getQuotePriceLists(item.priceType).map((definition) => {
+                                const listNo = definition.listNo;
                                 const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
                                 const displayListPrice = convertPriceFromBaseUnit(
                                   listPrice,
@@ -1918,7 +1911,7 @@ export default function TeklifOlusturNew() {
                                   item.unit2Factor
                                 );
                                 return (
-                                  <option key={key} value={key}>
+                                  <option key={listNo} value={listNo}>
                                     {PRICE_LIST_LABELS[listNo]} (
                                     {listPrice ? formatCurrency(displayListPrice) : 'Fiyat yok'})
                                   </option>
@@ -2923,8 +2916,8 @@ export default function TeklifOlusturNew() {
                     />
                   </div>
                 </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-5">
-                  {[0, 1, 2, 3, 4].map((index) => (
+                <div className="mt-3 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                  {[0, 1, 2, 3, 4, 5].map((index) => (
                     <div key={index}>
                       <label className={labelBase}>{`Marj ${index + 1}`}</label>
                       <input

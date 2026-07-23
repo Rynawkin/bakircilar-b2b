@@ -16,12 +16,12 @@ import {
  * Tum mantik useTumUrunlerMaliyetGuncelleme hook'undan gelir; hicbir
  * handler/kolon/filtre/ozet/satir-aksiyon/modal dusurulmemistir.
  *
- * KRITIK: Mikro'ya maliyet + 10 fiyat listesi YAZAN aksiyonlar (Guncelle butonu ->
+ * KRITIK: Mikro'ya maliyet + 12 ana fiyat listesi YAZAN aksiyonlar (Guncelle butonu ->
  * updateCost -> executeCostUpdate) ve onay modali AYNEN hook'tan kullanilir;
  * sadece JSX/gorunum yeni tasarima cevrilmistir.
  *
  * Tasarim referansi: brief 4.9.5 (Filtre + kolon secim grid; sticky kod+ad tablo;
- * son kolon Maliyet Guncelle [T->P + "10 liste" + Guncelle]; Maliyet Artis Onayi
+ * son kolon Maliyet Guncelle [T->P + "12 standart liste" + Guncelle]; Maliyet Artis Onayi
  * modal; sayfalama 200). Genel rapor stili: beyaz kart #fff / border #e7ebf2 /
  * radius 12px; tablo basligi bg #fafbfd; primary #15356b; ink #14223b/#51607a/#8b97ac.
  */
@@ -182,7 +182,7 @@ export default function TumUrunlerMaliyetGuncellemeNew() {
             Tüm Ürünler Maliyet ve Fiyat Güncelleme
           </h1>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 5 }}>
-            Tüm aktif ürünleri gör, kolonlarını seç, sırala ve maliyet + 10 liste güncelle.
+            Tüm aktif ürünleri gör, kolonlarını seç, sırala ve maliyet + 12 standart liste güncelle.
           </div>
         </div>
         <button
@@ -447,7 +447,7 @@ export default function TumUrunlerMaliyetGuncellemeNew() {
                                 onChange={(e) => setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: e.target.checked }))}
                                 style={{ accentColor: PRIMARY }}
                               />
-                              10 liste
+                              12 standart liste
                             </label>
                             <button
                               type="button"
@@ -558,7 +558,7 @@ export default function TumUrunlerMaliyetGuncellemeNew() {
                     : 'Hesaplanamadı'}
                 </span>
               </p>
-              <p style={{ margin: 0, fontSize: 12, color: FAINT }}>10 fiyat listesi de bu maliyete göre güncellenecek.</p>
+              <p style={{ margin: 0, fontSize: 12, color: FAINT }}>12 ana fiyat listesi de bu maliyete göre güncellenecek.</p>
             </div>
             <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button

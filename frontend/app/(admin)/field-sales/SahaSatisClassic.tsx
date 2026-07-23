@@ -35,7 +35,6 @@ import {
   money,
   n,
   safeDate,
-  PRICE_LIST_LABELS,
   getPriceListLabel,
   getActiveWarehouses,
   getWarehouseByNo,
@@ -44,6 +43,8 @@ import {
   parseDecimalInput,
   formatDecimalInput,
   getMikroListPrice,
+  getDraftPriceListNo,
+  getDraftPriceListOptions,
   getSelectedUnit,
   getDisplayQuantity,
   getDisplayUnitPrice,
@@ -1007,13 +1008,14 @@ function DraftPanel(props: any) {
   };
   const updatePriceSource = (index: number, item: DraftItem, priceSource: DraftItem['priceSource']) => {
     if (priceSource === 'PRICE_LIST') {
-      const listNo = item.priceListNo || 6;
+      const listNo = getDraftPriceListNo(item, item.priceType, selectedCustomer);
       updateDraftItem(index, {
         priceSource,
         priceListNo: listNo,
         unitPrice: getMikroListPrice(item.priceLists, listNo),
         selectedSaleIndex: null,
         manualPriceInput: undefined,
+        vatZeroed: item.priceType === 'WHITE',
       });
       return;
     }
@@ -1023,7 +1025,7 @@ function DraftPanel(props: any) {
         priceSource,
         selectedSaleIndex: sale ? 0 : null,
         unitPrice: Number(sale?.unitPrice || item.unitPrice || 0),
-        vatZeroed: Boolean(sale?.vatZeroed),
+        vatZeroed: item.priceType === 'WHITE' ? true : Boolean(sale?.vatZeroed),
         priceListNo: null,
         manualPriceInput: undefined,
       });
@@ -1034,13 +1036,18 @@ function DraftPanel(props: any) {
       priceListNo: null,
       selectedSaleIndex: null,
       manualPriceInput: formatDecimalInput(getDisplayUnitPrice(item)),
+      vatZeroed: item.priceType === 'WHITE',
     });
   };
   const updatePriceList = (index: number, item: DraftItem, value: string) => {
-    const listNo = Number(value || 0);
+    const listNo = getDraftPriceListNo(
+      { ...item, priceListNo: Number(value || 0) || null },
+      item.priceType,
+      selectedCustomer
+    );
     updateDraftItem(index, {
-      priceListNo: listNo || null,
-      unitPrice: listNo ? getMikroListPrice(item.priceLists, listNo) : 0,
+      priceListNo: listNo,
+      unitPrice: getMikroListPrice(item.priceLists, listNo),
       manualPriceInput: undefined,
     });
   };
@@ -1050,7 +1057,7 @@ function DraftPanel(props: any) {
     updateDraftItem(index, {
       selectedSaleIndex: saleIndex,
       unitPrice: Number(sale?.unitPrice || 0),
-      vatZeroed: Boolean(sale?.vatZeroed),
+      vatZeroed: item.priceType === 'WHITE' ? true : Boolean(sale?.vatZeroed),
       manualPriceInput: undefined,
     });
   };
@@ -1061,11 +1068,22 @@ function DraftPanel(props: any) {
       : convertPriceToBaseUnit(parsed, getSelectedUnit(item), item.unit, item.unit2, item.unit2Factor);
     updateDraftItem(index, { unitPrice: basePrice, manualPriceInput: value });
   };
-  // 4.2: Satir bazinda Faturali/Beyaz. Fiyat numarasini DEGISTIRMEZ; sadece tip + KDV (beyaz=KDV sifir)
-  // bayragini gunceller. Fiyat numarasi yine fiyat kaynagi/liste secimiyle belirlenir.
+  // Satir duzlemi degisince ayni ticari tier'in karsi fiziksel listesine gecilir
+  // (ornegin Faturali 6 / liste 13 <-> Beyaz 6 / liste 14).
   const updateLinePriceType = (index: number, item: DraftItem, nextType: PriceType) => {
+    const nextPriceListNo = item.priceSource === 'PRICE_LIST'
+      ? getDraftPriceListNo(item, nextType, selectedCustomer)
+      : null;
     updateDraftItem(index, {
       priceType: nextType,
+      ...(item.priceSource === 'PRICE_LIST'
+        ? {
+            priceListNo: nextPriceListNo,
+            unitPrice: getMikroListPrice(item.priceLists, Number(nextPriceListNo)),
+            selectedSaleIndex: null,
+            manualPriceInput: undefined,
+          }
+        : {}),
       vatZeroed: nextType === 'WHITE' ? true : Boolean(item.selectedSaleIndex !== null && item.selectedSaleIndex !== undefined ? item.lastSales?.[item.selectedSaleIndex]?.vatZeroed : false),
     });
   };
@@ -1114,7 +1132,7 @@ function DraftPanel(props: any) {
                       <p className="text-xs font-bold text-slate-500">{item.productCode} - {item.unit}</p>
                       {unitLabel && <p className="mt-1 text-xs font-semibold text-sky-700">{unitLabel}</p>}
                       <CategoryLastPurchasePill info={categoryInfo} />
-                      {/* 4.2: satir bazinda Faturali/Beyaz; fiyat numarasini degil sadece tip+KDV'yi degistirir */}
+                      {/* Satir tipi degisince fiyat listesi ayni tier'in diger duzlemine eslenir. */}
                       <div className="mt-2 inline-flex overflow-hidden rounded-full border border-slate-200 text-[11px] font-black">
                         {(['INVOICED', 'WHITE'] as PriceType[]).map((typeOption) => (
                           <button
@@ -1220,13 +1238,12 @@ function DraftPanel(props: any) {
                           onChange={(event) => updatePriceList(index, item, event.target.value)}
                           className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black outline-none focus:border-amber-500"
                         >
-                          <option value="">Liste sec</option>
-                          {Object.keys(PRICE_LIST_LABELS).map((key) => {
-                            const listNo = Number(key);
+                          {getDraftPriceListOptions(item.priceType).map((definition) => {
+                            const listNo = definition.listNo;
                             const listPrice = getMikroListPrice(item.priceLists, listNo);
                             const displayPrice = convertPriceFromBaseUnit(listPrice, selectedUnit, item.unit, item.unit2, item.unit2Factor);
                             return (
-                              <option key={key} value={key}>
+                              <option key={listNo} value={listNo}>
                                 {getPriceListLabel(listNo)} - {listPrice ? money(displayPrice) : 'Fiyat yok'}
                               </option>
                             );
@@ -1528,17 +1545,21 @@ function ProductDrawer({ product, safeMode, priceType = 'INVOICED', onClose, add
 
               <div>
                 <p className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900"><DollarSign className="h-4 w-4" /> Fiyat listeleri</p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                  {Object.entries(product.priceLists || {}).map(([listNo, value]) => (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+                  {getDraftPriceListOptions(priceType).map((definition) => {
+                    const listNo = definition.listNo;
+                    const value = getMikroListPrice(product.priceLists, listNo);
+                    return (
                     <button
                       key={listNo}
                       type="button"
                       onClick={() =>
                         addToDraft(product, {
                           priceSource: 'PRICE_LIST',
-                          priceListNo: Number(listNo),
+                          priceListNo: listNo,
                           unitPrice: Number(value || 0),
                           selectedUnit,
+                          priceType,
                         })
                       }
                       className="rounded-2xl bg-slate-50 px-3 py-2 text-left transition hover:bg-amber-50"
@@ -1548,7 +1569,8 @@ function ProductDrawer({ product, safeMode, priceType = 'INVOICED', onClose, add
                         {money(convertPriceFromBaseUnit(Number(value || 0), selectedUnit, product.unit, product.unit2, product.unit2Factor))}
                       </p>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

@@ -80,8 +80,12 @@ Bu doküman asistanın KALICI şirket bilgisidir. Güncel sayılar (stok/fiyat/m
 
 ## Fiyat Listeleri & Faturalı / Beyaz / KDV
 
-### Fiyat Listeleri (1–10)
-- Liste **1–5 = Perakende** grubu, Liste **6–10 = Toptan / Faturalı** grubu (kodda görülen etiketleme; ticari isimler şirketçe doğrulanmalı).
+### Fiyat Listeleri (standart + kampanya)
+- Standart **Perakende/Beyaz** kademeleri: fiziksel Mikro listeleri **1, 2, 3, 4, 5, 14**. Burada **Perakende 6 = fiziksel liste 14**.
+- Standart **Faturalı** kademeleri: fiziksel Mikro listeleri **6, 7, 8, 9, 10, 13**. Burada **Faturalı 6 = fiziksel liste 13**.
+- Fiziksel listeler **11 ve 12 kampanya listeleridir**; sırasıyla faturalı ve perakende kampanya fiyatlarını taşır. Standart müşteri ataması, standart fiyat güncellemesi veya eksik-liste kontrolüne dahil edilmez.
+- Liste anlamı sayı aralığından türetilmez. Backend için tek kaynak `src/config/price-list-registry.ts`; frontend ve mobildeki eş yardımcılar da aynı açık eşlemeyi kullanır.
+- `STOKLAR_USER.Marj_1..Marj_6` kademeye ait Mikro çarpanlarıdır. `Marj_6`, Perakende 6 ve Faturalı 6 için ortak kademe çarpanıdır; boş, sıfır veya sayısal değilse 12 standart listeyi güncelleyen akış güvenli biçimde durur.
 - Müşteri bazlı `invoicedPriceListNo` ve `whitePriceListNo` alanları vardır; müşteride `priceVisibility` = faturalı / beyaz / ikisini de görme olabilir.
 
 ### Faturalı / Beyaz (KDV mantığı)
@@ -91,7 +95,7 @@ Bu doküman asistanın KALICI şirket bilgisidir. Güncel sayılar (stok/fiyat/m
 
 ### Maliyet Eksenleri
 - İki ayrı maliyet: **Güncel/stok maliyeti** (`currentCost` / `currentCostDate`) ve **Son giriş maliyeti** (`lastEntryCost` / `lastEntryPrice` / tarihi).
-- **Maliyet T** = toptan/güncel (genelde KDV hariç); **Maliyet P** = perakende/beyaz (yarım-KDV ekleme kuralı olabilir).
+- Bu projedeki doğrulanmış fiyat-listesi konvansiyonu: standart **Perakende/Beyaz listeleri `MaliyetT`**, standart **Faturalı listeler `MaliyetP`** kullanır. Alan harflerinden ters anlam türetilmez; merkezi fiyat-listesi eşlemesi esas alınır.
 - KDV dahil/hariç belirsizse satış evrakının vergi durumuna göre normalize edilir.
 - Maliyet yöntemi admin tarafından seçilebilir: son giriş fiyatı, güncel maliyet veya dinamik/ağırlıklı ortalama.
 - **Risk:** Eski/boş maliyet tarihi veya sıfır/boş maliyet, fiyat/marj önerisini güvenilmez yapar; ayrı risk sınıfıdır.
@@ -321,7 +325,7 @@ Birden fazla kaynak vardır; öncelik sıralaması:
 | **Min-max** | Aile toplamı üzerinden stok alt/üst eşik kararı |
 | **TOPLU** | Min-max'tan hariç tutulan sorumluluk merkezi |
 | **Blok (marj)** | Teklif kaleminde kâr maliyetin %5 altına düşerse satır bloke olur ve teklif admin onayına gider (indirim değil, marj uyarısı) |
-| **Fiyat listesi 1–5 / 6–10** | 1–5 perakende, 6–10 toptan/faturalı fiyat listesi grupları |
+| **Standart fiyat listeleri** | Perakende 1–5 = fiziksel 1–5, Perakende 6 = 14; Faturalı 1–5 = fiziksel 6–10, Faturalı 6 = 13. Fiziksel 11/12 kampanyadır. |
 | **Müşteri tipi A/B/C/D** | BAYI/PERAKENDE/VIP/OZEL segmentleri; her birinde farklı marj |
 | **Kapı açıcı** | Müşteriyi getiren, düşük/nötr marjlı hacim kategorisi |
 | **Karlılık ürünü** | Düşük hacim, yüksek marjlı kategori |

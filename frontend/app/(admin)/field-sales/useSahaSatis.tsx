@@ -34,6 +34,12 @@ import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getApiErrorMessage } from '@/lib/utils/apiError';
 import { cn } from '@/lib/utils/cn';
 import {
+  STANDARD_PRICE_LISTS,
+  getStandardPriceListsForPriceType,
+  isStandardPriceListNoForPriceType,
+  resolveStandardPriceListNoForPriceType,
+} from '@/lib/utils/priceLists';
+import {
   convertPriceFromBaseUnit,
   convertPriceToBaseUnit,
   convertQuantityFromBaseUnit,
@@ -100,6 +106,8 @@ export type DraftItem = {
   unitPrice: number;
   priceSource: 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL';
   priceListNo?: number | null;
+  invoicedPriceListNo?: number | null;
+  whitePriceListNo?: number | null;
   selectedSaleIndex?: number | null;
   manualPriceInput?: string;
   vatZeroed?: boolean;
@@ -142,18 +150,9 @@ const normalizeSearchText = (value: any) =>
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '');
 const ACTIVE_WAREHOUSE_NOS = new Set([1, 6]);
-export const PRICE_LIST_LABELS: Record<number, string> = {
-  1: 'Perakende Satis 1',
-  2: 'Perakende Satis 2',
-  3: 'Perakende Satis 3',
-  4: 'Perakende Satis 4',
-  5: 'Perakende Satis 5',
-  6: 'Toptan Satis 1',
-  7: 'Toptan Satis 2',
-  8: 'Toptan Satis 3',
-  9: 'Toptan Satis 4',
-  10: 'Toptan Satis 5',
-};
+export const PRICE_LIST_LABELS: Record<number, string> = Object.fromEntries(
+  STANDARD_PRICE_LISTS.map((definition) => [definition.listNo, definition.label])
+);
 
 export const getPriceListLabel = (listNo?: number | string | null) => {
   const parsed = Number(listNo || 0);
@@ -204,6 +203,35 @@ export const getMikroListPrice = (priceLists: any, listNo: number) => {
   if (typeof byNumber === 'number') return byNumber;
   const byString = priceLists[String(listNo)];
   return typeof byString === 'number' ? byString : 0;
+};
+
+export const getDraftPriceListNo = (
+  item: Pick<DraftItem, 'priceListNo' | 'invoicedPriceListNo' | 'whitePriceListNo'>,
+  priceType: PriceType,
+  customer?: any
+) => resolveStandardPriceListNoForPriceType({
+  priceType,
+  currentListNo: item.priceListNo,
+  customerPair: {
+    invoicedPriceListNo: item.invoicedPriceListNo ?? customer?.invoicedPriceListNo,
+    whitePriceListNo: item.whitePriceListNo ?? customer?.whitePriceListNo,
+  },
+});
+
+export const getDraftPriceListOptions = (priceType: PriceType) =>
+  getStandardPriceListsForPriceType(priceType);
+
+export const normalizeDraftItemPriceList = (item: DraftItem, customer?: any): DraftItem => {
+  if (item.priceSource !== 'PRICE_LIST') return item;
+  const priceListNo = getDraftPriceListNo(item, item.priceType, customer);
+  if (priceListNo === item.priceListNo) return item;
+  return {
+    ...item,
+    priceListNo,
+    unitPrice: getMikroListPrice(item.priceLists, priceListNo),
+    selectedSaleIndex: null,
+    manualPriceInput: undefined,
+  };
 };
 
 export const getSelectedUnit = (item: Pick<DraftItem, 'unit' | 'selectedUnit'>) =>
@@ -328,19 +356,35 @@ export const getProductPrice = (product: any, priceType: PriceType = 'INVOICED')
   const isWhite = priceType === 'WHITE';
   const chosenValue = isWhite ? Number(customerPrice?.white) : Number(customerPrice?.invoiced);
   const chosenListNo = isWhite ? customerPrice?.whitePriceListNo : customerPrice?.priceListNo;
+  const resolvedListNo = resolveStandardPriceListNoForPriceType({
+    priceType,
+    currentListNo: chosenListNo,
+    customerPair: {
+      invoicedPriceListNo: customerPrice?.priceListNo,
+      whitePriceListNo: customerPrice?.whitePriceListNo,
+    },
+  });
   if (chosenValue > 0) {
+    const isAgreement = customerPrice.source === 'AGREEMENT';
+    const safeValue = isAgreement || isStandardPriceListNoForPriceType(chosenListNo, priceType)
+      ? chosenValue
+      : getMikroListPrice(product?.priceLists, resolvedListNo);
     return {
-      value: chosenValue,
-      source: customerPrice.source === 'AGREEMENT' ? 'Anlasma' : getPriceListLabel(chosenListNo),
-      priceListNo: customerPrice.source === 'AGREEMENT' ? null : chosenListNo,
-      priceSource: customerPrice.source === 'AGREEMENT' ? 'MANUAL' : 'PRICE_LIST',
+      value: safeValue,
+      source: isAgreement ? 'Anlasma' : getPriceListLabel(resolvedListNo),
+      priceListNo: isAgreement ? null : resolvedListNo,
+      priceSource: isAgreement ? 'MANUAL' : 'PRICE_LIST',
       priceType,
     };
   }
-  // Fallback: faturali icin Toptan 1 (6), beyaz icin Perakende 1 (1) listesi.
-  const fallbackListNo = isWhite ? 1 : 6;
-  const fallback = Number(product?.priceLists?.[String(fallbackListNo)] || product?.priceLists?.[fallbackListNo] || 0);
-  return { value: fallback, source: getPriceListLabel(fallbackListNo), priceListNo: fallbackListNo, priceSource: 'PRICE_LIST', priceType };
+  const fallback = getMikroListPrice(product?.priceLists, resolvedListNo);
+  return {
+    value: fallback,
+    source: getPriceListLabel(resolvedListNo),
+    priceListNo: resolvedListNo,
+    priceSource: 'PRICE_LIST',
+    priceType,
+  };
 };
 
 export const getOpportunityRows = (opportunities: any) => [
@@ -479,7 +523,7 @@ export function useSahaSatis() {
   const [barcodeActive, setBarcodeActive] = useState(false);
 
   useEffect(() => {
-    setDraft(loadJson<DraftItem[]>(DRAFT_KEY, []));
+    setDraft(loadJson<DraftItem[]>(DRAFT_KEY, []).map((item) => normalizeDraftItemPriceList(item)));
     setDraftCustomer(loadJson<any>(DRAFT_CUSTOMER_KEY, null)); // 4.4
     setRecentCustomers(loadJson<any[]>(RECENT_CUSTOMERS_KEY, []));
     setRecentProducts(loadJson<any[]>(RECENT_PRODUCTS_KEY, []));
@@ -712,8 +756,22 @@ export function useSahaSatis() {
     const displayQuantity = Math.max(0.0001, parseDecimalInput(quantityInput) || 1);
     const quantity = convertQuantityToBaseUnit(displayQuantity, selectedUnit, resolvedProduct.unit, resolvedProduct.unit2, resolvedProduct.unit2Factor);
     const sale = options?.saleIndex !== undefined ? resolvedProduct.customerPrice?.lastSales?.[options.saleIndex] : undefined;
-    const unitPrice = options?.unitPrice ?? sale?.unitPrice ?? Number(price.value || 0);
     const priceSource = options?.priceSource || (sale ? 'LAST_SALE' : price.priceSource);
+    const customerPriceListPair = {
+      invoicedPriceListNo: resolvedProduct.customerPrice?.priceListNo ?? selectedCustomer?.invoicedPriceListNo,
+      whitePriceListNo: resolvedProduct.customerPrice?.whitePriceListNo ?? selectedCustomer?.whitePriceListNo,
+    };
+    const requestedPriceListNo = options?.priceListNo ?? price.priceListNo ?? null;
+    const resolvedPriceListNo = priceSource === 'PRICE_LIST'
+      ? resolveStandardPriceListNoForPriceType({
+          priceType: effectivePriceType,
+          currentListNo: requestedPriceListNo,
+          customerPair: customerPriceListPair,
+        })
+      : null;
+    const unitPrice = priceSource === 'PRICE_LIST' && requestedPriceListNo !== resolvedPriceListNo
+      ? getMikroListPrice(resolvedProduct.priceLists, resolvedPriceListNo!)
+      : options?.unitPrice ?? sale?.unitPrice ?? Number(price.value || 0);
     const item: DraftItem = {
       productId: resolvedProduct.id,
       productCode: code,
@@ -726,7 +784,9 @@ export function useSahaSatis() {
       quantity,
       unitPrice: Number(unitPrice || 0),
       priceSource: priceSource as DraftItem['priceSource'],
-      priceListNo: options?.priceListNo ?? price.priceListNo ?? null,
+      priceListNo: resolvedPriceListNo,
+      invoicedPriceListNo: customerPriceListPair.invoicedPriceListNo ?? null,
+      whitePriceListNo: customerPriceListPair.whitePriceListNo ?? null,
       selectedSaleIndex: options?.saleIndex ?? null,
       // 4.2: Beyaz secimde KDV sifirlanir (siparis tarafindaki mevcut beyaz mantigi ile ayni).
       vatZeroed: isWhite ? true : Boolean(sale?.vatZeroed),
@@ -755,7 +815,8 @@ export function useSahaSatis() {
       && row.unitPrice === item.unitPrice
       && getSelectedUnit(row) === getSelectedUnit(item)
       && row.priceSource === item.priceSource
-      && row.priceType === item.priceType;
+      && row.priceType === item.priceType
+      && row.priceListNo === item.priceListNo;
     const hasExact = draft.some(isExactRow);
     const hasSameProduct = draft.some((row) => row.productCode === item.productCode);
 
@@ -802,6 +863,19 @@ export function useSahaSatis() {
     return false;
   };
 
+  const ensureDraftPriceListPlanesMatch = () => {
+    const invalidItem = draft.find(
+      (item) =>
+        item.priceSource === 'PRICE_LIST'
+        && !isStandardPriceListNoForPriceType(item.priceListNo, item.priceType)
+    );
+    if (!invalidItem) return true;
+    toast.error(
+      `${invalidItem.productCode} satirindaki fiyat listesi ${invalidItem.priceType === 'WHITE' ? 'Beyaz' : 'Faturali'} tipiyle uyusmuyor. Fiyat listesini yeniden secin.`
+    );
+    return false;
+  };
+
   const createQuote = async () => {
     if (submitting) return; // 4.5: mukerrer gonderim korumasi
     if (!selectedCustomer?.id) {
@@ -818,6 +892,7 @@ export function useSahaSatis() {
       return;
     }
     if (!ensureDraftCustomerMatches()) return; // 4.4
+    if (!ensureDraftPriceListPlanesMatch()) return;
     if (!isOnline) { // 4.5: cevrimdisi uyarisi
       toast.error('Internet baglantisi yok. Baglanti gelince tekrar deneyin.');
       return;
@@ -880,6 +955,7 @@ export function useSahaSatis() {
       return;
     }
     if (!ensureDraftCustomerMatches()) return; // 4.4
+    if (!ensureDraftPriceListPlanesMatch()) return;
     if (!isOnline) { // 4.5: cevrimdisi uyarisi
       toast.error('Internet baglantisi yok. Baglanti gelince tekrar deneyin.');
       return;
@@ -910,6 +986,7 @@ export function useSahaSatis() {
           quantity: Number(item.quantity || 0),
           unitPrice: Number(item.unitPrice || 0),
           priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED', // 4.2
+          priceListNo: item.priceSource === 'PRICE_LIST' ? item.priceListNo ?? undefined : undefined,
           vatZeroed: item.vatZeroed || false,
           lineDescription: item.productName,
         })),

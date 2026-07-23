@@ -86,7 +86,7 @@ export const reports: ReportCard[] = [
   {
     id: 'price-margin-consistency',
     title: 'Liste Fiyati - Marj Uyum',
-    description: 'Maliyet P/T ve tanimli marjlarla liste 1-10 fiyatlarini canli Mikro verisinde dogrulayin',
+    description: 'Maliyet P/T ve tanimli marjlarla 12 ana fiyat listesini canli Mikro verisinde dogrulayin',
     icon: <CircleDot className="h-5 w-5" />,
     href: '/reports/price-margin-consistency',
     category: 'cost',

@@ -651,7 +651,9 @@ class PriceVerificationService {
     payload.shelfCode = normalizeCode(payload.shelfCode);
     payload.vatRatePercent = payload.vatRatePercent ?? 20;
     payload.currentCost = payload.currentCost ?? 0;
-    payload.margins = Array.isArray(payload.margins) ? payload.margins : ['', '', '', '', ''];
+    payload.margins = Array.isArray(payload.margins)
+      ? payload.margins
+      : ['', '', '', '', '', ''];
     payload.extraUnits = Array.isArray(payload.extraUnits) ? payload.extraUnits : [];
     return payload as StockCreateInput;
   }

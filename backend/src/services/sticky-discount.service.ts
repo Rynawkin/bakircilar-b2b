@@ -29,6 +29,11 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import { resolveCustomerPriceLists } from '../utils/customerPricing';
 import { resolveLastPriceOverride } from '../utils/lastPrice';
+import {
+  getPriceListFallbackChain,
+  isStandardPriceListNo,
+  STANDARD_PRICE_LIST_NOS,
+} from '../config/price-list-registry';
 import { computeIndexedLastSalePrice } from './cart-pricing.service';
 
 export type StickyDiscountRow = {
@@ -68,9 +73,19 @@ export type StickyDiscountSummary = {
   generatedAt: string;
 };
 
+export type StickyDiscountWarning = {
+  code: 'DUPLICATE_CANONICAL_PRICE';
+  message: string;
+  affectedPairCount: number;
+  affectedProductCount: number;
+  affectedProducts: string[];
+  affectedPairs: string[];
+};
+
 export type StickyDiscountReport = {
   rows: StickyDiscountRow[];
   summary: StickyDiscountSummary;
+  warnings: StickyDiscountWarning[];
 };
 
 // Guvenlik tavani: Mikro'dan cekilecek toplam cari x urun son-satis satiri.
@@ -98,6 +113,53 @@ const round2 = (value: number): number => Math.round(value * 100) / 100;
 const toFiniteNumber = (value: unknown): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+type CanonicalPriceRow = {
+  productCode?: unknown;
+  listNo?: unknown;
+  price?: unknown;
+  candidateCount?: unknown;
+};
+
+type CanonicalPriceSnapshot = {
+  prices: Map<string, Map<number, number>>;
+  duplicatePairs: string[];
+  duplicateProducts: string[];
+};
+
+export const normalizeCanonicalPriceRows = (
+  rows: CanonicalPriceRow[]
+): CanonicalPriceSnapshot => {
+  const prices = new Map<string, Map<number, number>>();
+  const duplicatePairs = new Set<string>();
+  const duplicateProducts = new Set<string>();
+
+  for (const record of rows || []) {
+    const code = String(record?.productCode || '').trim().toUpperCase();
+    const listNo = Number(record?.listNo);
+    const price = toFiniteNumber(record?.price);
+    const candidateCount = Math.max(
+      0,
+      Math.trunc(Number(record?.candidateCount) || 0)
+    );
+    if (!code || !isStandardPriceListNo(listNo)) continue;
+
+    if (candidateCount > 1) {
+      duplicatePairs.add(`${code}/L${listNo}`);
+      duplicateProducts.add(code);
+    }
+    if (price <= 0) continue;
+
+    if (!prices.has(code)) prices.set(code, new Map<number, number>());
+    prices.get(code)!.set(listNo, price);
+  }
+
+  return {
+    prices,
+    duplicatePairs: Array.from(duplicatePairs).sort(),
+    duplicateProducts: Array.from(duplicateProducts).sort(),
+  };
 };
 
 // cart-pricing.loadCartCustomerContext ile ayni useLastPrices/guard alanlari
@@ -289,10 +351,12 @@ const fetchLastSaleRows = async (
  * STOK_SATIS_FIYAT_LISTELERI'nden guncel liste fiyatlarini toplu ceker.
  * Donen yapi: productCode(UPPER) -> (listNo -> fiyat)
  */
-const fetchListPriceMap = async (
+const fetchListPriceSnapshot = async (
   productCodes: string[]
-): Promise<Map<string, Map<number, number>>> => {
+): Promise<CanonicalPriceSnapshot> => {
   const map = new Map<string, Map<number, number>>();
+  const duplicatePairs = new Set<string>();
+  const duplicateProducts = new Set<string>();
   const uniqueCodes = Array.from(new Set(productCodes.filter(Boolean)));
 
   for (const chunk of chunkArray(uniqueCodes, PRODUCT_CHUNK_SIZE)) {
@@ -301,34 +365,91 @@ const fetchListPriceMap = async (
       .join(', ');
 
     const query = `
+      WITH RankedPrices AS (
+        SELECT
+          UPPER(LTRIM(RTRIM(sfiyat_stokkod))) AS productCode,
+          sfiyat_listesirano AS listNo,
+          sfiyat_fiyati AS price,
+          COUNT(*) OVER (
+            PARTITION BY
+              UPPER(LTRIM(RTRIM(sfiyat_stokkod))),
+              sfiyat_listesirano
+          ) AS candidateCount,
+          ROW_NUMBER() OVER (
+            PARTITION BY
+              UPPER(LTRIM(RTRIM(sfiyat_stokkod))),
+              sfiyat_listesirano
+            ORDER BY
+              ISNULL(sfiyat_lastup_date, sfiyat_create_date) DESC,
+              sfiyat_create_date DESC,
+              sfiyat_Guid DESC
+          ) AS rowNo
+        FROM STOK_SATIS_FIYAT_LISTELERI WITH (NOLOCK)
+        WHERE sfiyat_listesirano IN (${STANDARD_PRICE_LIST_NOS.join(', ')})
+          AND sfiyat_deposirano = 0
+          AND sfiyat_doviz = 0
+          AND sfiyat_odemeplan = 0
+          AND sfiyat_iptal = 0
+          AND ISNULL(sfiyat_hidden, 0) = 0
+          AND UPPER(LTRIM(RTRIM(sfiyat_stokkod))) IN (${inClause})
+      )
       SELECT
-        RTRIM(sfiyat_stokkod) AS productCode,
-        sfiyat_listesirano AS listNo,
-        sfiyat_fiyati AS price
-      FROM STOK_SATIS_FIYAT_LISTELERI WITH (NOLOCK)
-      WHERE sfiyat_listesirano BETWEEN 1 AND 10
-        AND sfiyat_deposirano = 0
-        AND sfiyat_doviz = 0
-        AND sfiyat_odemeplan = 0
-        AND sfiyat_iptal = 0
-        AND sfiyat_fiyati > 0
-        AND RTRIM(sfiyat_stokkod) IN (${inClause})
+        productCode,
+        listNo,
+        price,
+        candidateCount
+      FROM RankedPrices
+      WHERE rowNo = 1
+      ORDER BY productCode, listNo
     `;
 
     const recordset = await mikroService.executeQuery(query);
-    for (const record of recordset || []) {
-      const code = String(record?.productCode || '').trim().toUpperCase();
-      const listNo = Number(record?.listNo);
-      const price = toFiniteNumber(record?.price);
-      if (!code || !Number.isInteger(listNo) || listNo < 1 || listNo > 10 || price <= 0) {
-        continue;
-      }
+    const normalized = normalizeCanonicalPriceRows(recordset || []);
+    for (const [code, pricesByList] of normalized.prices) {
       if (!map.has(code)) map.set(code, new Map<number, number>());
-      map.get(code)!.set(listNo, price);
+      const target = map.get(code)!;
+      for (const [listNo, price] of pricesByList) {
+        target.set(listNo, price);
+      }
     }
+    normalized.duplicatePairs.forEach((pair) => duplicatePairs.add(pair));
+    normalized.duplicateProducts.forEach((code) => duplicateProducts.add(code));
   }
 
-  return map;
+  if (duplicatePairs.size > 0) {
+    console.warn(
+      'Yapiskan iskonto raporu: legacy duplicate canonical fiyat satirlari ' +
+        'deterministik son satirla okundu. ' +
+        `Etkilenen urun/liste cifti: ${duplicatePairs.size}; ` +
+        `ilk ornekler: ${Array.from(duplicatePairs).slice(0, 10).join(', ')}`
+    );
+  }
+
+  return {
+    prices: map,
+    duplicatePairs: Array.from(duplicatePairs).sort(),
+    duplicateProducts: Array.from(duplicateProducts).sort(),
+  };
+};
+
+const buildCanonicalPriceWarnings = (
+  snapshot: CanonicalPriceSnapshot
+): StickyDiscountWarning[] => {
+  if (snapshot.duplicatePairs.length === 0) return [];
+
+  const maxDetails = 100;
+  return [
+    {
+      code: 'DUPLICATE_CANONICAL_PRICE',
+      message:
+        'Eski Mikro verisinde birden fazla aktif canonical fiyat satiri bulunan ' +
+        'urunler deterministik son satirla okundu; bu rapor salt okunurdur.',
+      affectedPairCount: snapshot.duplicatePairs.length,
+      affectedProductCount: snapshot.duplicateProducts.length,
+      affectedProducts: snapshot.duplicateProducts.slice(0, maxDetails),
+      affectedPairs: snapshot.duplicatePairs.slice(0, maxDetails),
+    },
+  ];
 };
 
 /**
@@ -450,9 +571,7 @@ const resolveCurrentListPrice = (
   if (!prices) return 0;
   const exact = toFiniteNumber(prices.get(listNo));
   if (exact > 0) return exact;
-  const min = listNo <= 5 ? 1 : 6;
-  const start = Math.min(Math.max(listNo - 1, min), listNo <= 5 ? 5 : 10);
-  for (let no = start; no >= min; no -= 1) {
+  for (const no of getPriceListFallbackChain(listNo)) {
     const price = toFiniteNumber(prices.get(no));
     if (price > 0) return price;
   }
@@ -478,6 +597,7 @@ export const getStickyDiscountReport = async (params?: {
   };
   const emptyReport = (): StickyDiscountReport => ({
     rows: [],
+    warnings: [],
     summary: {
       rowCount: 0,
       customerCount: 0,
@@ -499,12 +619,14 @@ export const getStickyDiscountReport = async (params?: {
 
   // 3) Guncel liste fiyatlari + maliyet + fiyat degisim gecmisi (bulk)
   const productCodes = saleRows.map((row) => row.productCode);
-  const [listPriceMap, costMap, snapshotMap, settings] = await Promise.all([
-    fetchListPriceMap(productCodes),
+  const [listPriceSnapshot, costMap, snapshotMap, settings] = await Promise.all([
+    fetchListPriceSnapshot(productCodes),
     fetchProductCostMap(productCodes),
     fetchPriceChangeSnapshots(productCodes),
     prisma.settings.findFirst({ select: { lastPriceIndexationEnabled: true } }),
   ]);
+  const listPriceMap = listPriceSnapshot.prices;
+  const warnings = buildCanonicalPriceWarnings(listPriceSnapshot);
   const indexationEnabled = Boolean(settings?.lastPriceIndexationEnabled);
 
   // 4) Satir hesabi
@@ -516,7 +638,8 @@ export const getStickyDiscountReport = async (params?: {
     if (!customer) continue;
 
     // Rapor listesi cart-pricing'in GORUNUR fiyatiyla ayni bant olmali: WHITE_ONLY
-    // musteri sepette beyaz liste (1-5) uzerinden fiyatlanir; digerleri faturali (6-10).
+    // musteri sepette kendi standart beyaz/perakende veya faturali listesi
+    // uzerinden fiyatlanir; fiziksel numara aralikla tahmin edilmez.
     const isWhiteOnly = customer.priceVisibility === 'WHITE_ONLY';
     const listNo = isWhiteOnly ? customer.whiteListNo : customer.invoicedListNo;
     const productUpper = sale.productCode.toUpperCase();
@@ -652,6 +775,7 @@ export const getStickyDiscountReport = async (params?: {
 
   return {
     rows,
+    warnings,
     summary: {
       rowCount: rows.length,
       customerCount: perCustomer.size,

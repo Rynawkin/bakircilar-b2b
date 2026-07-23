@@ -20,6 +20,7 @@ import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Customer, Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { hapticLight, hapticSuccess } from '../utils/haptics';
+import { getStandardPriceListDefinition } from '../utils/priceLists';
 
 type ManualOrderItem = {
   key: string;
@@ -38,6 +39,8 @@ type ManualOrderItem = {
   quantity: number;
   unitPrice: number;
   priceType: 'INVOICED' | 'WHITE';
+  priceListNo?: number;
+  mikroPriceLists?: Record<string, number>;
   reserveQty: number;
   lineDescription: string;
   responsibilityCenter: string;
@@ -46,10 +49,34 @@ type ManualOrderItem = {
 const CUSTOMER_SEARCH_PAGE_SIZE = 40;
 const formatNumberInput = (value: string) => value.replace(',', '.');
 
-const readPrice = (product: Product) => {
+const resolveCustomerPriceListNo = (
+  customer: Customer | null,
+  priceType: 'INVOICED' | 'WHITE'
+) => {
+  const assignedListNo = Number(
+    priceType === 'WHITE' ? customer?.whitePriceListNo : customer?.invoicedPriceListNo
+  );
+  const definition = getStandardPriceListDefinition(assignedListNo);
+  const expectedType = priceType === 'WHITE' ? 'RETAIL' : 'INVOICED';
+  return definition?.type === expectedType
+    ? assignedListNo
+    : priceType === 'WHITE'
+      ? 1
+      : 6;
+};
+
+const readPrice = (
+  product: Product,
+  priceType: 'INVOICED' | 'WHITE',
+  customer: Customer | null
+) => {
   const lists = product.mikroPriceLists || {};
-  const candidate = Number((lists as Record<string, number>)['6'] || (lists as Record<string, number>)['1'] || 0);
-  return Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
+  const priceListNo = resolveCustomerPriceListNo(customer, priceType);
+  const candidate = Number((lists as Record<string, number>)[String(priceListNo)] || 0);
+  return {
+    unitPrice: Number.isFinite(candidate) && candidate > 0 ? candidate : 0,
+    priceListNo,
+  };
 };
 
 const getApiErrorMessage = (err: any, fallback: string) => {
@@ -244,6 +271,17 @@ export function OrderCreateScreen() {
   const selectCustomer = (customer: Customer) => {
     setSelectedCustomerId(customer.id);
     setSelectedCustomer(customer);
+    setItems((prev) =>
+      prev.map((item) => {
+        const priceListNo = resolveCustomerPriceListNo(customer, item.priceType);
+        const unitPrice = Number(item.mikroPriceLists?.[String(priceListNo)] || 0);
+        return {
+          ...item,
+          priceListNo,
+          unitPrice: Number.isFinite(unitPrice) && unitPrice > 0 ? unitPrice : 0,
+        };
+      })
+    );
     hapticLight();
   };
 
@@ -269,6 +307,7 @@ export function OrderCreateScreen() {
   );
 
   const addProduct = (product: Product) => {
+    const initialPrice = readPrice(product, 'INVOICED', selectedCustomer);
     setItems((prev) => {
       const existing = prev.find((line) => line.productId === product.id);
       if (existing) {
@@ -294,8 +333,10 @@ export function OrderCreateScreen() {
           lastEntryDate: product.lastEntryDate,
           lastSaleDate: product.lastSales?.[0]?.saleDate || null,
           quantity: 1,
-          unitPrice: readPrice(product),
+          unitPrice: initialPrice.unitPrice,
           priceType: 'INVOICED',
+          priceListNo: initialPrice.priceListNo,
+          mikroPriceLists: product.mikroPriceLists || {},
           reserveQty: 0,
           lineDescription: '',
           responsibilityCenter: '',
@@ -308,6 +349,19 @@ export function OrderCreateScreen() {
 
   const updateItem = (key: string, data: Partial<ManualOrderItem>) => {
     setItems((prev) => prev.map((item) => (item.key === key ? { ...item, ...data } : item)));
+  };
+
+  const updateItemPriceType = (
+    item: ManualOrderItem,
+    priceType: 'INVOICED' | 'WHITE'
+  ) => {
+    const priceListNo = resolveCustomerPriceListNo(selectedCustomer, priceType);
+    const unitPrice = Number(item.mikroPriceLists?.[String(priceListNo)] || 0);
+    updateItem(item.key, {
+      priceType,
+      priceListNo,
+      unitPrice: Number.isFinite(unitPrice) && unitPrice > 0 ? unitPrice : 0,
+    });
   };
 
   const removeItem = (key: string) => {
@@ -368,6 +422,7 @@ export function OrderCreateScreen() {
           quantity: line.quantity,
           unitPrice: line.unitPrice,
           priceType: line.priceType,
+          priceListNo: line.priceListNo,
           reserveQty: line.reserveQty,
           lineDescription: line.lineDescription.trim() || undefined,
           responsibilityCenter: line.responsibilityCenter.trim() || undefined,
@@ -491,7 +546,7 @@ export function OrderCreateScreen() {
             <View style={styles.choiceList}>
               {productResults.map((product) => {
                 const imageUri = resolvePublicUrl(product.imageUrl);
-                const price = readPrice(product);
+                const price = readPrice(product, 'INVOICED', selectedCustomer).unitPrice;
                 return (
                   <TouchableOpacity
                     key={product.id}
@@ -618,7 +673,7 @@ export function OrderCreateScreen() {
                 <View style={[styles.priceTypeGroup, styles.half]}>
                   <TouchableOpacity
                     style={[styles.segmentButton, styles.priceTypeOption, item.priceType === 'INVOICED' && styles.segmentButtonActive]}
-                    onPress={() => updateItem(item.key, { priceType: 'INVOICED' })}
+                    onPress={() => updateItemPriceType(item, 'INVOICED')}
                   >
                     <Text style={item.priceType === 'INVOICED' ? styles.segmentTextActive : styles.segmentText}>
                       Faturali
@@ -626,7 +681,7 @@ export function OrderCreateScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.segmentButton, styles.priceTypeOption, item.priceType === 'WHITE' && styles.segmentButtonActive]}
-                    onPress={() => updateItem(item.key, { priceType: 'WHITE' })}
+                    onPress={() => updateItemPriceType(item, 'WHITE')}
                   >
                     <Text style={item.priceType === 'WHITE' ? styles.segmentTextActive : styles.segmentText}>
                       Beyaz

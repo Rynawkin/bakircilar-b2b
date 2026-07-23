@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { adminApi } from '@/lib/api/admin';
 import { getPriceListVerificationError } from '@/lib/utils/costPriceUpdate';
+import { isStandardPriceListNo } from '@/lib/utils/priceLists';
 import type {
   PriceMarginConsistencyReport,
   PriceMarginConsistencyRow,
@@ -65,12 +66,12 @@ export const operationalCostType = (costType: 'T' | 'P'): 'T' | 'P' =>
 export const canRepairRow = (row: PriceMarginConsistencyRow) =>
   Number(row.costP || 0) > 0 &&
   Number(row.costT || 0) > 0 &&
-  row.margins.length === 5 &&
+  row.margins.length === 6 &&
   row.margins.every((margin) => Number(margin || 0) > 0) &&
   row.problemListCount > 0;
 
 export const getVisibleChecks = (row: PriceMarginConsistencyRow, listNo: number) =>
-  listNo >= 1 && listNo <= 10
+  isStandardPriceListNo(listNo)
     ? row.listChecks.filter((check) => check.listNo === listNo)
     : row.listChecks;
 
@@ -251,7 +252,7 @@ export function usePriceMarginConsistency() {
       if (failures.length > 0) {
         toast.error(`${successCount} urun duzeltildi, ${failures.length} urun hata aldi. ${failures.slice(0, 2).join(' | ')}`);
       } else {
-        toast.success(`${successCount} urunun 10 fiyat listesi dogrulanarak duzeltildi.`);
+        toast.success(`${successCount} urunun 12 ana fiyat listesi dogrulanarak duzeltildi.`);
       }
       setRepairRows([]);
       setSelectedCodes(new Set());

@@ -25,6 +25,12 @@ import {
   getUnitConversionLabel,
 } from '@/lib/utils/unit';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
+import {
+  STANDARD_PRICE_LISTS,
+  getStandardPriceListDefinition,
+  getStandardPriceListsForPriceType,
+  isStandardPriceListNo,
+} from '@/lib/utils/priceLists';
 import type { CustomerContact, Quote, QuoteItem } from '@/types';
 
 export interface LastSale {
@@ -189,7 +195,7 @@ export const createEmptyPriceRequestStockPayload = (name = '', unit = 'ADET') =>
   mainUnitWidthCm: '',
   mainUnitLengthCm: '',
   mainUnitHeightCm: '',
-  margins: ['2', '1,5', '1,3', '1,2', '1,15'],
+  margins: ['2', '1,5', '1,3', '1,2', '1,15', ''],
   barcode: '',
   notes: '',
   extraUnits: [],
@@ -268,18 +274,12 @@ export const buildColumnWidthMap = (
   return widths;
 };
 
-export const PRICE_LIST_LABELS: Record<number, string> = {
-  1: 'Perakende Satis 1',
-  2: 'Perakende Satis 2',
-  3: 'Perakende Satis 3',
-  4: 'Perakende Satis 4',
-  5: 'Perakende Satis 5',
-  6: 'Toptan Satis 1',
-  7: 'Toptan Satis 2',
-  8: 'Toptan Satis 3',
-  9: 'Toptan Satis 4',
-  10: 'Toptan Satis 5',
-};
+export const PRICE_LIST_LABELS: Record<number, string> = Object.fromEntries(
+  STANDARD_PRICE_LISTS.map((definition) => [definition.listNo, definition.label])
+);
+
+export const getQuotePriceLists = (priceType?: 'INVOICED' | 'WHITE') =>
+  getStandardPriceListsForPriceType(priceType === 'WHITE' ? 'WHITE' : 'INVOICED');
 
 export const getColumnDisplayName = (column: string) => {
   const nameMap: Record<string, string> = {
@@ -537,7 +537,7 @@ export interface CustomerPriceListSuggestionFields {
   manualListNote?: string | null;
 }
 
-// Liste no -> etiket: 6-10 = "Faturali 1-5" (6 en yuksek fiyat), 1-5 = "Perakende 1-5".
+// Liste 11/12 kampanyadir; standart oneriler F1-F6 ve P1-P6 tanimlarini kullanir.
 // Taraf bazli fallback: her taraf icin manuel deger doluysa manuel, degilse sistem onerisi
 // gosterilir (tek tarafli manuel override diger tarafin sistem onerisini gizlemez; manuel
 // olmayan taraf '(sistem)' eki alir). Herhangi bir taraf manuelse rozet manuel (mavi) sayilir.
@@ -557,11 +557,17 @@ export const buildPriceListSuggestionDisplay = (
   const retail = manualRetail !== null ? manualRetail : toListNo(customer.suggestedRetailListNo);
   const parts: string[] = [];
   if (invoiced !== null) {
-    const label = invoiced >= 6 && invoiced <= 10 ? `Faturalı ${invoiced - 5}` : `Faturalı (Liste ${invoiced})`;
+    const definition = getStandardPriceListDefinition(invoiced);
+    const label = definition?.type === 'INVOICED'
+      ? `Faturalı ${definition.tier}`
+      : `Faturalı (Liste ${invoiced})`;
     parts.push(isManual && manualInvoiced === null ? `${label} (sistem)` : label);
   }
   if (retail !== null) {
-    const label = retail >= 1 && retail <= 5 ? `Perakende ${retail}` : `Perakende (Liste ${retail})`;
+    const definition = getStandardPriceListDefinition(retail);
+    const label = definition?.type === 'RETAIL'
+      ? `Perakende ${definition.tier}`
+      : `Perakende (Liste ${retail})`;
     parts.push(isManual && manualRetail === null ? `${label} (sistem)` : label);
   }
   if (parts.length === 0) return null;
@@ -1256,7 +1262,7 @@ export function useTeklifOlustur() {
         setPoolSort(savedPoolSort as PoolSortOption);
       }
       const savedPoolPriceListNo = Number(quotePrefsResult.value.preferences.poolPriceListNo);
-      if (Number.isFinite(savedPoolPriceListNo) && savedPoolPriceListNo >= 1 && savedPoolPriceListNo <= 10) {
+      if (Number.isFinite(savedPoolPriceListNo) && isStandardPriceListNo(savedPoolPriceListNo)) {
         setPoolPriceListNo(savedPoolPriceListNo);
       } else {
         setPoolPriceListNo('');
@@ -1730,6 +1736,12 @@ export function useTeklifOlustur() {
       const mappedItems: QuoteItemForm[] = orderItems.map((item) => {
         const product = productMap.get(String(item.mikroCode || '').trim());
         const priceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+        const storedPriceListNo = Number(item.priceListNo);
+        const storedPriceListDefinition = Number.isFinite(storedPriceListNo)
+          ? getStandardPriceListDefinition(storedPriceListNo)
+          : undefined;
+        const hasCompatibleStoredPriceList =
+          storedPriceListDefinition?.type === (priceType === 'WHITE' ? 'RETAIL' : 'INVOICED');
         const vatRate = priceType === 'WHITE'
           ? 0
           : Number(product?.vatRate ?? 0.2);
@@ -1744,7 +1756,8 @@ export function useTeklifOlustur() {
           unit2Factor: item.unit2Factor ?? product?.unit2Factor ?? null,
           selectedUnit: item.selectedUnit || item.unit || product?.unit || 'ADET',
           quantity: Number(item.quantity) || 1,
-          priceSource: 'MANUAL',
+          priceSource: hasCompatibleStoredPriceList ? 'PRICE_LIST' : 'MANUAL',
+          priceListNo: hasCompatibleStoredPriceList ? storedPriceListNo : undefined,
           unitPrice: Number(item.unitPrice) || 0,
           manualPriceInput: undefined,
           vatRate,
@@ -1921,7 +1934,7 @@ export function useTeklifOlustur() {
       unitPrice: item.unitPrice,
       manualPriceInput: undefined,
       vatRate: item.vatRate,
-      vatZeroed: item.vatZeroed,
+      vatZeroed: item.priceType === 'WHITE' ? true : item.vatZeroed,
       priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
       isManualLine,
       manualVatRate: isManualLine ? item.vatRate : undefined,
@@ -2356,16 +2369,54 @@ export function useTeklifOlustur() {
     });
   };
 
+  const handlePriceTypeChange = (
+    item: QuoteItemForm,
+    priceType: 'INVOICED' | 'WHITE'
+  ) => {
+    const selectedDefinition = item.priceListNo
+      ? getStandardPriceListDefinition(item.priceListNo)
+      : undefined;
+    const expectedListType = priceType === 'WHITE' ? 'RETAIL' : 'INVOICED';
+    const priceListBecameInvalid =
+      item.priceSource === 'PRICE_LIST'
+      && selectedDefinition?.type !== expectedListType;
+    const replacementDefinition = priceListBecameInvalid
+      ? getStandardPriceListsForPriceType(priceType).find(
+          (definition) => definition.tier === selectedDefinition?.tier
+        ) || getStandardPriceListsForPriceType(priceType)[0]
+      : undefined;
+
+    updateItem(item.id, {
+      priceType,
+      vatZeroed: priceType === 'WHITE' ? true : vatZeroed,
+      ...(priceListBecameInvalid
+        ? {
+            priceListNo: replacementDefinition?.listNo,
+            unitPrice: replacementDefinition
+              ? getMikroListPrice(item.mikroPriceLists, replacementDefinition.listNo) || undefined
+              : undefined,
+          }
+        : {}),
+    });
+  };
+
   const handlePriceListChange = (item: QuoteItemForm, value: string) => {
     if (!value) {
       updateItem(item.id, { priceListNo: undefined, unitPrice: undefined });
       return;
     }
     const listNo = Number(value);
+    const definition = getStandardPriceListDefinition(listNo);
+    if (!definition) {
+      updateItem(item.id, { priceListNo: undefined, unitPrice: undefined });
+      return;
+    }
     const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
     updateItem(item.id, {
       priceListNo: listNo,
       unitPrice: listPrice || undefined,
+      priceType: definition.type === 'RETAIL' ? 'WHITE' : 'INVOICED',
+      vatZeroed: definition.type === 'RETAIL' ? true : vatZeroed,
       manualPriceInput: undefined,
     });
   };
@@ -2476,6 +2527,11 @@ export function useTeklifOlustur() {
     }
 
     const listNo = Number(bulkPriceListNo);
+    const definition = getStandardPriceListDefinition(listNo);
+    if (!definition) {
+      toast.error('Gecersiz fiyat listesi.');
+      return;
+    }
     setQuoteItems((prev) =>
       prev.map((item) => {
         if (item.isManualLine) return item;
@@ -2485,6 +2541,8 @@ export function useTeklifOlustur() {
           priceSource: 'PRICE_LIST',
           priceListNo: listNo,
           unitPrice: listPrice || undefined,
+          priceType: definition.type === 'RETAIL' ? 'WHITE' : 'INVOICED',
+          vatZeroed: definition.type === 'RETAIL' ? true : vatZeroed,
           manualPriceInput: undefined,
           selectedSaleIndex: undefined,
           manualMarginEntry: undefined,
@@ -3197,6 +3255,7 @@ export function useTeklifOlustur() {
               quantity: item.quantity,
               unitPrice: roundUp2(item.unitPrice || 0),
               priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+              priceListNo: item.priceListNo,
               lineNote: item.lineDescription || undefined,
               responsibilityCenter: item.responsibilityCenter || undefined,
             })),
@@ -3222,7 +3281,8 @@ export function useTeklifOlustur() {
             quantity: item.quantity,
             unitPrice: roundUp2(item.unitPrice || 0),
             priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
-            vatZeroed: vatZeroed || item.vatZeroed,
+            priceListNo: item.priceListNo,
+            vatZeroed: vatZeroed || item.priceType === 'WHITE' || item.vatZeroed,
             manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
             lineDescription: item.lineDescription || undefined,
             responsibilityCenter: item.responsibilityCenter || undefined,
@@ -3265,8 +3325,8 @@ export function useTeklifOlustur() {
             unitPrice: roundUp2(item.unitPrice || 0),
             priceSource: item.priceSource,
             priceListNo: item.priceListNo,
-            priceType: 'INVOICED',
-            vatZeroed: vatZeroed || item.vatZeroed,
+            priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+            vatZeroed: vatZeroed || item.priceType === 'WHITE' || item.vatZeroed,
             manualLine: item.isManualLine,
             manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
             manualImageUrl: item.isManualLine ? (item.manualImageUrl || undefined) : undefined,
@@ -3397,6 +3457,7 @@ export function useTeklifOlustur() {
     handleOrderSeriesChange,
     handlePriceListChange,
     handlePriceSourceChange,
+    handlePriceTypeChange,
     handleQuantityChange,
     handleRecommendationAdd,
     handleReserveQuantityChange,

@@ -342,7 +342,7 @@ export default function TedarikMaliyetleriClassic() {
                             onChange={(event) => setApplyAfterSaveLists(event.target.checked)}
                             disabled={!applyAfterSave}
                           />
-                          10 listeyi mevcut marjlara gore guncelle
+                          12 standart listeyi mevcut marjlara gore guncelle
                         </label>
                       </div>
 
@@ -473,7 +473,7 @@ export default function TedarikMaliyetleriClassic() {
             />
             <label className="mt-4 flex items-center gap-2 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-900">
               <input type="checkbox" checked={applyUpdateLists} onChange={(event) => setApplyUpdateLists(event.target.checked)} />
-              Liste 1-10 satis fiyatlarini mevcut marjlara gore guncelle
+              12 ana satis fiyat listesini mevcut marjlara gore guncelle
             </label>
             {/* 6.1: Esik ustu degisimde ek/ikinci onay; parmak hatasini (or. 1.250 -> 12.500) yakalar. */}
             {computeCostChange(applyTarget.currentCost, applyTarget.normalizedCostT).isBig && (

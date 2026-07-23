@@ -616,6 +616,7 @@ export class MikroMockService {
       quantity: number;
       unitPrice: number;
       vatRate: number;
+      priceListNo?: number;
       lineDescription?: string;
       quoteLineGuid?: string;
       responsibilityCenter?: string;

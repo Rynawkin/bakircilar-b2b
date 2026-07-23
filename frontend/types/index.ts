@@ -156,6 +156,7 @@ export interface OrderItem {
   selectedUnit?: string | null;
   quantity: number;
   priceType: 'INVOICED' | 'WHITE';
+  priceListNo?: number | null;
   unitPrice: number;
   totalPrice: number;
   mikroOrderId?: string | null;

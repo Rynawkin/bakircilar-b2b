@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
+import { getPriceListDisplayLabel } from '@/lib/utils/priceLists';
 import {
   useTeklifler,
   getStatusBadge,
@@ -370,7 +371,7 @@ export default function TekliflerClassic() {
                                 <div className="flex gap-2 mt-1 flex-wrap">
                                   <span className="text-xs text-gray-500">{item.productCode}</span>
                                   <Badge variant="default" className="text-xs">
-                                    {item.priceSource === 'PRICE_LIST' ? `Liste ${item.priceListNo}` :
+                                    {item.priceSource === 'PRICE_LIST' ? `${getPriceListDisplayLabel(item.priceListNo)} (Liste ${item.priceListNo})` :
                                      item.priceSource === 'LAST_SALE' ? 'Son Satış' : 'Manuel'}
                                   </Badge>
                                   {item.isBlocked && <Badge variant="warning" className="text-xs">Blok</Badge>}

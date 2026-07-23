@@ -130,7 +130,11 @@ const buildReportSheetRows = (reportType: ReportType, rows: any[]) => {
         cell(row.productName),
         cell(row.avgChangePercent),
         cell(row.updatedListsCount),
-        cell(row.isConsistent),
+        cell(
+          row.consistencyApplicable === false
+            ? 'Uygulanamaz'
+            : row.isConsistent
+        ),
         cell(row.lastChangeDate || row.updatedAt),
       ]),
     ];
@@ -1716,7 +1720,14 @@ export function ReportsScreen() {
                 <Text style={styles.cardMeta} numberOfLines={1}>Kod: {row.productCode}</Text>
                 <Text style={styles.cardMeta}>Degisim: {row.avgChangePercent.toFixed(2)}%</Text>
                 <Text style={styles.cardMeta}>Liste: {row.updatedListsCount}</Text>
-                <Text style={styles.cardMeta}>Tutarlilik: {row.isConsistent ? 'Evet' : 'Hayir'}</Text>
+                <Text style={styles.cardMeta}>
+                  Tutarlilik:{' '}
+                  {row.consistencyApplicable === false
+                    ? 'Uygulanamaz'
+                    : row.isConsistent
+                      ? 'Evet'
+                      : 'Hayir'}
+                </Text>
               </View>
             );
           }

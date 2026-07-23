@@ -1106,7 +1106,7 @@ export function SupplierCostsScreen() {
           <TextInput style={[styles.input, styles.formField]} value={payload.shelfCode || ''} onChangeText={(value) => updateStockPayload(request.id, { shelfCode: value })} placeholder="Raf / reyon" placeholderTextColor={colors.textMuted} autoCapitalize="characters" />
         </View>
         <View style={styles.formGrid}>
-          {[0, 1, 2, 3, 4].map((index) => (
+          {[0, 1, 2, 3, 4, 5].map((index) => (
             <TextInput
               key={index}
               style={[styles.input, styles.marginField]}

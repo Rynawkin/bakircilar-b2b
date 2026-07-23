@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { Settings } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
+import { INVOICED_PRICE_LISTS, RETAIL_PRICE_LISTS } from '@/lib/utils/priceLists';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
 export type { Settings } from '@/types';
@@ -12,21 +13,15 @@ export type { Settings } from '@/types';
 // Re-export sabitler (Classic/New ortak kullanir)
 export { CUSTOMER_TYPES };
 
-export const RETAIL_LISTS = [
-  { value: 1, label: 'Perakende Satis 1' },
-  { value: 2, label: 'Perakende Satis 2' },
-  { value: 3, label: 'Perakende Satis 3' },
-  { value: 4, label: 'Perakende Satis 4' },
-  { value: 5, label: 'Perakende Satis 5' },
-];
+export const RETAIL_LISTS = RETAIL_PRICE_LISTS.map((list) => ({
+  value: list.listNo,
+  label: list.label,
+}));
 
-export const WHOLESALE_LISTS = [
-  { value: 6, label: 'Toptan Satis 1' },
-  { value: 7, label: 'Toptan Satis 2' },
-  { value: 8, label: 'Toptan Satis 3' },
-  { value: 9, label: 'Toptan Satis 4' },
-  { value: 10, label: 'Toptan Satis 5' },
-];
+export const WHOLESALE_LISTS = INVOICED_PRICE_LISTS.map((list) => ({
+  value: list.listNo,
+  label: list.label,
+}));
 
 export const DEFAULT_CUSTOMER_PRICE_LISTS: NonNullable<Settings['customerPriceLists']> = {
   BAYI: { invoiced: 6, white: 1 },

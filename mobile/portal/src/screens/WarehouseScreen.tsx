@@ -24,10 +24,11 @@ import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { getApiErrorMessage } from '../utils/errors';
 import { hapticSuccess } from '../utils/haptics';
 import { normalizeSearchText } from '../utils/search';
+import { RETAIL_PRICE_LEVELS, type PriceTier } from '../utils/priceLists';
 
 type ViewKey = 'orders' | 'detail' | 'dispatch' | 'retail';
 type WarehouseNo = 1 | 6 | 0;
-type PriceLevel = 1 | 2 | 3 | 4 | 5;
+type PriceLevel = PriceTier;
 type PaymentType = 'CASH' | 'CARD';
 
 type LineDraft = {
@@ -40,6 +41,7 @@ type RetailCartItem = {
   product: WarehouseRetailProduct;
   quantity: number;
   unitPrice: number;
+  priceLevel: PriceLevel;
 };
 
 const statusOptions: Array<{ value: 'ALL' | WarehouseWorkflowStatus; label: string }> = [
@@ -508,7 +510,8 @@ export function WarehouseScreen() {
         [product.productCode]: {
           product,
           quantity: (current?.quantity || 0) + 1,
-          unitPrice,
+          unitPrice: current?.unitPrice || unitPrice,
+          priceLevel: current?.priceLevel || priceLevel,
         },
       };
     });
@@ -548,6 +551,7 @@ export function WarehouseScreen() {
                 productCode: item.product.productCode,
                 quantity: item.quantity,
                 unitPrice: item.unitPrice,
+                priceLevel: item.priceLevel,
               })),
             });
             setLastRetailSale({ invoiceNo: result.invoiceNo, totalAmount: result.totalAmount });
@@ -820,7 +824,7 @@ export function WarehouseScreen() {
           <Chip label="Tum Depolar" active={retailWarehouse === 0} onPress={() => setRetailWarehouse(0)} />
         </ScrollView>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {[1, 2, 3, 4, 5].map((level) => (
+          {RETAIL_PRICE_LEVELS.map((level) => (
             <Chip key={level} label={`P${level}`} active={priceLevel === level} onPress={() => setPriceLevel(level as PriceLevel)} />
           ))}
           <Chip label="Nakit" active={paymentType === 'CASH'} onPress={() => setPaymentType('CASH')} />
@@ -846,7 +850,7 @@ export function WarehouseScreen() {
             <View key={item.product.productCode} style={styles.cartLine}>
               <View style={styles.flex}>
                 <Text style={styles.productTitle} numberOfLines={3}>{item.product.productName}</Text>
-                <Text style={styles.cardMeta} numberOfLines={1}>{item.product.productCode} · {money(item.unitPrice)}</Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>{item.product.productCode} · P{item.priceLevel} · {money(item.unitPrice)}</Text>
               </View>
               <View style={styles.qtyButtons}>
                 <TouchableOpacity style={styles.roundButton} onPress={() => changeRetailQty(item.product.productCode, -1)}>

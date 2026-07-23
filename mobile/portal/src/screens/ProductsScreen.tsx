@@ -22,6 +22,7 @@ import { Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { getApiErrorMessage } from '../utils/errors';
 import { normalizeSearchText } from '../utils/search';
+import { getPriceListDisplayLabel } from '../utils/priceLists';
 
 type QualityFilter = 'ALL' | 'BAD' | 'WARN' | 'NO_IMAGE' | 'GALLERY_MISSING';
 type ProductDetailTab = 'SUMMARY' | 'PRICES' | 'STOCK' | 'IMAGE';
@@ -83,8 +84,8 @@ const getCatalogQuality = (product: Product, gallery?: ProductImageDto[]) => {
     { label: 'Ana gorsel', ok: Boolean(product.imageUrl), action: 'Gorsel yukle veya galeriden ana gorsel sec.' },
     { label: 'Galeri derinligi', ok: hasGalleryDepth, action: 'En az iki gorsel ekle.' },
     { label: 'Birim', ok: Boolean(product.unit), action: 'Urun olcu/raf ekranindan birim bilgisini kontrol et.' },
-    { label: 'Liste 1 fiyat', ok: list1 > 0, action: 'Fiyat listesini Mikro/B2B fiyat senkronunda kontrol et.' },
-    { label: 'Liste 6 fiyat', ok: list6 > 0, action: 'Toptan fiyat listesini kontrol et.' },
+    { label: 'Perakende 1 (Liste 1)', ok: list1 > 0, action: 'Fiyat listesini Mikro/B2B fiyat senkronunda kontrol et.' },
+    { label: 'Faturali 1 (Liste 6)', ok: list6 > 0, action: 'Faturali fiyat listesini kontrol et.' },
     { label: 'Maliyet', ok: getPositiveNumber(product.currentCost) > 0 || getPositiveNumber(product.lastEntryPrice) > 0, action: 'Tedarik maliyetini kontrol et.' },
     { label: 'Stok verisi', ok: getPositiveNumber(product.totalStock) > 0 || product.totalStock === 0, action: 'Stok senkronunu kontrol et.' },
   ];
@@ -567,7 +568,9 @@ export function ProductsScreen() {
           <View style={styles.detailList}>
             {priceRows.length ? priceRows.map((row) => (
               <View key={row.listNo} style={styles.detailListRow}>
-                <Text style={styles.detailListLabel}>Liste {row.listNo}</Text>
+                <Text style={styles.detailListLabel}>
+                  {getPriceListDisplayLabel(Number(row.listNo))} (Liste {row.listNo})
+                </Text>
                 <Text style={styles.detailListValue}>{formatNumber(row.value)} TL</Text>
               </View>
             )) : <Text style={styles.emptyGalleryText}>Aktif fiyat listesi yok.</Text>}
@@ -814,11 +817,11 @@ export function ProductsScreen() {
                 <Text style={styles.cardMeta}>Guncel Maliyet: {formatNumber(item.currentCost)} TL</Text>
                 <Text style={styles.cardMeta}>Son Giris: {formatNumber(item.lastEntryPrice)} TL</Text>
               <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Liste 1:</Text>
+                <Text style={styles.priceLabel}>P1 (Liste 1):</Text>
                 <Text style={styles.priceValue}>{formatNumber(list1)} TL</Text>
               </View>
               <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Liste 6:</Text>
+                <Text style={styles.priceLabel}>F1 (Liste 6):</Text>
                 <Text style={styles.priceValue}>{formatNumber(list6)} TL</Text>
               </View>
               <View style={styles.imageRow}>

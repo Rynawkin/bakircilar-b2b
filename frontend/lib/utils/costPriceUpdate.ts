@@ -1,3 +1,5 @@
+import { STANDARD_PRICE_LIST_NOS } from '@/lib/utils/priceLists';
+
 export const getPriceListVerificationError = (
   data: any,
   updatePriceListsRequested: boolean
@@ -9,9 +11,9 @@ export const getPriceListVerificationError = (
     updatedLists
       .filter((row: any) => row?.verified !== false && Number(row?.affected || 0) > 0)
       .map((row: any) => Number(row?.listNo))
-      .filter((listNo: number) => Number.isInteger(listNo) && listNo >= 1 && listNo <= 10)
+      .filter((listNo: number) => STANDARD_PRICE_LIST_NOS.includes(listNo))
   );
-  const missingLists = Array.from({ length: 10 }, (_, index) => index + 1).filter(
+  const missingLists = STANDARD_PRICE_LIST_NOS.filter(
     (listNo) => !verifiedListNos.has(listNo)
   );
   const verificationStatus = String(data?.verificationStatus || '').trim().toUpperCase();
@@ -20,11 +22,11 @@ export const getPriceListVerificationError = (
   if (
     data?.priceListsUpdated !== true ||
     !statusVerified ||
-    verifiedListNos.size !== 10 ||
+    verifiedListNos.size !== STANDARD_PRICE_LIST_NOS.length ||
     missingLists.length > 0
   ) {
     const suffix = missingLists.length > 0 ? ` Eksik/dogrulanamayan listeler: ${missingLists.join(', ')}.` : '';
-    return `Maliyet kaydi tamamlandi ancak 10 fiyat listesinin tamami dogrulanamadi.${suffix}`;
+    return `Maliyet kaydi tamamlandi ancak 12 ana fiyat listesinin tamami dogrulanamadi.${suffix}`;
   }
 
   return null;

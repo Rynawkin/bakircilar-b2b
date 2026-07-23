@@ -22,6 +22,7 @@ import {
   POOL_SORT_OPTIONS,
   LINE_DESCRIPTION_KEY,
   PRICE_LIST_LABELS,
+  getQuotePriceLists,
   buildPriceListSuggestionDisplay,
   getFamilyMarginToneClass,
   getColumnDisplayName,
@@ -128,6 +129,7 @@ export default function TeklifOlusturClassic() {
     handleOrderSeriesChange,
     handlePriceListChange,
     handlePriceSourceChange,
+    handlePriceTypeChange,
     handleQuantityChange,
     handleRecommendationAdd,
     handleReserveQuantityChange,
@@ -1166,16 +1168,14 @@ export default function TeklifOlusturClassic() {
                             </div>
                           </td>
                           <td className="px-3 py-2">
-                            {isOrderMode && (
-                              <select
-                                value={item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED'}
-                                onChange={(e) => updateItem(item.id, { priceType: e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED' })}
-                                className="mb-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs"
-                              >
-                                <option value="INVOICED">Fatural?</option>
-                                <option value="WHITE">Beyaz</option>
-                              </select>
-                            )}
+                            <select
+                              value={item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED'}
+                              onChange={(e) => handlePriceTypeChange(item, e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED')}
+                              className="mb-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs"
+                            >
+                              <option value="INVOICED">Fatural?</option>
+                              <option value="WHITE">Beyaz</option>
+                            </select>
                             {item.isManualLine ? (
                               <span className="text-xs text-gray-600">Manuel</span>
                             ) : (
@@ -1208,8 +1208,8 @@ export default function TeklifOlusturClassic() {
                                 className="rounded-lg border border-gray-300 bg-white px-2 py-1"
                               >
                                 <option value="">Liste sec</option>
-                                {Object.keys(PRICE_LIST_LABELS).map((key) => {
-                                  const listNo = Number(key);
+                                {getQuotePriceLists(item.priceType).map((definition) => {
+                                  const listNo = definition.listNo;
                                   const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
                                   const displayListPrice = convertPriceFromBaseUnit(
                                     listPrice,
@@ -1219,7 +1219,7 @@ export default function TeklifOlusturClassic() {
                                     item.unit2Factor
                                   );
                                   return (
-                                    <option key={key} value={key}>
+                                    <option key={listNo} value={listNo}>
                                       {PRICE_LIST_LABELS[listNo]} ({listPrice ? formatCurrency(displayListPrice) : 'Fiyat yok'})
                                     </option>
                                   );
@@ -1916,8 +1916,8 @@ export default function TeklifOlusturClassic() {
                   <Input label="Ambalaj adi (yeni ise)" value={priceRequestStockPayload.packageName} onChange={(e) => updatePriceRequestStockPayload({ packageName: e.target.value })} />
                   <Input label="Raf / reyon kodu" value={priceRequestStockPayload.shelfCode} onChange={(e) => updatePriceRequestStockPayload({ shelfCode: e.target.value })} />
                 </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-5">
-                  {[0, 1, 2, 3, 4].map((index) => (
+                <div className="mt-3 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                  {[0, 1, 2, 3, 4, 5].map((index) => (
                     <Input
                       key={index}
                       label={`Marj ${index + 1}`}

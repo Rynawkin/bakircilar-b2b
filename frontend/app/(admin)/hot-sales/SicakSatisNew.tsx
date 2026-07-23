@@ -80,6 +80,7 @@ export default function SicakSatisNew() {
     setPaymentType,
     priceListNo,
     setPriceListNo,
+    hotSalePriceListNos,
     cart,
     loadCart,
     deliveryQuantities,
@@ -297,7 +298,7 @@ export default function SicakSatisNew() {
                     <label className="flex flex-col gap-1">
                       <span className="text-[11px] text-[#8b97ac]">Fiyat Listesi</span>
                       <select value={priceListNo} onChange={(e) => setPriceListNo(Number(e.target.value))} className={SELECT}>
-                        {Array.from({ length: 10 }, (_, index) => index + 1).map((listNo) => (
+                        {hotSalePriceListNos.map((listNo) => (
                           <option key={listNo} value={listNo}>
                             {priceLabel(listNo)}
                           </option>
@@ -331,6 +332,7 @@ export default function SicakSatisNew() {
                     value={productSearch}
                     onChange={setProductSearch}
                     products={products}
+                    priceListNos={hotSalePriceListNos}
                     actionLabel={activeSession ? 'Sepete Ekle' : 'Oturum gerekli'}
                     onAdd={(product: any, listNo?: number) => addToCart(product, 'sale', listNo)}
                   />
@@ -346,6 +348,7 @@ export default function SicakSatisNew() {
                   submitLabel={saleType === 'ORDER' ? 'Sipariş Oluştur' : saleType === 'INVOICED_DISPATCH' ? 'İrsaliye Kes' : 'Satış Faturası Kes'}
                   disabled={submitting || !activeSession || priceViolations.length > 0 || saleStockViolations.length > 0}
                   saleType={saleType}
+                  priceListNos={hotSalePriceListNos}
                   mode="sale"
                 />
               </div>
@@ -1230,7 +1233,7 @@ function NewCustomerPanel({
   );
 }
 
-function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
+function ProductSearch({ value, onChange, products, onAdd, actionLabel, priceListNos = [] }: any) {
   return (
     <div>
       <label className="mb-1.5 block text-[12px] font-semibold text-[#14223b]">Ürün Ara</label>
@@ -1274,7 +1277,7 @@ function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 border-t border-[#eef1f6] p-3 text-[11px]">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((listNo) => (
+                {priceListNos.map((listNo: number) => (
                   <button
                     key={listNo}
                     type="button"
@@ -1314,6 +1317,7 @@ function CartPanel({
   saleType,
   mode = 'sale',
   sourceWarehouseNo,
+  priceListNos = [],
 }: any) {
   return (
     <div className={`${CARD} p-4`}>
@@ -1362,7 +1366,7 @@ function CartPanel({
                     }}
                     className="h-9 rounded-lg border border-[#d8e0ec] bg-white px-2.5 text-[11px] font-semibold text-[#14223b] outline-none focus:border-[#15356b] cursor-pointer"
                   >
-                    {Array.from({ length: 10 }, (_, index) => index + 1).map((listNo) => (
+                    {priceListNos.map((listNo: number) => (
                       <option key={listNo} value={listNo}>
                         {priceLabel(listNo)}
                       </option>

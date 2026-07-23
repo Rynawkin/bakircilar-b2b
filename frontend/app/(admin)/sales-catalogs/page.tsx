@@ -48,6 +48,7 @@ import salesCatalogApi, {
   SalesCatalogVatMode,
 } from '@/lib/api/salesCatalog';
 import { generateSalesCatalogPdf } from '@/lib/catalogPdf';
+import { STANDARD_PRICE_LISTS } from '@/lib/utils/priceLists';
 
 type EditorItem = {
   key: string;
@@ -183,7 +184,7 @@ const PRICE_BASIS: Array<{ value: SalesCatalogPriceBasis; label: string; detail:
   { value: 'LAST_ENTRY', label: 'Son giriş maliyeti', detail: 'Son giriş fiyatını baz alır.' },
   { value: 'MAX_COST', label: 'Yüksek olan maliyet', detail: 'Güncel ve son giriş maliyetinden yüksek olanı kullanır.' },
   { value: 'BETWEEN_COSTS', label: 'İki maliyet arası', detail: 'Son giriş ile güncel maliyet arasında ağırlıklı fiyat üretir.' },
-  { value: 'PRICE_LIST', label: 'Mikro fiyat listesi', detail: 'Seçilen 1-10 fiyat listesindeki güncel fiyatı baz alır.' },
+  { value: 'PRICE_LIST', label: 'Mikro fiyat listesi', detail: 'Seçilen standart fiyat listesindeki güncel fiyatı baz alır; kampanya listeleri 11/12 dahil değildir.' },
 ];
 
 const ADJUSTMENTS: Array<{ value: SalesCatalogAdjustment; label: string }> = [
@@ -768,7 +769,11 @@ export default function SalesCatalogsPage() {
                 <div>
                   <label className={label}>Fiyat listesi</label>
                   <select className={field} value={editor.priceListNo} onChange={(event) => setEditor({ ...editor, priceListNo: event.target.value })}>
-                    {Array.from({ length: 10 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}. fiyat listesi</option>)}
+                    {STANDARD_PRICE_LISTS.map((list) => (
+                      <option key={list.listNo} value={list.listNo}>
+                        {list.label} (Liste {list.listNo})
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}

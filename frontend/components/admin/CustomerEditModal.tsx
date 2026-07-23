@@ -10,6 +10,12 @@ import { Badge } from '@/components/ui/Badge';
 import { Category, Customer, CustomerContact, CustomerPriceListRule, PriceRuleBrandTemplate } from '@/types';
 import { CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
 import { formatCurrency } from '@/lib/utils/format';
+import {
+  INVOICED_PRICE_LISTS,
+  RETAIL_PRICE_LISTS,
+  isInvoicedPriceListNo,
+  isRetailPriceListNo,
+} from '@/lib/utils/priceLists';
 
 interface CustomerEditModalProps {
   isOpen: boolean;
@@ -40,21 +46,15 @@ interface SubUser {
   createdAt: string;
 }
 
-const RETAIL_LISTS = [
-  { value: 1, label: 'Perakende Satis 1' },
-  { value: 2, label: 'Perakende Satis 2' },
-  { value: 3, label: 'Perakende Satis 3' },
-  { value: 4, label: 'Perakende Satis 4' },
-  { value: 5, label: 'Perakende Satis 5' },
-];
+const RETAIL_LISTS = RETAIL_PRICE_LISTS.map((list) => ({
+  value: list.listNo,
+  label: list.label,
+}));
 
-const WHOLESALE_LISTS = [
-  { value: 6, label: 'Toptan Satis 1' },
-  { value: 7, label: 'Toptan Satis 2' },
-  { value: 8, label: 'Toptan Satis 3' },
-  { value: 9, label: 'Toptan Satis 4' },
-  { value: 10, label: 'Toptan Satis 5' },
-];
+const WHOLESALE_LISTS = INVOICED_PRICE_LISTS.map((list) => ({
+  value: list.listNo,
+  label: list.label,
+}));
 
 export function CustomerEditModal({
   isOpen,
@@ -398,12 +398,12 @@ export function CustomerEditModal({
 
     const invoiced = Number(templateApplyForm.invoicedPriceListNo);
     const white = Number(templateApplyForm.whitePriceListNo);
-    if (!Number.isFinite(invoiced) || invoiced < 6 || invoiced > 10) {
-      toast.error('Faturali fiyat listesi 6-10 arasinda olmalidir.');
+    if (!Number.isFinite(invoiced) || !isInvoicedPriceListNo(invoiced)) {
+      toast.error('Faturali fiyat listesi F1-F6 seceneklerinden biri olmalidir.');
       return;
     }
-    if (!Number.isFinite(white) || white < 1 || white > 5) {
-      toast.error('Beyaz fiyat listesi 1-5 arasinda olmalidir.');
+    if (!Number.isFinite(white) || !isRetailPriceListNo(white)) {
+      toast.error('Beyaz fiyat listesi P1-P6 seceneklerinden biri olmalidir.');
       return;
     }
 
@@ -644,11 +644,11 @@ export function CustomerEditModal({
         }
         const invoiced = Number(rule.invoicedPriceListNo);
         const white = Number(rule.whitePriceListNo);
-        if (!Number.isFinite(invoiced) || invoiced < 6 || invoiced > 10) {
-          throw new Error('Faturali fiyat listesi 6-10 arasinda olmalidir.');
+        if (!Number.isFinite(invoiced) || !isInvoicedPriceListNo(invoiced)) {
+          throw new Error('Faturali fiyat listesi F1-F6 seceneklerinden biri olmalidir.');
         }
-        if (!Number.isFinite(white) || white < 1 || white > 5) {
-          throw new Error('Beyaz fiyat listesi 1-5 arasinda olmalidir.');
+        if (!Number.isFinite(white) || !isRetailPriceListNo(white)) {
+          throw new Error('Beyaz fiyat listesi P1-P6 seceneklerinden biri olmalidir.');
         }
         return {
           brandCode: brandCode || null,

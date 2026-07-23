@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
+import { INVOICED_PRICE_LISTS, RETAIL_PRICE_LISTS } from '@/lib/utils/priceLists';
 import { ProductImageManager } from '@/components/admin/ProductImageManager';
 
 interface ProductDetailModalProps {
@@ -413,11 +414,11 @@ export function ProductDetailModal({
             <div className="bg-white border border-gray-200 rounded-lg p-4">
               <div className="text-sm font-semibold text-gray-900 mb-3">Perakende Satis Listeleri</div>
               <div className="space-y-2">
-                {[1, 2, 3, 4, 5].map((listNo) => {
-                  const price = getListPrice(listNo);
+                {RETAIL_PRICE_LISTS.map((list) => {
+                  const price = getListPrice(list.listNo);
                   return (
-                    <div key={listNo} className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">Liste {listNo}</span>
+                    <div key={list.listNo} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">Perakende {list.tier} (Liste {list.listNo})</span>
                       <span className="font-semibold text-gray-900">
                         {price > 0 ? formatCurrency(price) : '-'}
                       </span>
@@ -427,14 +428,13 @@ export function ProductDetailModal({
               </div>
             </div>
             <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="text-sm font-semibold text-gray-900 mb-3">Toptan Satis Listeleri</div>
+              <div className="text-sm font-semibold text-gray-900 mb-3">Faturalı Satis Listeleri</div>
               <div className="space-y-2">
-                {[6, 7, 8, 9, 10].map((listNo) => {
-                  const price = getListPrice(listNo);
-                  const labelNo = listNo - 5;
+                {INVOICED_PRICE_LISTS.map((list) => {
+                  const price = getListPrice(list.listNo);
                   return (
-                    <div key={listNo} className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">Liste {labelNo}</span>
+                    <div key={list.listNo} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">Faturalı {list.tier} (Liste {list.listNo})</span>
                       <span className="font-semibold text-gray-900">
                         {price > 0 ? formatCurrency(price) : '-'}
                       </span>

@@ -1,11 +1,16 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
+import {
+  getPairedStandardPriceListNo,
+  getStandardPriceListNosForPriceType,
+  getStandardPriceListLabel,
+} from '@/lib/utils/priceLists';
 
 /**
  * Sicak Satis ekraninin TUM mantigi (state/effect/handler/turetilmis deger).
@@ -35,6 +40,13 @@ export type CartItem = {
   stockMerkez?: number;
   stockTopca?: number;
   totalVisibleStock?: number;
+  customerPriceLists?: {
+    invoicedPriceListNo?: number | null;
+    whitePriceListNo?: number | null;
+  } | null;
+  pricingCustomerId?: string | null;
+  priceListExplicit?: boolean;
+  unitPriceExplicit?: boolean;
 };
 
 export type NewCustomerForm = {
@@ -53,12 +65,173 @@ export const WAREHOUSE_OPTIONS = [
   { value: '6', label: 'Topca' },
 ];
 
-export const priceLabel = (listNo: number) => {
-  if (listNo <= 5) return `Perakende ${listNo}`;
-  return `Toptan ${listNo - 5}`;
+export const getHotSalePriceListNos = (saleType: SaleType) =>
+  getStandardPriceListNosForPriceType(saleType === 'CASH_INVOICE' ? 'WHITE' : 'INVOICED');
+
+const implicitPriceListNo = (
+  saleType: SaleType,
+  pair?: {
+    invoicedPriceListNo?: number | null;
+    whitePriceListNo?: number | null;
+  } | null
+) => {
+  const fallback = pair
+    ? (saleType === 'CASH_INVOICE' ? 1 : 6)
+    : (saleType === 'CASH_INVOICE' ? 5 : 6);
+  const candidate = saleType === 'CASH_INVOICE'
+    ? Number(pair?.whitePriceListNo)
+    : Number(pair?.invoicedPriceListNo);
+  return getHotSalePriceListNos(saleType).includes(candidate) ? candidate : fallback;
 };
 
+export const priceLabel = (listNo: number) => getStandardPriceListLabel(listNo);
+
 export const n = (value: any) => Number(value || 0);
+const createOperationKey = () => {
+  if (
+    typeof globalThis !== 'undefined'
+    && typeof globalThis.crypto?.randomUUID === 'function'
+  ) {
+    return globalThis.crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    const digit = char === 'x' ? value : (value & 0x3) | 0x8;
+    return digit.toString(16);
+  });
+};
+
+type SaleOperationState = 'PENDING' | 'COMPLETED' | 'CANCELLED';
+
+type StoredSaleOperation = {
+  signature: string;
+  operationKey: string;
+  state: SaleOperationState;
+};
+
+type SessionSaleOperation = StoredSaleOperation & {
+  sessionId: string;
+};
+
+class HotSaleClientGuardError extends Error {}
+
+const pendingSaleOperationStorageKey = (sessionId: string) =>
+  `b2b-hot-sale-pending-${sessionId}`;
+
+const createPayloadSignature = (payload: unknown) => {
+  const serialized = JSON.stringify(payload);
+  let first = 2166136261;
+  let second = 2246822519;
+
+  for (let index = 0; index < serialized.length; index += 1) {
+    const code = serialized.charCodeAt(index);
+    first = Math.imul(first ^ code, 16777619);
+    second = Math.imul(second ^ code, 3266489917);
+  }
+
+  return `v1:${serialized.length}:${(first >>> 0).toString(16).padStart(8, '0')}${(second >>> 0).toString(16).padStart(8, '0')}`;
+};
+
+const parseStoredSaleOperation = (value: string | null): StoredSaleOperation | null => {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (
+      typeof parsed?.signature !== 'string'
+      || typeof parsed?.operationKey !== 'string'
+      || !parsed.signature
+      || !parsed.operationKey
+    ) {
+      return null;
+    }
+    const state: SaleOperationState =
+      parsed.state === 'COMPLETED' || parsed.state === 'CANCELLED'
+        ? parsed.state
+        : 'PENDING';
+    return {
+      signature: parsed.signature,
+      operationKey: parsed.operationKey,
+      state,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const readStoredSaleOperation = (sessionId: string): StoredSaleOperation | null => {
+  try {
+    return parseStoredSaleOperation(
+      globalThis.localStorage?.getItem(pendingSaleOperationStorageKey(sessionId)) || null
+    );
+  } catch {
+    return null;
+  }
+};
+
+const persistSaleOperation = (
+  sessionId: string,
+  operation: StoredSaleOperation
+) => {
+  try {
+    const storageKey = pendingSaleOperationStorageKey(sessionId);
+    globalThis.localStorage?.setItem(storageKey, JSON.stringify(operation));
+    const stored = parseStoredSaleOperation(globalThis.localStorage?.getItem(storageKey) || null);
+    return stored?.signature === operation.signature
+      && stored.operationKey === operation.operationKey
+      && stored.state === operation.state;
+  } catch {
+    return false;
+  }
+};
+
+const selectCurrentSaleOperation = (
+  stored: StoredSaleOperation | null,
+  inMemory: SessionSaleOperation | null,
+  sessionId: string
+) => {
+  const scopedMemory = inMemory?.sessionId === sessionId ? inMemory : null;
+  if (
+    stored
+    && scopedMemory
+    && stored.signature === scopedMemory.signature
+    && stored.operationKey === scopedMemory.operationKey
+    && scopedMemory.state !== 'PENDING'
+  ) {
+    return scopedMemory;
+  }
+  return stored || scopedMemory;
+};
+
+const isTerminalCancellationError = (error: any) =>
+  Number(error?.response?.status) === 409
+  && String(error?.response?.data?.errorCode || '') === 'ORDER_ALREADY_PROCESSED';
+
+const getServerTerminalOperationState = (
+  sessionData: any,
+  operationKey: string
+): Extract<SaleOperationState, 'COMPLETED' | 'CANCELLED'> | null => {
+  const transaction = (sessionData?.session?.transactions || []).find(
+    (row: any) => String(row?.operationKey || '').toLowerCase() === operationKey.toLowerCase()
+  );
+  const status = String(transaction?.status || '').toUpperCase();
+  return status === 'COMPLETED' || status === 'CANCELLED' ? status : null;
+};
+
+const withSaleSubmissionLock = async <T,>(
+  sessionId: string,
+  task: () => Promise<T>
+): Promise<T> => {
+  const lockManager = typeof navigator !== 'undefined'
+    ? (navigator as Navigator & {
+        locks?: {
+          request: <R>(name: string, callback: () => Promise<R>) => Promise<R>;
+        };
+      }).locks
+    : undefined;
+  if (!lockManager?.request) return task();
+  return lockManager.request(`b2b-hot-sale-submit-${sessionId}`, task);
+};
+
 export const fmtQty = (value: any) => Number(n(value).toFixed(3)).toString();
 export const fmtDate = (value: any) => (value ? new Date(value).toLocaleDateString('tr-TR') : '-');
 export const fmtDateTime = (value: any) => (value ? new Date(value).toLocaleString('tr-TR') : '-');
@@ -125,8 +298,12 @@ export function useSicakSatis() {
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [saleType, setSaleType] = useState<SaleType>('CASH_INVOICE');
   const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
-  const [priceListNo, setPriceListNo] = useState(5);
+  const [priceListNo, setPriceListNoState] = useState(5);
+  const [priceListOverridden, setPriceListOverridden] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const previousSaleTypeRef = useRef<SaleType>(saleType);
+  const previousCustomerIdRef = useRef<string | null>(null);
+  const saleOperationRef = useRef<SessionSaleOperation | null>(null);
   const [loadCart, setLoadCart] = useState<CartItem[]>([]);
   const [deliveryQuantities, setDeliveryQuantities] = useState<Record<string, string>>({});
   const [closingCounts, setClosingCounts] = useState<Record<string, { countedQty: string; action: 'KEEP_ON_VEHICLE' | 'RETURN_TO_DEPOT'; note: string }>>({});
@@ -203,6 +380,28 @@ export function useSicakSatis() {
     try {
       const data = await adminApi.getHotSaleSession(sessionId);
       setSessionDetail(data);
+      const storedOperation = readStoredSaleOperation(sessionId);
+      if (storedOperation?.state === 'PENDING') {
+        const terminalState = getServerTerminalOperationState(
+          data,
+          storedOperation.operationKey
+        );
+        if (terminalState) {
+          const terminalOperation: StoredSaleOperation = {
+            ...storedOperation,
+            state: terminalState,
+          };
+          saleOperationRef.current = {
+            sessionId,
+            ...terminalOperation,
+          };
+          if (!persistSaleOperation(sessionId, terminalOperation)) {
+            toast.error(
+              'Sicak satis guvenlik durumu tarayicida dogrulanamadi. Ayni islemi yeniden gondermeyin ve yoneticiye bildirin.'
+            );
+          }
+        }
+      }
       const counts: Record<string, { countedQty: string; action: 'KEEP_ON_VEHICLE' | 'RETURN_TO_DEPOT'; note: string }> = {};
       (data.inventory || []).forEach((row: any) => {
         counts[row.productCode] = {
@@ -307,18 +506,118 @@ export function useSicakSatis() {
   }, [activeTab]);
 
   useEffect(() => {
+    const typeChanged = previousSaleTypeRef.current !== saleType;
+    const currentCustomerId = selectedCustomer?.id || null;
+    const customerChanged = previousCustomerIdRef.current !== currentCustomerId;
+    const defaultPriceListNo = implicitPriceListNo(saleType, selectedCustomer);
     if (saleType === 'CASH_INVOICE') {
       setPaymentType('CASH');
-      setPriceListNo(5);
     } else if (saleType === 'INVOICED_DISPATCH') {
       setPaymentType('OPEN_ACCOUNT');
-      setPriceListNo(6);
     } else {
       setPaymentType('OPEN_ACCOUNT');
-      setPriceListNo(6);
     }
-  }, [saleType]);
+    setPriceListNoState(defaultPriceListNo);
+    setPriceListOverridden(false);
 
+    if (typeChanged || customerChanged) {
+      if (cart.length > 0) {
+        toast(
+          typeChanged
+            ? 'Sepetteki kalemler yeni satis tipinin fiyat duzlemine guncellendi.'
+            : 'Sepetteki varsayilan fiyatlar secilen cariye gore guncellendi.'
+        );
+      }
+      setCart((prev) => {
+        if (prev.length === 0) return prev;
+        return prev.map((item) => {
+          const samePricingCustomer =
+            Boolean(currentCustomerId) && item.pricingCustomerId === currentCustomerId;
+          const customerPair = samePricingCustomer
+            ? item.customerPriceLists
+            : selectedCustomer;
+          const pairedExplicitList = typeChanged && item.priceListExplicit
+            ? getPairedStandardPriceListNo(
+                item.priceListNo,
+                saleType === 'CASH_INVOICE' ? 'WHITE' : 'INVOICED'
+              )
+            : null;
+          const nextListNo = pairedExplicitList
+            ?? (item.priceListExplicit ? item.priceListNo : implicitPriceListNo(saleType, customerPair));
+          return {
+            ...item,
+            priceListNo: nextListNo,
+            unitPrice: item.unitPriceExplicit
+              ? item.unitPrice
+              : n(item.priceLists?.[nextListNo]),
+          };
+        });
+      });
+    }
+    previousSaleTypeRef.current = saleType;
+    previousCustomerIdRef.current = currentCustomerId;
+    // Cart is intentionally read only when the sale plane or customer changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    saleType,
+    selectedCustomer?.id,
+    selectedCustomer?.invoicedPriceListNo,
+    selectedCustomer?.whitePriceListNo,
+  ]);
+
+  const setPriceListNo = (nextListNo: number) => {
+    if (!getHotSalePriceListNos(saleType).includes(nextListNo)) return;
+    setPriceListNoState(nextListNo);
+    setPriceListOverridden(true);
+    setCart((prev) => prev.map((item) => {
+      if (item.priceListExplicit) return item;
+      return {
+        ...item,
+        priceListNo: nextListNo,
+        unitPrice: item.unitPriceExplicit
+          ? item.unitPrice
+          : n(item.priceLists?.[nextListNo]),
+      };
+    }));
+  };
+
+  const hotSalePriceListNos = useMemo(() => getHotSalePriceListNos(saleType), [saleType]);
+
+  useEffect(() => {
+    if (priceListOverridden || products.length === 0) return;
+    const byCode = new Map(products.map((product) => [product.productCode, product]));
+    setCart((prev) => prev.map((item) => {
+      if (item.priceListExplicit) return item;
+      const product = byCode.get(item.productCode);
+      if (!product) return item;
+      const productPair =
+        selectedCustomer?.id && product.pricingCustomerId === selectedCustomer.id
+          ? product.customerPriceLists
+          : selectedCustomer;
+      const nextListNo = implicitPriceListNo(
+        saleType,
+        productPair
+      );
+      return {
+        ...item,
+        priceListNo: nextListNo,
+        unitPrice: item.unitPriceExplicit
+          ? item.unitPrice
+          : n(product.priceLists?.[nextListNo]),
+        priceLists: product.priceLists || item.priceLists,
+        customerPriceLists: product.customerPriceLists || null,
+        pricingCustomerId: product.pricingCustomerId || null,
+      };
+    }));
+  }, [products, priceListOverridden, saleType, selectedCustomer]);
+
+  const customerPricingPending = Boolean(
+    selectedCustomer?.id
+    && !priceListOverridden
+    && cart.some(
+      (item) => !item.priceListExplicit && item.pricingCustomerId !== selectedCustomer.id
+    )
+  );
   const saleTotal = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [cart]);
   const loadTotalQty = useMemo(() => loadCart.reduce((sum, item) => sum + item.quantity, 0), [loadCart]);
   const priceViolations = useMemo(
@@ -337,7 +636,17 @@ export function useSicakSatis() {
   const inventory = sessionDetail?.inventory || [];
 
   const addToCart = (product: any, target: 'sale' | 'load', forcedListNo?: number) => {
-    const listNo = target === 'load' ? 1 : forcedListNo || priceListNo;
+    const productPair =
+      selectedCustomer?.id && product.pricingCustomerId === selectedCustomer.id
+        ? product.customerPriceLists
+        : selectedCustomer;
+    const productDefaultListNo = implicitPriceListNo(
+      saleType,
+      productPair
+    );
+    const listNo = target === 'load'
+      ? 1
+      : forcedListNo || (priceListOverridden ? priceListNo : productDefaultListNo);
     const unitPrice = target === 'load' ? 0 : n(product.priceLists?.[listNo]);
     if (target === 'sale' && n(product.currentCost) <= 0) {
       toast.error(`${product.productCode} guncel maliyeti yok, satisa eklenemez`);
@@ -356,7 +665,14 @@ export function useSicakSatis() {
             ? {
                 ...row,
                 quantity: Number((row.quantity + 1).toFixed(3)),
-                ...(target === 'sale' && forcedListNo ? { unitPrice, priceListNo: listNo } : {}),
+                ...(target === 'sale' && forcedListNo
+                  ? {
+                      unitPrice,
+                      priceListNo: listNo,
+                      priceListExplicit: true,
+                      unitPriceExplicit: false,
+                    }
+                  : {}),
               }
             : row
         );
@@ -380,6 +696,10 @@ export function useSicakSatis() {
           stockMerkez: product.stockMerkez,
           stockTopca: product.stockTopca,
           totalVisibleStock: product.totalVisibleStock,
+          customerPriceLists: product.customerPriceLists || null,
+          pricingCustomerId: product.pricingCustomerId || null,
+          priceListExplicit: Boolean(forcedListNo),
+          unitPriceExplicit: false,
         },
       ];
     });
@@ -387,7 +707,23 @@ export function useSicakSatis() {
 
   const updateCart = (target: 'sale' | 'load', code: string, patch: Partial<CartItem>) => {
     const setter = target === 'load' ? setLoadCart : setCart;
-    setter((prev) => prev.map((row) => (row.productCode === code ? { ...row, ...patch } : row)));
+    setter((prev) => prev.map((row) => {
+      if (row.productCode !== code) return row;
+      const priceListChanged =
+        target === 'sale'
+        && patch.priceListNo !== undefined
+        && patch.priceListNo !== row.priceListNo;
+      const unitPriceChangedDirectly =
+        target === 'sale'
+        && patch.unitPrice !== undefined
+        && patch.priceListNo === undefined;
+      return {
+        ...row,
+        ...patch,
+        priceListExplicit: row.priceListExplicit || priceListChanged,
+        unitPriceExplicit: row.unitPriceExplicit || unitPriceChangedDirectly,
+      };
+    }));
   };
 
   const removeCart = (target: 'sale' | 'load', code: string) => {
@@ -464,6 +800,10 @@ export function useSicakSatis() {
       toast.error('Faturali irsaliye ve siparis icin cari secin');
       return;
     }
+    if (customerPricingPending) {
+      toast.error('Secilen carinin urun bazli fiyatlari henuz yenileniyor. Urunu tekrar aratip bekleyin.');
+      return;
+    }
     if (priceViolations.length > 0) {
       toast.error('Maliyet eksik veya alt limitin altinda fiyat var');
       return;
@@ -474,27 +814,157 @@ export function useSicakSatis() {
     }
     setSubmitting(true);
     try {
-      const result = await adminApi.createHotSaleTransaction(activeSession.id, {
+      const payload = {
         type: saleType,
         customerId: selectedCustomer?.id,
         customerCode: selectedCustomer?.mikroCariCode,
         customerName: selectedCustomer?.displayName || selectedCustomer?.mikroName || selectedCustomer?.name,
         paymentType,
-        priceListNo,
+        ...(priceListOverridden ? { priceListNo } : {}),
         items: cart.map((row) => ({
           productCode: row.productCode,
           quantity: row.quantity,
-          unitPrice: row.unitPrice,
-          priceListNo: row.priceListNo,
+          ...(row.unitPriceExplicit ? { unitPrice: row.unitPrice } : {}),
+          ...(row.priceListExplicit ? { priceListNo: row.priceListNo } : {}),
           unit: row.unit,
         })),
+      };
+      const signature = createPayloadSignature(payload);
+      await withSaleSubmissionLock(activeSession.id, async () => {
+        const persistedOperation = readStoredSaleOperation(activeSession.id);
+        let currentOperation = selectCurrentSaleOperation(
+          persistedOperation,
+          saleOperationRef.current,
+          activeSession.id
+        );
+        if (currentOperation?.state === 'PENDING') {
+          try {
+            const liveSession = await adminApi.getHotSaleSession(activeSession.id);
+            const terminalState = getServerTerminalOperationState(
+              liveSession,
+              currentOperation.operationKey
+            );
+            if (terminalState) {
+              const terminalOperation: StoredSaleOperation = {
+                signature: currentOperation.signature,
+                operationKey: currentOperation.operationKey,
+                state: terminalState,
+              };
+              saleOperationRef.current = {
+                sessionId: activeSession.id,
+                ...terminalOperation,
+              };
+              if (!persistSaleOperation(activeSession.id, terminalOperation)) {
+                throw new HotSaleClientGuardError(
+                  'Islemin sunucu durumu bulundu, ancak yerel guvenlik kaydi dogrulanamadi. Ayni satisi yeniden gondermeyin ve yoneticiye bildirin.'
+                );
+              }
+              currentOperation = terminalOperation;
+            }
+          } catch (error) {
+            if (error instanceof HotSaleClientGuardError) throw error;
+            // Reusing the same pending key remains idempotent if the read-only status check is unavailable.
+          }
+        }
+
+        if (currentOperation?.state === 'PENDING' && currentOperation.signature !== signature) {
+          throw new HotSaleClientGuardError(
+            'Bu oturumda sonucu kesinlesmemis baska bir satis var. Yeni bir sepet gondermeden once onceki sepeti aynen kurup tekrar kontrol edin.'
+          );
+        }
+        if (currentOperation?.state === 'COMPLETED' && currentOperation.signature === signature) {
+          throw new HotSaleClientGuardError(
+            'Bu satis istegi daha once tamamlandi. Ayni sepet ikinci kez gonderilmedi.'
+          );
+        }
+        if (currentOperation?.state === 'CANCELLED' && currentOperation.signature === signature) {
+          throw new HotSaleClientGuardError(
+            'Bu satis istegi iptal edilmis. Sepeti kontrol edip degistirmeden ayni istegi yeniden gonderemezsiniz.'
+          );
+        }
+
+        const pendingOperation: StoredSaleOperation =
+          currentOperation?.state === 'PENDING' && currentOperation.signature === signature
+            ? {
+                signature: currentOperation.signature,
+                operationKey: currentOperation.operationKey,
+                state: 'PENDING',
+              }
+            : {
+                signature,
+                operationKey: createOperationKey(),
+                state: 'PENDING',
+              };
+        saleOperationRef.current = {
+          sessionId: activeSession.id,
+          ...pendingOperation,
+        };
+        if (!persistSaleOperation(activeSession.id, pendingOperation)) {
+          throw new HotSaleClientGuardError(
+            'Islem anahtari tarayicida guvenli saklanamadi. Satis gonderilmedi.'
+          );
+        }
+
+        let result: Awaited<ReturnType<typeof adminApi.createHotSaleTransaction>>;
+        try {
+          result = await adminApi.createHotSaleTransaction(activeSession.id, {
+            ...payload,
+            operationKey: pendingOperation.operationKey,
+          });
+        } catch (error: any) {
+          if (isTerminalCancellationError(error)) {
+            const cancelledOperation: StoredSaleOperation = {
+              ...pendingOperation,
+              state: 'CANCELLED',
+            };
+            saleOperationRef.current = {
+              sessionId: activeSession.id,
+              ...cancelledOperation,
+            };
+            if (!persistSaleOperation(activeSession.id, cancelledOperation)) {
+              throw new HotSaleClientGuardError(
+                'Islem iptal edilmis, ancak yerel guvenlik kaydi dogrulanamadi. Bu ekrani kapatmadan yoneticiye bildirin ve ayni satisi yeniden gondermeyin.'
+              );
+            }
+            throw new HotSaleClientGuardError(
+              'Islem iptal edilmis. Sepet korundu; kontrol edip degistirmeden ayni istegi yeniden gonderemezsiniz.'
+            );
+          }
+          throw error;
+        }
+
+        const transactionStatus = String(result.transaction?.status || '').toUpperCase();
+        if (transactionStatus === 'COMPLETED' || transactionStatus === 'CANCELLED') {
+          const terminalOperation: StoredSaleOperation = {
+            ...pendingOperation,
+            state: transactionStatus,
+          };
+          saleOperationRef.current = {
+            sessionId: activeSession.id,
+            ...terminalOperation,
+          };
+          if (!persistSaleOperation(activeSession.id, terminalOperation)) {
+            throw new HotSaleClientGuardError(
+              transactionStatus === 'COMPLETED'
+                ? 'Islem tamamlandi, ancak yerel guvenlik kaydi dogrulanamadi. Ayni satisi yeniden gondermeyin ve yoneticiye bildirin.'
+                : 'Islem iptal edildi, ancak yerel guvenlik kaydi dogrulanamadi. Ayni satisi yeniden gondermeyin ve yoneticiye bildirin.'
+            );
+          }
+        }
+
+        if (transactionStatus === 'COMPLETED') {
+          setCart([]);
+          await loadSession(activeSession.id);
+          await refreshDashboard();
+          toast.success(`Islem olustu: ${result.transaction.mikroDocumentNo || result.transaction.linkedOrderNumber || '-'}`);
+        } else if (transactionStatus === 'CANCELLED') {
+          toast.error('Islem iptal edilmis. Sepet korundu; kontrol edip degistirmeden ayni istegi yeniden gonderemezsiniz.');
+        } else {
+          toast.error('Islem henuz tamamlanmadi. Sepet ve islem anahtari korunuyor; ayni istekle tekrar deneyin.');
+        }
       });
-      setCart([]);
-      await loadSession(activeSession.id);
-      await refreshDashboard();
-      toast.success(`Islem olustu: ${result.transaction.mikroDocumentNo || result.transaction.linkedOrderNumber || '-'}`);
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Sicak satis kaydedilemedi');
+      toast.error(error?.response?.data?.error || error?.message || 'Sicak satis kaydedilemedi');
     } finally {
       setSubmitting(false);
     }
@@ -759,6 +1229,7 @@ export function useSicakSatis() {
     setPaymentType,
     priceListNo,
     setPriceListNo,
+    hotSalePriceListNos,
     // sepetler
     cart,
     setCart,

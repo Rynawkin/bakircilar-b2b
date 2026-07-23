@@ -521,10 +521,10 @@ export default function StokAcmaNew() {
                 {/* Marjlar */}
                 <div className="mt-3.5 border-t border-[#eef1f6] pt-3.5">
                   <div className="mb-2.5 flex items-center justify-between">
-                    <h3 className="m-0 text-[12px] font-semibold text-[#14223b]">Kar Marjlari (1-5) *</h3>
+                    <h3 className="m-0 text-[12px] font-semibold text-[#14223b]">Kar Marjlari (1-6) *</h3>
                     <span className="text-[10.5px] text-[#8b97ac]">Virgul veya nokta kabul edilir</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
                     {form.margins.map((margin, index) => (
                       <div key={index}>
                         <label className={nLabel}>Marj {index + 1}</label>
@@ -1001,7 +1001,7 @@ export default function StokAcmaNew() {
                 Zorunlu Alanlar
               </h2>
               <div className="grid grid-cols-2 gap-2 text-[11px] text-[#cdd9ef]">
-                {['Stok Adi', 'Ana Saglayici', 'Marka', 'Kategori', 'Ana Birim', 'KDV', 'Marj 1-5', 'Min-Max secimi', 'Urun gorseli'].map((item) => (
+                {['Stok Adi', 'Ana Saglayici', 'Marka', 'Kategori', 'Ana Birim', 'KDV', 'Marj 1-6', 'Min-Max secimi', 'Urun gorseli'].map((item) => (
                   <div key={item} className="rounded-md bg-white/10 px-2.5 py-1.5">{item}</div>
                 ))}
               </div>

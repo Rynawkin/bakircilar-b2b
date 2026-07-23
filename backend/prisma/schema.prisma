@@ -1691,6 +1691,7 @@ model CartItem {
 model Order {
   id              String        @id @default(uuid())
   orderNumber     String        @unique  // "ORD-2024-00001"
+  hotSaleOperationKey String?    @unique
 
   userId          String
   user            User          @relation(fields: [userId], references: [id])
@@ -1747,6 +1748,9 @@ model OrderItem {
   selectedUnit    String?
   quantity        Float
   priceType       PriceType
+  // Mikro fiziksel fiyat liste numarasi (ornegin Faturali 6 = 13).
+  // Nullable: migration oncesi siparislerde bu audit bilgisi yoktur.
+  priceListNo     Int?
   unitPrice       Float
   totalPrice      Float
   lineNote          String?
@@ -2754,6 +2758,8 @@ model HotSaleStockLedger {
 
 model HotSaleTransaction {
   id                  String                   @id @default(uuid())
+  operationKey        String?                  @unique
+  requestHash         String?
   sessionId           String
   session             HotSaleSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   type                HotSaleTransactionType
@@ -2881,6 +2887,9 @@ model EmailLog {
 // Fiyat değişiklik geçmişi (Mikro FIYAT_DEGISIM tablosundan sync)
 model PriceChange {
   id                    String    @id @default(uuid())
+  // Mikro STOK_FIYAT_DEGISIKLIKLERI.fid_Guid. Legacy rows remain NULL;
+  // newly synced rows are idempotent across retries and process restarts.
+  sourceGuid            String?   @unique @map("source_guid")
 
   // Ürün bilgileri
   productCode           String @map("product_code")
@@ -2894,7 +2903,8 @@ model PriceChange {
   changedAt             DateTime @map("change_date")
   // Degisen fiyat listesinin numarasi (Mikro fid_fiyat_no; priceSync.insertPriceChanges
   // price_list_no kolonuna yazar). Eski/eksik satirlarda 0 veya null olabilir;
-  // liste-endeksli son fiyat hesabi yalnizca 1-10 arasi degerleri kullanir.
+  // 11/12 kampanya, 13 Faturali 6 ve 14 Perakende 6 fiziksel numaralaridir.
+  // Legacy priceList1..10 snapshot kolonlari gecis uyumlulugu icin sabit kalir.
   priceListNo           Int?      @map("price_list_no")
 
   // Güncel maliyet ve fiyat listeleri (10 adet)
@@ -2972,6 +2982,26 @@ model ProductPriceStat {
   @@index([productCode])
   @@index([lastChangeDate])
   @@map("product_price_stats")
+}
+
+// Mikro'daki guncel fiziksel liste fiyatlarinin normalize aynasi.
+// Legacy product_price_stats 1-10 kolonlari gecis uyumlulugu icin korunur;
+// yeni standart 13/14 ve kampanya 11/12 dahil tum listeler burada satir bazlidir.
+model ProductPriceListCurrent {
+  id             String   @id @default(uuid())
+  productCode    String   @map("product_code")
+  priceListNo    Int      @map("price_list_no")
+  currentPrice   Decimal  @db.Decimal(18, 4) @map("current_price")
+  currentCost    Decimal? @db.Decimal(18, 4) @map("current_cost")
+  currentMargin  Decimal? @db.Decimal(18, 4) @map("current_margin")
+  syncedAt       DateTime @default(now()) @map("synced_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([productCode, priceListNo])
+  @@index([priceListNo])
+  @@index([syncedAt])
+  @@map("product_price_list_current")
 }
 
 // ==================== REPORT EXCLUSIONS ====================

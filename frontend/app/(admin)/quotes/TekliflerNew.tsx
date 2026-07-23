@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
+import { getPriceListDisplayLabel } from '@/lib/utils/priceLists';
 import {
   useTeklifler,
   completeQuoteProfitSummary,
@@ -354,7 +355,7 @@ export default function TekliflerNew() {
                                 <span className="text-[13px] font-medium text-[#14223b]">{item.productName}</span>
                                 <span className="bg-[#eef2fa] border border-[#d6e0f1] text-[#1c4585] text-[10px] font-semibold px-1.5 py-0.5 rounded-md">
                                   {item.priceSource === 'PRICE_LIST'
-                                    ? `Liste ${item.priceListNo}`
+                                    ? `${getPriceListDisplayLabel(item.priceListNo)} (Liste ${item.priceListNo})`
                                     : item.priceSource === 'LAST_SALE'
                                       ? 'Son Satış'
                                       : 'Manuel'}

@@ -433,7 +433,7 @@ export default function MaliyetGuncellemeUyarilariClassic() {
                                   setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: e.target.checked }));
                                 }}
                               />
-                              10 liste
+                              12 standart liste
                             </label>
                             <Button
                               size="sm"

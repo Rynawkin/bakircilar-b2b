@@ -10,7 +10,11 @@ import priceListService from '../services/price-list.service';
 import notificationService from '../services/notification.service';
 import mikroService from '../services/mikroFactory.service';
 import cartPricingService from '../services/cart-pricing.service';
-import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
+import {
+  resolveCustomerPriceLists,
+  resolveCustomerPriceListsForProduct,
+  resolvePhysicalPriceListNoForPriceType,
+} from '../utils/customerPricing';
 import { isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { generateOrderNumber } from '../utils/orderNumber';
@@ -533,6 +537,7 @@ export class OrderRequestController {
         mikroCode: string;
         quantity: number;
         priceType: PriceType;
+        priceListNo: number;
         unitPrice: number;
         totalPrice: number;
         lineNote?: string | null;
@@ -563,19 +568,23 @@ export class OrderRequestController {
           user.lastPriceGuardInvoicedListNo,
           user.lastPriceGuardWhiteListNo
         );
+        const productPriceListPair = resolveCustomerPriceListsForProduct(
+          basePriceListPair,
+          priceListRules,
+          {
+            brandCode: item.product.brandCode,
+            categoryId: item.product.categoryId,
+          }
+        );
+        const priceListNo = resolvePhysicalPriceListNoForPriceType(
+          productPriceListPair,
+          priceType
+        );
 
         let unitPrice = 0;
         if (itemIsExcess) {
           unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
         } else {
-          const productPriceListPair = resolveCustomerPriceListsForProduct(
-            basePriceListPair,
-            priceListRules,
-            {
-              brandCode: item.product.brandCode,
-              categoryId: item.product.categoryId,
-            }
-          );
           const listInvoiced = priceListService.getListPriceWithFallback(
             priceStats,
             productPriceListPair.invoiced
@@ -647,6 +656,7 @@ export class OrderRequestController {
           mikroCode: item.product.mikroCode,
           quantity: quantity,
           priceType,
+          priceListNo,
           unitPrice,
           totalPrice: unitPrice * quantity,
           lineNote: item.lineNote ? String(item.lineNote).trim() : null,
@@ -693,6 +703,7 @@ export class OrderRequestController {
                 mikroCode: item.mikroCode,
                 quantity: item.quantity,
                 priceType: item.priceType,
+                priceListNo: item.priceListNo,
                 unitPrice: item.unitPrice,
                 totalPrice: item.totalPrice,
                 lineNote: item.lineNote || undefined,
@@ -719,6 +730,7 @@ export class OrderRequestController {
                 mikroCode: item.mikroCode,
                 quantity: item.quantity,
                 priceType: item.priceType,
+                priceListNo: item.priceListNo,
                 unitPrice: item.unitPrice,
                 totalPrice: item.totalPrice,
                 lineNote: item.lineNote || undefined,

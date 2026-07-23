@@ -7,6 +7,10 @@ import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrency } from '@/lib/utils/format';
+import {
+  RETAIL_PRICE_LEVELS,
+  type PriceTier,
+} from '@/lib/utils/priceLists';
 
 export type RetailProduct = {
   productCode: string;
@@ -21,6 +25,7 @@ export type RetailProduct = {
   perakende3: number;
   perakende4: number;
   perakende5: number;
+  perakende6: number;
   imageUrl: string | null;
 };
 
@@ -30,16 +35,12 @@ export type CartItem = {
   unit: string;
   quantity: number;
   unitPrice: number;
-  priceOptions: {
-    1: number;
-    2: number;
-    3: number;
-    4: number;
-    5: number;
-  };
+  priceLevel: PriceLevel;
+  priceOptions: Record<PriceLevel, number>;
 };
 
-export type PriceLevel = 1 | 2 | 3 | 4 | 5;
+export type PriceLevel = PriceTier;
+export { RETAIL_PRICE_LEVELS };
 export type PaymentType = 'CASH' | 'CARD';
 export type WarehouseNo = 1 | 6 | 0;
 
@@ -48,7 +49,8 @@ export const getUnitPrice = (product: RetailProduct, level: PriceLevel) => {
   if (level === 2) return Number(product.perakende2) || 0;
   if (level === 3) return Number(product.perakende3) || 0;
   if (level === 4) return Number(product.perakende4) || 0;
-  return Number(product.perakende5) || 0;
+  if (level === 5) return Number(product.perakende5) || 0;
+  return Number(product.perakende6) || 0;
 };
 
 export const formatQty = (value: number) => {
@@ -216,6 +218,7 @@ export function usePerakendeSatis() {
         3: Math.max(Number(product.perakende3) || 0, 0),
         4: Math.max(Number(product.perakende4) || 0, 0),
         5: Math.max(Number(product.perakende5) || 0, 0),
+        6: Math.max(Number(product.perakende6) || 0, 0),
       };
       return {
         ...prev,
@@ -225,6 +228,7 @@ export function usePerakendeSatis() {
           unit: product.unit,
           quantity: Number(((existing?.quantity || 0) + quantity).toFixed(3)),
           unitPrice: existing?.unitPrice || unitPrice,
+          priceLevel: existing?.priceLevel || priceLevel,
           priceOptions: existing?.priceOptions || priceOptions,
         },
       };
@@ -323,19 +327,19 @@ export function usePerakendeSatis() {
         toast.error(`Perakende-${level} fiyati sifir`);
         return prev;
       }
-      return { ...prev, [productCode]: { ...current, unitPrice: Number(nextPrice.toFixed(4)) } };
+      return {
+        ...prev,
+        [productCode]: {
+          ...current,
+          unitPrice: Number(nextPrice.toFixed(4)),
+          priceLevel: level,
+        },
+      };
     });
   };
 
   const getSelectedPriceLevel = (item: CartItem): PriceLevel | null => {
-    const epsilon = 0.0001;
-    const levels: PriceLevel[] = [1, 2, 3, 4, 5];
-    for (const level of levels) {
-      if (Math.abs(item.unitPrice - Number(item.priceOptions[level] || 0)) < epsilon) {
-        return level;
-      }
-    }
-    return null;
+    return item.priceLevel || null;
   };
 
   const clearCart = () => setCart({});
@@ -355,6 +359,7 @@ export function usePerakendeSatis() {
           productCode: row.productCode,
           quantity: row.quantity,
           unitPrice: row.unitPrice,
+          priceLevel: row.priceLevel,
         })),
       });
       setLastSale({

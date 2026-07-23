@@ -885,7 +885,7 @@ export function FamilyReportsScreen() {
                 />
               </View>
               <View style={styles.switchRow}>
-                <Text style={styles.cardMeta}>10 fiyat listesini de guncelle</Text>
+                <Text style={styles.cardMeta}>12 ana fiyat listesini de guncelle</Text>
                 <Switch
                   value={draft.updatePriceLists !== false}
                   onValueChange={(value) => setCostDraft(key, { updatePriceLists: value })}

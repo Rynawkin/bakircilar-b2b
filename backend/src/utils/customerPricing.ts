@@ -1,4 +1,5 @@
 import { PriceListPair } from '../types';
+import { isPriceListInPlane, PriceListPlane } from '../config/price-list-registry';
 
 export type CustomerPriceListRule = {
   brandCode?: string | null;
@@ -7,16 +8,22 @@ export type CustomerPriceListRule = {
   whitePriceListNo: number;
 };
 
+export type CustomerPriceType = 'INVOICED' | 'WHITE';
+
 // SEGMENT DEVRE DISI (2026-07): Musteri tipi (BAYI/PERAKENDE/VIP/OZEL) artik fiyat
 // listesini belirlemez. Musteri-bazli atama (invoicedPriceListNo/whitePriceListNo)
 // yoksa TEK varsayilan kullanilir: faturali = Toptan Satis 1 (ic liste 6),
 // beyaz = Perakende Satis 1 (ic liste 1). settings.customerPriceLists artik okunmaz.
 const SINGLE_DEFAULT_PRICE_LIST: PriceListPair = { invoiced: 6, white: 1 };
 
-const resolveListNo = (value: any, fallback: number, min: number, max: number): number => {
+const resolveListNo = (
+  value: any,
+  fallback: number,
+  plane: PriceListPlane
+): number => {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  if (parsed < min || parsed > max) return fallback;
+  if (!Number.isInteger(parsed)) return fallback;
+  if (!isPriceListInPlane(parsed, plane)) return fallback;
   return parsed;
 };
 
@@ -30,8 +37,16 @@ export const resolveCustomerPriceLists = (
   _settings?: { customerPriceLists?: any } | null
 ): PriceListPair => {
   return {
-    invoiced: resolveListNo(user.invoicedPriceListNo, SINGLE_DEFAULT_PRICE_LIST.invoiced, 6, 10),
-    white: resolveListNo(user.whitePriceListNo, SINGLE_DEFAULT_PRICE_LIST.white, 1, 5),
+    invoiced: resolveListNo(
+      user.invoicedPriceListNo,
+      SINGLE_DEFAULT_PRICE_LIST.invoiced,
+      'INVOICED'
+    ),
+    white: resolveListNo(
+      user.whitePriceListNo,
+      SINGLE_DEFAULT_PRICE_LIST.white,
+      'RETAIL'
+    ),
   };
 };
 
@@ -67,7 +82,28 @@ export const resolveCustomerPriceListsForProduct = (
   if (!bestRule) return base;
 
   return {
-    invoiced: resolveListNo(bestRule.invoicedPriceListNo, base.invoiced, 6, 10),
-    white: resolveListNo(bestRule.whitePriceListNo, base.white, 1, 5),
+    invoiced: resolveListNo(bestRule.invoicedPriceListNo, base.invoiced, 'INVOICED'),
+    white: resolveListNo(bestRule.whitePriceListNo, base.white, 'RETAIL'),
   };
+};
+
+/**
+ * Selects the Mikro physical standard list for an order line.
+ *
+ * Price overrides (agreement, last-sale floor/override or excess-stock pricing)
+ * can change the amount, but they must not erase the standard price-list plane
+ * that the customer/product assignment selected for the line.
+ */
+export const resolvePhysicalPriceListNoForPriceType = (
+  pair: PriceListPair,
+  priceType: CustomerPriceType
+): number => {
+  const plane: PriceListPlane = priceType === 'WHITE' ? 'RETAIL' : 'INVOICED';
+  const listNo = priceType === 'WHITE' ? pair.white : pair.invoiced;
+
+  if (!isPriceListInPlane(listNo, plane)) {
+    throw new Error(`Invalid ${priceType} physical price list: ${String(listNo)}`);
+  }
+
+  return listNo;
 };

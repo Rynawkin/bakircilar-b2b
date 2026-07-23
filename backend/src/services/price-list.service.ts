@@ -5,6 +5,11 @@
  */
 
 import { Prisma } from '@prisma/client';
+import {
+  getPriceListDefinition,
+  getPriceListFallbackChain,
+  SYNC_PRICE_LIST_NOS,
+} from '../config/price-list-registry';
 import { prisma } from '../utils/prisma';
 
 type PriceStatsRow = {
@@ -19,9 +24,16 @@ type PriceStatsRow = {
   currentPriceList8: number | null;
   currentPriceList9: number | null;
   currentPriceList10: number | null;
+  currentPricesByList?: Map<number, number>;
 };
 
-const PRICE_LIST_FIELDS: Record<number, string> = {
+type NormalizedPriceRow = {
+  productCode: string;
+  priceListNo: number;
+  currentPrice: number | string | { toNumber(): number } | null;
+};
+
+const LEGACY_PRICE_LIST_FIELDS: Record<number, string> = {
   1: 'currentPriceList1',
   2: 'currentPriceList2',
   3: 'currentPriceList3',
@@ -46,8 +58,14 @@ const toNumber = (value: any): number => {
 
 class PriceListService {
   getListPrice(stats: any | null, listNo: number): number {
-    if (!stats) return 0;
-    const field = PRICE_LIST_FIELDS[listNo];
+    if (!stats || !getPriceListDefinition(listNo)) return 0;
+
+    const normalizedPrices = stats.currentPricesByList;
+    if (normalizedPrices instanceof Map && normalizedPrices.has(listNo)) {
+      return toNumber(normalizedPrices.get(listNo));
+    }
+
+    const field = LEGACY_PRICE_LIST_FIELDS[listNo];
     if (!field) return 0;
     return toNumber((stats as any)[field]);
   }
@@ -59,18 +77,45 @@ class PriceListService {
   ): number {
     const primary = this.getListPrice(stats, listNo);
     if (primary > 0) return primary;
-    if (!Number.isFinite(listNo)) return 0;
+    if (!getPriceListDefinition(listNo)) return 0;
 
-    const min = range?.min ?? (listNo <= 5 ? 1 : 6);
-    const max = range?.max ?? (listNo <= 5 ? 5 : 10);
-    const start = Math.min(Math.max(listNo - 1, min), max);
+    const fallbackListNos = getPriceListFallbackChain(listNo).filter((fallbackListNo) => {
+      if (range?.min !== undefined && fallbackListNo < range.min) return false;
+      if (range?.max !== undefined && fallbackListNo > range.max) return false;
+      return true;
+    });
 
-    for (let i = start; i >= min; i -= 1) {
-      const price = this.getListPrice(stats, i);
+    for (const fallbackListNo of fallbackListNos) {
+      const price = this.getListPrice(stats, fallbackListNo);
       if (price > 0) return price;
     }
 
     return 0;
+  }
+
+  private async getNormalizedPricesMap(
+    productCodes: string[]
+  ): Promise<Map<string, Map<number, number>>> {
+    if (productCodes.length === 0) return new Map();
+
+    const rows = await prisma.$queryRaw<NormalizedPriceRow[]>(Prisma.sql`
+      SELECT
+        product_code AS "productCode",
+        price_list_no AS "priceListNo",
+        current_price AS "currentPrice"
+      FROM product_price_list_current
+      WHERE product_code IN (${Prisma.join(productCodes)})
+        AND price_list_no IN (${Prisma.join([...SYNC_PRICE_LIST_NOS])})
+    `);
+
+    const byProduct = new Map<string, Map<number, number>>();
+    for (const row of rows) {
+      if (!byProduct.has(row.productCode)) {
+        byProduct.set(row.productCode, new Map());
+      }
+      byProduct.get(row.productCode)!.set(Number(row.priceListNo), toNumber(row.currentPrice));
+    }
+    return byProduct;
   }
 
   async getPriceStatsMap(productCodes: string[]): Promise<Map<string, any>> {
@@ -98,6 +143,11 @@ class PriceListService {
       WHERE product_code IN (${Prisma.join(uniqueCodes)})
     `);
 
+    const normalizedPrices = await this.getNormalizedPricesMap(uniqueCodes);
+    for (const row of stats) {
+      row.currentPricesByList = normalizedPrices.get(row.productCode) ?? new Map();
+    }
+
     return new Map(stats.map((row) => [row.productCode, row]));
   }
 
@@ -121,7 +171,12 @@ class PriceListService {
       LIMIT 1
     `);
 
-    return rows[0] || null;
+    const row = rows[0];
+    if (!row) return null;
+
+    const normalizedPrices = await this.getNormalizedPricesMap([productCode]);
+    row.currentPricesByList = normalizedPrices.get(productCode) ?? new Map();
+    return row;
   }
 }
 

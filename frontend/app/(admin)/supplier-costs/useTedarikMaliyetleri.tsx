@@ -351,7 +351,7 @@ export function useTedarikMaliyetleri() {
         updatePriceLists: saveApplyConfirm.payload.updatePriceLists,
         note: saveApplyConfirm.payload.note,
       });
-      toast.success(saveApplyConfirm.payload.updatePriceLists ? 'Maliyet ve 10 liste Mikroya uygulandi' : 'Maliyet Mikroya uygulandi');
+      toast.success(saveApplyConfirm.payload.updatePriceLists ? 'Maliyet ve 12 standart liste Mikroya uygulandi' : 'Maliyet Mikroya uygulandi');
       setSaveApplyConfirm(null);
       setSaveApplyBigChangeAck(false);
       if (saveApplyConfirm.payload.productCode) await loadProduct(saveApplyConfirm.payload.productCode);

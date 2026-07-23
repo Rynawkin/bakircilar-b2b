@@ -9,6 +9,7 @@ import * as sql from 'mssql';
 import crypto from 'crypto';
 import { config } from '../config';
 import MIKRO_TABLES from '../config/mikro-tables';
+import { isPriceListInPlane } from '../config/price-list-registry';
 import { cacheService } from './cache.service';
 import {
   MikroCategory,
@@ -22,6 +23,27 @@ import {
   MikroCari,
   MikroCariPersonel,
 } from '../types';
+
+export const deterministicMikroOrderLineGuid = (
+  idempotencyKey: string,
+  lineIndex: number
+) => {
+  const bytes = crypto
+    .createHash('sha256')
+    .update(`bakircilar-b2b:mikro-order-line:v1:${idempotencyKey}:${lineIndex}`)
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-');
+};
 
 class MikroService {
   public purchasedCodesCache = new Map<string, { expiresAt: number; codes: string[] }>();
@@ -1560,6 +1582,8 @@ class MikroService {
       quoteLineGuid?: string;
       responsibilityCenter?: string;
       reserveQty?: number;
+      /** Mikro fiziksel standart fiyat-listesi numarasi. */
+      priceListNo?: number;
     }>;
     applyVAT: boolean;
     description: string;
@@ -1572,6 +1596,12 @@ class MikroService {
     deliveryType?: string;
     deliveryDate?: string | Date | null;
     buyerCode?: string;
+    /**
+     * Stable business-operation identity. When supplied, every SIPARISLER line
+     * receives a deterministic sip_Guid and the complete document is read back
+     * before a retry is considered successful.
+     */
+    idempotencyKey?: string;
   }): Promise<string> {
     await this.connect();
     const preflightPool = this.pool;
@@ -1581,7 +1611,7 @@ class MikroService {
 
     const {
       cariCode,
-      items,
+      items: rawItems,
       applyVAT,
       description,
       documentDescription,
@@ -1593,7 +1623,34 @@ class MikroService {
       deliveryType: deliveryTypeInput,
       deliveryDate: deliveryDateInput,
       buyerCode: buyerCodeInput,
+      idempotencyKey: idempotencyKeyInput,
     } = orderData;
+    const idempotencyKey = String(idempotencyKeyInput || '').trim();
+    const items = idempotencyKey
+      ? rawItems
+          .map((item, originalIndex) => ({ item, originalIndex }))
+          .sort((left, right) => {
+            const keyOf = (candidate: typeof left.item) =>
+              [
+                String(candidate.productCode || '').trim().toUpperCase(),
+                Number(candidate.quantity),
+                Number(candidate.unitPrice),
+                Number(candidate.vatRate),
+                candidate.priceListNo ?? '',
+                String(candidate.lineDescription || '').trim(),
+                String(candidate.quoteLineGuid || '').trim().toUpperCase(),
+                String(candidate.responsibilityCenter || '').trim().toUpperCase(),
+                Number(candidate.reserveQty || 0),
+              ].join('\u001f');
+            const leftKey = keyOf(left.item);
+            const rightKey = keyOf(right.item);
+            return (
+              (leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0)
+              || left.originalIndex - right.originalIndex
+            );
+          })
+          .map(({ item }) => item)
+      : rawItems;
     const descriptionValue = String((documentDescription ?? description) || '').trim();
     const documentDescriptionValue = descriptionValue ? descriptionValue.slice(0, 127) : null;
     const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : '';
@@ -1632,6 +1689,118 @@ class MikroService {
 
     // Evrak serisi belirle
     const evrakSeri = evrakSeriValue || (applyVAT ? 'B2BF' : 'B2BB');
+    const deterministicLineGuids = idempotencyKey
+      ? items.map((_, index) =>
+          deterministicMikroOrderLineGuid(idempotencyKey, index)
+        )
+      : [];
+    if (idempotencyKey) {
+      const guidColumnRows = await this.executeQuery(`
+        SELECT CASE
+          WHEN COL_LENGTH('dbo.SIPARISLER', 'sip_Guid') IS NOT NULL THEN 1
+          ELSE 0
+        END AS hasGuid
+      `);
+      if (Number((guidColumnRows as any[])?.[0]?.hasGuid || 0) !== 1) {
+        throw new Error(
+          'Mikro SIPARISLER.sip_Guid kolonu olmadan tekrar-guvenli siparis yazilamaz'
+        );
+      }
+    }
+
+    const readBackIdempotentOrder = async (): Promise<string | null> => {
+      if (!idempotencyKey || deterministicLineGuids.length === 0) return null;
+      const rows = await this.executeQuery(`
+        SELECT
+          CONVERT(varchar(36), sip_Guid) AS lineGuid,
+          UPPER(LTRIM(RTRIM(ISNULL(sip_evrakno_seri, '')))) AS series,
+          ISNULL(sip_evrakno_sira, 0) AS sequence,
+          ISNULL(sip_satirno, -1) AS rowNumber,
+          UPPER(LTRIM(RTRIM(ISNULL(sip_musteri_kod, '')))) AS customerCode,
+          UPPER(LTRIM(RTRIM(ISNULL(sip_stok_kod, '')))) AS productCode,
+          CAST(ISNULL(sip_miktar, 0) AS decimal(18,6)) AS quantity,
+          CAST(ISNULL(sip_b_fiyat, 0) AS decimal(18,6)) AS unitPrice,
+          CAST(ISNULL(sip_tutar, 0) AS decimal(18,6)) AS lineTotal,
+          CAST(ISNULL(sip_vergi, 0) AS decimal(18,6)) AS vatAmount,
+          ISNULL(sip_fiyat_liste_no, 0) AS priceListNo,
+          ISNULL(sip_depono, 0) AS warehouseNo,
+          ISNULL(sip_tip, 0) AS orderType,
+          ISNULL(sip_cins, 0) AS orderKind,
+          ISNULL(sip_vergisiz_fl, 0) AS vatZeroed,
+          ISNULL(sip_iptal, 0) AS cancelled
+        FROM SIPARISLER
+        WHERE sip_Guid IN (${deterministicLineGuids
+          .map((guid) => `CAST('${guid}' AS uniqueidentifier)`)
+          .join(', ')})
+        ORDER BY sip_satirno
+      `);
+      if ((rows as any[]).length === 0) return null;
+      if ((rows as any[]).length !== items.length) {
+        throw new Error(
+          `Mikro siparis read-back satir sayisi ${items.length} yerine ${(rows as any[]).length}`
+        );
+      }
+
+      const rowByGuid = new Map(
+        (rows as any[]).map((row) => [
+          String(row.lineGuid || '').trim().toUpperCase(),
+          row,
+        ])
+      );
+      let foundSeries: string | null = null;
+      let foundSequence: number | null = null;
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        const row = rowByGuid.get(deterministicLineGuids[index].toUpperCase());
+        const requestedPriceListNo = Number(item.priceListNo);
+        const expectedPriceListNo =
+          item.priceListNo === undefined
+            ? applyVAT
+              ? 6
+              : 1
+            : requestedPriceListNo;
+        const expectedVatRate = this.normalizeVatRate(Number(item.vatRate) || 0);
+        const expectedTotal = Number(item.quantity) * Number(item.unitPrice);
+        const expectedVat = applyVAT ? expectedTotal * expectedVatRate : 0;
+        const rowSeries = String(row?.series || '').trim().toUpperCase();
+        const rowSequence = Math.trunc(Number(row?.sequence || 0));
+        const valid =
+          Boolean(row)
+          && Number(row.cancelled || 0) === 0
+          && rowSeries.length > 0
+          && rowSequence > 0
+          && Math.trunc(Number(row.rowNumber)) === index
+          && String(row.customerCode || '').trim().toUpperCase() ===
+            String(cariCode || '').trim().toUpperCase()
+          && String(row.productCode || '').trim().toUpperCase() ===
+            String(item.productCode || '').trim().toUpperCase()
+          && Math.abs(Number(row.quantity || 0) - Number(item.quantity)) <= 0.0001
+          && Math.abs(Number(row.unitPrice || 0) - Number(item.unitPrice)) <= 0.0001
+          && Math.abs(Number(row.lineTotal || 0) - expectedTotal) <= 0.01
+          && Math.abs(Number(row.vatAmount || 0) - expectedVat) <= 0.01
+          && Math.trunc(Number(row.priceListNo || 0)) === expectedPriceListNo
+          && Math.trunc(Number(row.warehouseNo || 0)) === warehouseValue
+          && Math.trunc(Number(row.orderType || 0)) === 0
+          && Math.trunc(Number(row.orderKind || 0)) === 0
+          && Number(row.vatZeroed || 0) === vergiSizFlag;
+        if (!valid) {
+          throw new Error(
+            `Mikro siparis read-back uyusmazligi: ${item.productCode} satir ${index}`
+          );
+        }
+        if (foundSeries === null) foundSeries = rowSeries;
+        if (foundSequence === null) foundSequence = rowSequence;
+        if (foundSeries !== rowSeries || foundSequence !== rowSequence) {
+          throw new Error(
+            'Mikro siparis read-back satirlari birden fazla evraka dagilmis'
+          );
+        }
+      }
+      return `${foundSeries}-${foundSequence}`;
+    };
+
+    const existingIdempotentOrder = await readBackIdempotentOrder();
+    if (existingIdempotentOrder) return existingIdempotentOrder;
     let sipFileId: number | null = null;
 
     try {
@@ -1781,6 +1950,25 @@ class MikroService {
         const vergiTutari = applyVAT ? tutar * vatRate : 0;
         const vatCode = applyVAT ? this.convertVatRateToCode(vatRate) : 0;
         const reserveQty = Math.max(Number(item.reserveQty || 0), 0);
+        const requestedPriceListNo = Number(item.priceListNo);
+        const expectedPriceListPlane = applyVAT ? 'INVOICED' : 'RETAIL';
+        if (
+          item.priceListNo !== undefined &&
+          !isPriceListInPlane(requestedPriceListNo, expectedPriceListPlane)
+        ) {
+          throw new Error(
+            `${expectedPriceListPlane} duzlemine uymayan standart fiyat listesi: ${String(item.priceListNo)}`
+          );
+        }
+        // Eski/manual cagrilarda liste numarasi yoksa ayni fiyat duzleminin
+        // birinci listesini kullan; faturalı satiri perakende liste 1 diye
+        // kaydetmek audit bilgisini bozar.
+        const priceListNo =
+          item.priceListNo === undefined
+            ? applyVAT
+              ? 6
+              : 1
+            : requestedPriceListNo;
 
         console.log(`🔧 Satır ${satirNo} hazırlanıyor:`, {
           productCode: item.productCode,
@@ -1794,6 +1982,7 @@ class MikroService {
 
         // INSERT query - Trigger devre dışı olduğu için hatasız çalışacak
         const columnNames = [
+          ...(idempotencyKey ? ['sip_Guid'] : []),
           'sip_evrakno_seri',
           'sip_evrakno_sira',
           'sip_satirno',
@@ -1808,6 +1997,7 @@ class MikroService {
           'sip_rezervasyon_miktari',
           'sip_teslim_miktar',
           'sip_b_fiyat',
+          'sip_fiyat_liste_no',
           'sip_tutar',
           'sip_vergi',
           'sip_vergi_pntr',
@@ -1847,6 +2037,7 @@ class MikroService {
         ];
 
         const valueNames = [
+          ...(idempotencyKey ? ['@lineGuid'] : []),
           '@seri',
           '@sira',
           '@satirNo',
@@ -1861,6 +2052,7 @@ class MikroService {
           '@reserveQty',
           '0',
           '@fiyat',
+          '@fiyatListeNo',
           '@tutar',
           '@vergiTutari',
           '@vergiPntr',
@@ -1920,6 +2112,7 @@ class MikroService {
           .input('reserveQty', sql.Float, reserveQty)
           .input('depoNo', sql.Int, warehouseValue)
           .input('fiyat', sql.Float, item.unitPrice)
+          .input('fiyatListeNo', sql.Int, priceListNo)
           .input('tutar', sql.Float, tutar)
           .input('vergiTutari', sql.Float, vergiTutari)
           .input('vergiPntr', sql.TinyInt, vatCode)
@@ -1931,6 +2124,14 @@ class MikroService {
           .input('createUser', sql.SmallInt, mikroUserNo)
           .input('lastupUser', sql.SmallInt, mikroUserNo)
           .input('projeKodu', sql.NVarChar(25), projeKodu);
+
+        if (idempotencyKey) {
+          request.input(
+            'lineGuid',
+            sql.UniqueIdentifier,
+            deterministicLineGuids[i]
+          );
+        }
 
         if (includeQuoteGuid) {
           request.input('teklifUid', sql.UniqueIdentifier, item.quoteLineGuid || zeroGuid);
@@ -2306,6 +2507,21 @@ class MikroService {
       }
 
       await transaction.commit();
+      transactionStarted = false;
+
+      if (idempotencyKey) {
+        const verifiedOrderNumber = await readBackIdempotentOrder();
+        if (!verifiedOrderNumber) {
+          throw new Error(
+            'Mikro siparis commit sonrasi deterministic read-back bulunamadi'
+          );
+        }
+        if (verifiedOrderNumber !== orderNumber) {
+          throw new Error(
+            `Mikro siparis yazim cevabi (${orderNumber}) read-back (${verifiedOrderNumber}) ile uyusmuyor`
+          );
+        }
+      }
 
       console.log(`✅ Sipariş başarıyla oluşturuldu: ${orderNumber}`);
       return orderNumber;
@@ -2316,6 +2532,21 @@ class MikroService {
           await transaction.rollback();
         } catch (rollbackError) {
           console.error('WARN: Siparis transaction rollback tamamlanamadi:', rollbackError);
+        }
+      }
+
+      if (idempotencyKey) {
+        try {
+          const recoveredOrderNumber = await readBackIdempotentOrder();
+          if (recoveredOrderNumber) return recoveredOrderNumber;
+        } catch (readBackError) {
+          throw new Error(
+            `Siparis Mikro read-back dogrulamasi basarisiz: ${
+              readBackError instanceof Error
+                ? readBackError.message
+                : String(readBackError)
+            }`
+          );
         }
       }
 

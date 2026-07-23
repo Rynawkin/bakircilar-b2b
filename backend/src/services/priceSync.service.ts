@@ -10,10 +10,24 @@ import { PrismaClient } from '@prisma/client';
 import mikroService from './mikro.service';
 import pricingService from './pricing.service';
 import { randomUUID } from 'crypto';
+import {
+  LEGACY_STANDARD_PRICE_LIST_NOS,
+  SYNC_PRICE_LIST_NOS,
+} from '../config/price-list-registry';
+import {
+  MikroPriceListCosts,
+  parseOptionalMikroNumber,
+  resolvePriceListSnapshotMetrics,
+} from '../utils/price-list-snapshot';
+import {
+  MikroSyncBusyError,
+  withMikroSyncLock,
+} from '../utils/mikro-sync-lock';
 
 const prisma = new PrismaClient();
 
 interface PriceChangeRecord {
+  fid_Guid: string;
   fid_stok_kod: string;
   fid_tarih: Date;
   fid_fiyat_no: number;
@@ -24,11 +38,29 @@ interface PriceChangeRecord {
   sto_standartmaliyet: number;
 }
 
+type PriceListMap = Map<string, Map<number, number>>;
+type PriceCostMap = Map<string, MikroPriceListCosts>;
+
+type PriceSyncSnapshot = {
+  priceListMap: PriceListMap;
+  priceCostMap: PriceCostMap;
+};
+
+type PriceSyncResult = {
+  success: boolean;
+  syncType: 'full' | 'incremental';
+  recordsSynced: number;
+  error?: string;
+};
+
 class PriceSyncService {
   // 12.6: Fiyat senkronunun ayni anda iki kez calismasini engelleyen kilit
   private isRunning = false;
 
-  private async syncPriceStatsFromMikro(priceListMap: Map<string, number[]>): Promise<void> {
+  private async syncPriceStatsFromMikro(
+    priceListMap: PriceListMap,
+    priceCostMap: PriceCostMap
+  ): Promise<void> {
     const codes = Array.from(priceListMap.keys());
     if (codes.length === 0) return;
 
@@ -52,7 +84,7 @@ class PriceSyncService {
       const esc = (v: any): string => String(v ?? '').replace(/'/g, "''");
 
       const values = batch.map((code) => {
-        const priceLists = priceListMap.get(code) || Array(10).fill(0);
+        const priceLists = priceListMap.get(code);
         const product = productMap.get(code);
         const safeCode = esc(code);
         const productName = esc(product?.name || code);
@@ -62,7 +94,10 @@ class PriceSyncService {
           : Number(rawCost);
         const costValue = cost === null ? 'NULL' : cost;
 
-        const safePrices = priceLists.map(num);
+        // Legacy product_price_stats keeps its existing fixed 1..10 snapshot.
+        const safePrices = LEGACY_STANDARD_PRICE_LIST_NOS.map((listNo) =>
+          num(priceLists?.get(listNo))
+        );
         const margins = safePrices.map((price) => {
           if (!price || price === 0 || cost === null || cost === 0) return 0;
           return ((price - cost) / price) * 100;
@@ -106,7 +141,7 @@ class PriceSyncService {
         )`;
       }).join(',\n');
 
-      await prisma.$executeRawUnsafe(`
+      const legacyUpsertSql = `
         INSERT INTO product_price_stats (
           id, product_code, product_name, brand, category,
           total_changes, first_change_date, last_change_date,
@@ -158,27 +193,132 @@ class PriceSyncService {
           OR product_price_stats.current_price_list_8 IS DISTINCT FROM EXCLUDED.current_price_list_8
           OR product_price_stats.current_price_list_9 IS DISTINCT FROM EXCLUDED.current_price_list_9
           OR product_price_stats.current_price_list_10 IS DISTINCT FROM EXCLUDED.current_price_list_10
-      `);
+      `;
+
+      // Row-based mirror is the canonical path for non-contiguous physical
+      // lists (campaign 11/12 and standard F6/P6 at 13/14). Writing zero rows
+      // as well as positive rows prevents a removed Mikro price from remaining
+      // stale in PostgreSQL.
+      const normalizedValues = batch.flatMap((code) => {
+        const priceLists = priceListMap.get(code);
+        const costs = priceCostMap.get(code);
+        const safeCode = esc(code);
+
+        return SYNC_PRICE_LIST_NOS.map((listNo) => {
+          const price = num(priceLists?.get(listNo));
+          const { currentCost, currentMargin } =
+            resolvePriceListSnapshotMetrics(listNo, price, costs);
+          const costValue =
+            currentCost === null ? 'NULL' : String(currentCost);
+          const marginValue =
+            currentMargin !== null ? String(currentMargin) : 'NULL';
+
+          return `(
+            '${randomUUID()}',
+            '${safeCode}',
+            ${listNo},
+            ${price},
+            ${costValue},
+            ${marginValue},
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP
+          )`;
+        });
+      }).join(',\n');
+
+      const normalizedUpsertSql = `
+        INSERT INTO product_price_list_current (
+          id, product_code, price_list_no, current_price, current_cost,
+          current_margin, synced_at, created_at, updated_at
+        )
+        VALUES ${normalizedValues}
+        ON CONFLICT (product_code, price_list_no) DO UPDATE SET
+          current_price = EXCLUDED.current_price,
+          -- Assign NULL as well: missing/campaign cost data must clear any
+          -- legacy value that may have been attributed to the wrong plane.
+          current_cost = EXCLUDED.current_cost,
+          current_margin = EXCLUDED.current_margin,
+          synced_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      `;
+
+      // Keep legacy and normalized snapshots at the same batch boundary.
+      await prisma.$transaction([
+        prisma.$executeRawUnsafe(legacyUpsertSql),
+        prisma.$executeRawUnsafe(normalizedUpsertSql),
+      ]);
     }
+
+    // The Mikro snapshot is complete and active-stock based. Rows that are no
+    // longer active must not keep serving a stale positive price.
+    const snapshotTime = new Date();
+    await prisma.productPriceListCurrent.updateMany({
+      where: { productCode: { notIn: codes } },
+      data: {
+        currentPrice: 0,
+        currentCost: null,
+        currentMargin: null,
+        syncedAt: snapshotTime,
+      },
+    });
   }
 
   /**
    * Ana senkronizasyon metodu
    * Otomatik olarak full veya incremental sync yapar
    */
-  async syncPriceChanges(): Promise<{
-    success: boolean;
-    syncType: 'full' | 'incremental';
-    recordsSynced: number;
-    error?: string;
-  }> {
-    // 12.6: Zaten calisan bir fiyat senkronu varsa yenisini baslatma
+  async syncPriceChanges(): Promise<PriceSyncResult> {
     if (this.isRunning) {
       console.log('⚠️ Fiyat senkronu zaten calisiyor, yeni istek atlandi.');
       return { success: false, syncType: 'incremental', recordsSynced: 0, error: 'Fiyat senkronu zaten calisiyor' };
     }
     this.isRunning = true;
 
+    try {
+      return await withMikroSyncLock(() => this.syncPriceChangesLocked());
+    } catch (error: any) {
+      const message = error instanceof MikroSyncBusyError
+        ? error.message
+        : String(error?.message || error || 'Fiyat senkronu baslatilamadi');
+      return {
+        success: false,
+        syncType: 'incremental',
+        recordsSynced: 0,
+        error: message,
+      };
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  /**
+   * Run price sync while the caller already owns withMikroSyncLock.
+   *
+   * Full stock sync uses this entry point so both stages stay inside one
+   * cross-process lock and one overall success decision. Calling the public
+   * syncPriceChanges() here would try to acquire the same advisory lock again.
+   */
+  async syncPriceChangesWithinExistingLock(): Promise<PriceSyncResult> {
+    if (this.isRunning) {
+      console.log('⚠️ Fiyat senkronu zaten calisiyor, tam senkron fiyat asamasi durduruldu.');
+      return {
+        success: false,
+        syncType: 'incremental',
+        recordsSynced: 0,
+        error: 'Fiyat senkronu zaten calisiyor',
+      };
+    }
+    this.isRunning = true;
+
+    try {
+      return await this.syncPriceChangesLocked();
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  private async syncPriceChangesLocked(): Promise<PriceSyncResult> {
     const syncId = randomUUID();
     const startTime = new Date();
 
@@ -190,10 +330,23 @@ class PriceSyncService {
         ORDER BY created_at DESC
         LIMIT 1
       `;
+      const legacyRows = await prisma.$queryRaw<Array<{ row_count: bigint }>>`
+        SELECT COUNT(*)::bigint AS row_count
+        FROM price_changes
+        WHERE source_guid IS NULL
+      `;
 
       const syncType: 'full' | 'incremental' = lastSync && lastSync.length > 0 && lastSync[0].last_synced_date
         ? 'incremental'
         : 'full';
+      const legacyRowsWithoutSourceGuid = Number(legacyRows[0]?.row_count || 0);
+      if (syncType === 'full' && legacyRowsWithoutSourceGuid > 0) {
+        throw new Error(
+          `${legacyRowsWithoutSourceGuid} eski fiyat gecmisi satirinda Mikro source GUID yok ` +
+            've tamamlanmis fiyat-sync watermark bulunamadi. Mukerrer gecmis olusmamasi ' +
+            'icin full sync durduruldu; once kontrollu baseline/reconciliation gerekir.'
+        );
+      }
 
       console.log(`🔄 Starting ${syncType} price sync...`);
 
@@ -205,7 +358,7 @@ class PriceSyncService {
 
       // Mikro'ya bağlan
       await mikroService.connect();
-      const priceListMap = await this.fetchPriceListMap();
+      const { priceListMap, priceCostMap } = await this.fetchPriceListSnapshot();
 
       let recordsSynced = 0;
       let lastSyncedDate: Date | null = null;
@@ -226,25 +379,28 @@ class PriceSyncService {
 
         // Yeni en son tarih
         const maxDate = await prisma.$queryRaw<any[]>`
-          SELECT MAX(change_date) as max_date FROM price_changes WHERE change_date > ${fromDate}
+          SELECT MAX(change_date) as max_date FROM price_changes WHERE change_date >= ${fromDate}
         `;
         lastSyncedDate = maxDate[0]?.max_date || fromDate;
       }
 
       // İstatistikleri güncelle
       await this.updateProductStats();
-      await this.syncPriceStatsFromMikro(priceListMap);
-
-      await mikroService.disconnect();
+      await this.syncPriceStatsFromMikro(priceListMap, priceCostMap);
 
       // Kullanici talebi: fiyat-sync de musteriye giden INDIRIMLI/excess fiyati (Product.prices)
-      // guncel maliyet + ayarlardaki marj ile yeniden hesaplasin. Recalc DB-only (Mikro gerekmez);
-      // hata price-sync'i cokertmesin diye try/catch. calculatedCost + prices JSON guncellenir.
+      // guncel maliyet + ayarlardaki marj ile yeniden hesaplasin. Bu zorunlu asama
+      // basarisizsa price/full sync tamamlanmis sayilmamalidir.
       try {
         const priced = await pricingService.recalculateAllPrices();
         console.log(`✅ Indirimli/excess fiyatlar yeniden hesaplandi (price-sync sonu): ${priced} urun`);
       } catch (recalcErr: any) {
         console.error('⚠️ Fiyat recalc (price-sync sonu) hatasi:', recalcErr?.message || recalcErr);
+        throw new Error(
+          `Fiyat recalc (price-sync sonu) basarisiz: ${
+            recalcErr?.message || String(recalcErr)
+          }`
+        );
       }
 
       // Sync log'u güncelle - completed
@@ -283,57 +439,117 @@ class PriceSyncService {
         recordsSynced: 0,
         error: error.message,
       };
-    } finally {
-      this.isRunning = false;
     }
   }
 
-  private async fetchPriceListMap(): Promise<Map<string, number[]>> {
+  private async fetchPriceListSnapshot(): Promise<PriceSyncSnapshot> {
     console.log('📥 Fetching current price lists from Mikro...');
 
     const rows = await mikroService.executeQuery(`
+      WITH ActiveStocks AS (
+        SELECT
+          s.sto_Guid,
+          LTRIM(RTRIM(s.sto_kod)) AS stockCode
+        FROM STOKLAR s
+        WHERE ISNULL(s.sto_pasif_fl, 0) = 0
+          AND LTRIM(RTRIM(ISNULL(s.sto_kod, N''))) <> N''
+      ),
+      RankedPrices AS (
+        SELECT
+          LTRIM(RTRIM(p.sfiyat_stokkod)) AS stockCode,
+          p.sfiyat_listesirano,
+          p.sfiyat_fiyati,
+          COUNT(*) OVER (
+            PARTITION BY
+              LTRIM(RTRIM(p.sfiyat_stokkod)),
+              p.sfiyat_listesirano
+          ) AS candidateCount,
+          ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(p.sfiyat_stokkod)), p.sfiyat_listesirano
+            ORDER BY
+              ISNULL(p.sfiyat_lastup_date, p.sfiyat_create_date) DESC,
+              p.sfiyat_create_date DESC,
+              p.sfiyat_Guid DESC
+          ) AS rowNo
+        FROM STOK_SATIS_FIYAT_LISTELERI p
+        INNER JOIN ActiveStocks active
+          ON active.stockCode = LTRIM(RTRIM(p.sfiyat_stokkod))
+        WHERE p.sfiyat_listesirano IN (${SYNC_PRICE_LIST_NOS.join(', ')})
+          AND p.sfiyat_deposirano = 0
+          AND p.sfiyat_doviz = 0
+          AND p.sfiyat_odemeplan = 0
+          AND p.sfiyat_iptal = 0
+          AND ISNULL(p.sfiyat_hidden, 0) = 0
+      )
       SELECT
-        sfiyat_stokkod,
-        sfiyat_listesirano,
-        sfiyat_fiyati
-      FROM STOK_SATIS_FIYAT_LISTELERI
-      WHERE sfiyat_listesirano BETWEEN 1 AND 10
-        AND sfiyat_deposirano = 0
-        AND sfiyat_doviz = 0
-        AND sfiyat_odemeplan = 0
-        AND sfiyat_iptal = 0
-        AND sfiyat_fiyati > 0
+        active.stockCode AS sfiyat_stokkod,
+        price.sfiyat_listesirano,
+        ISNULL(price.sfiyat_fiyati, 0) AS sfiyat_fiyati,
+        ISNULL(price.candidateCount, 0) AS candidateCount,
+        u.MaliyetP AS costP,
+        u.MaliyetT AS costT
+      FROM ActiveStocks active
+      LEFT JOIN RankedPrices price
+        ON price.stockCode = active.stockCode
+       AND price.rowNo = 1
+      LEFT JOIN STOKLAR_USER u
+        ON active.sto_Guid = u.Record_uid
+      ORDER BY active.stockCode, price.sfiyat_listesirano
     `);
 
-    const priceListMap = new Map<string, number[]>();
+    const priceListMap: PriceListMap = new Map();
+    const priceCostMap: PriceCostMap = new Map();
+    const syncListNos = new Set<number>(SYNC_PRICE_LIST_NOS);
+    const duplicateCanonicalKeys = new Set<string>();
 
     for (const row of rows) {
       const code = (row.sfiyat_stokkod || '').trim();
       const listNo = Number(row.sfiyat_listesirano);
+      const candidateCount = Number(row.candidateCount) || 0;
 
-      if (!code || Number.isNaN(listNo) || listNo < 1 || listNo > 10) continue;
-
-      if (!priceListMap.has(code)) {
-        priceListMap.set(code, Array(10).fill(0));
+      if (!code) continue;
+      if (candidateCount > 1) {
+        // Legacy Mikro data can contain duplicate canonical rows. Snapshot
+        // reads use the explicit RankedPrices ordering above; write flows keep
+        // failing closed for the affected product until it is reconciled.
+        duplicateCanonicalKeys.add(`${code}/L${listNo}`);
       }
 
-      const prices = priceListMap.get(code)!;
-      prices[listNo - 1] = Number(row.sfiyat_fiyati) || 0;
+      if (!priceListMap.has(code)) {
+        priceListMap.set(code, new Map());
+      }
+      priceCostMap.set(code, {
+        costP: parseOptionalMikroNumber(row.costP),
+        costT: parseOptionalMikroNumber(row.costT),
+      });
+
+      if (Number.isInteger(listNo) && syncListNos.has(listNo)) {
+        const prices = priceListMap.get(code)!;
+        prices.set(listNo, Number(row.sfiyat_fiyati) || 0);
+      }
     }
 
+    if (duplicateCanonicalKeys.size > 0) {
+      console.warn(
+        'Mikro fiyat snapshotinda birden fazla canonical satiri olan ' +
+          `${duplicateCanonicalKeys.size} urun/liste cifti deterministik son satirla okundu. ` +
+          `Ilk ornekler: ${Array.from(duplicateCanonicalKeys).slice(0, 10).join(', ')}`
+      );
+    }
     console.log(`📊 Loaded price lists for ${priceListMap.size} products`);
 
-    return priceListMap;
+    return { priceListMap, priceCostMap };
   }
 
   /**
    * Tüm fiyat geçmişini çeker
    */
-  private async performFullSync(priceListMap: Map<string, number[]>): Promise<number> {
+  private async performFullSync(priceListMap: PriceListMap): Promise<number> {
     console.log('📥 Fetching all price changes from Mikro...');
 
     const changes = await mikroService.executeQuery(`
       SELECT
+        f.fid_Guid,
         f.fid_stok_kod,
         f.fid_tarih,
         f.fid_fiyat_no,
@@ -354,15 +570,18 @@ class PriceSyncService {
     // Batch insert (500'er kayıt - daha küçük batch, daha az connection timeout)
     const batchSize = 500;
     let inserted = 0;
+    let processed = 0;
 
     for (let i = 0; i < changes.length; i += batchSize) {
       const batch = changes.slice(i, i + batchSize);
-      await this.insertPriceChanges(batch, priceListMap);
-      inserted += batch.length;
-      console.log(`  → Inserted ${inserted}/${changes.length} records`);
+      inserted += await this.insertPriceChanges(batch, priceListMap);
+      processed += batch.length;
+      console.log(
+        `  → Processed ${processed}/${changes.length}; inserted ${inserted}`
+      );
 
       // Her 10 batch'te bir kısa bekleme (connection pool recover için)
-      if (inserted % 5000 === 0) {
+      if (processed % 5000 === 0) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
@@ -375,12 +594,13 @@ class PriceSyncService {
    */
   private async performIncrementalSync(
     fromDate: Date,
-    priceListMap: Map<string, number[]>
+    priceListMap: PriceListMap
   ): Promise<number> {
     console.log(`📥 Fetching price changes since ${fromDate.toISOString()}...`);
 
     const changes = await mikroService.executeQuery(`
       SELECT
+        f.fid_Guid,
         f.fid_stok_kod,
         f.fid_tarih,
         f.fid_fiyat_no,
@@ -391,7 +611,7 @@ class PriceSyncService {
         s.sto_standartmaliyet
       FROM STOK_FIYAT_DEGISIKLIKLERI f
       LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
-      WHERE f.fid_tarih > '${fromDate.toISOString()}'
+      WHERE f.fid_tarih >= '${fromDate.toISOString()}'
         AND f.fid_eskifiy_tutar != f.fid_yenifiy_tutar
         AND s.sto_pasif_fl = 0
       ORDER BY f.fid_tarih DESC, f.fid_stok_kod, f.fid_fiyat_no
@@ -400,10 +620,10 @@ class PriceSyncService {
     console.log(`📊 Found ${changes.length} new price changes`);
 
     if (changes.length > 0) {
-      await this.insertPriceChanges(changes, priceListMap);
+      return this.insertPriceChanges(changes, priceListMap);
     }
 
-    return changes.length;
+    return 0;
   }
 
   /**
@@ -411,9 +631,19 @@ class PriceSyncService {
    */
   private async insertPriceChanges(
     changes: PriceChangeRecord[],
-    priceListMap: Map<string, number[]>,
-  ): Promise<void> {
+    priceListMap: PriceListMap,
+  ): Promise<number> {
     const values = changes.map((change) => {
+      const sourceGuid = String(change.fid_Guid || '').trim().toLowerCase();
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          sourceGuid
+        )
+      ) {
+        throw new Error(
+          `Mikro fiyat degisiklik GUID degeri gecersiz: ${sourceGuid || 'bos'}`
+        );
+      }
       const changeAmount = change.fid_yenifiy_tutar - change.fid_eskifiy_tutar;
       const changePercent = change.fid_eskifiy_tutar !== 0
         ? (changeAmount / change.fid_eskifiy_tutar) * 100
@@ -422,7 +652,9 @@ class PriceSyncService {
       const cost = Number(change.sto_standartmaliyet) || 0;
       const priceLists = priceListMap.get((change.fid_stok_kod || '').trim());
       // 12.2: Tum sayisal degerleri sonlu sayiya zorla (NaN/Infinity SQL'i bozmasin)
-      const prices = (priceLists ? [...priceLists] : Array(10).fill(0)).map((x) => Number(x) || 0);
+      const prices = LEGACY_STANDARD_PRICE_LIST_NOS.map(
+        (listNo) => Number(priceLists?.get(listNo)) || 0
+      );
 
       // Marjları hesapla (10 fiyat)
       const margins = prices.map((price) => {
@@ -434,6 +666,7 @@ class PriceSyncService {
 
       return `(
         '${randomUUID()}',
+        '${sourceGuid}',
         '${(change.fid_stok_kod ?? '').replace(/'/g, "''")}',
         '${change.sto_isim?.replace(/'/g, "''") || ''}',
         ${change.sto_marka_kodu ? `'${change.sto_marka_kodu.replace(/'/g, "''")}'` : 'NULL'},
@@ -473,11 +706,12 @@ class PriceSyncService {
 
     // Retry logic for connection issues
     let retries = 3;
+    let inserted = 0;
     while (retries > 0) {
       try {
-        await prisma.$executeRawUnsafe(`
+        inserted = await prisma.$executeRawUnsafe(`
           INSERT INTO price_changes (
-            id, product_code, product_name, brand, category, change_date, price_list_no,
+            id, source_guid, product_code, product_name, brand, category, change_date, price_list_no,
             old_price, new_price, change_amount, change_percent,
             current_cost, current_stock,
             price_list_1, price_list_2, price_list_3, price_list_4, price_list_5,
@@ -487,7 +721,7 @@ class PriceSyncService {
             synced_at, created_at
           )
           VALUES ${values}
-          ON CONFLICT DO NOTHING
+          ON CONFLICT (source_guid) DO NOTHING
         `);
         break; // Success, exit retry loop
       } catch (error: any) {
@@ -504,6 +738,7 @@ class PriceSyncService {
         await prisma.$connect();
       }
     }
+    return inserted;
   }
 
   /**

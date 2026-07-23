@@ -144,6 +144,8 @@ export type PortalStackParamList = {
           quantity?: number;
           unitPrice?: number;
           priceType?: 'INVOICED' | 'WHITE';
+          priceSource?: 'PRICE_LIST' | 'MANUAL';
+          priceListNo?: number;
         }>;
         autoAddProduct?: boolean;
       }

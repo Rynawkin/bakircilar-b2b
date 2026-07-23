@@ -1,5 +1,7 @@
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
+import { RETAIL_PRICE_LIST_NOS } from '../config/price-list-registry';
+import { buildMikroEffectivePriceSql } from '../utils/mikro-price-list';
 import { MIKRO_TABLES } from '../config/mikro-tables';
 import { randomUUID } from 'crypto';
 
@@ -65,8 +67,9 @@ type RetailSaleItemInput = {
   productCode: string;
   quantity: number;
   unitPrice?: number;
+  priceLevel?: RetailPriceLevel;
 };
-type RetailPriceLevel = 1 | 2 | 3 | 4 | 5;
+type RetailPriceLevel = 1 | 2 | 3 | 4 | 5 | 6;
 type RetailProductRow = {
   productCode: string;
   productName: string;
@@ -80,6 +83,7 @@ type RetailProductRow = {
   perakende3: number;
   perakende4: number;
   perakende5: number;
+  perakende6: number;
   imageUrl: string | null;
 };
 
@@ -317,11 +321,12 @@ class WarehouseWorkflowService {
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) as decimal(18,3)) as stockTopca,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) + ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) as decimal(18,3)) as stockTotal,
         CAST(${selectedStockExpr} as decimal(18,3)) as stockSelected,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) as decimal(18,4)) as perakende1,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) as decimal(18,4)) as perakende2,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) as decimal(18,4)) as perakende3,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 4, 0, 1), 0) as decimal(18,4)) as perakende4,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 5, 0, 1), 0) as decimal(18,4)) as perakende5
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 1)} as decimal(18,4)) as perakende1,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 2)} as decimal(18,4)) as perakende2,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 3)} as decimal(18,4)) as perakende3,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 4)} as decimal(18,4)) as perakende4,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 5)} as decimal(18,4)) as perakende5,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 14)} as decimal(18,4)) as perakende6
       FROM STOKLAR WITH (NOLOCK)
       WHERE ${whereSql}
       ORDER BY sto_isim
@@ -339,6 +344,7 @@ class WarehouseWorkflowService {
       perakende3: Math.max(toNumber(row.perakende3), 0),
       perakende4: Math.max(toNumber(row.perakende4), 0),
       perakende5: Math.max(toNumber(row.perakende5), 0),
+      perakende6: Math.max(toNumber(row.perakende6), 0),
     }));
 
     const productCodes = Array.from(new Set(normalizedRows.map((row) => row.productCode).filter(Boolean)));
@@ -366,14 +372,26 @@ class WarehouseWorkflowService {
     userId?: string;
   }) {
     const paymentType = payload.paymentType === 'CARD' ? 'CARD' : 'CASH';
-    const priceLevel = Math.min(Math.max(Math.trunc(Number(payload.priceLevel || 1)), 1), 5) as RetailPriceLevel;
+    const priceLevel = Math.min(Math.max(Math.trunc(Number(payload.priceLevel || 1)), 1), 6) as RetailPriceLevel;
+    const physicalPriceListNo = RETAIL_PRICE_LIST_NOS[priceLevel - 1];
     const normalizedItems = Array.isArray(payload.items)
       ? payload.items
-          .map((item) => ({
-            productCode: normalizeProductCode(item?.productCode),
-            quantity: toNumber(item?.quantity),
-            unitPrice: item?.unitPrice === undefined ? null : toNumber(item.unitPrice),
-          }))
+          .map((item) => {
+            const requestedPriceLevel = Number(item?.priceLevel ?? priceLevel);
+            if (
+              !Number.isInteger(requestedPriceLevel)
+              || requestedPriceLevel < 1
+              || requestedPriceLevel > 6
+            ) {
+              throw new Error(`Perakende fiyat seviyesi gecersiz: ${String(item?.productCode || '')}`);
+            }
+            return {
+              productCode: normalizeProductCode(item?.productCode),
+              quantity: toNumber(item?.quantity),
+              unitPrice: item?.unitPrice === undefined ? null : toNumber(item.unitPrice),
+              priceLevel: requestedPriceLevel as RetailPriceLevel,
+            };
+          })
           .filter((item) => item.productCode && item.quantity > 0)
       : [];
 
@@ -383,8 +401,14 @@ class WarehouseWorkflowService {
 
     const quantityByCode = new Map<string, number>();
     const manualUnitPriceByCode = new Map<string, number>();
+    const priceLevelByCode = new Map<string, RetailPriceLevel>();
     for (const item of normalizedItems) {
       quantityByCode.set(item.productCode, (quantityByCode.get(item.productCode) || 0) + item.quantity);
+      const existingPriceLevel = priceLevelByCode.get(item.productCode);
+      if (existingPriceLevel !== undefined && existingPriceLevel !== item.priceLevel) {
+        throw new Error(`Ayni urun icin farkli fiyat seviyeleri gonderildi: ${item.productCode}`);
+      }
+      priceLevelByCode.set(item.productCode, item.priceLevel);
       if (item.unitPrice !== null) {
         if (!Number.isFinite(item.unitPrice) || item.unitPrice <= 0) {
           throw new Error(`Birim fiyat gecersiz: ${item.productCode}`);
@@ -405,11 +429,12 @@ class WarehouseWorkflowService {
         sto_isim as productName,
         ISNULL(sto_birim1_ad, 'ADET') as unit,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) as decimal(18,3)) as stockMerkez,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) as decimal(18,4)) as perakende1,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) as decimal(18,4)) as perakende2,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) as decimal(18,4)) as perakende3,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 4, 0, 1), 0) as decimal(18,4)) as perakende4,
-        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 5, 0, 1), 0) as decimal(18,4)) as perakende5
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 1)} as decimal(18,4)) as perakende1,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 2)} as decimal(18,4)) as perakende2,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 3)} as decimal(18,4)) as perakende3,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 4)} as decimal(18,4)) as perakende4,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 5)} as decimal(18,4)) as perakende5,
+        CAST(${buildMikroEffectivePriceSql('sto_kod', 14)} as decimal(18,4)) as perakende6
       FROM STOKLAR WITH (NOLOCK)
       WHERE sto_kod IN (${safeCodesSql})
     `);
@@ -437,14 +462,16 @@ class WarehouseWorkflowService {
       throw new Error(`Merkez depoda yeterli stok yok: ${detail}`);
     }
 
-    const unitPriceField = `perakende${priceLevel}` as const;
     const pricedItems = productCodes.map((productCode) => {
       const row = productMap.get(productCode);
       const manualUnitPrice = manualUnitPriceByCode.get(productCode);
+      const linePriceLevel = priceLevelByCode.get(productCode) || priceLevel;
+      const linePriceListNo = RETAIL_PRICE_LIST_NOS[linePriceLevel - 1];
+      const unitPriceField = `perakende${linePriceLevel}` as const;
       const calculatedUnitPrice = Math.max(toNumber(row?.[unitPriceField]), 0);
       const unitPrice = manualUnitPrice !== undefined ? manualUnitPrice : calculatedUnitPrice;
       if (unitPrice <= 0) {
-        throw new Error(`Perakende-${priceLevel} fiyati sifir: ${productCode}`);
+        throw new Error(`Perakende-${linePriceLevel} fiyati sifir: ${productCode}`);
       }
       const quantity = quantityByCode.get(productCode) || 0;
       return {
@@ -454,6 +481,8 @@ class WarehouseWorkflowService {
         quantity,
         unitPrice,
         lineTotal: quantity * unitPrice,
+        priceLevel: linePriceLevel,
+        priceListNo: linePriceListNo,
       };
     });
 
@@ -514,6 +543,8 @@ class WarehouseWorkflowService {
       unitPrice: number;
       lineTotal: number;
       unit: string;
+      priceLevel: RetailPriceLevel;
+      priceListNo: number;
     }> = [];
 
     for (let index = 0; index < pricedItems.length; index += 1) {
@@ -591,7 +622,7 @@ class WarehouseWorkflowService {
         sth_oiv_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_oiv_pntr)), 0),
         sth_oiv_vergi: 0,
         sth_oivtutari: 0,
-        sth_fiyat_liste_no: priceLevel,
+        sth_fiyat_liste_no: line.priceListNo,
         sth_Tevkifat_turu: Math.max(Math.trunc(toNumber(templateRow.sth_Tevkifat_turu)), 0),
         sth_nakliyedeposu: Math.max(Math.trunc(toNumber(templateRow.sth_nakliyedeposu)), 0),
         sth_nakliyedurumu: Math.max(Math.trunc(toNumber(templateRow.sth_nakliyedurumu)), 0),
@@ -628,6 +659,8 @@ class WarehouseWorkflowService {
         unitPrice: line.unitPrice,
         lineTotal: line.lineTotal,
         unit: line.unit,
+        priceLevel: line.priceLevel,
+        priceListNo: line.priceListNo,
       });
     }
 
@@ -656,6 +689,7 @@ class WarehouseWorkflowService {
       paymentLabel: paymentConfig.label,
       customerCode: paymentConfig.customerCode,
       priceLevel,
+      priceListNo: physicalPriceListNo,
       totalAmount,
       lineCount: createdLines.length,
       lines: createdLines,

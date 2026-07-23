@@ -269,7 +269,7 @@ export function useFiyatAilesiMaliyet() {
       const verificationError = getPriceListVerificationError(result.data, updatePriceLists);
       if (verificationError) throw new Error(verificationError);
       if (!options?.silent && updatePriceLists) {
-        toast.success('Maliyet ve 10 fiyat listesi dogrulanarak guncellendi.');
+        toast.success('Maliyet ve 12 ana fiyat listesi dogrulanarak guncellendi.');
       } else if (!options?.silent) {
         toast.success('Guncel maliyet guncellendi.');
       }
