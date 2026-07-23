@@ -413,54 +413,40 @@ async function checkMikro() {
       ) AS retailTargetOnly
   `);
   const canonicalRows = await mikroService.executeQueryOnce(`
+    WITH CanonicalCoverage AS (
+      SELECT
+        LTRIM(RTRIM(ISNULL(p.sfiyat_stokkod, N''))) AS productCode,
+        MAX(CASE WHEN p.sfiyat_listesirano = 10 THEN 1 ELSE 0 END)
+          AS hasInvoiced5,
+        MAX(CASE WHEN p.sfiyat_listesirano = 13 THEN 1 ELSE 0 END)
+          AS hasInvoiced6,
+        MAX(CASE WHEN p.sfiyat_listesirano = 5 THEN 1 ELSE 0 END)
+          AS hasRetail5,
+        MAX(CASE WHEN p.sfiyat_listesirano = 14 THEN 1 ELSE 0 END)
+          AS hasRetail6
+      FROM STOK_SATIS_FIYAT_LISTELERI p
+      WHERE p.sfiyat_listesirano IN (5, 10, 13, 14)
+        AND ISNULL(p.sfiyat_iptal, 0) = 0
+        AND ISNULL(p.sfiyat_hidden, 0) = 0
+        AND ISNULL(p.sfiyat_deposirano, 0) = 0
+        AND ISNULL(p.sfiyat_odemeplan, 0) = 0
+        AND ISNULL(p.sfiyat_doviz, 0) = 0
+      GROUP BY LTRIM(RTRIM(ISNULL(p.sfiyat_stokkod, N'')))
+    )
     SELECT
-      SUM(CASE WHEN NOT EXISTS (
-        SELECT 1
-        FROM STOK_SATIS_FIYAT_LISTELERI p
-        WHERE p.sfiyat_listesirano = 13
-          AND LTRIM(RTRIM(ISNULL(p.sfiyat_stokkod, N''))) =
-              LTRIM(RTRIM(s.sto_kod))
-          AND ISNULL(p.sfiyat_iptal, 0) = 0
-          AND ISNULL(p.sfiyat_hidden, 0) = 0
-          AND ISNULL(p.sfiyat_deposirano, 0) = 0
-          AND ISNULL(p.sfiyat_odemeplan, 0) = 0
-          AND ISNULL(p.sfiyat_doviz, 0) = 0
-      ) AND EXISTS (
-        SELECT 1
-        FROM STOK_SATIS_FIYAT_LISTELERI source_price
-        WHERE source_price.sfiyat_listesirano = 10
-          AND LTRIM(RTRIM(ISNULL(source_price.sfiyat_stokkod, N''))) =
-              LTRIM(RTRIM(s.sto_kod))
-          AND ISNULL(source_price.sfiyat_iptal, 0) = 0
-          AND ISNULL(source_price.sfiyat_hidden, 0) = 0
-          AND ISNULL(source_price.sfiyat_deposirano, 0) = 0
-          AND ISNULL(source_price.sfiyat_odemeplan, 0) = 0
-          AND ISNULL(source_price.sfiyat_doviz, 0) = 0
-      ) THEN 1 ELSE 0 END) AS missingInvoiced6CanonicalCount,
-      SUM(CASE WHEN NOT EXISTS (
-        SELECT 1
-        FROM STOK_SATIS_FIYAT_LISTELERI p
-        WHERE p.sfiyat_listesirano = 14
-          AND LTRIM(RTRIM(ISNULL(p.sfiyat_stokkod, N''))) =
-              LTRIM(RTRIM(s.sto_kod))
-          AND ISNULL(p.sfiyat_iptal, 0) = 0
-          AND ISNULL(p.sfiyat_hidden, 0) = 0
-          AND ISNULL(p.sfiyat_deposirano, 0) = 0
-          AND ISNULL(p.sfiyat_odemeplan, 0) = 0
-          AND ISNULL(p.sfiyat_doviz, 0) = 0
-      ) AND EXISTS (
-        SELECT 1
-        FROM STOK_SATIS_FIYAT_LISTELERI source_price
-        WHERE source_price.sfiyat_listesirano = 5
-          AND LTRIM(RTRIM(ISNULL(source_price.sfiyat_stokkod, N''))) =
-              LTRIM(RTRIM(s.sto_kod))
-          AND ISNULL(source_price.sfiyat_iptal, 0) = 0
-          AND ISNULL(source_price.sfiyat_hidden, 0) = 0
-          AND ISNULL(source_price.sfiyat_deposirano, 0) = 0
-          AND ISNULL(source_price.sfiyat_odemeplan, 0) = 0
-          AND ISNULL(source_price.sfiyat_doviz, 0) = 0
-      ) THEN 1 ELSE 0 END) AS missingRetail6CanonicalCount
+      SUM(CASE
+        WHEN ISNULL(coverage.hasInvoiced5, 0) = 1
+         AND ISNULL(coverage.hasInvoiced6, 0) = 0
+        THEN 1 ELSE 0
+      END) AS missingInvoiced6CanonicalCount,
+      SUM(CASE
+        WHEN ISNULL(coverage.hasRetail5, 0) = 1
+         AND ISNULL(coverage.hasRetail6, 0) = 0
+        THEN 1 ELSE 0
+      END) AS missingRetail6CanonicalCount
     FROM STOKLAR s
+    LEFT JOIN CanonicalCoverage coverage
+      ON coverage.productCode = LTRIM(RTRIM(s.sto_kod))
     WHERE ISNULL(s.sto_pasif_fl, 0) = 0
       AND LTRIM(RTRIM(ISNULL(s.sto_kod, N''))) <> N''
   `);
