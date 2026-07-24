@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
@@ -89,16 +89,22 @@ export function ManagementProfitPublicReport() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [savingLayout, setSavingLayout] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const navigationGenerationRef = useRef(0);
 
-  const loadView = useCallback(async (fragmentToken: string) => {
+  const loadView = useCallback(async (
+    fragmentToken: string,
+    navigationGeneration = navigationGenerationRef.current
+  ) => {
     setError(null);
     try {
       const response = await managementProfitPublicApi.view();
+      if (navigationGeneration !== navigationGenerationRef.current) return;
       setView(response);
       setActiveLayout(cloneLayout(response.layout));
       setPageState('ready');
       setPinError(null);
     } catch (requestError) {
+      if (navigationGeneration !== navigationGenerationRef.current) return;
       const isUnauthorized =
         requestError instanceof ManagementProfitReportApiError &&
         requestError.status === 401;
@@ -124,8 +130,11 @@ export function ManagementProfitPublicReport() {
 
   useEffect(() => {
     const openFromCurrentLocation = () => {
+      const navigationGeneration = navigationGenerationRef.current + 1;
+      navigationGenerationRef.current = navigationGeneration;
       const fragmentToken = extractFragmentToken();
       setToken(fragmentToken);
+      setPinLoading(false);
       // A newly opened share URL must always be bound to its own token + PIN.
       // Do not let an existing cookie for another report link satisfy /view
       // before this fragment has been authorized. Listen for hash changes too:
@@ -140,7 +149,7 @@ export function ManagementProfitPublicReport() {
         return;
       }
       setPageState('loading');
-      loadView('');
+      loadView('', navigationGeneration);
     };
 
     openFromCurrentLocation();
@@ -165,8 +174,16 @@ export function ManagementProfitPublicReport() {
 
     setPinLoading(true);
     setPinError(null);
+    const navigationGeneration = navigationGenerationRef.current;
+    const submittedToken = token;
     try {
-      await managementProfitPublicApi.access(token, pin.trim());
+      await managementProfitPublicApi.access(submittedToken, pin.trim());
+      if (
+        navigationGeneration !== navigationGenerationRef.current ||
+        extractFragmentToken() !== submittedToken
+      ) {
+        return;
+      }
       if (typeof window !== 'undefined') {
         window.history.replaceState(
           null,
@@ -175,11 +192,14 @@ export function ManagementProfitPublicReport() {
         );
       }
       setPin('');
-      await loadView(token);
+      await loadView(submittedToken, navigationGeneration);
     } catch (requestError) {
+      if (navigationGeneration !== navigationGenerationRef.current) return;
       setPinError(getMessage(requestError, 'PIN doğrulanamadı.'));
     } finally {
-      setPinLoading(false);
+      if (navigationGeneration === navigationGenerationRef.current) {
+        setPinLoading(false);
+      }
     }
   };
 
