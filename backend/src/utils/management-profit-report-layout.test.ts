@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT,
+  MANAGEMENT_PROFIT_REPORT_ROW_FIELDS,
   managementProfitReportFieldCatalog,
   normalizeManagementProfitReportLayout,
   normalizeManagementProfitReportPath,
@@ -21,12 +22,28 @@ test('management profit report keeps the screenshot field order as its default',
   assert.equal(DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT.sort, 'LABEL_ASC');
   assert.deepEqual(
     managementProfitReportFieldCatalog.rows.map((field) => field.label),
-    ['CARİ SEKTÖR KODU', 'GRUP İSMİ', 'CARİ İSMİ', 'STOK']
+    ['CARİ SEKTÖR KODU', 'CARİ GRUP KODU', 'CARİ İSMİ', 'STOK']
   );
   assert.equal(managementProfitReportFieldCatalog.columns[0]?.label, 'AY');
   assert.equal(
     managementProfitReportFieldCatalog.values[0]?.label,
     'SATIŞ TUTARI'
+  );
+});
+
+test('drill-down fields map to their live TVF semantic columns', () => {
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(MANAGEMENT_PROFIT_REPORT_ROW_FIELDS).map(
+        ([field, definition]) => [field, definition.sqlColumn]
+      )
+    ),
+    {
+      CUSTOMER_SECTOR_CODE: '[CARİ SEKTÖR KODU]',
+      GROUP_NAME: '[msg_S_2872]',
+      CUSTOMER_NAME: '[msg_S_0201]',
+      STOCK: '[msg_S_0542]',
+    }
   );
 });
 

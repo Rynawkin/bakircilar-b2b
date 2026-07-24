@@ -24,10 +24,12 @@ export const MANAGEMENT_PROFIT_REPORT_ROW_FIELDS = {
     label: 'CARİ SEKTÖR KODU',
     sqlColumn: '[CARİ SEKTÖR KODU]',
   },
+  // GROUP_NAME is persisted in schema-v1 saved layouts. Keep the stable id
+  // while exposing the corrected business meaning and live TVF column.
   GROUP_NAME: {
     id: 'GROUP_NAME',
-    label: 'GRUP İSMİ',
-    sqlColumn: '[msg_S_0136]',
+    label: 'CARİ GRUP KODU',
+    sqlColumn: '[msg_S_2872]',
   },
   CUSTOMER_NAME: {
     id: 'CUSTOMER_NAME',
@@ -37,7 +39,7 @@ export const MANAGEMENT_PROFIT_REPORT_ROW_FIELDS = {
   STOCK: {
     id: 'STOCK',
     label: 'STOK',
-    sqlColumn: '[msg_S_0199]',
+    sqlColumn: '[msg_S_0542]',
   },
 } as const;
 

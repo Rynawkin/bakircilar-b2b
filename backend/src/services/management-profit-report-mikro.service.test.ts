@@ -43,8 +43,30 @@ test('mock report aggregates roots and lazy children without returning raw rows'
       layout: DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT,
       path: salesSector.path,
     });
-    assert.deepEqual(children.nodes.map((node) => node.value), ['Temizlik']);
+    assert.deepEqual(children.nodes.map((node) => node.value), ['ELİF']);
     assert.equal(children.nodes[0]?.level, 1);
+
+    const customers = await managementProfitReportMikroService.query({
+      period: { startDate: '2026-07-01', endDate: '2026-07-24' },
+      layout: DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT,
+      path: children.nodes[0]!.path,
+    });
+    assert.deepEqual(customers.nodes.map((node) => node.value), ['Örnek Cari A']);
+    assert.equal(customers.nodes[0]?.level, 2);
+
+    const stocks = await managementProfitReportMikroService.query({
+      period: { startDate: '2026-07-01', endDate: '2026-07-24' },
+      layout: DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT,
+      path: customers.nodes[0]!.path,
+    });
+    assert.deepEqual(
+      stocks.nodes.map((node) => node.value),
+      ['Örnek Stok 1', 'Örnek Stok 2']
+    );
+    assert.equal(
+      stocks.nodes.every((node) => node.level === 3 && !node.hasChildren),
+      true
+    );
 
     mutableConfig.nodeEnv = 'production';
     await assert.rejects(

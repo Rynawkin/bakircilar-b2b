@@ -48,9 +48,9 @@ export const MANAGEMENT_PROFIT_REPORT_SALES_AMOUNT_COLUMN = 'msg_S_1219';
 
 const REQUIRED_LIVE_COLUMNS = [
   'CARİ SEKTÖR KODU',
-  'msg_S_0136',
+  'msg_S_2872',
   'msg_S_0201',
-  'msg_S_0199',
+  'msg_S_0542',
   'msg_S_0089',
   MANAGEMENT_PROFIT_REPORT_SALES_AMOUNT_COLUMN,
 ] as const;
@@ -166,21 +166,21 @@ const MOCK_ROWS: Array<
 > = [
   {
     CUSTOMER_SECTOR_CODE: 'SATIS',
-    GROUP_NAME: 'Temizlik',
+    GROUP_NAME: 'ELİF',
     CUSTOMER_NAME: 'Örnek Cari A',
     STOCK: 'Örnek Stok 1',
     amount: 128450.75,
   },
   {
     CUSTOMER_SECTOR_CODE: 'SATIS',
-    GROUP_NAME: 'Temizlik',
+    GROUP_NAME: 'ELİF',
     CUSTOMER_NAME: 'Örnek Cari A',
     STOCK: 'Örnek Stok 2',
     amount: 74230.25,
   },
   {
     CUSTOMER_SECTOR_CODE: 'PROJE',
-    GROUP_NAME: 'Kağıt',
+    GROUP_NAME: 'ENSAR',
     CUSTOMER_NAME: 'Örnek Cari B',
     STOCK: 'Örnek Stok 3',
     amount: 93500,
