@@ -4972,6 +4972,35 @@ export const adminApi = {
     const response = await apiClient.post('/admin/reports/ucarer-depo/update-cost', payload);
     return response.data;
   },
+  quickUpdateProductCost: async (payload: {
+    productCode: string;
+    cost?: number;
+    costP?: number;
+    costT?: number;
+    updatePriceLists?: boolean;
+  }): Promise<{
+    success: boolean;
+    data: {
+      productCode: string;
+      currentCost: number;
+      costP: number;
+      costT: number;
+      priceListsUpdated: boolean;
+      updatedLists: Array<{
+        listNo: number;
+        value: number;
+        actualValue: number;
+        affected: number;
+        verified: boolean;
+      }>;
+      missingLists: number[];
+      verificationStatus: 'NOT_REQUESTED' | 'VERIFIED';
+      verifiedListCount: number;
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/quick-cost-update', payload);
+    return response.data;
+  },
   updateUcarerMainSupplier: async (payload: {
     productCode: string;
     supplierCode: string;

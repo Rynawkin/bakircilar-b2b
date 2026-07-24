@@ -6,6 +6,7 @@ import { AdminNavigationNew } from '@/components/layout/AdminNavigationNew';
 import { AdminFooterNew } from '@/components/layout/AdminFooterNew';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AdminAiAssistant } from '@/components/ai/AdminAiAssistant';
+import { QuickCostUpdateDrawer } from '@/components/admin/QuickCostUpdateDrawer';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { loadUserFromStorage } = useAuthStore();
@@ -20,6 +21,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <AdminNavigationNew />
         <main>{children}</main>
         <AdminFooterNew />
+        <QuickCostUpdateDrawer />
         <AdminAiAssistant />
       </div>
     </ErrorBoundary>
