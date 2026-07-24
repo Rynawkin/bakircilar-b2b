@@ -613,16 +613,29 @@ class StockCreateService {
     return rows.map((row: any) => ({ code: normalizeText(row.code), name: normalizeText(row.name) }));
   }
 
-  async getTemplate(templateCode: string) {
+  async getTemplate(templateCode: string, options: { consistent?: boolean } = {}) {
     const code = upperText(templateCode);
     if (!code) {
       throw new Error('Sablon stok kodu gerekli');
     }
     await this.assertPriceListUserColumns();
+    const readHint = options.consistent ? '' : 'WITH (NOLOCK)';
 
     const rows = await mikroService.executeQuery(`
       SELECT TOP 1
         s.sto_kod AS templateCode,
+        CONVERT(nvarchar(50), s.sto_Guid) AS stockGuid,
+        ISNULL(s.sto_pasif_fl, 0) AS isPassive,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM mye_ImageData img ${readHint}
+            WHERE img.Record_uid = s.sto_Guid
+              AND img.TableID = 13
+              AND DATALENGTH(img.Data) > 0
+          )
+          THEN 1 ELSE 0
+        END AS hasMikroImage,
         s.sto_isim AS name,
         s.sto_yabanci_isim AS foreignName,
         s.sto_kisa_ismi AS shortName,
@@ -672,8 +685,10 @@ class StockCreateService {
         s.sto_birim4_yukseklik AS unit4HeightMm,
         (
           SELECT TOP 1 b.bar_kodu
-          FROM BARKOD_TANIMLARI b WITH (NOLOCK)
+          FROM BARKOD_TANIMLARI b ${readHint}
           WHERE b.bar_stokkodu = s.sto_kod
+            AND b.bar_birimpntr = 1
+            AND b.bar_master = 1
           ORDER BY b.bar_master DESC, b.bar_create_date DESC
         ) AS barcode,
         u.Marj_1 AS margin1,
@@ -682,13 +697,13 @@ class StockCreateService {
         u.Marj_4 AS margin4,
         u.Marj_5 AS margin5,
         u.Marj_6 AS margin6
-      FROM STOKLAR s WITH (NOLOCK)
-      LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = s.sto_sat_cari_kod
-      LEFT JOIN STOK_MARKALARI m WITH (NOLOCK) ON m.mrk_kod = s.sto_marka_kodu
-      LEFT JOIN STOK_KATEGORILERI k WITH (NOLOCK) ON k.ktg_kod = s.sto_kategori_kodu
-      LEFT JOIN STOK_AMBALAJLARI a WITH (NOLOCK) ON a.amb_kod = s.sto_ambalaj_kodu
-      LEFT JOIN STOK_REYONLARI r WITH (NOLOCK) ON r.ryn_kod = s.sto_reyon_kodu
-      LEFT JOIN STOKLAR_USER u WITH (NOLOCK) ON u.Record_uid = s.sto_Guid
+      FROM STOKLAR s ${readHint}
+      LEFT JOIN CARI_HESAPLAR c ${readHint} ON c.cari_kod = s.sto_sat_cari_kod
+      LEFT JOIN STOK_MARKALARI m ${readHint} ON m.mrk_kod = s.sto_marka_kodu
+      LEFT JOIN STOK_KATEGORILERI k ${readHint} ON k.ktg_kod = s.sto_kategori_kodu
+      LEFT JOIN STOK_AMBALAJLARI a ${readHint} ON a.amb_kod = s.sto_ambalaj_kodu
+      LEFT JOIN STOK_REYONLARI r ${readHint} ON r.ryn_kod = s.sto_reyon_kodu
+      LEFT JOIN STOKLAR_USER u ${readHint} ON u.Record_uid = s.sto_Guid
       WHERE s.sto_kod = ${toSqlString(code)}
     `);
 
@@ -719,6 +734,9 @@ class StockCreateService {
 
     return {
       templateCode: normalizeText(row.templateCode),
+      stockGuid: normalizeText(row.stockGuid),
+      isPassive: row.isPassive === true || Number(row.isPassive) === 1,
+      hasMikroImage: row.hasMikroImage === true || Number(row.hasMikroImage) === 1,
       // Mikro sto_model_kodu === 'HAYIR' => min-max haric; edit'te mevcut secim korunsun diye don.
       calculateMinMax: String(row.modelKodu ?? '').trim().toLocaleUpperCase('tr') !== 'HAYIR',
       name: normalizeText(row.name),
@@ -735,6 +753,7 @@ class StockCreateService {
       packageName: normalizeText(row.packageName),
       shelfCode: normalizeText(row.shelfCode),
       shelfName: normalizeText(row.shelfName),
+      standardCost: decimalText(row.currentCost),
       currentCost: decimalText(costs.currentCost),
       costP: decimalText(costs.costP),
       costT: decimalText(costs.costT),
@@ -756,11 +775,39 @@ class StockCreateService {
     };
   }
 
-  async getStock(stockCode: string) {
-    const stock = await this.getTemplate(stockCode);
+  async getStock(stockCode: string, options: { consistent?: boolean } = {}) {
+    const stock = await this.getTemplate(stockCode, options);
+    const code = upperText(stock.templateCode || stockCode);
+    const [product, stockFamilyItems, priceFamilyItem] = await Promise.all([
+      prisma.product.findUnique({
+        where: { mikroCode: code },
+        select: { imageUrl: true },
+      }),
+      prisma.productFamilyItem.findMany({
+        where: {
+          productCode: code,
+          active: true,
+          family: { active: true },
+        },
+        select: { familyId: true },
+      }),
+      prisma.priceFamilyItem.findFirst({
+        where: {
+          productCode: code,
+          active: true,
+          family: { active: true },
+        },
+        select: { familyId: true },
+      }),
+    ]);
+    const imageUrl = normalizeText(product?.imageUrl) || null;
     return {
       ...stock,
-      stockCode: stock.templateCode,
+      stockCode: code,
+      imageUrl,
+      hasExistingImage: Boolean(imageUrl || stock.hasMikroImage),
+      stockFamilyIds: stockFamilyItems.map((item) => item.familyId),
+      priceFamilyId: priceFamilyItem?.familyId || null,
     };
   }
 
@@ -855,6 +902,63 @@ class StockCreateService {
       templates: toMap(templateRows),
       duplicates: new Map<string, ValidationRef>(duplicateRows.map((row: any) => [normalizeText(row.name), { code: normalizeText(row.code), name: normalizeText(row.name) }])),
       barcodes: toMap(barcodeRows),
+    };
+  }
+
+  private async validateExistingItem(
+    stockCode: string,
+    input: StockCreateInput,
+    actionLabel: 'guncelleme' | 'aktiflestirme'
+  ) {
+    const code = upperText(stockCode);
+    const item = this.normalizeItem({ ...input, templateCode: code, stockCode: code }, 1);
+    const refs = await this.loadValidationRefs([item]);
+    const { errors, warnings } = this.validateShape(item);
+    const supplier = refs.suppliers.get(item.supplierCode) || null;
+    const brand = refs.brands.get(item.brandCode) || null;
+    const category = refs.categories.get(item.categoryCode) || null;
+    const packageRef = refs.packages.get(item.packageCode) || null;
+    const shelf = item.shelfCode ? refs.shelves.get(item.shelfCode) || null : null;
+    const template = refs.templates.get(code) || null;
+    const duplicate = refs.duplicates.get(item.name) || null;
+    const barcodeDuplicate = item.barcode ? refs.barcodes.get(item.barcode) || null : null;
+
+    if (item.supplierCode && !supplier) errors.push('Ana saglayici Mikroda bulunamadi');
+    if (item.brandCode && !brand) {
+      if (item.brandName) {
+        warnings.push(`Marka Mikroda yok, ${actionLabel} sirasinda olusturulacak: ${item.brandCode} - ${item.brandName}`);
+      } else {
+        errors.push('Marka Mikroda bulunamadi; yeni marka icin marka adi girilmeli');
+      }
+    }
+    if (item.categoryCode && !category) errors.push('Kategori Mikroda bulunamadi');
+    if (category && !category.isLeaf) errors.push('Kategori en alt 3 kademeli kategori olmali');
+    if (item.packageCode && !packageRef) {
+      if (item.packageName) {
+        warnings.push(`Ambalaj Mikroda yok, ${actionLabel} sirasinda olusturulacak: ${item.packageCode} - ${item.packageName}`);
+      } else {
+        errors.push('Ambalaj Mikroda bulunamadi; yeni ambalaj icin ambalaj adi girilmeli');
+      }
+    }
+    if (item.shelfCode && !shelf) errors.push('Raf/Reyon kodu Mikroda bulunamadi');
+    if (!template) errors.push('Mevcut stok Mikroda bulunamadi');
+    if (duplicate && upperText(duplicate.code) !== code) warnings.push(`Ayni isimde baska stok var: ${duplicate.code}`);
+    if (barcodeDuplicate && upperText(barcodeDuplicate.name) !== code) {
+      errors.push(`Barkod baska stokta kayitli: ${barcodeDuplicate.name}`);
+    }
+
+    return {
+      item,
+      errors,
+      warnings,
+      refs: {
+        supplier,
+        brand,
+        category,
+        package: packageRef,
+        shelf,
+        template,
+      },
     };
   }
 
@@ -1708,9 +1812,11 @@ class StockCreateService {
   async updateStock(
     stockCode: string,
     input: StockCreateInput,
-    userId?: string | null
+    userId?: string | null,
+    options: { activate?: boolean } = {}
   ) {
     const code = upperText(stockCode);
+    const activate = options.activate === true;
     if (!code) {
       throw new Error('Stok kodu gerekli');
     }
@@ -1720,7 +1826,8 @@ class StockCreateService {
       SELECT TOP 1
         sto_kod AS code,
         CONVERT(nvarchar(50), sto_Guid) AS guid,
-        ISNULL(sto_standartmaliyet, 0) AS currentCost
+        ISNULL(sto_standartmaliyet, 0) AS currentCost,
+        ISNULL(sto_pasif_fl, 0) AS isPassive
       FROM STOKLAR WITH (UPDLOCK, HOLDLOCK)
       WHERE sto_kod = ${toSqlString(code)}
     `);
@@ -1728,35 +1835,15 @@ class StockCreateService {
     if (!existing) {
       throw new Error('Guncellenecek stok Mikroda bulunamadi');
     }
-
-    const item = this.normalizeItem({ ...input, templateCode: input?.templateCode || code }, 1);
-    const refs = await this.loadValidationRefs([item]);
-    const { errors, warnings } = this.validateShape(item);
-    const supplier = refs.suppliers.get(item.supplierCode) || null;
-    const brand = refs.brands.get(item.brandCode) || null;
-    const category = refs.categories.get(item.categoryCode) || null;
-    const packageRef = refs.packages.get(item.packageCode) || null;
-    const shelf = item.shelfCode ? refs.shelves.get(item.shelfCode) || null : null;
-    const duplicate = refs.duplicates.get(item.name) || null;
-    const barcodeDuplicate = item.barcode ? refs.barcodes.get(item.barcode) || null : null;
-
-    if (item.supplierCode && !supplier) errors.push('Ana saglayici Mikroda bulunamadi');
-    if (item.brandCode && !brand) {
-      if (item.brandName) warnings.push(`Marka Mikroda yok, guncelleme sirasinda olusturulacak: ${item.brandCode} - ${item.brandName}`);
-      else errors.push('Marka Mikroda bulunamadi; yeni marka icin marka adi girilmeli');
+    if (activate && !(existing.isPassive === true || Number(existing.isPassive) === 1)) {
+      throw new Error('Stok zaten aktif; sadece pasif stok aktiflestirilebilir');
     }
-    if (item.categoryCode && !category) errors.push('Kategori Mikroda bulunamadi');
-    if (category && !category.isLeaf) errors.push('Kategori en alt 3 kademeli kategori olmali');
-    if (item.packageCode && !packageRef) {
-      if (item.packageName) warnings.push(`Ambalaj Mikroda yok, guncelleme sirasinda olusturulacak: ${item.packageCode} - ${item.packageName}`);
-      else errors.push('Ambalaj Mikroda bulunamadi; yeni ambalaj icin ambalaj adi girilmeli');
-    }
-    if (item.shelfCode && !shelf) errors.push('Raf/Reyon kodu Mikroda bulunamadi');
-    if (duplicate && duplicate.code !== code) warnings.push(`Ayni isimde baska stok var: ${duplicate.code}`);
-    if (barcodeDuplicate && barcodeDuplicate.name !== code) errors.push(`Barkod baska stokta kayitli: ${barcodeDuplicate.name}`);
+
+    const validation = await this.validateExistingItem(code, input, activate ? 'aktiflestirme' : 'guncelleme');
+    const { item, errors, warnings, refs } = validation;
 
     if (errors.length > 0) {
-      throw new Error(`Stok guncellenemedi: ${errors.join('; ')}`);
+      throw new Error(`${activate ? 'Stok aktiflestirilemedi' : 'Stok guncellenemedi'}: ${errors.join('; ')}`);
     }
 
     const extraByIndex = new Map(item.extraUnits.map((unit) => [unit.index, unit]));
@@ -1801,6 +1888,11 @@ class StockCreateService {
     stockAssignments.push('sto_degisti = 1');
     stockAssignments.push('sto_lastup_user = 1');
     stockAssignments.push('sto_lastup_date = GETDATE()');
+    if (activate) {
+      // Ayrim yeni kart acilip acilmamasidir: mevcut kartin tum form alanlari
+      // guncellenirken ayni transaction icinde pasif bayragi indirilir.
+      stockAssignments.push('sto_pasif_fl = 0');
+    }
 
     const userCostChangedExpression = `(ABS(ISNULL(MaliyetP, 0) - ${currentCostSql}) > 0.0001 OR ABS(ISNULL(MaliyetT, 0) - ${retailCostSql}) > 0.0001) AND ${hasCostSql}`;
     const barcodeSql = item.barcode
@@ -1840,27 +1932,40 @@ class StockCreateService {
           AND bar_master = 1;
       `;
 
-    // Do not replay a transaction after an uncertain COMMIT response. This
-    // edit is value-idempotent, so a caller may safely read back and retry.
-    await mikroService.executeQueryOnce(`
+    // Do not replay a transaction after an uncertain COMMIT response.
+    const transactionSql = `
       SET XACT_ABORT ON;
       BEGIN TRY
         BEGIN TRANSACTION;
         DECLARE @stockCode nvarchar(25) = ${toSqlString(code)};
         DECLARE @stockGuid uniqueidentifier;
+        DECLARE @isPassive bit;
 
-        SELECT @stockGuid = sto_Guid
+        SELECT
+          @stockGuid = sto_Guid,
+          @isPassive = ISNULL(sto_pasif_fl, 0)
         FROM STOKLAR WITH (UPDLOCK, HOLDLOCK)
         WHERE sto_kod = @stockCode;
 
         IF @stockGuid IS NULL
           THROW 51004, 'Guncellenecek stok bulunamadi', 1;
 
+        ${activate ? `
+        IF @isPassive <> 1
+          THROW 51011, 'Stok zaten aktif; sadece pasif stok aktiflestirilebilir', 1;
+        ` : ''}
+
         ${this.buildReferenceCreateStatements(item)}
 
         UPDATE STOKLAR
         SET ${stockAssignments.join(',\n            ')}
-        WHERE sto_kod = @stockCode;
+        WHERE sto_kod = @stockCode
+          ${activate ? 'AND sto_pasif_fl = 1' : ''};
+
+        ${activate ? `
+        IF @@ROWCOUNT <> 1
+          THROW 51012, 'Stok aktiflestirme satir sayisi beklenenden farkli', 1;
+        ` : ''}
 
         IF EXISTS (SELECT 1 FROM STOKLAR_USER WITH (UPDLOCK, HOLDLOCK) WHERE Record_uid = @stockGuid)
         BEGIN
@@ -1897,40 +2002,203 @@ class StockCreateService {
         DECLARE @message nvarchar(4000) = ERROR_MESSAGE();
         THROW 51005, @message, 1;
       END CATCH
-    `);
+    `;
+    let writeError: any = null;
+    try {
+      await mikroService.executeQueryOnce(transactionSql);
+    } catch (error: any) {
+      writeError = error;
+      if (!activate || !isUncertainMikroWriteError(error)) {
+        throw error;
+      }
+    }
 
-    const product = await this.syncCreatedProduct(item, code);
-    const user = userId
-      ? await prisma.user.findUnique({ where: { id: userId }, select: { name: true, displayName: true, mikroName: true, email: true } })
-      : null;
+    let activationReadback: Awaited<ReturnType<StockCreateService['getTemplate']>> | null = null;
+    if (activate) {
+      let readback: Awaited<ReturnType<StockCreateService['getTemplate']>>;
+      let priceReadbackRows: any[] = [];
+      try {
+        readback = await this.getTemplate(code, { consistent: true });
+        const expectedPriceRows = this.buildPriceListRows(item);
+        if (expectedPriceRows.length > 0) {
+          const listNos = expectedPriceRows.map((row) => row.listNo).join(', ');
+          priceReadbackRows = await mikroService.executeQuery(`
+            SELECT
+              sfiyat_listesirano AS listNo,
+              COUNT(*) AS rowCount,
+              MAX(sfiyat_fiyati) AS price
+            FROM STOK_SATIS_FIYAT_LISTELERI
+            WHERE sfiyat_stokkod = ${toSqlString(code)}
+              AND sfiyat_listesirano IN (${listNos})
+              AND sfiyat_deposirano = 0
+              AND sfiyat_doviz = 0
+              AND sfiyat_odemeplan = 0
+              AND sfiyat_iptal = 0
+              AND ISNULL(sfiyat_hidden, 0) = 0
+            GROUP BY sfiyat_listesirano
+          `);
+        }
+      } catch (readbackError: any) {
+        if (writeError) {
+          throw new Error(
+            'Mikro baglantisi yazma sirasinda kesildi ve aktivasyon sonucu dogrulanamadi; islemi tekrar calistirmadan once stok kartini Mikrodan kontrol edin'
+          );
+        }
+        throw readbackError;
+      }
+
+      activationReadback = readback;
+      const sameNumber = (left: unknown, right: unknown) =>
+        Math.abs(toNumber(left, 0) - toNumber(right, 0)) <= 0.0001;
+      const normalizedReadback = this.normalizeItem(
+        { ...(readback as StockCreateInput), templateCode: code, stockCode: code },
+        1
+      );
+      const expectedUnits = new Map(item.extraUnits.map((unit) => [unit.index, unit]));
+      const actualUnits = new Map(normalizedReadback.extraUnits.map((unit) => [unit.index, unit]));
+      const extraUnitsMatch = UNIT_INDEXES.every((unitIndex) => {
+        const expected = expectedUnits.get(unitIndex);
+        const actual = actualUnits.get(unitIndex);
+        if (!expected && !actual) return true;
+        if (!expected || !actual) return false;
+        return (
+          actual.name === expected.name &&
+          actual.factorDirection === expected.factorDirection &&
+          sameNumber(actual.factor, expected.factor) &&
+          sameNumber(actual.weightKg, expected.weightKg) &&
+          sameNumber(actual.widthMm, expected.widthMm) &&
+          sameNumber(actual.lengthMm, expected.lengthMm) &&
+          sameNumber(actual.heightMm, expected.heightMm)
+        );
+      });
+      const expectedPriceRows = this.buildPriceListRows(item);
+      const priceReadbackMap = new Map(
+        priceReadbackRows.map((row) => [Number(row.listNo), row])
+      );
+      const pricesMatch =
+        expectedPriceRows.length === priceReadbackRows.length &&
+        expectedPriceRows.every((expected) => {
+          const actual = priceReadbackMap.get(expected.listNo);
+          return (
+            actual &&
+            Number(actual.rowCount) === 1 &&
+            Math.abs(toNumber(actual.price, 0) - expected.value) <= 0.005
+          );
+        });
+      const readbackMatches =
+        readback.isPassive === false &&
+        normalizedReadback.name === item.name &&
+        normalizedReadback.foreignName === item.foreignName &&
+        normalizedReadback.shortName === item.shortName &&
+        normalizedReadback.vatCode === item.vatCode &&
+        normalizedReadback.supplierCode === item.supplierCode &&
+        normalizedReadback.brandCode === item.brandCode &&
+        (Boolean(refs.brand) || !item.brandName || normalizeText(readback.brandName) === item.brandName) &&
+        normalizedReadback.categoryCode === item.categoryCode &&
+        normalizedReadback.packageCode === item.packageCode &&
+        (Boolean(refs.package) || !item.packageName || normalizeText(readback.packageName) === item.packageName) &&
+        normalizedReadback.shelfCode === item.shelfCode &&
+        normalizedReadback.mainUnit === item.mainUnit &&
+        normalizedReadback.calculateMinMax === item.calculateMinMax &&
+        normalizedReadback.barcode === item.barcode &&
+        sameNumber(readback.standardCost, item.costT) &&
+        sameNumber(normalizedReadback.costT, item.costT) &&
+        sameNumber(normalizedReadback.costP, item.costP) &&
+        sameNumber(normalizedReadback.mainUnitWeightKg, item.mainUnitWeightKg) &&
+        sameNumber(normalizedReadback.mainUnitWidthMm, item.mainUnitWidthMm) &&
+        sameNumber(normalizedReadback.mainUnitLengthMm, item.mainUnitLengthMm) &&
+        sameNumber(normalizedReadback.mainUnitHeightMm, item.mainUnitHeightMm) &&
+        item.margins.every((margin, index) =>
+          sameNumber(normalizedReadback.margins[index], margin)
+        ) &&
+        extraUnitsMatch &&
+        pricesMatch;
+
+      if (!readbackMatches) {
+        throw new Error(
+          'Stok aktivasyonu sonrasi alanlarin tamami Mikro read-back kontrolunde dogrulanamadi; islemi tekrar calistirmadan once stok kartini kontrol edin'
+        );
+      }
+      if (writeError) {
+        warnings.push('Mikro baglantisi kesildi ancak bagimsiz kontrolde stok alanlari ve aktivasyon dogrulandi');
+      }
+    }
+
+    let syncedProductId: string | null = null;
+    try {
+      const product = await this.syncCreatedProduct(item, code);
+      syncedProductId = product.id;
+    } catch (syncError: any) {
+      if (!activate) throw syncError;
+      warnings.push(
+        `Stok Mikroda aktiflestirildi; B2B urun senkronu tamamlanamadi: ${syncError?.message || 'bilinmeyen hata'}`
+      );
+    }
+
+    let user: { name: string; displayName: string | null; mikroName: string | null; email: string | null } | null = null;
+    try {
+      user = userId
+        ? await prisma.user.findUnique({ where: { id: userId }, select: { name: true, displayName: true, mikroName: true, email: true } })
+        : null;
+    } catch (userError: any) {
+      if (!activate) throw userError;
+      warnings.push('Stok Mikroda aktiflestirildi; islem yapan kullanici bilgisi log icin okunamadi');
+    }
     const userName = user?.displayName || user?.mikroName || user?.name || user?.email || null;
 
-    await prisma.stockCreationLog.create({
-      data: {
-        batchId: `stock-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        mode: 'EDIT',
-        status: 'UPDATED',
-        rowNo: 1,
+    try {
+      await prisma.stockCreationLog.create({
+        data: {
+          batchId: `stock-${activate ? 'activate' : 'edit'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          mode: activate ? 'ACTIVATE' : 'EDIT',
+          status: activate ? 'ACTIVATED' : 'UPDATED',
+          rowNo: 1,
+          stockCode: code,
+          stockName: item.name,
+          templateCode: item.templateCode,
+          payload: item as any,
+          validation: {
+            errors,
+            warnings,
+            refs,
+          } as any,
+          result: {
+            stockGuid: normalizeText(existing.guid),
+            syncedProductId,
+            ...(activate ? { passiveFlag: 0 } : {}),
+          } as any,
+          errorMessage: null,
+          createdById: userId || null,
+          createdByName: userName,
+        },
+      });
+    } catch (logError: any) {
+      if (!activate) throw logError;
+      warnings.push(
+        `Stok Mikroda aktiflestirildi; B2B islem kaydi yazilamadi: ${logError?.message || 'bilinmeyen hata'}`
+      );
+    }
+
+    let finalStock: any;
+    try {
+      finalStock = await this.getStock(code);
+    } catch (stockReadError: any) {
+      if (!activate) throw stockReadError;
+      warnings.push('Stok Mikroda aktiflestirildi; B2B stok detaylari yeniden okunamadi');
+      finalStock = {
+        ...(activationReadback || {}),
         stockCode: code,
-        stockName: item.name,
-        templateCode: item.templateCode,
-        payload: item as any,
-        validation: {
-          errors,
-          warnings,
-          refs: { supplier, brand, category, package: packageRef, shelf },
-        } as any,
-        result: { stockGuid: normalizeText(existing.guid), syncedProductId: product.id } as any,
-        errorMessage: null,
-        createdById: userId || null,
-        createdByName: userName,
-      },
-    });
+        imageUrl: null,
+        hasExistingImage: Boolean(activationReadback?.hasMikroImage),
+        stockFamilyIds: [],
+        priceFamilyId: null,
+      };
+    }
 
     return {
       stockCode: code,
       warnings,
-      stock: await this.getStock(code),
+      stock: finalStock,
     };
   }
 
@@ -1974,11 +2242,11 @@ class StockCreateService {
   }
 
   /**
-   * Pasif stok on kontrolu yeni stok on kontrolunden bilerek ayridir.
-   * Hedef kart zaten var olmalidir; isim/barkod/sonraki stok kodu kontrolleri bu
-   * akista anlamli degildir ve mevcut karti kendi kopyasi gibi gostermemelidir.
+   * Pasif stok on kontrolu yeni kod uretmez; ancak yeni stok formundaki alan ve
+   * referans zorunluluklarini aynen uygular. Isim ve barkod kontrollerinde hedef
+   * kart kendisiyle cakisma sayilmaz.
    */
-  async previewActivation(stockCode: string) {
+  async previewActivation(stockCode: string, input: StockCreateInput) {
     const requestedCode = upperText(stockCode);
     if (!requestedCode) {
       throw new Error('Aktiflestirilecek stok kodu gerekli');
@@ -1988,6 +2256,7 @@ class StockCreateService {
       SELECT TOP 1
         sto_kod AS code,
         sto_isim AS name,
+        CONVERT(nvarchar(50), sto_Guid) AS guid,
         ISNULL(sto_pasif_fl, 0) AS isPassive
       FROM dbo.STOKLAR
       WHERE sto_kod = ${toSqlString(requestedCode)}
@@ -2001,27 +2270,30 @@ class StockCreateService {
     }
 
     const code = upperText(target.code) || requestedCode;
+    const validation = await this.validateExistingItem(code, input || {}, 'aktiflestirme');
+    const status =
+      validation.errors.length > 0
+        ? 'error' as const
+        : validation.warnings.length > 0
+          ? 'warning' as const
+          : 'valid' as const;
     const result = {
       rowNo: 1,
       previewCode: code,
-      status: 'valid' as const,
-      errors: [] as string[],
-      warnings: [] as string[],
-      item: {
-        stockCode: code,
-        templateCode: code,
-        name: normalizeText(target.name) || code,
-      },
-      refs: {},
+      status,
+      errors: validation.errors,
+      warnings: validation.warnings,
+      item: { ...validation.item, stockCode: code },
+      refs: validation.refs,
     };
 
     return {
       results: [result],
       summary: {
         total: 1,
-        valid: 1,
-        warning: 0,
-        error: 0,
+        valid: status === 'valid' ? 1 : 0,
+        warning: status === 'warning' ? 1 : 0,
+        error: status === 'error' ? 1 : 0,
         requestedTotal: 1,
         maxItems: 1,
         skippedCount: 0,
@@ -2032,166 +2304,338 @@ class StockCreateService {
   }
 
   /**
-   * Mevcut pasif Mikro kartini dar bir islemle aktif eder. Yeni stok acmaz ve
-   * kartin ticari/urun alanlarina dokunmaz.
+   * Mevcut pasif kartin eksik/duzeltilecek alanlarini yazip ayni karti aktifler.
+   * Yeni STOKLAR kaydi veya yeni B kodu uretilmez. Gorsel yoksa gorsel pipeline
+   * aktivasyondan once basariyla tamamlanmak zorundadir.
    */
-  async activatePassiveStock(stockCode: string, userId?: string | null) {
-    const code = upperText(stockCode);
+  async activateStock(params: {
+    stockCode: string;
+    item: StockCreateInput;
+    imageFile?: Express.Multer.File | null;
+    stockFamilyIds?: string[] | null;
+    priceFamilyId?: string | null;
+    userId?: string | null;
+  }): Promise<{
+    success: boolean;
+    stockCode: string;
+    productId?: string;
+    warnings: string[];
+    stock: Awaited<ReturnType<StockCreateService['getStock']>>;
+  }> {
+    const code = upperText(params.stockCode);
     if (!code) {
       throw new Error('Aktiflestirilecek stok kodu gerekli');
     }
-
-    const requiredColumns = [
-      'sto_kod',
-      'sto_guid',
-      'sto_isim',
-      'sto_pasif_fl',
-      'sto_degisti',
-      'sto_lastup_user',
-      'sto_lastup_date',
-    ];
-    const metadataRows = await mikroService.executeQuery(`
-      SELECT COLUMN_NAME AS columnName
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = N'dbo'
-        AND TABLE_NAME = N'STOKLAR'
-        AND COLUMN_NAME IN (
-          N'sto_kod', N'sto_Guid', N'sto_isim', N'sto_pasif_fl',
-          N'sto_degisti', N'sto_lastup_user', N'sto_lastup_date'
-        )
-    `);
-    const availableColumns = new Set(
-      metadataRows
-        .map((row: any) => normalizeText(row.columnName ?? row.COLUMN_NAME ?? row.name).toLowerCase())
-        .filter(Boolean)
-    );
-    const missingColumns = requiredColumns.filter((column) => !availableColumns.has(column));
-    if (missingColumns.length > 0) {
-      throw new Error(`Mikro STOKLAR kolonlari dogrulanamadi: ${missingColumns.join(', ')}`);
+    const itemCode = upperText(params.item?.stockCode || params.item?.templateCode);
+    if (itemCode && itemCode !== code) {
+      throw new Error('Aktivasyon hedef kodu ile formdaki stok kodu eslesmiyor');
     }
 
-    let writeError: any = null;
-    try {
-      // Yazma sorgusu bilerek tek denemeliktir. Committen sonra baglanti koparsa
-      // genel executeQuery otomatik retry yaparak basarili islemi ikinci kez
-      // calistirabilir; sonucu asagidaki bagimsiz read-back belirler.
-      await mikroService.executeQueryOnce(`
-        SET XACT_ABORT ON;
-      BEGIN TRY
-        BEGIN TRANSACTION;
-        DECLARE @stockCode nvarchar(25) = ${toSqlString(code)};
-        DECLARE @targetFound bit = 0;
-        DECLARE @isPassive bit;
-
-        SELECT
-          @targetFound = 1,
-          @isPassive = ISNULL(sto_pasif_fl, 0)
-        FROM dbo.STOKLAR WITH (UPDLOCK, HOLDLOCK)
-        WHERE sto_kod = @stockCode;
-
-        IF @targetFound = 0
-          THROW 51010, 'Aktiflestirilecek stok Mikroda bulunamadi', 1;
-
-        IF @isPassive <> 1
-          THROW 51011, 'Stok zaten aktif; sadece pasif stok aktiflestirilebilir', 1;
-
-        UPDATE dbo.STOKLAR
-        SET sto_pasif_fl = 0,
-            sto_degisti = 1,
-            sto_lastup_user = 1,
-            sto_lastup_date = GETDATE()
-        WHERE sto_kod = @stockCode
-          AND sto_pasif_fl = 1;
-
-        IF @@ROWCOUNT <> 1
-          THROW 51012, 'Stok aktiflestirme satir sayisi beklenenden farkli', 1;
-
-        COMMIT TRANSACTION;
-      END TRY
-      BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-        DECLARE @message nvarchar(4000) = ERROR_MESSAGE();
-        THROW 51013, @message, 1;
-      END CATCH
-      `);
-    } catch (error: any) {
-      writeError = error;
+    const preview = await this.previewActivation(code, params.item);
+    const validation = preview.results[0];
+    if (!validation || validation.errors.length > 0) {
+      throw new Error(`Stok aktiflestirilemedi: ${validation?.errors.join('; ') || 'zorunlu alanlar eksik'}`);
     }
 
-    // Transaction sonucunu ayni batch'in donusune guvenmeden bagimsiz sorguyla teyit et.
-    let readbackRows: any[];
-    try {
-      readbackRows = await mikroService.executeQuery(`
-        SELECT TOP 1
-          sto_kod AS code,
-          sto_isim AS name,
-          CONVERT(nvarchar(50), sto_Guid) AS guid,
-          ISNULL(sto_pasif_fl, 0) AS isPassive
-        FROM dbo.STOKLAR
-        WHERE sto_kod = ${toSqlString(code)}
-      `);
-    } catch (readbackError: any) {
-      if (writeError && isUncertainMikroWriteError(writeError)) {
+    const before = await this.getStock(code, { consistent: true });
+    if (before.isPassive !== true) {
+      throw new Error('Stok zaten aktif; sadece pasif stok aktiflestirilebilir');
+    }
+
+    const warnings = [...validation.warnings];
+    const imageFile = params.imageFile || null;
+    const existingImageUrl = normalizeText(before.imageUrl) || null;
+    const hasExistingImage = Boolean(before.hasExistingImage);
+    if (!hasExistingImage && !imageFile) {
+      throw new Error('Gorsel zorunlu - mevcut gorseli olmayan stok aktiflestirilemez');
+    }
+
+    let preparedImage: {
+      imageUrl: string;
+      checksum?: string | null;
+      sizeBytes?: number | null;
+      uploaded: boolean;
+      filePath: string;
+      buffer?: Buffer;
+      mikroUploaded: boolean;
+    } | null = null;
+
+    if (imageFile) {
+      let processedFilePath: string | null = null;
+      try {
+        const tempPath = (imageFile as any).path || path.join(getUploadsDir(), imageFile.filename);
+        const processed = await imageService.processUploadedProductImage(tempPath, code, {
+          fileKey: `${code}-${randomUUID().slice(0, 8)}`,
+        });
+        processedFilePath = processed.filePath;
+        if (!before.stockGuid) throw new Error('Mikro GUID bulunamadi');
+        // Kartta hic gorsel yoksa aktif bir kartin gorselsiz kalmamasi icin
+        // Mikro gorseli aktivasyondan once yazilir. Mevcut gorsel degisimi ise
+        // aktivasyon dogrulandiktan sonra yapilir; basarisiz olursa eski gorsel kalir.
+        if (!hasExistingImage) {
+          await imageService.uploadImageToMikro(before.stockGuid, processed.buffer);
+          const imageReadback = await this.getTemplate(code, { consistent: true });
+          if (!imageReadback.hasMikroImage) {
+            throw new Error('Mikro gorsel yazimi bagimsiz kontrolde dogrulanamadi');
+          }
+        }
+        preparedImage = {
+          imageUrl: processed.imageUrl,
+          checksum: processed.checksum,
+          sizeBytes: processed.sizeBytes,
+          uploaded: true,
+          filePath: processed.filePath,
+          buffer: processed.buffer,
+          mikroUploaded: !hasExistingImage,
+        };
+      } catch (imageError: any) {
+        if (processedFilePath) {
+          await imageService.removeLocalFile(processedFilePath).catch(() => {});
+        }
+        throw new Error(`Gorsel yuklenemedi; stok aktiflestirilmedi: ${imageError?.message || 'bilinmeyen hata'}`);
+      }
+    } else if (!existingImageUrl && before.hasMikroImage) {
+      if (!before.stockGuid) throw new Error('Mikro GUID bulunamadi');
+      const downloaded = await imageService.downloadImageFromMikro(code, before.stockGuid);
+      if (!downloaded.success || !downloaded.localPath) {
         throw new Error(
-          'Mikro baglantisi yazma sirasinda kesildi ve aktivasyon sonucu dogrulanamadi; islemi tekrar calistirmadan once stok kartini Mikrodan kontrol edin'
+          `Mevcut Mikro gorseli siteye alinamadi; yeni gorsel yukleyin: ${downloaded.error || downloaded.skipReason || 'gorsel islenemedi'}`
         );
       }
-      throw writeError || readbackError;
+      preparedImage = {
+        imageUrl: downloaded.localPath,
+        checksum: downloaded.checksum || null,
+        sizeBytes: downloaded.size || null,
+        uploaded: false,
+        filePath: imageService.absPathForUrl(downloaded.localPath),
+        mikroUploaded: true,
+      };
     }
 
-    const readback = readbackRows[0];
-    if (!readback) {
-      if (writeError) throw writeError;
-      throw new Error('Stok aktiflestirme sonrasi Mikro kaydi okunamadi');
-    }
-    const isNowActive = readback.isPassive !== true && Number(readback.isPassive) === 0;
-    if (writeError && (!isUncertainMikroWriteError(writeError) || !isNowActive)) {
-      throw writeError;
-    }
-    if (!isNowActive) {
-      throw new Error('Stok aktiflestirme Mikro read-back kontrolunde dogrulanamadi');
-    }
-
-    const warnings: string[] = [];
-    if (writeError) {
-      warnings.push('Mikro baglantisi kesildi ancak bagimsiz kontrolde stokun aktiflestigi dogrulandi');
-    }
+    // Alanlar + pasif bayragi tek Mikro transactioninda yazilir. Bu yol
+    // create()/getNextStockCode() cagirmadigi icin yeni stok kodu uretemez.
+    let updateResult: Awaited<ReturnType<StockCreateService['updateStock']>>;
     try {
-      await prisma.stockCreationLog.create({
-        data: {
-          batchId: `stock-activate-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          mode: 'ACTIVATE',
-          status: 'ACTIVATED',
-          rowNo: 1,
-          stockCode: code,
-          stockName: normalizeText(readback.name) || code,
-          templateCode: code,
-          payload: { stockCode: code } as any,
-          validation: { targetExisted: true, targetWasPassive: true } as any,
-          result: {
-            stockGuid: normalizeText(readback.guid),
-            passiveFlag: 0,
-          } as any,
-          errorMessage: null,
-          createdById: userId || null,
-          createdByName: null,
-        },
+      updateResult = await this.updateStock(code, params.item, params.userId, { activate: true });
+    } catch (updateError: any) {
+      // Eksik gorsel icin Mikro resmi once yazilmis olabilir. Bu durumda kart
+      // pasif kalir ama artik gorsellidir; ayni Mikro yazisini korlemesine geri
+      // almaya calismayiz. Yalnizca benzersiz yerel staging dosyasini temizleriz.
+      const imageWasPersisted = Boolean(preparedImage?.uploaded && preparedImage.mikroUploaded);
+      if (preparedImage?.uploaded) {
+        await imageService.removeLocalFile(preparedImage.filePath).catch(() => {});
+      }
+      if (imageWasPersisted) {
+        throw new Error(
+          `Gorsel mevcut karta eklendi; aktivasyon tamamlanamadi veya sonucu tam dogrulanamadi. Islemi tekrar calistirmadan once karti Mikrodan kontrol edin: ${updateError?.message || 'bilinmeyen hata'}`
+        );
+      }
+      throw updateError;
+    }
+    updateResult.warnings?.forEach((warning) => {
+      if (!warnings.includes(warning)) warnings.push(warning);
+    });
+
+    if (preparedImage?.uploaded && !preparedImage.mikroUploaded) {
+      try {
+        if (!before.stockGuid || !preparedImage.buffer) throw new Error('Mikro gorsel verisi hazir degil');
+        await imageService.uploadImageToMikro(before.stockGuid, preparedImage.buffer);
+        preparedImage.mikroUploaded = true;
+      } catch (imageError: any) {
+        await imageService.removeLocalFile(preparedImage.filePath).catch(() => {});
+        preparedImage = null;
+        warnings.push(
+          `Stok aktiflestirildi; yeni gorsel yuklenemedi ve mevcut gorsel korundu: ${imageError?.message || 'bilinmeyen hata'}`
+        );
+      }
+    }
+
+    let product: { id: string; name: string } | null = null;
+    try {
+      product = await prisma.product.findUnique({
+        where: { mikroCode: code },
+        select: { id: true, name: true },
       });
-    } catch (auditError: any) {
-      console.error('Stock activate audit log failed:', auditError?.message || auditError);
-      warnings.push('Stok aktiflestirildi ancak islem logu kaydedilemedi');
+    } catch (productError: any) {
+      warnings.push(
+        `Stok Mikroda aktiflestirildi; B2B urun kaydi okunamadi: ${productError?.message || 'bilinmeyen hata'}`
+      );
+    }
+    const productId = product?.id;
+    const productName = product?.name || validation.item.name || code;
+
+    if (preparedImage && productId) {
+      try {
+        let uploaderName: string | null = null;
+        if (params.userId && preparedImage.uploaded) {
+          const uploader = await prisma.user.findUnique({
+            where: { id: params.userId },
+            select: { name: true, email: true },
+          });
+          uploaderName = uploader?.name || uploader?.email || '';
+        }
+        await prisma.product.update({
+          where: { id: productId },
+          data: {
+            imageUrl: preparedImage.imageUrl,
+            imageChecksum: preparedImage.checksum || null,
+            imageSyncStatus: 'SUCCESS',
+            imageSyncErrorType: null,
+            imageSyncErrorMessage: null,
+            imageSyncUpdatedAt: new Date(),
+            imageSizeBytes: preparedImage.sizeBytes || null,
+            imageUploadedAt: preparedImage.uploaded ? new Date() : undefined,
+            imageUploadedById: preparedImage.uploaded ? params.userId ?? null : undefined,
+            imageUploadedByName: preparedImage.uploaded ? uploaderName : undefined,
+          },
+        });
+      } catch (imageMetadataError: any) {
+        warnings.push(
+          `Stok ve Mikro gorseli aktif; B2B gorsel bilgisi kaydedilemedi: ${imageMetadataError?.message || 'bilinmeyen hata'}`
+        );
+      }
+    } else if (preparedImage && !productId) {
+      warnings.push('Stok ve Mikro gorseli aktif; B2B urun kaydi bulunamadigi icin gorsel bilgisi eslestirilemedi');
+    }
+
+    if (Array.isArray(params.stockFamilyIds)) {
+      const selectedFamilyIds = Array.from(
+        new Set(params.stockFamilyIds.map(normalizeText).filter(Boolean))
+      );
+      try {
+        const currentFamilyRows = await prisma.productFamilyItem.findMany({
+          where: {
+            productCode: code,
+            active: true,
+            family: { active: true },
+          },
+          select: { familyId: true },
+        });
+        const currentFamilyIds = new Set(currentFamilyRows.map((row) => row.familyId));
+        const validSelectedFamilies = selectedFamilyIds.length
+          ? await prisma.productFamily.findMany({
+              where: { id: { in: selectedFamilyIds }, active: true },
+              select: { id: true },
+            })
+          : [];
+        const validSelectedFamilyIds = new Set(validSelectedFamilies.map((family) => family.id));
+        const invalidSelectedFamilyIds = selectedFamilyIds.filter(
+          (familyId) => !validSelectedFamilyIds.has(familyId)
+        );
+        if (invalidSelectedFamilyIds.length > 0) {
+          warnings.push(
+            `Secilen stok aileleri bulunamadi veya pasif; mevcut aileler korundu: ${invalidSelectedFamilyIds.join(', ')}`
+          );
+        } else {
+          let additionsComplete = true;
+          // Once yeni uyelikleri ekle. Ekleme basarisizsa mevcut uyelikleri
+          // kaldirmayarak duzeltmeyi veri kaybi olmadan fail-safe birakiriz.
+          for (const familyId of selectedFamilyIds) {
+            if (currentFamilyIds.has(familyId)) continue;
+            try {
+              await familyCandidateService.addProductToFamily(familyId, { productCode: code, productName });
+            } catch (familyError: any) {
+              const status = familyError?.statusCode || familyError?.status;
+              if (status === 409) continue;
+              additionsComplete = false;
+              warnings.push(
+                `Stok ailesine eklenemedi (${familyId}): ${familyError?.message || 'bilinmeyen hata'}`
+              );
+            }
+          }
+          if (additionsComplete) {
+            for (const familyId of currentFamilyIds) {
+              if (selectedFamilyIds.includes(familyId)) continue;
+              try {
+                await familyCandidateService.removeProductFromFamily(familyId, code);
+              } catch (familyError: any) {
+                warnings.push(
+                  `Stok ailesinden cikarilamadi (${familyId}): ${familyError?.message || 'bilinmeyen hata'}`
+                );
+              }
+            }
+          } else {
+            warnings.push('Yeni stok ailesi uyelikleri tamamlanamadigi icin mevcut aileler korundu');
+          }
+        }
+      } catch (familyReadError: any) {
+        warnings.push(
+          `Stok aktiflestirildi; stok ailesi secimleri uygulanamadi: ${familyReadError?.message || 'bilinmeyen hata'}`
+        );
+      }
+    }
+
+    if (params.priceFamilyId !== undefined) {
+      const priceFamilyId = normalizeText(params.priceFamilyId);
+      try {
+        const target = priceFamilyId
+          ? await prisma.priceFamily.findFirst({
+              where: { id: priceFamilyId, active: true },
+              select: { id: true },
+            })
+          : null;
+        if (priceFamilyId && !target) {
+          warnings.push('Secilen fiyat ailesi bulunamadi veya pasif; mevcut fiyat ailesi korundu');
+        } else {
+          await prisma.$transaction(async (tx) => {
+            if (!priceFamilyId) {
+              await tx.priceFamilyItem.deleteMany({ where: { productCode: code } });
+              return;
+            }
+            const existingPriceFamilyItem = await tx.priceFamilyItem.findUnique({
+              where: { productCode: code },
+              select: { familyId: true, priority: true },
+            });
+            const maxPriority = await tx.priceFamilyItem.aggregate({
+              where: { familyId: priceFamilyId },
+              _max: { priority: true },
+            });
+            const nextPriority =
+              existingPriceFamilyItem?.familyId === priceFamilyId
+                ? existingPriceFamilyItem.priority
+                : (Number(maxPriority._max.priority) || 0) + 1;
+            await tx.priceFamilyItem.upsert({
+              where: { productCode: code },
+              create: {
+                familyId: priceFamilyId,
+                productCode: code,
+                productId: productId || null,
+                productName,
+                priority: nextPriority,
+                active: true,
+              },
+              update: {
+                familyId: priceFamilyId,
+                productId: productId || null,
+                productName,
+                priority: nextPriority,
+                active: true,
+              },
+            });
+          });
+        }
+      } catch (priceFamilyError: any) {
+        warnings.push(
+          `Stok aktiflestirildi; fiyat ailesi secimi uygulanamadi: ${priceFamilyError?.message || 'bilinmeyen hata'}`
+        );
+      }
+    }
+
+    let finalStock = updateResult.stock;
+    try {
+      finalStock = await this.getStock(code);
+    } catch (finalReadError: any) {
+      warnings.push(
+        `Stok Mikroda aktiflestirildi; son B2B detaylari okunamadi: ${finalReadError?.message || 'bilinmeyen hata'}`
+      );
     }
 
     return {
       success: true,
       stockCode: code,
+      productId,
       warnings,
-      stock: {
-        code,
-        name: normalizeText(readback.name) || code,
-        guid: normalizeText(readback.guid),
-        isPassive: false,
-      },
+      stock: finalStock,
     };
   }
 

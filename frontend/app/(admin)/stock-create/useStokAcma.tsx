@@ -88,6 +88,8 @@ export type TemplateStock = StockForm & {
   categoryName?: string;
   packageName: string;
   shelfName?: string;
+  imageUrl?: string | null;
+  hasExistingImage?: boolean;
 };
 
 export type PreviewRow = {
@@ -406,9 +408,11 @@ export function useStokAcma() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   // Pasif stok aktiflestirme modu: ?activate=CODE ile acilir. Formdaki mevcut stok
-  // bilgileri yalnizca referans icindir; Mikroda sadece pasiflik durumu degisir.
+  // bilgileri duzenlenebilir; ayni mevcut kart guncellenip aktif hale getirilir.
   const [activateMode, setActivateMode] = useState<string | null>(null);
   const [activating, setActivating] = useState(false);
+  const [hasExistingImage, setHasExistingImage] = useState(false);
+  const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
   const appliedActivateRef = useRef('');
   const appliedTemplateRef = useRef('');
 
@@ -452,7 +456,10 @@ export function useStokAcma() {
         // ignore broken local draft
       }
     }
-    void loadMetadata(restoredTemplateCode);
+    const activationRequested =
+      typeof window !== 'undefined' &&
+      Boolean(new URLSearchParams(window.location.search).get('activate')?.trim());
+    void loadMetadata(restoredTemplateCode, false, activationRequested);
     void loadFamilies();
   }, []);
 
@@ -472,7 +479,11 @@ export function useStokAcma() {
     };
   }, [form.imagePreviewUrl]);
 
-  async function loadMetadata(preferredTemplateCode = '', resetFormToTemplate = false) {
+  async function loadMetadata(
+    preferredTemplateCode = '',
+    resetFormToTemplate = false,
+    skipTemplateDefaults = false
+  ) {
     setLoading(true);
     try {
       const [metadataRes, historyRes] = await Promise.all([
@@ -490,9 +501,9 @@ export function useStokAcma() {
       setForm((prev) => resetFormToTemplate
         ? defaultForm(targetTemplateCode)
         : { ...prev, templateCode: prev.templateCode || targetTemplateCode });
-      if (targetTemplateCode) {
+      if (targetTemplateCode && !skipTemplateDefaults && !appliedActivateRef.current) {
         await loadTemplate(targetTemplateCode, true);
-      } else {
+      } else if (!skipTemplateDefaults && !appliedActivateRef.current) {
         setTemplateStock(null);
       }
     } catch (error: any) {
@@ -546,6 +557,12 @@ export function useStokAcma() {
       (_, index) => String(Array.isArray(raw?.margins) ? raw.margins[index] ?? '' : '')
     ),
     extraUnits: Array.isArray(raw?.extraUnits) ? raw.extraUnits.map((unit: ExtraUnit) => ({ ...emptyExtraUnit(unit.index), ...unit })) : [],
+    stockFamilyIds: Array.isArray(raw?.stockFamilyIds)
+      ? raw.stockFamilyIds.map((id: unknown) => String(id)).filter(Boolean)
+      : [],
+    priceFamilyId: raw?.priceFamilyId ? String(raw.priceFamilyId) : null,
+    imageUrl: raw?.imageUrl ? String(raw.imageUrl) : null,
+    hasExistingImage: Boolean(raw?.hasExistingImage || raw?.imageUrl),
   });
 
   const applyTemplateDefaults = (template: TemplateStock) => {
@@ -567,7 +584,11 @@ export function useStokAcma() {
       const res = await apiClient.get(`/admin/stock-create/templates/${encodeURIComponent(code)}`);
       const normalized = normalizeTemplateStock(res.data.template);
       setTemplateStock(normalized);
-      if (applyDefaults && appliedTemplateRef.current !== normalized.templateCode) {
+      if (
+        applyDefaults &&
+        !appliedActivateRef.current &&
+        appliedTemplateRef.current !== normalized.templateCode
+      ) {
         appliedTemplateRef.current = normalized.templateCode;
         applyTemplateDefaults(normalized);
       }
@@ -596,9 +617,10 @@ export function useStokAcma() {
     setPreviewRows([]);
   };
 
-  // Min-max secimi (Evet/Hayir). Onizlemeyi etkilemez, o yuzden preview'i sifirlamiyoruz.
+  // Min-max secimi (Evet/Hayir). Guncel form yeniden on kontrolden gecmelidir.
   const setCalculateMinMax = (value: boolean) => {
     setForm((prev) => ({ ...prev, calculateMinMax: value }));
+    setPreviewRows([]);
   };
 
   // Stok ailesi coklu secim toggle. Aile atamalari onizlemeyi etkilemez.
@@ -610,11 +632,13 @@ export function useStokAcma() {
         stockFamilyIds: exists ? prev.stockFamilyIds.filter((x) => x !== id) : [...prev.stockFamilyIds, id],
       };
     });
+    setPreviewRows([]);
   };
 
   // Fiyat ailesi tekli secim (bir urun yalniz bir fiyat ailesinde olabilir).
   const setPriceFamily = (id: string | null) => {
     setForm((prev) => ({ ...prev, priceFamilyId: id }));
+    setPreviewRows([]);
   };
 
   // Zorunlu urun gorseli secimi + istemci tarafi dogrulama (image/*, < 5MB) + onizleme.
@@ -624,6 +648,7 @@ export function useStokAcma() {
       if (!file) return { ...prev, image: null, imagePreviewUrl: null };
       return { ...prev, image: file, imagePreviewUrl: URL.createObjectURL(file) };
     });
+    setPreviewRows([]);
   };
 
   const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -695,6 +720,8 @@ export function useStokAcma() {
   const cancelEditMode = () => {
     setEditingStockCode(null);
     setActivateMode(null);
+    setHasExistingImage(false);
+    setExistingImageUrl(null);
     appliedActivateRef.current = '';
     setTemplateStock(null);
     appliedTemplateRef.current = '';
@@ -714,6 +741,8 @@ export function useStokAcma() {
       setEditingStockCode(code);
       // Duzenlemeye gecerken aktiflestirme modundan cik (ayni anda iki mod olmaz).
       setActivateMode(null);
+      setHasExistingImage(false);
+      setExistingImageUrl(null);
       setTemplateStock(null);
       appliedTemplateRef.current = code;
       // Duzenlemede gorsel opsiyoneldir; her zaman bos baslar. calculateMinMax backend'ten gelirse alinir, gelmezse true.
@@ -735,7 +764,7 @@ export function useStokAcma() {
     }
   };
 
-  // Pasif stogu aktiflestirme moduna al: mevcut kart salt-okunur ozet icin yuklenir.
+  // Pasif stogu aktiflestirme moduna al: mevcut kart alanlari duzenlenebilir olarak yuklenir.
   const loadStockForActivate = async (stockCode?: string | null) => {
     const code = String(stockCode || '').trim().toUpperCase();
     if (!code) return;
@@ -747,7 +776,8 @@ export function useStokAcma() {
       setActivateMode(code);
       setTemplateStock(null);
       appliedTemplateRef.current = code;
-      // Aktivasyon stok karti alanlarini yazmaz; gorsel de kullanilmaz.
+      setHasExistingImage(Boolean(normalized.hasExistingImage));
+      setExistingImageUrl(normalized.imageUrl || null);
       setForm({
         ...defaultForm(code),
         ...normalized,
@@ -790,7 +820,7 @@ export function useStokAcma() {
     setLoading(true);
     try {
       const payload = activateMode
-        ? { mode: 'activate', stockCode: activateMode }
+        ? { mode: 'activate', stockCode: activateMode, item: buildItem() }
         : { items: [buildItem()] };
       const res = await apiClient.post('/admin/stock-create/preview', payload);
       setPreviewRows(res.data.results || []);
@@ -855,8 +885,8 @@ export function useStokAcma() {
     }
   };
 
-  // Pasif stok aktiflestirme: yeni kart acmaz ve mevcut kart alanlarini guncellemez;
-  // backend'e yalnizca hedef stok kodu gider.
+  // Pasif stok aktiflestirme: yeni kart acmaz; doldurulan alanlari ayni mevcut
+  // karta yazar ve karti aktif hale getirir.
   const activateStock = async () => {
     if (!activateMode) return;
     if (!previewRows.length) {
@@ -867,15 +897,40 @@ export function useStokAcma() {
       toast.error('Hatali satirlar varken aktiflestirilemez');
       return;
     }
+    if (!hasExistingImage && !form.image) {
+      toast.error('Bu stokta mevcut gorsel yok. Aktiflestirmeden once urun gorseli secin.');
+      return;
+    }
+    if (form.calculateMinMax !== true && form.calculateMinMax !== false) {
+      toast.error('Min-max hesaplansin mi secimini yapin (Evet/Hayir).');
+      return;
+    }
     const confirmed = window.confirm(
-      `${activateMode} kodlu mevcut stok Mikroda aktif hale getirilecek.\n\n` +
-      'Yalnizca pasiflik durumu degisecek; ad, fiyat, maliyet, birim, barkod ve diger stok bilgileri degismeyecek.'
+      `${activateMode} kodlu mevcut stok Mikroda guncellenip aktif hale getirilecek.\n\n` +
+      'Stok kodu degismeyecek ve yeni stok karti acilmayacak.'
     );
     if (!confirmed) return;
 
     setActivating(true);
     try {
-      const res = await adminApi.activateStock(activateMode);
+      const formData = new FormData();
+      if (form.image) {
+        formData.append('image', form.image);
+      }
+      formData.append(
+        'payload',
+        JSON.stringify({
+          stockCode: activateMode,
+          item: {
+            ...buildItem(),
+            stockCode: activateMode,
+            templateCode: activateMode,
+          },
+          stockFamilyIds: form.stockFamilyIds,
+          priceFamilyId: form.priceFamilyId,
+        })
+      );
+      const res = await adminApi.activateStock(formData);
       if (res.warnings?.length) {
         res.warnings.forEach((warning) => toast(warning, { duration: 7000 }));
       }
@@ -945,6 +1000,8 @@ export function useStokAcma() {
     // pasif stok aktiflestirme
     activateMode,
     activating,
+    hasExistingImage,
+    existingImageUrl,
     // turetilmis
     hasErrors,
     hasWarnings,

@@ -3003,11 +3003,15 @@ export const adminApi = {
     return response.data;
   },
 
-  // Pasif Stok Aktiflestir - mevcut Mikro kartinda yalnizca pasiflik durumunu aktif yapar.
+  // Pasif Stok Aktiflestir - mevcut Mikro kartini guncelleyip ayni kodla aktif hale getirir.
   activateStock: async (
-    stockCode: string
+    formData: FormData
   ): Promise<{ success: boolean; stockCode?: string; warnings?: string[]; error?: string }> => {
-    const response = await apiClient.post('/admin/stock-create/activate', { stockCode });
+    const response = await apiClient.post('/admin/stock-create/activate', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return response.data;
   },
 

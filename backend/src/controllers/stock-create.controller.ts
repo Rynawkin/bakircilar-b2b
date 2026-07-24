@@ -68,12 +68,16 @@ class StockCreateController {
   async preview(req: Request, res: Response) {
     try {
       const items = Array.isArray(req.body?.items) ? req.body.items : [];
-      // Gecis uyumlulugu: onceki web/mobil surumu aktivasyon on kontrolunde
-      // mode yerine tek item icinde stockCode gonderiyordu.
-      const legacyActivationCode = items.length === 1 ? String(items[0]?.stockCode || '') : '';
-      if (req.body?.mode === 'activate' || legacyActivationCode) {
-        const stockCode = String(req.body?.stockCode || legacyActivationCode);
-        const data = await stockCreateService.previewActivation(stockCode);
+      // Aktivasyon acik bir moddur. Tek satirli normal duzenleme on izlemesini
+      // stockCode tasidigi icin yanlislikla aktivasyona yonlendirmeyiz.
+      if (req.body?.mode === 'activate') {
+        const item = req.body?.item;
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          res.status(400).json({ error: 'Aktivasyon on kontrolu icin stok formu gerekli' });
+          return;
+        }
+        const stockCode = String(req.body?.stockCode || item.stockCode || item.templateCode || '');
+        const data = await stockCreateService.previewActivation(stockCode, item);
         res.json(data);
         return;
       }
@@ -144,30 +148,55 @@ class StockCreateController {
 
   async activate(req: Request, res: Response) {
     try {
-      // Aktivasyon yeni stok acma/guncelleme degildir. Yalnizca mevcut pasif
-      // Mikro stok kodu kabul edilir; stok karti alanlari bu endpoint'e alinmaz.
-      let legacyPayload: any = null;
-      if (!req.body?.stockCode && typeof req.body?.payload === 'string') {
-        try {
-          legacyPayload = JSON.parse(req.body.payload);
-        } catch {
-          legacyPayload = null;
-        }
+      // Aktivasyon yeni stok INSERT'i degildir; mevcut kod sabit kalir. Ancak
+      // eksik/yanlis kart alanlari create formuyla ayni sozlesmeyle guncellenir.
+      let parsed: any;
+      try {
+        parsed =
+          typeof req.body?.payload === 'string'
+            ? JSON.parse(req.body.payload)
+            : req.body?.payload && typeof req.body.payload === 'object'
+              ? req.body.payload
+              : req.body;
+      } catch {
+        res.status(400).json({ error: 'payload gecerli bir JSON degil' });
+        return;
       }
-      const stockCode = String(
-        req.body?.stockCode || legacyPayload?.item?.stockCode || legacyPayload?.item?.templateCode || ''
-      );
-      const data = await stockCreateService.activatePassiveStock(stockCode, req.user?.userId);
+
+      const item = parsed?.item;
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        res.status(400).json({ error: 'payload.item tek bir stok nesnesi olmalidir' });
+        return;
+      }
+      const stockCode = String(parsed?.stockCode || item.stockCode || item.templateCode || '');
+      const stockFamilyIds = Array.isArray(parsed?.stockFamilyIds) ? parsed.stockFamilyIds : undefined;
+      const hasPriceFamilySelection = Object.prototype.hasOwnProperty.call(parsed || {}, 'priceFamilyId');
+      const priceFamilyId = !hasPriceFamilySelection
+        ? undefined
+        : parsed?.priceFamilyId === null || parsed?.priceFamilyId === ''
+          ? null
+          : String(parsed.priceFamilyId);
+
+      const data = await stockCreateService.activateStock({
+        stockCode,
+        item,
+        imageFile: req.file || null,
+        stockFamilyIds,
+        priceFamilyId,
+        userId: req.user?.userId,
+      });
       res.json(data);
     } catch (error: any) {
       console.error('Stock activate failed:', error);
       res.status(400).json({ success: false, error: error.message || 'Stok aktiflestirilemedi' });
     } finally {
-      // Eski istemci multipart gorsel gonderebilir; aktivasyon gorseli kullanmaz.
-      // Multer'in gecici dosyasini birakma.
+      // Service gorseli islerken temp dosyayi siler. Validasyon daha once
+      // durursa Multer dosyasini burada temizleyerek artik birakma.
       if (req.file?.path) {
         await fs.unlink(req.file.path).catch((cleanupError: any) => {
-          console.warn('Legacy stock activation upload cleanup failed:', cleanupError?.message || cleanupError);
+          if (cleanupError?.code !== 'ENOENT') {
+            console.warn('Stock activation upload cleanup failed:', cleanupError?.message || cleanupError);
+          }
         });
       }
     }

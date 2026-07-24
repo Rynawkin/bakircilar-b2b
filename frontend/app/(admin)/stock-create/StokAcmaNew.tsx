@@ -62,6 +62,8 @@ export default function StokAcmaNew() {
     creating,
     activateMode,
     activating,
+    hasExistingImage,
+    existingImageUrl,
     hasErrors,
     user,
     permissionsLoading,
@@ -101,6 +103,8 @@ export default function StokAcmaNew() {
     if (!s) return true;
     return f.name.toLocaleLowerCase('tr').includes(s) || String(f.code || '').toLocaleLowerCase('tr').includes(s);
   };
+  const displayedImageUrl = form.imagePreviewUrl || (activateMode ? existingImageUrl : null);
+  const needsActivationImage = Boolean(activateMode && !hasExistingImage && !form.image);
 
   if (!user || permissionsLoading) {
     return (
@@ -140,7 +144,7 @@ export default function StokAcmaNew() {
           </h1>
           <div className="mt-1.5 text-[13px] text-[#8b97ac]">
             {activateMode
-              ? `Mevcut ${activateMode} stok kartinda yalnizca pasiflik durumu aktif yapilir`
+              ? `Mevcut ${activateMode} stok kartinin bilgileri tamamlanip ayni kodla aktiflestirilir`
               : 'Mikro stok karti olustur · gorsel zorunlu'}
           </div>
         </div>
@@ -154,11 +158,11 @@ export default function StokAcmaNew() {
             </div>
             <div>
               <div className="text-[10.5px] text-[#ddd6fe]">Mikroda Degisecek Alan</div>
-              <div className="text-[15px] font-semibold">Pasif → Aktif</div>
+              <div className="text-[15px] font-semibold">Kart Bilgileri + Pasif → Aktif</div>
             </div>
             <div className="ml-auto flex items-center gap-2 text-[11.5px] text-[#ede9fe]">
               <ShieldCheck className="h-4 w-4 text-[#a7f3d0]" />
-              Yeni stok kodu uretilmez; stok kartinin diger bilgileri korunur
+              Yeni stok kodu uretilmez; mevcut kart ayni kodla guncellenir
             </div>
           </div>
         ) : (
@@ -213,7 +217,7 @@ export default function StokAcmaNew() {
                       {editingStockCode
                         ? 'Bu mod mevcut Mikro stok kartini gunceller; stok kodu degismez.'
                         : activateMode
-                        ? 'Bu islem yeni stok acmaz; mevcut stok kartinda yalnizca pasiflik durumu degisir.'
+                        ? 'Eksik veya hatali alanlari duzeltin; mevcut kart ayni kodla guncellenip aktiflestirilir.'
                         : 'Zorunlu alanlari doldurun, once on kontrol calistirin.'}
                     </p>
                   </div>
@@ -258,7 +262,7 @@ export default function StokAcmaNew() {
                         {activateMode} - {form.name || 'Stok adi bos'}
                       </div>
                       <div className="mt-0.5 text-[11.5px] font-medium text-[#7c3aed]">
-                        On kontrol hedef kartin mevcut ve pasif oldugunu dogrular. Aktivasyonda gorsel, fiyat, maliyet, birim, barkod veya aile bilgisi yazilmaz.
+                        On kontrol zorunlu alanlari ve hedef kartin pasif oldugunu dogrular. Kayitta yeni stok acilmaz.
                       </div>
                     </div>
                     <button
@@ -292,7 +296,7 @@ export default function StokAcmaNew() {
                   </div>
                 )}
 
-                <div className={activateMode ? 'hidden' : ''}>
+                <div>
 
                 {/* Aktif sablon seridi */}
                 {!editingStockCode && !activateMode && templateStock && (
@@ -786,17 +790,23 @@ export default function StokAcmaNew() {
                 {/* Urun gorseli (ZORUNLU) */}
                 <div className="mt-3.5 border-t border-[#eef1f6] pt-3.5">
                   <div className="mb-2.5">
-                    <h3 className="m-0 text-[12px] font-semibold text-[#14223b]">Gorsel *</h3>
+                    <h3 className="m-0 text-[12px] font-semibold text-[#14223b]">
+                      Gorsel {!editingStockCode && (!activateMode || !hasExistingImage) ? '*' : ''}
+                    </h3>
                     <p className="mt-0.5 text-[11px] text-[#8b97ac]">
-                      Zorunlu. Gorselsiz stok acilmaz. Sadece resim dosyasi, 5MB alti.
+                      {activateMode
+                        ? hasExistingImage
+                          ? 'Mevcut gorsel korunur. Degistirmek isterseniz yeni bir gorsel secin.'
+                          : 'Bu stokta mevcut gorsel yok. Aktiflestirmek icin gorsel zorunlu.'
+                        : 'Zorunlu. Gorselsiz stok acilmaz. Sadece resim dosyasi, 5MB alti.'}
                       {editingStockCode ? ' Duzenlemede gorsel opsiyoneldir.' : ''}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-4">
                     <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#e3e8f0] bg-[#fafbfd]">
-                      {form.imagePreviewUrl ? (
+                      {displayedImageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={form.imagePreviewUrl} alt="Onizleme" className="h-full w-full object-contain" />
+                        <img src={displayedImageUrl} alt="Urun gorseli onizlemesi" className="h-full w-full object-contain" />
                       ) : (
                         <ImageIcon className="h-8 w-8 text-[#c7d2e3]" />
                       )}
@@ -821,6 +831,12 @@ export default function StokAcmaNew() {
                           </button>
                         </div>
                       )}
+                      {activateMode && hasExistingImage && !form.image && (
+                        <span className="text-[11px] font-medium text-[#047857]">Mevcut gorsel kullanilacak.</span>
+                      )}
+                      {needsActivationImage && (
+                        <span className="text-[11px] font-semibold text-[#b91c1c]">Gorsel secmeden aktiflestirilemez.</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -838,7 +854,7 @@ export default function StokAcmaNew() {
                     {editingStockCode
                       ? 'Formdaki bilgiler mevcut Mikro stok kartina yazilir. Kod sabit kalir.'
                       : activateMode
-                      ? 'Hedef stokun Mikroda mevcut ve pasif oldugu kontrol edilir; yeni stok kodu uretilmez.'
+                      ? 'Alanlar ve referanslar kontrol edilir; mevcut pasif kart ayni kodla guncellenir.'
                       : 'Kolonlar ve referanslar Mikroya yazmadan once kontrol edilir.'}
                   </p>
                 </div>
@@ -880,8 +896,11 @@ export default function StokAcmaNew() {
                           disabled={
                             activating ||
                             !previewRows.length ||
-                            hasErrors
+                            hasErrors ||
+                            needsActivationImage ||
+                            (form.calculateMinMax !== true && form.calculateMinMax !== false)
                           }
+                          title={needsActivationImage ? 'Bu stokta gorsel yok; once urun gorseli secin' : undefined}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-[#6d28d9] bg-[#6d28d9] px-[18px] py-[9px] text-[12.5px] font-semibold text-white transition hover:bg-[#5b21b6] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Save className="h-4 w-4" />
@@ -1001,11 +1020,28 @@ export default function StokAcmaNew() {
                 Zorunlu Alanlar
               </h2>
               <div className="grid grid-cols-2 gap-2 text-[11px] text-[#cdd9ef]">
-                {['Stok Adi', 'Ana Saglayici', 'Marka', 'Kategori', 'Ana Birim', 'KDV', 'Marj 1-6', 'Min-Max secimi', 'Urun gorseli'].map((item) => (
+                {[
+                  'Stok Adi',
+                  'Ana Saglayici',
+                  'Marka',
+                  'Kategori',
+                  'Ana Birim',
+                  'KDV',
+                  'Marj 1-6',
+                  'Min-Max secimi',
+                  activateMode && hasExistingImage ? 'Urun gorseli mevcut' : 'Urun gorseli',
+                ].map((item) => (
                   <div key={item} className="rounded-md bg-white/10 px-2.5 py-1.5">{item}</div>
                 ))}
               </div>
-              <p className="mt-2.5 text-[10.5px] text-[#9bb0d4]">Gorsel olmadan stok acilamaz. Aile atamalari opsiyoneldir.</p>
+              <p className="mt-2.5 text-[10.5px] text-[#9bb0d4]">
+                {activateMode
+                  ? hasExistingImage
+                    ? 'Mevcut gorsel korunur; yeni gorsel yuklemek opsiyoneldir.'
+                    : 'Gorsel olmadan stok aktiflestirilemez.'
+                  : 'Gorsel olmadan stok acilamaz.'}{' '}
+                Aile atamalari opsiyoneldir.
+              </p>
             </div>
           </div>
         </div>

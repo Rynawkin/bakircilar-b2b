@@ -300,6 +300,13 @@ export interface StockCreateInput {
   calculateMinMax?: boolean | null;
 }
 
+export interface StockCreateStockDetail extends StockCreateInput {
+  imageUrl?: string | null;
+  hasExistingImage?: boolean;
+  stockFamilyIds?: string[];
+  priceFamilyId?: string | null;
+}
+
 export interface StockCreatePreviewRow {
   rowNo: number;
   previewCode: string;
@@ -1989,7 +1996,7 @@ export const adminApi = {
   },
   getStockCreateStock: async (stockCode: string) => {
     const response = await apiClient.get(`/admin/stock-create/stocks/${encodeURIComponent(stockCode)}`);
-    return response.data as { stock: StockCreateInput & Record<string, any> };
+    return response.data as { stock: StockCreateStockDetail & Record<string, any> };
   },
   previewStockCreate: async (items: StockCreateInput[]) => {
     const response = await apiClient.post('/admin/stock-create/preview', { items });
@@ -1998,8 +2005,12 @@ export const adminApi = {
       summary?: { valid?: number; warning?: number; error?: number; total?: number };
     };
   },
-  previewPassiveStockActivation: async (stockCode: string) => {
-    const response = await apiClient.post('/admin/stock-create/preview', { mode: 'activate', stockCode });
+  previewPassiveStockActivation: async (stockCode: string, item: StockCreateInput) => {
+    const response = await apiClient.post('/admin/stock-create/preview', {
+      mode: 'activate',
+      stockCode,
+      item,
+    });
     return response.data as {
       results: StockCreatePreviewRow[];
       summary?: { valid?: number; warning?: number; error?: number; total?: number };
@@ -2011,8 +2022,10 @@ export const adminApi = {
     });
     return response.data as { success: boolean; stockCode?: string; productId?: string; warnings?: string[]; error?: string };
   },
-  activateStock: async (stockCode: string) => {
-    const response = await apiClient.post('/admin/stock-create/activate', { stockCode });
+  activateStock: async (formData: FormData) => {
+    const response = await apiClient.post('/admin/stock-create/activate', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data as { success: boolean; stockCode?: string; warnings?: string[]; error?: string };
   },
   listPassiveStocks: async (search: string, limit?: number) => {
