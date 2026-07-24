@@ -25,6 +25,7 @@ import stockFamilyController from '../controllers/stock-family.controller';
 import {
   authenticate,
   requireAdmin,
+  requireAdminOrManager,
   requirePermission,
   requireAnyPermission
 } from '../middleware/auth.middleware';
@@ -876,6 +877,12 @@ router.post('/reports/product-families/create-depot-transfer-order', requirePerm
 router.post(
   '/reports/ucarer-depo/update-cost',
   requireAnyPermission(['reports:ucarer-depo', 'reports:cost-update-all-products']),
+  adminController.updateUcarerProductCost
+);
+router.post(
+  '/reports/quick-cost-update',
+  requireAdminOrManager,
+  requirePermission('reports:cost-update-all-products'),
   adminController.updateUcarerProductCost
 );
 router.post('/reports/ucarer-depo/update-main-supplier', requirePermission('reports:ucarer-depo'), adminController.updateUcarerMainSupplier);
