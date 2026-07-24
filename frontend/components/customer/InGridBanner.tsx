@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import customerApi, { Banner } from '@/lib/api/customer';
+import { isProductDetailHref } from '@/lib/utils/productLinks';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 
 /**
@@ -29,6 +30,7 @@ export function InGridBanner() {
   const href = banner
     ? banner.linkUrl || (banner.productCode ? `/products?search=${encodeURIComponent(banner.productCode)}` : '/discounted-products')
     : '/discounted-products';
+  const opensProductDetail = isProductDetailHref(href);
 
   // Banner tik olcumu (best-effort; hata trackCustomerActivity icinde yutulur)
   const handleClick = () => {
@@ -37,7 +39,14 @@ export function InGridBanner() {
   };
 
   return (
-    <Link href={href} onClick={handleClick} className="relative col-span-2 flex aspect-[375/280] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white sm:aspect-[800/360]">
+    <Link
+      href={href}
+      target={opensProductDetail ? '_blank' : undefined}
+      rel={opensProductDetail ? 'noopener noreferrer' : undefined}
+      aria-label={opensProductDetail && banner ? `${banner.title} ürün detayını yeni sekmede aç` : undefined}
+      onClick={handleClick}
+      className="relative col-span-2 flex aspect-[375/280] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white sm:aspect-[800/360]"
+    >
       {(banner?.imageUrl || banner?.mobileImageUrl) ? (
         <>
           <picture>

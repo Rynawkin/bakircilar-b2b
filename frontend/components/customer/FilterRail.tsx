@@ -6,6 +6,7 @@ import { LayoutGrid, Layers, Search, ArrowRight, Percent, ArrowLeftRight } from 
 import { Category } from '@/types';
 import customerApi, { Banner } from '@/lib/api/customer';
 import { useDebounce } from '@/lib/hooks/useDebounce';
+import { isProductDetailHref } from '@/lib/utils/productLinks';
 
 /** Sol filtre rayindaki stok durumu segmenti degeri */
 export type StockStatus = 'all' | 'in' | 'supply';
@@ -140,6 +141,7 @@ export function FilterRail({
   const bannerLink = sideBanner
     ? sideBanner.linkUrl || (sideBanner.productCode ? `/products?search=${encodeURIComponent(sideBanner.productCode)}` : '/products')
     : bannerHref;
+  const bannerOpensProductDetail = isProductDetailHref(bannerLink);
 
   const catRowClass = (active: boolean) =>
     `flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors ${
@@ -327,7 +329,13 @@ export function FilterRail({
       </div>
 
       {/* SIDE banner — admin SIDE banner varsa ondan, yoksa statik promo. aspect-[4/5] */}
-      <Link href={bannerLink} className="relative block aspect-[4/5] overflow-hidden rounded-xl border border-[var(--line)]">
+      <Link
+        href={bannerLink}
+        target={bannerOpensProductDetail ? '_blank' : undefined}
+        rel={bannerOpensProductDetail ? 'noopener noreferrer' : undefined}
+        aria-label={bannerOpensProductDetail && sideBanner ? `${sideBanner.title} ürün detayını yeni sekmede aç` : undefined}
+        className="relative block aspect-[4/5] overflow-hidden rounded-xl border border-[var(--line)]"
+      >
         {sideBanner?.imageUrl ? (
           <>
             <img src={sideBanner.imageUrl} alt={sideBanner.title} className="absolute inset-0 h-full w-full object-cover" />

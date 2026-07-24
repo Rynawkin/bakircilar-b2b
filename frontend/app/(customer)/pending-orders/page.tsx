@@ -324,6 +324,9 @@ export default function CustomerPendingOrdersPage() {
                                   {item.productId ? (
                                     <Link
                                       href={`/products/${item.productId}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label={`${item.productName} ürün detayını yeni sekmede aç`}
                                       className="font-medium text-[var(--ink-1)] transition-colors hover:text-primary-700 hover:underline"
                                     >
                                       {item.productName}

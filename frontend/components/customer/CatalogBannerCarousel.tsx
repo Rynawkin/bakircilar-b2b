@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
 import customerApi, { Banner } from '@/lib/api/customer';
+import { isProductDetailHref } from '@/lib/utils/productLinks';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 
 const ROTATION_MS = 6500;
@@ -107,6 +108,7 @@ export function CatalogBannerCarousel() {
     >
       {banners.map((banner, index) => {
         const href = getBannerHref(banner);
+        const opensProductDetail = isProductDetailHref(href);
         const desktopSrc = banner.imageUrl || banner.mobileImageUrl;
         const mobileSrc = banner.mobileImageUrl || banner.imageUrl;
         const hasImage = Boolean(desktopSrc) && !failedImages[banner.id];
@@ -156,6 +158,9 @@ export function CatalogBannerCarousel() {
           <Link
             key={banner.id}
             href={href}
+            target={opensProductDetail ? '_blank' : undefined}
+            rel={opensProductDetail ? 'noopener noreferrer' : undefined}
+            aria-label={opensProductDetail ? `${banner.title} ürün detayını yeni sekmede aç` : undefined}
             className={slideClass}
             aria-hidden={index !== activeIndex}
             tabIndex={index === activeIndex ? 0 : -1}

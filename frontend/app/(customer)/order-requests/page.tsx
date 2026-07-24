@@ -419,7 +419,9 @@ export default function OrderRequestsPage() {
                                 )}
                                 <Link
                                   href={`/products/${item.product.id}`}
-                                  aria-label={`${item.product.name} ürün detayını aç`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  aria-label={`${item.product.name} ürün detayını yeni sekmede aç`}
                                   className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--line)] bg-white transition-colors hover:border-primary-300"
                                 >
                                   {item.product.imageUrl ? (
@@ -431,12 +433,21 @@ export default function OrderRequestsPage() {
                                 <div className="min-w-0">
                                   <Link
                                     href={`/products/${item.product.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label={`${item.product.name} ürün detayını yeni sekmede aç`}
                                     className="font-semibold leading-snug text-[var(--ink-1)] break-words transition-colors hover:text-primary-700 hover:underline"
                                   >
                                     {item.product.name}
                                   </Link>
                                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                    <Link href={`/products/${item.product.id}`} className="chip font-mono hover:text-primary-700 hover:underline">
+                                    <Link
+                                      href={`/products/${item.product.id}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label={`${item.product.name} ürün detayını yeni sekmede aç`}
+                                      className="chip font-mono hover:text-primary-700 hover:underline"
+                                    >
                                       {item.product.mikroCode}
                                     </Link>
                                     {!isSubUser && customerProductCode && (

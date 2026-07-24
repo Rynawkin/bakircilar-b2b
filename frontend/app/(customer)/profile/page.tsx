@@ -322,6 +322,9 @@ export default function ProfilePage() {
                           <Link
                             key={item.id}
                             href={`/products/${item.product.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label={`${item.productName} ürün detayını yeni sekmede aç`}
                             className="chip pointer-events-auto relative z-10 transition-colors hover:border-primary-200 hover:text-primary-700"
                           >
                             {item.productName} ({item.quantity})
