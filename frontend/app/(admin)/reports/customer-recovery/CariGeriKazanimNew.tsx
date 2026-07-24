@@ -3,6 +3,8 @@
 import React from 'react';
 import Link from 'next/link';
 import { Modal } from '@/components/ui/Modal';
+import { SalesDecisionReportGuide } from '@/components/reports/SalesDecisionReportGuide';
+import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
 import { formatCurrency } from '@/lib/utils/format';
 import {
   ChevronRight,
@@ -67,6 +69,7 @@ const EMERALD = '#047857';
 const AMBER = '#b45309';
 const RED = '#b91c1c';
 const BLUE = '#1d4ed8';
+const REPORT_DEFINITION = SALES_DECISION_REPORTS.customerRecovery;
 
 const cardStyle: React.CSSProperties = {
   background: '#fff',
@@ -156,6 +159,22 @@ const developmentBadgeStyle: Record<CustomerRecoveryRow['developmentStatus'], Re
   UNCHANGED: { background: '#f1f5f9', color: '#475569' },
   WORSENED: { background: '#fef2f2', color: '#b91c1c' },
   NO_ACTION: { background: '#f8fafc', color: '#64748b' },
+};
+
+type CategoryTrendState = NonNullable<CustomerRecoveryRow['topLostCategory']>['trendState'];
+
+const categoryTrendLabels: Record<CategoryTrendState, string> = {
+  STOPPED: 'Alım durdu',
+  DECLINED: 'Alım düştü',
+  CONTINUING: 'Alım devam ediyor',
+  GROWN: 'Alım büyüdü',
+};
+
+const categoryTrendStyles: Record<CategoryTrendState, React.CSSProperties> = {
+  STOPPED: { background: '#fef2f2', color: RED },
+  DECLINED: { background: '#fffbeb', color: AMBER },
+  CONTINUING: { background: '#eff6ff', color: BLUE },
+  GROWN: { background: '#ecfdf5', color: EMERALD },
 };
 
 const pill = (extra: React.CSSProperties): React.CSSProperties => ({
@@ -343,7 +362,7 @@ export default function CariGeriKazanimNew() {
     visibleRows.length > 0 && visibleRows.every((row) => selectedCodes.includes(row.customerCode));
 
   return (
-    <div style={{ maxWidth: 1600, margin: '0 auto', padding: 24 }}>
+    <div className="px-3 py-4 sm:p-6" style={{ maxWidth: 1600, margin: '0 auto' }}>
       {/* Hero */}
       <div
         style={{
@@ -359,12 +378,13 @@ export default function CariGeriKazanimNew() {
             Raporlar
           </Link>
           <ChevronRight size={13} strokeWidth={2} />
-          <span>Cari Geri Kazanım</span>
+          <span>{REPORT_DEFINITION.title}</span>
         </div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-.02em', margin: 0 }}>Cari Geri Kazanım</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-.02em', margin: 0 }}>
+          {REPORT_DEFINITION.title}
+        </h1>
         <div style={{ fontSize: 13, color: '#9bb0d4', marginTop: 6, maxWidth: 760 }}>
-          Son dönem satışı duran, anlamsız düşen veya aktif ay ortalamasının altına inen carileri bulur; not, takip
-          tarihi, temsilci ataması ve gelişme durumuyla izler.
+          {REPORT_DEFINITION.description}
         </div>
         <div style={{ display: 'flex', gap: 30, flexWrap: 'wrap', marginTop: 18 }}>
           <div>
@@ -390,8 +410,10 @@ export default function CariGeriKazanimNew() {
         </div>
       </div>
 
+      <SalesDecisionReportGuide active="customerRecovery" />
+
       {/* Sekmeler */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+      <div className="mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         <button
           type="button"
           onClick={() => setActiveView('recovery')}
@@ -487,7 +509,7 @@ export default function CariGeriKazanimNew() {
 
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Senaryo presetleri */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                 {scenarioPresets.map((scenario) => {
                   const active = selectedScenario === scenario.id;
                   return (
@@ -534,7 +556,7 @@ export default function CariGeriKazanimNew() {
               </div>
 
               {/* Filtreler */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12 }}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
                 <NewLabeledInput label="Sektör kodu" value={filters.sectorCode} onChange={(v) => updateFilter('sectorCode', v.toUpperCase())} />
                 <div>
                   <label style={labelStyle}>Temsilci / takip sahibi</label>
@@ -610,7 +632,7 @@ export default function CariGeriKazanimNew() {
 
               {showManualSettings && (
                 <div style={{ borderRadius: 11, border: `1px dashed #cbd5e1`, background: '#f8fafc', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12 }}>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
                     <NewLabeledInput label="Son dönem ay" value={filters.recentMonths} onChange={(v) => updateFilter('recentMonths', v)} />
                     <NewLabeledInput label="Geçmiş baz ay" value={filters.baselineMonths} onChange={(v) => updateFilter('baselineMonths', v)} />
                     <NewLabeledInput label="Düşme yüzdesi" value={filters.minDropPercent} onChange={(v) => updateFilter('minDropPercent', v)} />
@@ -650,7 +672,7 @@ export default function CariGeriKazanimNew() {
           </div>
 
           {/* Ana grid: tablo + sag kolon */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 340px', gap: 16, alignItems: 'start' }}>
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
             {/* Riskli cariler tablosu */}
             <div style={{ ...cardStyle, overflow: 'hidden' }}>
               <div style={{ padding: '14px 18px', borderBottom: `1px solid ${SOFT_LINE}` }}>
@@ -726,7 +748,7 @@ export default function CariGeriKazanimNew() {
                     <SortHead label="Son ort." sortBy="recentAverage" activeSort={clientSort} onSort={sort} align="right" />
                     <SortHead label="Düşme" sortBy="dropPercent" activeSort={clientSort} onSort={sort} align="right" />
                     <SortHead label="Kayıp" sortBy="lostPotential" activeSort={clientSort} onSort={sort} align="right" />
-                    <span>Kayıp kategori</span>
+                    <span>En çok daralan kategori</span>
                     <SortHead label="Son alım" sortBy="lastSaleDate" activeSort={clientSort} onSort={sort} />
                     <span>Önerilen aksiyon</span>
                     <span>Takip</span>
@@ -805,7 +827,7 @@ export default function CariGeriKazanimNew() {
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontSize: 12, fontWeight: 500, color: INK }}>{row.topLostCategory?.categoryName || '-'}</div>
                             <div style={{ fontSize: 10.5, color: FAINT }}>
-                              {row.topLostCategory ? formatCurrency(row.topLostCategory.lostAmount) : row.seasonalityReason || '-'}
+                              {row.topLostCategory ? `Tahmini aylık daralma: ${formatCurrency(row.topLostCategory.lostAmount)}` : row.seasonalityReason || '-'}
                             </div>
                           </div>
                           {/* Son alim */}
@@ -1006,10 +1028,10 @@ export default function CariGeriKazanimNew() {
         {detailLoading ? (
           <div style={{ padding: '64px 0', textAlign: 'center', color: MUTED }}>Cari detayları yükleniyor...</div>
         ) : detailRow ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 420px', gap: 20, alignItems: 'start' }}>
+          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
             {/* Sol */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Geçmiş aylık ort." value={formatCurrency(detailRow.historicalAverage)} />
                 <MetricCard label="Son dönem ort." value={formatCurrency(detailRow.recentAverage)} />
                 <MetricCard label="Tahmini kayıp" value={formatCurrency(detailRow.lostPotential)} />
@@ -1018,8 +1040,12 @@ export default function CariGeriKazanimNew() {
 
               {/* Insight */}
               <div style={{ ...cardStyle, border: '1px solid #fde68a', background: '#fffbeb', padding: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                  <InsightBlock label="Ana kayıp kategori" value={detailRow.topLostCategory?.categoryName || '-'} helper={detailRow.topLostCategory ? formatCurrency(detailRow.topLostCategory.lostAmount) : '-'} />
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                  <InsightBlock
+                    label="En çok daralan kategori"
+                    value={detailRow.topLostCategory?.categoryName || '-'}
+                    helper={detailRow.topLostCategory ? `Tahmini aylık daralma: ${formatCurrency(detailRow.topLostCategory.lostAmount)}` : '-'}
+                  />
                   <InsightBlock label="Son alınan ürün" value={detailRow.lastPurchasedProduct?.productName || '-'} helper={safeDate(detailRow.lastPurchasedProduct?.lastPurchaseDate || detailRow.lastSaleDate)} />
                   <InsightBlock
                     label={detailRow.isSeasonal ? 'Dönemsel ritim' : 'Önerilen aksiyon'}
@@ -1060,31 +1086,91 @@ export default function CariGeriKazanimNew() {
 
               {/* Kategori kaybi */}
               <div style={{ ...cardStyle, padding: 16 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>Kategori kaybı ve ürünler</div>
-                <div style={{ fontSize: 11.5, color: FAINT, marginTop: 2, marginBottom: 12 }}>Düşüşü hangi kategori ve ürünlerin yarattığını gösterir</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>Kategori ve ürün bazında aylık değişim</div>
+                <div style={{ fontSize: 11.5, color: FAINT, marginTop: 2, marginBottom: 12 }}>
+                  Baz ve son dönemin aylık ortalamalarını net karşılaştırır; ürün ikamesi kategori kaybı sayılmaz.
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {(detail?.categories || []).map((category) => (
-                    <div key={category.categoryCode} style={{ borderRadius: 11, border: `1px solid ${SOFT_LINE}`, background: '#fff', padding: 14 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                        <div>
-                          <div style={{ fontWeight: 600, color: INK }}>{category.categoryName}</div>
-                          <div style={{ fontSize: 10.5, color: FAINT }}>{category.categoryCode} / {category.productCount} ürün</div>
-                        </div>
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: RED }}>{formatCurrency(category.lostAmount)}</div>
-                      </div>
-                      <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
-                        {category.products.slice(0, 6).map((product) => (
-                          <div key={product.productCode} style={{ borderRadius: 9, background: '#f8fafc', padding: 10, fontSize: 12 }}>
-                            <div style={{ fontWeight: 500, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.productName}</div>
-                            <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10.5, color: FAINT }}>
-                              <span>{product.productCode}</span>
-                              <span>{formatCurrency(product.lostAmount)}</span>
+                  {(detail?.categories || []).map((category) => {
+                    const monthlyChange =
+                      category.recentMonthlyAverage - category.historicalMonthlyAverage;
+                    const trendStyle = categoryTrendStyles[category.trendState];
+                    const changeLabel =
+                      category.trendState === 'GROWN'
+                        ? `Tahmini aylık artış: ${formatCurrency(Math.max(0, monthlyChange))}`
+                        : category.trendState === 'CONTINUING'
+                          ? 'Aylık seviye korunuyor'
+                          : `Tahmini aylık daralma: ${formatCurrency(category.lostAmount)}`;
+
+                    return (
+                      <div key={category.categoryCode} style={{ borderRadius: 11, border: `1px solid ${SOFT_LINE}`, background: '#fff', padding: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 600, color: INK }}>{category.categoryName}</span>
+                              <span style={pill({ ...trendStyle, padding: '3px 8px' })}>
+                                {categoryTrendLabels[category.trendState]}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 10.5, color: FAINT, marginTop: 3 }}>
+                              {category.categoryCode} / {category.productCount} ürün
                             </div>
                           </div>
-                        ))}
+                          <div
+                            style={{
+                              fontSize: 12.5,
+                              fontWeight: 600,
+                              color:
+                                category.trendState === 'GROWN'
+                                  ? EMERALD
+                                  : category.trendState === 'CONTINUING'
+                                    ? MUTED
+                                    : RED,
+                            }}
+                          >
+                            {changeLabel}
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 7, fontSize: 11, color: MUTED }}>
+                          Baz aylık ortalama: {formatCurrency(category.historicalMonthlyAverage)} → Son dönem aylık ortalama:{' '}
+                          {formatCurrency(category.recentMonthlyAverage)}
+                        </div>
+                        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+                          {category.products.slice(0, 6).map((product) => {
+                            const productChange =
+                              product.recentMonthlyAverage - product.historicalMonthlyAverage;
+                            const productChangeLabel =
+                              product.lostAmount > 0
+                                ? `Aylık daralma: ${formatCurrency(product.lostAmount)}`
+                                : productChange > 0
+                                  ? `Aylık artış: ${formatCurrency(productChange)}`
+                                  : 'Aylık değişim yok';
+
+                            return (
+                              <div key={product.productCode} style={{ borderRadius: 9, background: '#f8fafc', padding: 10, fontSize: 12 }}>
+                                <div style={{ fontWeight: 500, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.productName}</div>
+                                <div style={{ marginTop: 4, fontSize: 10.5, color: FAINT }}>{product.productCode}</div>
+                                <div style={{ marginTop: 3, fontSize: 10.5, color: MUTED }}>
+                                  Baz: {formatCurrency(product.historicalMonthlyAverage)} → Son:{' '}
+                                  {formatCurrency(product.recentMonthlyAverage)}
+                                </div>
+                                <div
+                                  style={{
+                                    marginTop: 3,
+                                    fontSize: 10.5,
+                                    fontWeight: 600,
+                                    color: product.lostAmount > 0 ? RED : productChange > 0 ? EMERALD : MUTED,
+                                  }}
+                                >
+                                  {productChangeLabel}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {(!detail?.categories || detail.categories.length === 0) && (
                     <div style={{ borderRadius: 11, border: `1px dashed ${LINE}`, padding: 18, fontSize: 12, color: FAINT }}>Kategori kırılımı bulunamadı.</div>
                   )}
@@ -1127,7 +1213,7 @@ export default function CariGeriKazanimNew() {
                 <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>Yeni aksiyon / not</div>
                 <div style={{ fontSize: 11.5, color: '#3b6e5b', marginTop: 2, marginBottom: 12 }}>Yapılan çalışma sonraki raporlarda gelişme durumuyla birlikte görünür</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                     <div>
                       <label style={labelStyle}>Tip</label>
                       <select value={actionForm.actionType} onChange={(e) => setActionForm((p) => ({ ...p, actionType: e.target.value }))} style={selectStyle}>
@@ -1242,7 +1328,7 @@ export default function CariGeriKazanimNew() {
                             {action.outcome}
                           </p>
                         )}
-                        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 10.5, color: FAINT }}>
+                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2" style={{ fontSize: 10.5, color: FAINT }}>
                           <span>Takip: {safeDate(action.followUpDate)}</span>
                           <span>Atanan: {action.assignedTo?.name || '-'}</span>
                         </div>
@@ -1251,7 +1337,7 @@ export default function CariGeriKazanimNew() {
                             <MessageSquare size={14} strokeWidth={2} style={{ color: EMERALD }} />
                             Aksiyon durumu / notu
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                             <div>
                               <label style={labelStyle}>Durum</label>
                               <select value={draft.status} onChange={(e) => updateActionDraft(action.id, { status: e.target.value })} style={selectStyle}>
@@ -1364,7 +1450,7 @@ function HistoricalValueSection({
                 alım yapıp sonrasında duran carileri ayrıca işaretler.
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, minWidth: 320 }}>
+            <div className="grid w-full grid-cols-1 gap-3 sm:w-auto sm:grid-cols-2">
               <div style={{ borderRadius: 11, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.1)', padding: 14 }}>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)' }}>Bugünkü USD/TL</div>
                 <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700 }}>{currentRateLabel}</div>
@@ -1378,7 +1464,7 @@ function HistoricalValueSection({
         </div>
 
         <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12 }}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
             <NewLabeledInput label="Başlangıç yılı" value={filters.startYear} onChange={(v) => onFilterChange('startYear', v)} />
             <NewLabeledInput label="Pasif ay eşiği" value={filters.inactiveMonths} onChange={(v) => onFilterChange('inactiveMonths', v)} />
             <NewLabeledInput label="Min. ardışık aktif ay" value={filters.minConsecutiveMonths} onChange={(v) => onFilterChange('minConsecutiveMonths', v)} />
@@ -1406,7 +1492,7 @@ function HistoricalValueSection({
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 220px 150px 150px', gap: 12, alignItems: 'end' }}>
+          <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_220px_150px_150px]">
             <div style={{ position: 'relative' }}>
               <Search size={15} strokeWidth={2} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: FAINT, pointerEvents: 'none' }} />
               <input
@@ -1443,7 +1529,7 @@ function HistoricalValueSection({
       </div>
 
       {/* Ozet metrikler */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <MetricCard label="Cari sayısı" value={summary?.totalCustomers ?? 0} />
         <MetricCard label="Nominal toplam" value={formatCurrency(summary?.totalRawAmount || 0)} />
         <MetricCard label="Bugünkü değer" value={formatCurrency(summary?.totalAdjustedAmount || 0)} />

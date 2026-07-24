@@ -4955,6 +4955,7 @@ export class AdminController {
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
         minDocumentCount: minDocumentCount ? parseInt(minDocumentCount as string, 10) : undefined,
+        scope: buildReportRequestContext(req),
       });
 
       res.json({
@@ -4978,6 +4979,9 @@ export class AdminController {
         customerCode,
         inactiveMonths,
         activeCustomerMonths,
+        sectorCode,
+        minHistoricalDocumentCount,
+        minHistoricalAmount,
         page,
         limit,
         sortBy,
@@ -4990,6 +4994,14 @@ export class AdminController {
         customerCode: customerCode as string,
         inactiveMonths: inactiveMonths ? parseInt(inactiveMonths as string, 10) : undefined,
         activeCustomerMonths: activeCustomerMonths ? parseInt(activeCustomerMonths as string, 10) : undefined,
+        sectorCode: sectorCode as string,
+        minHistoricalDocumentCount: minHistoricalDocumentCount
+          ? parseInt(minHistoricalDocumentCount as string, 10)
+          : undefined,
+        minHistoricalAmount: minHistoricalAmount
+          ? Number(minHistoricalAmount)
+          : undefined,
+        scope: buildReportRequestContext(req),
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
         sortBy: sortBy as any,
@@ -5014,17 +5026,26 @@ export class AdminController {
       const {
         categoryCode,
         customerCode,
+        sectorCode,
         lookbackMonths,
         minPairCount,
+        minOpportunityScore,
+        minRecommendationCount,
         limit,
       } = req.query;
 
       const data = await reportsService.getCategoryOpportunityReport({
         categoryCode: categoryCode as string,
         customerCode: customerCode as string,
+        sectorCode: sectorCode as string,
         lookbackMonths: lookbackMonths ? parseInt(lookbackMonths as string, 10) : undefined,
         minPairCount: minPairCount ? parseInt(minPairCount as string, 10) : undefined,
+        minOpportunityScore: minOpportunityScore ? Number(minOpportunityScore) : undefined,
+        minRecommendationCount: minRecommendationCount
+          ? parseInt(minRecommendationCount as string, 10)
+          : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
+        scope: buildReportRequestContext(req),
       });
 
       res.json({
@@ -5069,6 +5090,7 @@ export class AdminController {
         categoryCode: categoryCode as string,
         customerCode: customerCode as string,
         inactiveMonths: inactiveMonths ? parseInt(inactiveMonths as string, 10) : undefined,
+        scope: buildReportRequestContext(req),
       });
 
       res.json({
@@ -5092,6 +5114,9 @@ export class AdminController {
         customerCode,
         inactiveMonths,
         activeCustomerMonths,
+        sectorCode,
+        minHistoricalDocumentCount,
+        minHistoricalAmount,
         sortBy,
         sortDirection,
       } = req.query;
@@ -5102,6 +5127,12 @@ export class AdminController {
         customerCode: customerCode as string,
         inactiveMonths: inactiveMonths ? parseInt(inactiveMonths as string, 10) : undefined,
         activeCustomerMonths: activeCustomerMonths ? parseInt(activeCustomerMonths as string, 10) : undefined,
+        sectorCode: sectorCode as string,
+        minHistoricalDocumentCount: minHistoricalDocumentCount
+          ? parseInt(minHistoricalDocumentCount as string, 10)
+          : undefined,
+        minHistoricalAmount: minHistoricalAmount ? Number(minHistoricalAmount) : undefined,
+        scope: buildReportRequestContext(req),
         sortBy: sortBy as any,
         sortDirection: sortDirection as 'asc' | 'desc',
       });
@@ -5374,7 +5405,10 @@ export class AdminController {
    */
   async getCustomerRecoveryActions(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await customerRecoveryService.getCustomerActions(req.params.customerCode);
+      const data = await customerRecoveryService.getCustomerActions(
+        req.params.customerCode,
+        buildReportRequestContext(req)
+      );
       res.json({
         success: true,
         data,
@@ -5406,7 +5440,12 @@ export class AdminController {
    */
   async createCustomerRecoveryAction(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await customerRecoveryService.createAction(req.params.customerCode, req.body, req.user?.userId);
+      const data = await customerRecoveryService.createAction(
+        req.params.customerCode,
+        req.body,
+        req.user?.userId,
+        buildReportRequestContext(req)
+      );
       res.status(201).json({
         success: true,
         data,
@@ -5422,7 +5461,12 @@ export class AdminController {
    */
   async updateCustomerRecoveryAction(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await customerRecoveryService.updateAction(req.params.id, req.body, req.user?.userId);
+      const data = await customerRecoveryService.updateAction(
+        req.params.id,
+        req.body,
+        req.user?.userId,
+        buildReportRequestContext(req)
+      );
       res.json({
         success: true,
         data,
@@ -5438,7 +5482,11 @@ export class AdminController {
    */
   async bulkAssignCustomerRecovery(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await customerRecoveryService.bulkAssign(req.body, req.user?.userId);
+      const data = await customerRecoveryService.bulkAssign(
+        req.body,
+        req.user?.userId,
+        buildReportRequestContext(req)
+      );
       res.status(201).json({
         success: true,
         data,
@@ -6484,6 +6532,7 @@ export class AdminController {
         salesRepId: salesRepId as string,
         periodMonths: periodMonths ? parseInt(periodMonths as string, 10) : undefined,
         minDocumentCount: minDocumentCount ? parseInt(minDocumentCount as string, 10) : undefined,
+        scope: buildReportRequestContext(req),
       });
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

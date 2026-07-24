@@ -173,7 +173,7 @@ export default function BanaAtananGeriKazanimNew() {
           }}
         >
           <ArrowLeft size={14} strokeWidth={2} />
-          Cari Geri Kazanım
+          Satışı Düşen/Duran Cariler
         </Link>
         <ChevronRight size={13} strokeWidth={2} />
         <span style={{ color: MUTED, fontWeight: 500 }}>Bana Atanan Geri Kazanım</span>

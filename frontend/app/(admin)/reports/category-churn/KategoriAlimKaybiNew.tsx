@@ -18,6 +18,8 @@ import {
   useKategoriAlimKaybi,
   type SortBy,
 } from './useKategoriAlimKaybi';
+import { SalesDecisionReportGuide } from '@/components/reports/SalesDecisionReportGuide';
+import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
 
 /**
  * Yeni gorunum: Kategori Alim Kaybi Raporu.
@@ -44,6 +46,7 @@ const TABLE_HEAD_BG = '#fafbfd';
 const FIELD_LINE = '#e3e8f0';
 const EMERALD = '#047857';
 const RED = '#b91c1c';
+const REPORT_DEFINITION = SALES_DECISION_REPORTS.categoryChurn;
 
 const cardStyle: React.CSSProperties = {
   background: '#fff',
@@ -215,6 +218,13 @@ export default function KategoriAlimKaybiNew() {
     setActiveFilterEnabled,
     activeCustomerMonths,
     setActiveCustomerMonths,
+    sectorCode,
+    setSectorCode,
+    sectorOptions,
+    minHistoricalDocumentCount,
+    setMinHistoricalDocumentCount,
+    minHistoricalAmount,
+    setMinHistoricalAmount,
     submitted,
     rows,
     summary,
@@ -252,7 +262,7 @@ export default function KategoriAlimKaybiNew() {
   const MIN_W = tableMode === 'category' ? 1180 : 1080;
 
   return (
-    <div style={{ maxWidth: 1280, margin: '0 auto', padding: 24 }}>
+    <div className="px-3 py-4 sm:p-6" style={{ maxWidth: 1280, margin: '0 auto' }}>
       {/* Breadcrumb */}
       <div
         style={{
@@ -268,7 +278,7 @@ export default function KategoriAlimKaybiNew() {
           Raporlar
         </Link>
         <ChevronRight size={13} strokeWidth={2} />
-        <span style={{ color: MUTED, fontWeight: 500 }}>Kategori Alım Kaybı</span>
+        <span style={{ color: MUTED, fontWeight: 500 }}>{REPORT_DEFINITION.title}</span>
       </div>
 
       {/* Header: baslik + Yenile/Excel */}
@@ -296,10 +306,10 @@ export default function KategoriAlimKaybiNew() {
             }}
           >
             <Layers size={22} strokeWidth={2} style={{ color: PRIMARY }} />
-            Kategori Alım Kaybı Raporu
+            {REPORT_DEFINITION.title}
           </h1>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 5 }}>
-            Müşterinin daha önce alıp seçili süredir almadığı kategorileri listeler
+            {REPORT_DEFINITION.description}
           </div>
         </div>
 
@@ -337,6 +347,8 @@ export default function KategoriAlimKaybiNew() {
         </div>
       </div>
 
+      <SalesDecisionReportGuide active="categoryChurn" />
+
       {/* Filters Card */}
       <div style={{ ...cardStyle, padding: 16, marginBottom: 18 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: INK, marginBottom: 3 }}>
@@ -346,14 +358,7 @@ export default function KategoriAlimKaybiNew() {
           Kategori bazlı veya cari bazlı raporu seçin
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-            gap: 14,
-            alignItems: 'start',
-          }}
-        >
+        <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {/* Rapor Modu (sekme/toggle) */}
           <div>
             <label style={labelStyle}>Rapor Modu</label>
@@ -521,9 +526,9 @@ export default function KategoriAlimKaybiNew() {
             </select>
           </div>
 
-          {/* Aktif Cari Filtresi */}
+          {/* Başka kategorilerde aktif cari filtresi */}
           <div>
-            <label style={labelStyle}>Aktif Cari Filtresi</label>
+            <label style={labelStyle}>Başka Kategorilerde Aktif Cari</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <input
                 type="checkbox"
@@ -543,12 +548,64 @@ export default function KategoriAlimKaybiNew() {
                   opacity: activeFilterEnabled ? 1 : 0.6,
                 }}
               />
-              <span style={{ fontSize: 11, color: FAINT }}>ayda satışı olanlar</span>
+              <span style={{ fontSize: 11, color: FAINT }}>ay içinde herhangi bir satışı olan</span>
             </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Sektör</label>
+            <select
+              value={sectorCode}
+              onChange={(e) => setSectorCode(e.target.value)}
+              style={{ ...inputStyle, cursor: 'pointer' }}
+            >
+              <option value="">Tüm sektörler</option>
+              {sectorOptions.map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Min. Geçmiş Evrak</label>
+            <input
+              type="number"
+              min="1"
+              value={minHistoricalDocumentCount}
+              onChange={(e) => setMinHistoricalDocumentCount(e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Min. Geçmiş Ciro</label>
+            <input
+              type="number"
+              min="0"
+              step="1000"
+              value={minHistoricalAmount}
+              onChange={(e) => setMinHistoricalAmount(e.target.value)}
+              style={inputStyle}
+            />
           </div>
         </div>
 
-        <div style={{ marginTop: 16 }}>
+        <div
+          style={{
+            marginTop: 14,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: '#f8fafc',
+            color: MUTED,
+            fontSize: 11.5,
+            lineHeight: 1.5,
+          }}
+        >
+          Bu ekran yalnız daha önce alınmış bir kategori-cari bağının kesilmesini gösterir.
+          Seçili kategoriyi hiç almamış cariler için “Yeni Kategori Kazandırma Fırsatları” raporunu kullanın.
+        </div>
+
+        <div style={{ marginTop: 14 }}>
           <button
             type="button"
             onClick={runReport}
@@ -567,14 +624,7 @@ export default function KategoriAlimKaybiNew() {
 
       {/* Metadata kartlari (Mod / Alim Kesilme Araligi / Secim) */}
       {metadata && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: 14,
-            marginBottom: 18,
-          }}
-        >
+        <div className="mb-[18px] grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <div style={summaryCard}>
             <div style={{ fontSize: 11.5, color: FAINT }}>Mod</div>
             <div style={{ fontSize: 16, fontWeight: 600, color: INK, marginTop: 5 }}>
@@ -605,22 +655,20 @@ export default function KategoriAlimKaybiNew() {
               Aktif cari filtresi:{' '}
               {metadata.activeCustomerMonths ? `Son ${metadata.activeCustomerMonths} ay` : 'Yok'}
             </div>
+            <div style={{ fontSize: 11.5, color: FAINT, marginTop: 3 }}>
+              Sektör: {metadata.sectorCode || 'Tümü'} · Min. evrak:{' '}
+              {metadata.minHistoricalDocumentCount || 1} · Min. ciro:{' '}
+              {metadata.minHistoricalAmount ? formatCurrency(metadata.minHistoricalAmount) : 'Yok'}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Ozet metrik kartlari (Toplam Kayit / Etkilenen Cari / Etkilenen Kategori) */}
+      {/* Ozet metrik kartlari */}
       {summary && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: 14,
-            marginBottom: 18,
-          }}
-        >
+        <div className="mb-[18px] grid grid-cols-2 gap-3 lg:grid-cols-5">
           <div style={summaryCard}>
-            <div style={{ fontSize: 11.5, color: FAINT }}>Toplam Kayıt</div>
+            <div style={{ fontSize: 11.5, color: FAINT }}>Kesilen Kategori-Cari Bağı</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: INK, marginTop: 5 }}>
               {summary.totalRows}
             </div>
@@ -645,9 +693,23 @@ export default function KategoriAlimKaybiNew() {
           </div>
 
           <div style={summaryCard}>
-            <div style={{ fontSize: 11.5, color: FAINT }}>Etkilenen Kategori</div>
+            <div style={{ fontSize: 11.5, color: FAINT }}>Başka Kategoride Aktif</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: INK, marginTop: 5 }}>
-              {summary.affectedCategories}
+              {summary.activeOutsideCategoryCustomers}
+            </div>
+          </div>
+
+          <div style={summaryCard}>
+            <div style={{ fontSize: 11.5, color: FAINT }}>Geçmiş Kategori Cirosu</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: EMERALD, marginTop: 7 }}>
+              {formatCurrency(summary.historicalRevenue)}
+            </div>
+          </div>
+
+          <div style={summaryCard}>
+            <div style={{ fontSize: 11.5, color: FAINT }}>Ort. Alımsız Gün</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: INK, marginTop: 5 }}>
+              {summary.averageInactiveDays ?? '-'}
             </div>
           </div>
         </div>
@@ -798,7 +860,21 @@ export default function KategoriAlimKaybiNew() {
                             </span>
                           </>
                         )}
-                        <span style={{ color: MUTED }}>{row.lastPurchaseDate || '-'}</span>
+                        <div style={{ color: MUTED }}>
+                          <div>{row.lastPurchaseDate || '-'}</div>
+                          <div
+                            style={{
+                              fontSize: 10.5,
+                              color: row.customerActiveOutsideCategory ? EMERALD : FAINT,
+                              marginTop: 2,
+                            }}
+                          >
+                            {row.daysSinceCategoryPurchase !== null
+                              ? `${row.daysSinceCategoryPurchase} gün`
+                              : '-'}
+                            {row.customerActiveOutsideCategory ? ' · diğer kategorilerde aktif' : ''}
+                          </div>
+                        </div>
                         <span style={{ color: MUTED }}>{row.customerLastSaleDate || '-'}</span>
                         <span style={cellRight}>{row.historicalDocumentCount}</span>
                         <span style={cellRight}>

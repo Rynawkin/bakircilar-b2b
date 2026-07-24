@@ -13,6 +13,9 @@ import {
   Target,
   CheckCircle2,
 } from 'lucide-react';
+import { SalesDecisionReportGuide } from '@/components/reports/SalesDecisionReportGuide';
+import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
+import { formatCurrency } from '@/lib/utils/format';
 import { useKategoriFirsat } from './useKategoriFirsat';
 
 /**
@@ -39,6 +42,7 @@ const ROW_LINE = '#f1f4f9';
 const TABLE_HEAD_BG = '#f8fafc';
 const EMERALD = '#047857';
 const RED = '#b91c1c';
+const REPORT_DEFINITION = SALES_DECISION_REPORTS.categoryOpportunity;
 
 const cardStyle: React.CSSProperties = {
   background: '#fff',
@@ -123,6 +127,16 @@ const monoStyle: React.CSSProperties = {
   fontSize: 11,
 };
 
+const formatMetadataDateTime = (value?: string | null) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('tr-TR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+};
+
 export default function KategoriFirsatNew() {
   const {
     categorySearch,
@@ -143,6 +157,13 @@ export default function KategoriFirsatNew() {
     setLookbackMonths,
     minPairCount,
     setMinPairCount,
+    sectorCode,
+    setSectorCode,
+    sectorOptions,
+    minOpportunityScore,
+    setMinOpportunityScore,
+    minRecommendationCount,
+    setMinRecommendationCount,
     limit,
     setLimit,
     submitted,
@@ -159,7 +180,7 @@ export default function KategoriFirsatNew() {
   } = useKategoriFirsat();
 
   return (
-    <div style={{ maxWidth: 1280, margin: '0 auto', padding: 24 }}>
+    <div className="px-3 py-4 sm:p-6" style={{ maxWidth: 1280, margin: '0 auto' }}>
       {/* Breadcrumb */}
       <div
         style={{
@@ -175,7 +196,7 @@ export default function KategoriFirsatNew() {
           Raporlar
         </Link>
         <ChevronRight size={13} strokeWidth={2} />
-        <span style={{ color: MUTED, fontWeight: 500 }}>Kategori Fırsat Önerileri</span>
+        <span style={{ color: MUTED, fontWeight: 500 }}>{REPORT_DEFINITION.title}</span>
       </div>
 
       {/* Header: baslik + Yenile */}
@@ -203,10 +224,10 @@ export default function KategoriFirsatNew() {
             }}
           >
             <Sparkles size={22} strokeWidth={2} style={{ color: PRIMARY }} />
-            Kategori Fırsat Önerileri
+            {REPORT_DEFINITION.title}
           </h1>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 5 }}>
-            Seçilen kategoriyi almayan carileri, son dönem alım davranışına göre otomatik bulur
+            {REPORT_DEFINITION.description}
           </div>
         </div>
 
@@ -225,6 +246,8 @@ export default function KategoriFirsatNew() {
         </button>
       </div>
 
+      <SalesDecisionReportGuide active="categoryOpportunity" />
+
       {/* Filters card */}
       <div style={{ ...cardStyle, padding: 16, marginBottom: 18 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: INK, marginBottom: 3 }}>Filtreler</div>
@@ -233,7 +256,7 @@ export default function KategoriFirsatNew() {
         </div>
 
         {/* Kategori + Cari autocomplete */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 14 }}>
+        <div className="mb-3.5 grid grid-cols-1 gap-3 md:grid-cols-2">
           {/* Kategori autocomplete */}
           <div style={{ position: 'relative' }}>
             <label style={labelStyle}>Kategori (kod veya ad)</label>
@@ -244,14 +267,12 @@ export default function KategoriFirsatNew() {
                 style={{ position: 'absolute', left: 10, top: 11, color: FAINT, pointerEvents: 'none' }}
               />
               <input
-                value={categorySearch}
-                onChange={(e) => {
-                  setCategorySearch(e.target.value);
-                  if (!e.target.value.trim()) {
-                    setCategoryCode('');
-                    setCategoryName('');
-                  }
-                }}
+                 value={categorySearch}
+                 onChange={(e) => {
+                   setCategorySearch(e.target.value);
+                   setCategoryCode('');
+                   setCategoryName('');
+                 }}
                 placeholder="Örn: KARTON BARDAK veya kategori kodu"
                 style={{ ...inputStyle, paddingLeft: 30 }}
               />
@@ -288,13 +309,11 @@ export default function KategoriFirsatNew() {
                 style={{ position: 'absolute', left: 10, top: 11, color: FAINT, pointerEvents: 'none' }}
               />
               <input
-                value={customerSearch}
-                onChange={(e) => {
-                  setCustomerSearch(e.target.value);
-                  if (!e.target.value.trim()) {
-                    setCustomerCode('');
-                  }
-                }}
+                 value={customerSearch}
+                 onChange={(e) => {
+                   setCustomerSearch(e.target.value);
+                   setCustomerCode('');
+                 }}
                 placeholder="Sadece tek cari için filtrelemek isterseniz seçin"
                 style={{ ...inputStyle, paddingLeft: 30 }}
               />
@@ -325,7 +344,7 @@ export default function KategoriFirsatNew() {
         </div>
 
         {/* Numeric filters + Calistir */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div>
             <label style={labelStyle}>Bakış süresi (ay)</label>
             <input value={lookbackMonths} onChange={(e) => setLookbackMonths(e.target.value)} style={inputStyle} />
@@ -333,6 +352,39 @@ export default function KategoriFirsatNew() {
           <div>
             <label style={labelStyle}>Min ortak evrak</label>
             <input value={minPairCount} onChange={(e) => setMinPairCount(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Sektör</label>
+            <select
+              value={sectorCode}
+              onChange={(e) => setSectorCode(e.target.value)}
+              style={{ ...inputStyle, cursor: 'pointer' }}
+            >
+              <option value="">Tüm sektörler</option>
+              {sectorOptions.map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Min kanıt skoru</label>
+            <input
+              type="number"
+              min="0"
+              value={minOpportunityScore}
+              onChange={(e) => setMinOpportunityScore(e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Min öneri sayısı</label>
+            <input
+              type="number"
+              min="1"
+              value={minRecommendationCount}
+              onChange={(e) => setMinRecommendationCount(e.target.value)}
+              style={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>Cari limiti</label>
@@ -357,6 +409,21 @@ export default function KategoriFirsatNew() {
               {loading ? 'Çalışıyor...' : 'Raporu Çalıştır'}
             </button>
           </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 12,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: '#f8fafc',
+            color: MUTED,
+            fontSize: 11.5,
+            lineHeight: 1.5,
+          }}
+        >
+          Bu rapor seçili kategoriyi tüm satış geçmişinde hiç almamış carileri gösterir.
+          Daha önce alıp bırakan cariler “Kategori-Cari Alım Kesintileri” raporundadır.
         </div>
 
         {/* Secili filtre ozeti */}
@@ -403,23 +470,48 @@ export default function KategoriFirsatNew() {
           <div style={{ marginBottom: 6 }}>
             <strong style={{ color: INK }}>Min ortak evrak:</strong> {metadata.minPairCount}
           </div>
-          <div>
+          <div style={{ marginBottom: 6 }}>
             <strong style={{ color: INK }}>Cari filtresi:</strong>{' '}
             {metadata.customerFilterCode || 'Yok (otomatik cari tarama)'}
           </div>
-        </div>
-      )}
+          <div style={{ marginBottom: 6 }}>
+            <strong style={{ color: INK }}>Sektör / sonuç eşiği:</strong>{' '}
+            {metadata.sectorCode || 'Tümü'} / skor {metadata.minOpportunityScore || 0} / öneri{' '}
+            {metadata.minRecommendationCount || 1}
+          </div>
+          <div>
+             <strong style={{ color: INK }}>İlişki kanıtı:</strong>{' '}
+             {metadata.associationWindowStart && metadata.associationWindowEnd
+               ? `${metadata.associationWindowStart} - ${metadata.associationWindowEnd}`
+               : 'Pencere bilgisi yok'}{' '}
+             · {metadata.candidateSourceProductCount} kanıt üretebilen kaynak ürün · Son güncelleme:{' '}
+             {formatMetadataDateTime(metadata.associationUpdatedAt)}
+           </div>
+         </div>
+       )}
 
-      {/* Summary cards (4 metrik) */}
-      {summary && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 14,
-            marginBottom: 18,
-          }}
-        >
+       {/* Summary cards */}
+       {summary && (
+         <div className="mb-[18px] grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+           <div style={summaryCard}>
+             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: FAINT }}>
+               <Search size={14} strokeWidth={2} style={{ color: FAINT }} />
+               Taranan cari
+             </div>
+             <div style={{ fontSize: 20, fontWeight: 600, color: INK, marginTop: 5 }}>
+               {summary.scannedCustomers}
+             </div>
+           </div>
+
+           <div style={summaryCard}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: FAINT }}>
+              <Target size={14} strokeWidth={2} style={{ color: FAINT }} />
+              Hiç almamış uygun cari
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 600, color: INK, marginTop: 5 }}>
+              {summary.eligibleCustomers}
+            </div>
+          </div>
           <div style={summaryCard}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: FAINT }}>
               <Users size={14} strokeWidth={2} style={{ color: FAINT }} />
@@ -442,11 +534,21 @@ export default function KategoriFirsatNew() {
 
           <div style={summaryCard}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: FAINT }}>
-              <Target size={14} strokeWidth={2} style={{ color: FAINT }} />
-              Taranan cari
+              <CheckCircle2 size={14} strokeWidth={2} style={{ color: FAINT }} />
+              Öneri kapsaması
             </div>
             <div style={{ fontSize: 20, fontWeight: 600, color: INK, marginTop: 5 }}>
-              {summary.scannedCustomers}
+              %{summary.coverageRate}
+            </div>
+          </div>
+
+          <div style={summaryCard}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: FAINT }}>
+              <Sparkles size={14} strokeWidth={2} style={{ color: FAINT }} />
+              Ortalama kanıt skoru
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 600, color: PRIMARY, marginTop: 5 }}>
+              {summary.averageOpportunityScore}
             </div>
           </div>
 
@@ -469,7 +571,8 @@ export default function KategoriFirsatNew() {
           <div style={{ padding: '14px 16px', borderBottom: `1px solid ${SOFT_LINE}` }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>Cari Bazlı Öneri Listesi</div>
             <div style={{ fontSize: 11.5, color: FAINT, marginTop: 3 }}>
-              Seçili kategoriyi almayan carilerde satış fırsatı
+              Seçili kategoriyi hiç almamış cariler. Kanıt skoru parasal değer değil;
+              ortak evrak gücü ile carinin kaynak ürün alış sıklığını birleştirir.
             </div>
           </div>
 
@@ -498,8 +601,8 @@ export default function KategoriFirsatNew() {
                   }}
                 >
                   <span>Cari</span>
-                  <span>Sektör</span>
-                  <span style={cellRight}>Toplam Fırsat Skoru</span>
+                  <span>Sektör / Kaynak Aktivite</span>
+                  <span style={cellRight}>Kanıt Skoru</span>
                   <span style={cellRight}>Öneri Sayısı</span>
                   <span>Öne Çıkan Öneriler</span>
                 </div>
@@ -519,28 +622,36 @@ export default function KategoriFirsatNew() {
                         alignItems: 'start',
                       }}
                     >
-                      <span>
-                        <div style={{ ...monoStyle, color: MUTED }}>{row.customerCode}</div>
-                        <div style={{ fontSize: 12.5, color: INK, fontWeight: 500, marginTop: 2 }}>
-                          {row.customerName || '-'}
-                        </div>
-                      </span>
-                      <span style={{ color: MUTED }}>{row.customerSectorCode || '-'}</span>
+                     <div>
+                       <div style={{ ...monoStyle, color: MUTED }}>{row.customerCode}</div>
+                       <div style={{ fontSize: 12.5, color: INK, fontWeight: 500, marginTop: 2 }}>
+                         {row.customerName || '-'}
+                       </div>
+                     </div>
+                     <div style={{ color: MUTED }}>
+                       <div>{row.customerSectorCode || '-'}</div>
+                       <div style={{ fontSize: 10.5, color: FAINT, marginTop: 3 }}>
+                         Son: {row.lastSourcePurchaseDate || '-'} · {row.sourceDocumentCount} ürün-evrak sinyali
+                       </div>
+                       <div style={{ fontSize: 10.5, color: FAINT, marginTop: 2 }}>
+                         Kaynak ciro: {formatCurrency(row.sourceRevenue || 0)}
+                       </div>
+                     </div>
                       <span style={{ ...cellRight, fontWeight: 700, color: PRIMARY }}>
                         {row.totalOpportunityScore}
                       </span>
                       <span style={{ ...cellRight, fontWeight: 500 }}>{row.recommendationCount}</span>
-                      <span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          {row.recommendations.slice(0, 3).map((item) => (
+                     <div>
+                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                         {row.recommendations.slice(0, 3).map((item) => (
                             <div key={`${row.customerCode}-${item.recommendedProductCode}`} style={{ fontSize: 11.5 }}>
                               <span style={{ ...monoStyle, color: MUTED }}>{item.recommendedProductCode}</span>
                               <span style={{ color: INK }}> - {item.recommendedProductName}</span>
                               <span style={{ color: FAINT }}> (skor: {item.weightedScore})</span>
                             </div>
-                          ))}
-                        </div>
-                      </span>
+                         ))}
+                       </div>
+                     </div>
                     </div>
 
                     {/* Drill: <details> Kategori detaylari */}

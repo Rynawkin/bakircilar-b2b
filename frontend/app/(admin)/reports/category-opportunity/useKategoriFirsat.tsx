@@ -31,6 +31,9 @@ export interface OpportunityRow {
   customerSectorCode: string | null;
   totalOpportunityScore: number;
   recommendationCount: number;
+  sourceDocumentCount: number;
+  sourceRevenue: number;
+  lastSourcePurchaseDate: string | null;
   recommendations: OpportunityRecommendation[];
 }
 
@@ -39,6 +42,9 @@ export interface OpportunitySummary {
   totalRecommendations: number;
   scannedCustomers: number;
   excludedBecauseAlreadyBoughtCategory: number;
+  eligibleCustomers: number;
+  coverageRate: number;
+  averageOpportunityScore: number;
 }
 
 export interface OpportunityMetadata {
@@ -52,13 +58,23 @@ export interface OpportunityMetadata {
   minPairCount: number;
   startDate: string;
   endDate: string;
+  sectorCode: string | null;
+  minOpportunityScore: number | null;
+  minRecommendationCount: number | null;
+  candidateSourceProductCount: number;
+  associationWindowStart: string | null;
+  associationWindowEnd: string | null;
+  associationUpdatedAt: string | null;
 }
 
 export interface SubmittedParams {
   categoryCode: string;
   customerCode?: string;
+  sectorCode?: string;
   lookbackMonths: number;
   minPairCount: number;
+  minOpportunityScore?: number;
+  minRecommendationCount?: number;
   limit: number;
 }
 
@@ -82,6 +98,10 @@ export function useKategoriFirsat() {
 
   const [lookbackMonths, setLookbackMonths] = useState('6');
   const [minPairCount, setMinPairCount] = useState('2');
+  const [sectorCode, setSectorCode] = useState('');
+  const [sectorOptions, setSectorOptions] = useState<string[]>([]);
+  const [minOpportunityScore, setMinOpportunityScore] = useState('0');
+  const [minRecommendationCount, setMinRecommendationCount] = useState('1');
   const [limit, setLimit] = useState('50');
 
   const [submitted, setSubmitted] = useState<SubmittedParams | null>(null);
@@ -90,6 +110,21 @@ export function useKategoriFirsat() {
   const [metadata, setMetadata] = useState<OpportunityMetadata | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .getSectorCodes()
+      .then((result) => {
+        if (active) setSectorOptions(result.sectorCodes || []);
+      })
+      .catch(() => {
+        if (active) setSectorOptions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handle = setTimeout(async () => {
@@ -212,6 +247,8 @@ export function useKategoriFirsat() {
 
     const months = Number(lookbackMonths);
     const minPair = Number(minPairCount);
+    const minScore = Number(minOpportunityScore);
+    const minRecommendations = Number(minRecommendationCount);
     const safeLimit = Number(limit);
 
     if (!normalizedCategory) {
@@ -226,6 +263,14 @@ export function useKategoriFirsat() {
       toast.error('Min ortak evrak gecersiz');
       return;
     }
+    if (!Number.isFinite(minScore) || minScore < 0) {
+      toast.error('Minimum kanıt skoru geçersiz');
+      return;
+    }
+    if (!Number.isFinite(minRecommendations) || minRecommendations < 1) {
+      toast.error('Minimum öneri sayısı en az 1 olmalı');
+      return;
+    }
     if (!Number.isFinite(safeLimit) || safeLimit <= 0) {
       toast.error('Liste limiti gecersiz');
       return;
@@ -235,6 +280,9 @@ export function useKategoriFirsat() {
       categoryCode: normalizedCategory,
       lookbackMonths: Math.floor(months),
       minPairCount: Math.floor(minPair),
+      sectorCode: sectorCode.trim() || undefined,
+      minOpportunityScore: minScore > 0 ? minScore : undefined,
+      minRecommendationCount: Math.floor(minRecommendations),
       limit: Math.floor(safeLimit),
     };
 
@@ -267,6 +315,13 @@ export function useKategoriFirsat() {
     setLookbackMonths,
     minPairCount,
     setMinPairCount,
+    sectorCode,
+    setSectorCode,
+    sectorOptions,
+    minOpportunityScore,
+    setMinOpportunityScore,
+    minRecommendationCount,
+    setMinRecommendationCount,
     limit,
     setLimit,
     // report state

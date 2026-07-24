@@ -758,7 +758,7 @@ export function useCariGeriKazanim() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `cari-geri-kazanim-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.download = `satisi-dusen-veya-duran-cariler-${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();

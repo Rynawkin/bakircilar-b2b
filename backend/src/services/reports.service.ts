@@ -201,13 +201,21 @@ interface ComplementMissingRow {
   documentCount?: number;
   missingComplements: ComplementMissingItem[];
   missingCount: number;
+  estimatedRevenue: number | null;
 }
+
+type ComplementAssociationSource = 'AUTO' | 'MANUAL' | 'MIXED' | 'NONE';
 
 interface ComplementMissingReportResponse {
   rows: ComplementMissingRow[];
   summary: {
     totalRows: number;
     totalMissing: number;
+    totalEstimatedRevenue: number | null;
+    rowsWithRevenueEstimate: number;
+    pricedMissingItems: number;
+    unpricedMissingItems: number;
+    averageMissingPerRow: number;
   };
   pagination: {
     page: number;
@@ -237,6 +245,10 @@ interface ComplementMissingReportResponse {
       assignedSectorCodes: string[];
     };
     minDocumentCount?: number | null;
+    associationSource: ComplementAssociationSource;
+    associationWindowStart: string | null;
+    associationWindowEnd: string | null;
+    associationUpdatedAt: string | null;
   };
 }
 
@@ -262,6 +274,8 @@ interface CategoryChurnRow {
   categoryCode?: string;
   categoryName?: string | null;
   lastPurchaseDate: string | null;
+  daysSinceCategoryPurchase: number | null;
+  customerActiveOutsideCategory: boolean;
   historicalDocumentCount: number;
   historicalQuantity: number;
   historicalAmount: number;
@@ -283,6 +297,9 @@ interface CategoryChurnReportResponse {
     totalRows: number;
     affectedCustomers: number;
     affectedCategories: number;
+    historicalRevenue: number;
+    activeOutsideCategoryCustomers: number;
+    averageInactiveDays: number | null;
   };
   pagination: {
     page: number;
@@ -296,6 +313,9 @@ interface CategoryChurnReportResponse {
     inactiveStartDate: string;
     endDate: string;
     activeCustomerMonths: number | null;
+    sectorCode: string | null;
+    minHistoricalDocumentCount: number | null;
+    minHistoricalAmount: number | null;
     category?: {
       categoryCode: string;
       categoryName: string | null;
@@ -329,6 +349,9 @@ interface CategoryOpportunityRow {
   customerSectorCode: string | null;
   totalOpportunityScore: number;
   recommendationCount: number;
+  sourceDocumentCount: number;
+  sourceRevenue: number;
+  lastSourcePurchaseDate: string | null;
   recommendations: CategoryOpportunityRecommendation[];
 }
 
@@ -339,6 +362,9 @@ interface CategoryOpportunityReportResponse {
     totalRecommendations: number;
     scannedCustomers: number;
     excludedBecauseAlreadyBoughtCategory: number;
+    eligibleCustomers: number;
+    coverageRate: number;
+    averageOpportunityScore: number;
   };
   metadata: {
     category: {
@@ -351,6 +377,13 @@ interface CategoryOpportunityReportResponse {
     minPairCount: number;
     startDate: string;
     endDate: string;
+    sectorCode: string | null;
+    minOpportunityScore: number | null;
+    minRecommendationCount: number | null;
+    candidateSourceProductCount: number;
+    associationWindowStart: string | null;
+    associationWindowEnd: string | null;
+    associationUpdatedAt: string | null;
   };
 }
 
@@ -4318,6 +4351,8 @@ export class ReportsService {
     page?: number;
     limit?: number;
     minDocumentCount?: number;
+    scope?: ReportRequestScope;
+    forExport?: boolean;
   }): Promise<ComplementMissingReportResponse> {
     const { mode, productCode, customerCode, sectorCode, salesRepId } = options;
     if (mode !== 'product' && mode !== 'customer') {
@@ -4326,7 +4361,8 @@ export class ReportsService {
 
     const periodMonths = options.periodMonths === 12 ? 12 : 6;
     const page = options.page && options.page > 0 ? options.page : 1;
-    const limit = options.limit && options.limit > 0 ? options.limit : 50;
+    const requestedLimit = options.limit && options.limit > 0 ? Math.floor(options.limit) : 50;
+    const limit = Math.min(requestedLimit, options.forExport ? 50_000 : 500);
     const minDocumentCount =
       Number.isFinite(options.minDocumentCount) && (options.minDocumentCount as number) > 0
         ? Math.floor(options.minDocumentCount as number)
@@ -4445,8 +4481,20 @@ export class ReportsService {
     };
 
     const normalizedSectorCode = normalizeReportCode(sectorCode);
+    const isScopedSalesRep = options.scope?.role === UserRole.SALES_REP;
+    const requestSectorCodes = getSalesRepSectorCodes(options.scope)
+      .map(normalizeReportCode)
+      .filter(Boolean);
     let salesRepMeta: ComplementMissingReportResponse['metadata']['salesRep'] = undefined;
     let salesRepSectorCodes: string[] = [];
+
+    if (
+      isScopedSalesRep
+      && salesRepId
+      && salesRepId !== options.scope?.userId
+    ) {
+      throw new AppError('Bu satis temsilcisi kapsamina erisim yetkiniz yok.', 403, ErrorCode.FORBIDDEN);
+    }
 
     if (salesRepId) {
       const salesRep = await prisma.user.findUnique({
@@ -4466,15 +4514,28 @@ export class ReportsService {
       }
     }
 
-    let allowedSectorCodes: string[] = normalizedSectorCode ? [normalizedSectorCode] : [];
-    if (salesRepSectorCodes.length > 0) {
-      allowedSectorCodes = allowedSectorCodes.length > 0
-        ? allowedSectorCodes.filter((code) => salesRepSectorCodes.includes(code))
-        : salesRepSectorCodes;
+    let hasSectorConstraint = false;
+    let allowedSectorCodes: string[] = [];
+    const constrainToSectors = (codes: string[]) => {
+      const normalizedCodes = Array.from(new Set(codes.map(normalizeReportCode).filter(Boolean)));
+      allowedSectorCodes = hasSectorConstraint
+        ? allowedSectorCodes.filter((code) => normalizedCodes.includes(code))
+        : normalizedCodes;
+      hasSectorConstraint = true;
+    };
+
+    if (normalizedSectorCode) {
+      constrainToSectors([normalizedSectorCode]);
     }
-    const sectorFilterRequested = Boolean(normalizedSectorCode) || Boolean(salesRepId);
-    const sectorFilterImpossible = sectorFilterRequested && allowedSectorCodes.length === 0;
-    const allowedSectorSet = allowedSectorCodes.length > 0 ? new Set(allowedSectorCodes) : null;
+    if (salesRepId) {
+      constrainToSectors(salesRepSectorCodes);
+    }
+    if (isScopedSalesRep) {
+      constrainToSectors(requestSectorCodes);
+    }
+
+    const sectorFilterImpossible = hasSectorConstraint && allowedSectorCodes.length === 0;
+    const allowedSectorSet = hasSectorConstraint ? new Set(allowedSectorCodes) : null;
 
     const metadata: ComplementMissingReportResponse['metadata'] = {
       mode,
@@ -4485,11 +4546,67 @@ export class ReportsService {
       sectorCode: normalizedSectorCode || null,
       salesRep: salesRepMeta,
       minDocumentCount,
+      associationSource: 'NONE',
+      associationWindowStart: null,
+      associationWindowEnd: null,
+      associationUpdatedAt: null,
+    };
+
+    const attachAssociationMetadata = async (
+      products: Array<{ id: string; complementMode: 'AUTO' | 'MANUAL' }>
+    ) => {
+      const manualModeProductIds = products
+        .filter((product) => product.complementMode === 'MANUAL')
+        .map((product) => product.id);
+      const manualRows = manualModeProductIds.length > 0
+        ? await prisma.productComplementManual.findMany({
+            where: { productId: { in: manualModeProductIds } },
+            select: { productId: true },
+            distinct: ['productId'],
+          })
+        : [];
+      const manualProductIds = new Set(manualRows.map((row) => row.productId));
+      const autoProductIds = products
+        .filter((product) => !manualProductIds.has(product.id))
+        .map((product) => product.id);
+      const autoAggregate = autoProductIds.length > 0
+        ? await prisma.productComplementAuto.aggregate({
+            where: { productId: { in: autoProductIds } },
+            _count: { _all: true },
+            _min: { windowStart: true },
+            _max: { windowEnd: true, updatedAt: true },
+          })
+        : null;
+      const hasManual = manualProductIds.size > 0;
+      const hasAuto = Boolean(autoAggregate?._count._all);
+
+      metadata.associationSource = hasManual && hasAuto
+        ? 'MIXED'
+        : hasManual
+          ? 'MANUAL'
+          : hasAuto
+            ? 'AUTO'
+            : 'NONE';
+      metadata.associationWindowStart = autoAggregate?._min.windowStart?.toISOString() || null;
+      metadata.associationWindowEnd = autoAggregate?._max.windowEnd?.toISOString() || null;
+      metadata.associationUpdatedAt = autoAggregate?._max.updatedAt?.toISOString() || null;
     };
 
     const buildResponse = (rows: ComplementMissingRow[]): ComplementMissingReportResponse => {
       const totalRows = rows.length;
       const totalMissing = rows.reduce((sum, row) => sum + row.missingCount, 0);
+      const rowsWithRevenueEstimate = rows.filter((row) => row.estimatedRevenue !== null).length;
+      const pricedMissingItems = rows.reduce(
+        (sum, row) => sum + row.missingComplements.filter(
+          (item) => Number.isFinite(item.estimatedRevenue)
+        ).length,
+        0
+      );
+      const unpricedMissingItems = Math.max(0, totalMissing - pricedMissingItems);
+      const totalEstimatedRevenue = rowsWithRevenueEstimate > 0
+        ? round2(rows.reduce((sum, row) => sum + (row.estimatedRevenue || 0), 0))
+        : null;
+      const averageMissingPerRow = totalRows > 0 ? round2(totalMissing / totalRows) : 0;
       const totalPages = totalRows > 0 ? Math.ceil(totalRows / limit) : 0;
       const offset = (page - 1) * limit;
       const paginatedRows = rows.slice(offset, offset + limit);
@@ -4499,6 +4616,11 @@ export class ReportsService {
         summary: {
           totalRows,
           totalMissing,
+          totalEstimatedRevenue,
+          rowsWithRevenueEstimate,
+          pricedMissingItems,
+          unpricedMissingItems,
+          averageMissingPerRow,
         },
         pagination: {
           page,
@@ -4543,6 +4665,9 @@ export class ReportsService {
         productCode: product.mikroCode,
         productName: product.name,
       };
+      await attachAssociationMetadata([
+        { id: product.id, complementMode: product.complementMode },
+      ]);
 
       const complementMap = await this.resolveComplementIdsForProducts(
         [{ id: product.id, complementMode: product.complementMode }],
@@ -4640,6 +4765,24 @@ export class ReportsService {
       const perakendeNameFilter =
         "(c.cari_unvan1 IS NULL OR UPPER(c.cari_unvan1) NOT LIKE '%PERAKENDE%')";
       const averageConditions = [...baseConditions, perakendeNameFilter];
+      const associationStartDate = metadata.associationWindowStart
+        ? formatDateCompact(new Date(metadata.associationWindowStart))
+        : startDate;
+      const associationEndDate = metadata.associationWindowEnd
+        ? formatDateCompact(new Date(metadata.associationWindowEnd))
+        : endDate;
+      const associationConditions = metadata.associationWindowStart && metadata.associationWindowEnd
+        ? [
+            'sth_cins = 0',
+            'sth_tip = 1',
+            'sth_evraktip IN (1, 4)',
+            `sth_tarih >= '${associationStartDate}'`,
+            `sth_tarih < '${associationEndDate}'`,
+            '(sth_iptal = 0 OR sth_iptal IS NULL)',
+            'sth.sth_stok_kod IS NOT NULL',
+            "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+          ]
+        : [...averageConditions, ...exclusionConditions];
 
         const loadQuantityStats = async (codes: string[]) => {
           const normalized = Array.from(new Set(codes.map(normalizeReportCode).filter(Boolean)));
@@ -4652,12 +4795,12 @@ export class ReportsService {
             const statsQuery = `
               SELECT
                 RTRIM(sth.sth_stok_kod) as productCode,
-                COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
-                SUM(sth.sth_miktar) as totalQuantity
+                COUNT(DISTINCT CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))) as documentCount,
+                SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity
               FROM STOK_HAREKETLERI sth
               LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
               LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-              WHERE ${[...averageConditions, ...exclusionConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
+              WHERE ${[...associationConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
               GROUP BY sth.sth_stok_kod
             `;
             const rows = await mikroService.executeQuery(statsQuery);
@@ -4686,10 +4829,15 @@ export class ReportsService {
             RTRIM(sth.sth_cari_kodu) as customerCode,
             MAX(c.cari_unvan1) as customerName,
             MAX(c.cari_sektor_kodu) as sectorCode,
-            COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
-            SUM(sth.sth_miktar) as totalQuantity
+            COUNT(DISTINCT CASE
+              WHEN ISNULL(sth.sth_normal_iade, 0) = 0
+                THEN CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))
+              ELSE NULL
+            END) as documentCount,
+            SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity
           FROM STOK_HAREKETLERI sth
           LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+          LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
           WHERE ${baseCustomerClause}
           GROUP BY sth.sth_cari_kodu
         `;
@@ -4713,6 +4861,7 @@ export class ReportsService {
           const rawCode = row.customerCode?.trim() || customer;
           const documentCountValue = Number(row.documentCount) || 0;
           const totalQuantityValue = toNumber(row.totalQuantity);
+          if (documentCountValue <= 0 || totalQuantityValue <= 0) return;
           customerMap.set(customer, {
             customerCode: rawCode,
             customerName: row.customerName || null,
@@ -4797,6 +4946,7 @@ export class ReportsService {
             ...baseConditions,
             ...exclusionConditions,
             `RTRIM(sth.sth_cari_kodu) IN (${inClause})`,
+            'ISNULL(sth.sth_normal_iade, 0) = 0',
           ];
           const purchaseClause = purchaseConditions.join(' AND ');
 
@@ -4805,6 +4955,8 @@ export class ReportsService {
               RTRIM(sth.sth_cari_kodu) as customerCode,
               RTRIM(sth.sth_stok_kod) as productCode
             FROM STOK_HAREKETLERI sth
+            LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+            LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
             WHERE ${purchaseClause}
             GROUP BY sth.sth_cari_kodu, sth.sth_stok_kod
           `;
@@ -4897,7 +5049,7 @@ export class ReportsService {
 
             const normalizedCode = normalizeReportCode(item.productCode);
             const pairCount = normalizedCode ? (pairCountByCode.get(normalizedCode) || 0) : 0;
-            const ratio = baseDocCount > 0 ? pairCount / baseDocCount : 0;
+            const ratio = baseDocCount > 0 ? Math.min(1, pairCount / baseDocCount) : 0;
             const effectiveRatio =
               ratio > 0 ? ratio : (product.complementMode === 'MANUAL' ? 1 : 0);
             const avgComplementQty = normalizedCode ? (complementAvgQtyMap.get(normalizedCode) || 0) : 0;
@@ -4917,6 +5069,15 @@ export class ReportsService {
           });
 
           if (missingComplements.length === 0) return;
+          const hasRevenueEstimate = missingComplements.some((item) =>
+            Number.isFinite(item.estimatedRevenue)
+          );
+          const estimatedRevenue = hasRevenueEstimate
+            ? round2(missingComplements.reduce(
+                (sum, item) => sum + (Number.isFinite(item.estimatedRevenue) ? Number(item.estimatedRevenue) : 0),
+                0
+              ))
+            : null;
 
           rows.push({
             customerCode: customerInfo.customerCode,
@@ -4924,6 +5085,7 @@ export class ReportsService {
             documentCount: customerInfo.documentCount,
             missingComplements,
             missingCount: missingComplements.length,
+            estimatedRevenue,
           });
         });
 
@@ -4970,8 +5132,12 @@ export class ReportsService {
           MAX(st.sto_isim) as productName,
           MAX(c.cari_unvan1) as customerName,
           MAX(c.cari_sektor_kodu) as sectorCode,
-          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
-          SUM(sth.sth_miktar) as totalQuantity
+          COUNT(DISTINCT CASE
+            WHEN ISNULL(sth.sth_normal_iade, 0) = 0
+              THEN CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))
+            ELSE NULL
+          END) as documentCount,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity
         FROM STOK_HAREKETLERI sth
         LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
         LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
@@ -4999,6 +5165,7 @@ export class ReportsService {
           if (!normalized) return '';
           const docCount = Number(row.documentCount) || 0;
           const totalQuantity = toNumber(row.totalQuantity);
+          if (docCount <= 0 || totalQuantity <= 0) return '';
           documentCountMap.set(normalized, docCount);
           quantityMap.set(normalized, totalQuantity);
           return normalized;
@@ -5027,6 +5194,12 @@ export class ReportsService {
       if (purchasedProducts.length === 0) {
         return buildResponse([]);
       }
+      await attachAssociationMetadata(
+        purchasedProducts.map((product) => ({
+          id: product.id,
+          complementMode: product.complementMode,
+        }))
+      );
 
       const complementMap = await this.resolveComplementIdsForProducts(
         purchasedProducts,
@@ -5166,6 +5339,24 @@ export class ReportsService {
       const perakendeNameFilter =
         "(c.cari_unvan1 IS NULL OR UPPER(c.cari_unvan1) NOT LIKE '%PERAKENDE%')";
       const averageGlobalConditions = [...globalConditions, perakendeNameFilter];
+      const associationStartDate = metadata.associationWindowStart
+        ? formatDateCompact(new Date(metadata.associationWindowStart))
+        : startDate;
+      const associationEndDate = metadata.associationWindowEnd
+        ? formatDateCompact(new Date(metadata.associationWindowEnd))
+        : endDate;
+      const globalStatsConditions = metadata.associationWindowStart && metadata.associationWindowEnd
+        ? [
+            'sth_cins = 0',
+            'sth_tip = 1',
+            'sth_evraktip IN (1, 4)',
+            `sth_tarih >= '${associationStartDate}'`,
+            `sth_tarih < '${associationEndDate}'`,
+            '(sth_iptal = 0 OR sth_iptal IS NULL)',
+            'sth.sth_stok_kod IS NOT NULL',
+            "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+          ]
+        : [...averageGlobalConditions, ...exclusionConditions];
 
       const loadGlobalStats = async (codes: string[]) => {
         const normalized = Array.from(new Set(codes.map(normalizeReportCode).filter(Boolean)));
@@ -5176,15 +5367,15 @@ export class ReportsService {
           if (chunk.length === 0) continue;
           const inClause = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
           const statsQuery = `
-            SELECT
-              RTRIM(sth.sth_stok_kod) as productCode,
-              COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
-              SUM(sth.sth_miktar) as totalQuantity
-            FROM STOK_HAREKETLERI sth
-            LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
-            LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-            WHERE ${[...averageGlobalConditions, ...exclusionConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
-            GROUP BY sth.sth_stok_kod
+              SELECT
+                RTRIM(sth.sth_stok_kod) as productCode,
+                COUNT(DISTINCT CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))) as documentCount,
+              SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity
+              FROM STOK_HAREKETLERI sth
+              LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+              LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+              WHERE ${[...globalStatsConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
+              GROUP BY sth.sth_stok_kod
           `;
           const rows = await mikroService.executeQuery(statsQuery);
           rows.forEach((row: any) => {
@@ -5254,7 +5445,7 @@ export class ReportsService {
               const baseAvgQty = safeDivide(baseTotalQty, documentCount);
               const baseDocCount = baseDocCountMap.get(normalized) || 0;
               const pairCount = pairCountByPair.get(`${product.id}:${id}`) || 0;
-              const ratio = baseDocCount > 0 ? pairCount / baseDocCount : 0;
+              const ratio = baseDocCount > 0 ? Math.min(1, pairCount / baseDocCount) : 0;
               const effectiveRatio =
                 ratio > 0 ? ratio : (product.complementMode === 'MANUAL' ? 1 : 0);
               const avgComplementQty = complementAvgQtyMap.get(normalizedCode) || 0;
@@ -5302,6 +5493,15 @@ export class ReportsService {
         if (missingMap.size === 0) return;
 
         const missingComplements = Array.from(missingMap.values());
+        const hasRevenueEstimate = missingComplements.some((item) =>
+          Number.isFinite(item.estimatedRevenue)
+        );
+        const estimatedRevenue = hasRevenueEstimate
+          ? round2(missingComplements.reduce(
+              (sum, item) => sum + (Number.isFinite(item.estimatedRevenue) ? Number(item.estimatedRevenue) : 0),
+              0
+            ))
+          : null;
 
         rows.push({
           productCode: product.mikroCode,
@@ -5309,6 +5509,7 @@ export class ReportsService {
           documentCount,
           missingComplements,
           missingCount: missingComplements.length,
+          estimatedRevenue,
         });
       });
 
@@ -5366,6 +5567,7 @@ export class ReportsService {
     categoryCode?: string;
     customerCode?: string;
     inactiveMonths?: number;
+    scope?: ReportRequestScope;
   }): Promise<{
     items: CategoryChurnDetailItem[];
     metadata: {
@@ -5392,6 +5594,24 @@ export class ReportsService {
     }
     if (!customerCode) {
       throw new AppError('Cari kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    if (options.scope?.role === UserRole.SALES_REP) {
+      const allowedSectorCodes = new Set(getSalesRepSectorCodes(options.scope).map(normalizeReportCode));
+      const customer = await prisma.user.findFirst({
+        where: {
+          role: 'CUSTOMER',
+          parentCustomerId: null,
+          mikroCariCode: { equals: customerCode, mode: 'insensitive' },
+        },
+        select: { sectorCode: true },
+      });
+      if (
+        allowedSectorCodes.size === 0
+        || !allowedSectorCodes.has(normalizeReportCode(customer?.sectorCode))
+      ) {
+        throw new AppError('Bu carinin kategori detayina erisemezsiniz.', 403, ErrorCode.FORBIDDEN);
+      }
     }
 
     const reportEnd = new Date();
@@ -5493,31 +5713,38 @@ export class ReportsService {
         SELECT
           RTRIM(sth.sth_stok_kod) as productCode,
           MAX(st.sto_isim) as productName,
-          MIN(sth.sth_tarih) as firstPurchaseDate,
-          MAX(sth.sth_tarih) as lastPurchaseDate,
-          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
-          SUM(sth.sth_miktar) as totalQuantity,
-          SUM(sth.sth_tutar) as totalAmount
+          MIN(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 0 THEN sth.sth_tarih END) as firstPurchaseDate,
+          MAX(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 0 THEN sth.sth_tarih END) as lastPurchaseDate,
+          COUNT(DISTINCT CASE
+            WHEN ISNULL(sth.sth_normal_iade, 0) = 0
+              THEN CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))
+            ELSE NULL
+          END) as documentCount,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as totalAmount
         FROM STOK_HAREKETLERI sth
         LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+        LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
         WHERE ${whereClause}
         GROUP BY sth.sth_stok_kod
       `;
 
       const rows = await mikroService.executeQuery(query);
-      const items: CategoryChurnDetailItem[] = rows.map((row: any) => {
-        const code = normalizeReportCode(row.productCode);
-        const fallbackName = code ? productNameMap.get(code) : null;
-        return {
-          productCode: code || String(row.productCode || '').trim(),
-          productName: row.productName || fallbackName || '-',
-          firstPurchaseDate: compactToDisplay(toCompactDate(row.firstPurchaseDate)),
-          lastPurchaseDate: compactToDisplay(toCompactDate(row.lastPurchaseDate)),
-          documentCount: Number(row.documentCount) || 0,
-          totalQuantity: toNumber(row.totalQuantity),
-          totalAmount: toNumber(row.totalAmount),
-        };
-      });
+      const items: CategoryChurnDetailItem[] = rows
+        .map((row: any) => {
+          const code = normalizeReportCode(row.productCode);
+          const fallbackName = code ? productNameMap.get(code) : null;
+          return {
+            productCode: code || String(row.productCode || '').trim(),
+            productName: row.productName || fallbackName || '-',
+            firstPurchaseDate: compactToDisplay(toCompactDate(row.firstPurchaseDate)),
+            lastPurchaseDate: compactToDisplay(toCompactDate(row.lastPurchaseDate)),
+            documentCount: Number(row.documentCount) || 0,
+            totalQuantity: toNumber(row.totalQuantity),
+            totalAmount: toNumber(row.totalAmount),
+          };
+        })
+        .filter((item) => item.documentCount > 0);
 
       items.sort((a, b) => {
         const aDate = normalizeReportCode((a.lastPurchaseDate || '').replace(/-/g, ''));
@@ -5541,8 +5768,13 @@ export class ReportsService {
     customerCode?: string;
     inactiveMonths?: number;
     activeCustomerMonths?: number;
+    sectorCode?: string;
+    minHistoricalDocumentCount?: number;
+    minHistoricalAmount?: number;
+    scope?: ReportRequestScope;
     page?: number;
     limit?: number;
+    forExport?: boolean;
     sortBy?: CategoryChurnSortBy;
     sortDirection?: CategoryChurnSortDirection;
   }): Promise<CategoryChurnReportResponse> {
@@ -5559,8 +5791,23 @@ export class ReportsService {
       Number.isFinite(activeCustomerMonthsRaw) && activeCustomerMonthsRaw > 0
         ? Math.min(24, Math.floor(activeCustomerMonthsRaw))
         : null;
+    const normalizedSectorCode = normalizeReportCode(options.sectorCode);
+    const isScopedSalesRep = options.scope?.role === UserRole.SALES_REP;
+    const scopedSectorCodes = getSalesRepSectorCodes(options.scope).map(normalizeReportCode);
+    const scopedSectorSet = new Set(scopedSectorCodes);
+    const minHistoricalDocumentCountRaw = Number(options.minHistoricalDocumentCount);
+    const minHistoricalDocumentCount =
+      Number.isFinite(minHistoricalDocumentCountRaw) && minHistoricalDocumentCountRaw > 0
+        ? Math.floor(minHistoricalDocumentCountRaw)
+        : null;
+    const minHistoricalAmountRaw = Number(options.minHistoricalAmount);
+    const minHistoricalAmount =
+      Number.isFinite(minHistoricalAmountRaw) && minHistoricalAmountRaw > 0
+        ? minHistoricalAmountRaw
+        : null;
     const page = options.page && options.page > 0 ? Math.floor(options.page) : 1;
-    const limit = options.limit && options.limit > 0 ? Math.floor(options.limit) : 50;
+    const requestedLimit = options.limit && options.limit > 0 ? Math.floor(options.limit) : 50;
+    const limit = Math.min(requestedLimit, options.forExport ? 50_000 : 500);
     const allowedSortFields: CategoryChurnSortBy[] = [
       'customerCode',
       'customerName',
@@ -5659,9 +5906,12 @@ export class ReportsService {
           RTRIM(sth.sth_cari_kodu) as customerCode,
           MAX(sth.sth_tarih) as customerLastSaleDate
         FROM STOK_HAREKETLERI sth
+        LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+        LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
         WHERE ${buildWhereClause([
           `RTRIM(sth.sth_cari_kodu) IN (${customerInClause})`,
           `sth.sth_tarih <= '${endDateCompact}'`,
+          'ISNULL(sth.sth_normal_iade, 0) = 0',
         ])}
         GROUP BY sth.sth_cari_kodu
       `);
@@ -5678,6 +5928,21 @@ export class ReportsService {
         if (!customerCode) return;
         row.customerSectorCode = sectorByCustomerCode.get(customerCode) || null;
         row.customerLastSaleDate = lastSaleByCustomerCode.get(customerCode) || null;
+
+        const lastCategoryPurchase = row.lastPurchaseDate ? new Date(`${row.lastPurchaseDate}T00:00:00Z`) : null;
+        row.daysSinceCategoryPurchase =
+          lastCategoryPurchase && !Number.isNaN(lastCategoryPurchase.getTime())
+            ? Math.max(0, Math.floor((reportEnd.getTime() - lastCategoryPurchase.getTime()) / 86_400_000))
+            : null;
+
+        const customerLastSale = row.customerLastSaleDate
+          ? new Date(`${row.customerLastSaleDate}T00:00:00Z`)
+          : null;
+        row.customerActiveOutsideCategory = Boolean(
+          customerLastSale
+          && !Number.isNaN(customerLastSale.getTime())
+          && customerLastSale >= inactiveStart
+        );
       });
     };
 
@@ -5691,7 +5956,31 @@ export class ReportsService {
       };
       const compareText = (left: string | null | undefined, right: string | null | undefined) =>
         String(left || '').localeCompare(String(right || ''), 'tr');
-      const sortedRows = [...rows].sort((a, b) => {
+      const filteredRows = rows.filter((row) => {
+        if (
+          isScopedSalesRep
+          && (
+            scopedSectorSet.size === 0
+            || !scopedSectorSet.has(normalizeReportCode(row.customerSectorCode))
+          )
+        ) {
+          return false;
+        }
+        if (normalizedSectorCode && normalizeReportCode(row.customerSectorCode) !== normalizedSectorCode) {
+          return false;
+        }
+        if (
+          minHistoricalDocumentCount !== null
+          && row.historicalDocumentCount < minHistoricalDocumentCount
+        ) {
+          return false;
+        }
+        if (minHistoricalAmount !== null && row.historicalAmount < minHistoricalAmount) {
+          return false;
+        }
+        return true;
+      });
+      const sortedRows = [...filteredRows].sort((a, b) => {
         let compare = 0;
         switch (sortBy) {
           case 'customerCode':
@@ -5744,6 +6033,19 @@ export class ReportsService {
       const totalRows = sortedRows.length;
       const uniqueCustomers = new Set(sortedRows.map((row) => normalizeReportCode(row.customerCode)).filter(Boolean)).size;
       const uniqueCategories = new Set(sortedRows.map((row) => normalizeReportCode(row.categoryCode)).filter(Boolean)).size;
+      const historicalRevenue = sortedRows.reduce((sum, row) => sum + (row.historicalAmount || 0), 0);
+      const activeOutsideCategoryCustomers = new Set(
+        sortedRows
+          .filter((row) => row.customerActiveOutsideCategory)
+          .map((row) => normalizeReportCode(row.customerCode))
+          .filter(Boolean)
+      ).size;
+      const inactivityValues = sortedRows
+        .map((row) => row.daysSinceCategoryPurchase)
+        .filter((value): value is number => Number.isFinite(value));
+      const averageInactiveDays = inactivityValues.length > 0
+        ? Math.round(inactivityValues.reduce((sum, value) => sum + value, 0) / inactivityValues.length)
+        : null;
       const totalPages = totalRows > 0 ? Math.ceil(totalRows / limit) : 0;
       const offset = (page - 1) * limit;
       const paginatedRows = sortedRows.slice(offset, offset + limit);
@@ -5753,7 +6055,10 @@ export class ReportsService {
         summary: {
           totalRows,
           affectedCustomers: mode === 'category' ? uniqueCustomers : totalRows > 0 ? 1 : 0,
-          affectedCategories: mode === 'customer' ? uniqueCategories : uniqueCategories,
+          affectedCategories: uniqueCategories,
+          historicalRevenue,
+          activeOutsideCategoryCustomers,
+          averageInactiveDays,
         },
         pagination: {
           page,
@@ -5799,6 +6104,9 @@ export class ReportsService {
           inactiveStartDate: formatDateKey(inactiveStart),
           endDate: formatDateKey(reportEnd),
           activeCustomerMonths,
+          sectorCode: normalizedSectorCode || null,
+          minHistoricalDocumentCount,
+          minHistoricalAmount,
           category: {
             categoryCode: selectedCategory?.mikroCode || normalizedCategoryCode,
             categoryName: selectedCategory?.name || null,
@@ -5817,12 +6125,17 @@ export class ReportsService {
           SELECT
             RTRIM(sth.sth_cari_kodu) as customerCode,
             MAX(c.cari_unvan1) as customerName,
-            MAX(sth.sth_tarih) as lastPurchaseDate,
-            COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
-            SUM(sth.sth_miktar) as totalQuantity,
-            SUM(sth.sth_tutar) as totalAmount
+            MAX(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 0 THEN sth.sth_tarih END) as lastPurchaseDate,
+            COUNT(DISTINCT CASE
+              WHEN ISNULL(sth.sth_normal_iade, 0) = 0
+                THEN CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))
+              ELSE NULL
+            END) as documentCount,
+            SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity,
+            SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as totalAmount
           FROM STOK_HAREKETLERI sth
           LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+          LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
           WHERE ${buildWhereClause([
             `RTRIM(sth.sth_stok_kod) IN (${categoryInClause})`,
             `sth.sth_tarih < '${inactiveStartCompact}'`,
@@ -5833,10 +6146,13 @@ export class ReportsService {
         const recentQuery = `
           SELECT RTRIM(sth.sth_cari_kodu) as customerCode
           FROM STOK_HAREKETLERI sth
+          LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+          LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
           WHERE ${buildWhereClause([
             `RTRIM(sth.sth_stok_kod) IN (${categoryInClause})`,
             `sth.sth_tarih >= '${inactiveStartCompact}'`,
             `sth.sth_tarih <= '${endDateCompact}'`,
+            'ISNULL(sth.sth_normal_iade, 0) = 0',
           ])}
           GROUP BY sth.sth_cari_kodu
         `;
@@ -5857,9 +6173,13 @@ export class ReportsService {
           const activeQuery = `
             SELECT RTRIM(sth.sth_cari_kodu) as customerCode
             FROM STOK_HAREKETLERI sth
+            LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+            LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
             WHERE ${buildWhereClause([
               `sth.sth_tarih >= '${activeStartCompact}'`,
               `sth.sth_tarih <= '${endDateCompact}'`,
+              `RTRIM(sth.sth_stok_kod) NOT IN (${categoryInClause})`,
+              'ISNULL(sth.sth_normal_iade, 0) = 0',
             ])}
             GROUP BY sth.sth_cari_kodu
           `;
@@ -5875,6 +6195,7 @@ export class ReportsService {
         historicalRows.forEach((row: any) => {
           const customerCode = normalizeReportCode(row.customerCode);
           if (!customerCode) return;
+          if ((Number(row.documentCount) || 0) <= 0) return;
           if (recentCustomerSet.has(customerCode)) return;
           if (activeCustomerSet && !activeCustomerSet.has(customerCode)) return;
 
@@ -5884,6 +6205,8 @@ export class ReportsService {
             categoryCode: metadata.category?.categoryCode || normalizedCategoryCode,
             categoryName: metadata.category?.categoryName || null,
             lastPurchaseDate: compactToDisplay(toCompactDate(row.lastPurchaseDate)),
+            daysSinceCategoryPurchase: null,
+            customerActiveOutsideCategory: false,
             historicalDocumentCount: Number(row.documentCount) || 0,
             historicalQuantity: toNumber(row.totalQuantity),
             historicalAmount: toNumber(row.totalAmount),
@@ -5900,20 +6223,55 @@ export class ReportsService {
         inactiveStartDate: formatDateKey(inactiveStart),
         endDate: formatDateKey(reportEnd),
         activeCustomerMonths,
+        sectorCode: normalizedSectorCode || null,
+        minHistoricalDocumentCount,
+        minHistoricalAmount,
         customer: {
           customerCode: normalizedCustomerCode,
           customerName: null,
         },
       };
 
+      if (isScopedSalesRep || normalizedSectorCode) {
+        const customerScope = await prisma.user.findFirst({
+          where: {
+            role: UserRole.CUSTOMER,
+            parentCustomerId: null,
+            mikroCariCode: {
+              equals: normalizedCustomerCode,
+              mode: 'insensitive',
+            },
+          },
+          select: { sectorCode: true },
+        });
+        const customerSectorCode = normalizeReportCode(customerScope?.sectorCode);
+        const outsideSalesRepScope =
+          isScopedSalesRep
+          && (
+            scopedSectorSet.size === 0
+            || !customerSectorCode
+            || !scopedSectorSet.has(customerSectorCode)
+          );
+        const outsideRequestedSector =
+          Boolean(normalizedSectorCode)
+          && customerSectorCode !== normalizedSectorCode;
+
+        if (outsideSalesRepScope || outsideRequestedSector) {
+          return buildResponse([], metadata);
+        }
+      }
+
       if (activeStartCompact) {
         const activeCustomerQuery = `
           SELECT TOP 1 1 as hasAny
           FROM STOK_HAREKETLERI sth
+          LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+          LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
           WHERE ${buildWhereClause([
             `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
             `sth.sth_tarih >= '${activeStartCompact}'`,
             `sth.sth_tarih <= '${endDateCompact}'`,
+            'ISNULL(sth.sth_normal_iade, 0) = 0',
           ])}
         `;
         const activeRows = await mikroService.executeQuery(activeCustomerQuery);
@@ -5925,27 +6283,38 @@ export class ReportsService {
       const historicalByProductQuery = `
         SELECT
           RTRIM(sth.sth_stok_kod) as productCode,
-          MAX(sth.sth_tarih) as lastPurchaseDate,
-          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
-          SUM(sth.sth_miktar) as totalQuantity,
-          SUM(sth.sth_tutar) as totalAmount,
+          sth.sth_evraktip as documentType,
+          ISNULL(RTRIM(sth.sth_evrakno_seri), '') as documentSeries,
+          sth.sth_evrakno_sira as documentSequence,
+          MAX(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 0 THEN sth.sth_tarih END) as lastPurchaseDate,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as totalAmount,
+          MIN(ISNULL(sth.sth_normal_iade, 0)) as isReturnOnly,
           MAX(c.cari_unvan1) as customerName
         FROM STOK_HAREKETLERI sth
         LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+        LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
         WHERE ${buildWhereClause([
           `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
           `sth.sth_tarih < '${inactiveStartCompact}'`,
         ])}
-        GROUP BY sth.sth_stok_kod
+        GROUP BY
+          sth.sth_stok_kod,
+          sth.sth_evraktip,
+          sth.sth_evrakno_seri,
+          sth.sth_evrakno_sira
       `;
 
       const recentByProductQuery = `
         SELECT RTRIM(sth.sth_stok_kod) as productCode
         FROM STOK_HAREKETLERI sth
+        LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+        LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
         WHERE ${buildWhereClause([
-          `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
-          `sth.sth_tarih >= '${inactiveStartCompact}'`,
-          `sth.sth_tarih <= '${endDateCompact}'`,
+            `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
+            `sth.sth_tarih >= '${inactiveStartCompact}'`,
+            `sth.sth_tarih <= '${endDateCompact}'`,
+            'ISNULL(sth.sth_normal_iade, 0) = 0',
         ])}
         GROUP BY sth.sth_stok_kod
       `;
@@ -6012,6 +6381,7 @@ export class ReportsService {
           categoryCode: string;
           categoryName: string | null;
           lastPurchaseCompact: string | null;
+          documentKeys: Set<string>;
           historicalDocumentCount: number;
           historicalQuantity: number;
           historicalAmount: number;
@@ -6027,6 +6397,7 @@ export class ReportsService {
           categoryCode: category.code,
           categoryName: category.name || null,
           lastPurchaseCompact: null as string | null,
+          documentKeys: new Set<string>(),
           historicalDocumentCount: 0,
           historicalQuantity: 0,
           historicalAmount: 0,
@@ -6036,20 +6407,31 @@ export class ReportsService {
         if (rowDate && (!current.lastPurchaseCompact || rowDate > current.lastPurchaseCompact)) {
           current.lastPurchaseCompact = rowDate;
         }
-        current.historicalDocumentCount += Number(row.documentCount) || 0;
+        if (Number(row.isReturnOnly) === 0) {
+          current.documentKeys.add(
+            `${String(row.documentType ?? '')}|${String(row.documentSeries ?? '')}|${String(row.documentSequence ?? '')}`
+          );
+        }
+        current.historicalDocumentCount = current.documentKeys.size;
         current.historicalQuantity += toNumber(row.totalQuantity);
         current.historicalAmount += toNumber(row.totalAmount);
         historicalCategoryMap.set(category.code, current);
       });
 
       const rows: CategoryChurnRow[] = Array.from(historicalCategoryMap.values())
-        .filter((item) => !recentCategorySet.has(item.categoryCode))
+        .filter(
+          (item) =>
+            item.historicalDocumentCount > 0
+            && !recentCategorySet.has(item.categoryCode)
+        )
         .map((item) => ({
           customerCode: normalizedCustomerCode,
           customerName: metadata.customer?.customerName || '-',
           categoryCode: item.categoryCode,
           categoryName: item.categoryName,
           lastPurchaseDate: compactToDisplay(item.lastPurchaseCompact),
+          daysSinceCategoryPurchase: null,
+          customerActiveOutsideCategory: false,
           historicalDocumentCount: item.historicalDocumentCount,
           historicalQuantity: item.historicalQuantity,
           historicalAmount: item.historicalAmount,
@@ -6068,6 +6450,10 @@ export class ReportsService {
     customerCode?: string;
     inactiveMonths?: number;
     activeCustomerMonths?: number;
+    sectorCode?: string;
+    minHistoricalDocumentCount?: number;
+    minHistoricalAmount?: number;
+    scope?: ReportRequestScope;
     sortBy?: CategoryChurnSortBy;
     sortDirection?: CategoryChurnSortDirection;
   }): Promise<{ buffer: Buffer; fileName: string }> {
@@ -6075,6 +6461,7 @@ export class ReportsService {
       ...options,
       page: 1,
       limit: 100000,
+      forExport: true,
     });
 
     const header = data.metadata.mode === 'category'
@@ -6085,6 +6472,8 @@ export class ReportsService {
           'Kategori Kodu',
           'Kategori Adi',
           'Son Alim Tarihi',
+          'Alim Yapilmayan Gun',
+          'Baska Kategorilerde Aktif',
           'Cari Son Satis Tarihi',
           'Gecmis Evrak',
           'Gecmis Miktar',
@@ -6095,6 +6484,8 @@ export class ReportsService {
           'Kategori Adi',
           'Cari Sektor Kodu',
           'Son Alim Tarihi',
+          'Alim Yapilmayan Gun',
+          'Baska Kategorilerde Aktif',
           'Cari Son Satis Tarihi',
           'Gecmis Evrak',
           'Gecmis Miktar',
@@ -6110,6 +6501,8 @@ export class ReportsService {
             row.categoryCode || '',
             row.categoryName || '',
             row.lastPurchaseDate || '',
+            row.daysSinceCategoryPurchase ?? '',
+            row.customerActiveOutsideCategory ? 'Evet' : 'Hayir',
             row.customerLastSaleDate || '',
             row.historicalDocumentCount || 0,
             Number(row.historicalQuantity || 0),
@@ -6120,6 +6513,8 @@ export class ReportsService {
             row.categoryName || '',
             row.customerSectorCode || '',
             row.lastPurchaseDate || '',
+            row.daysSinceCategoryPurchase ?? '',
+            row.customerActiveOutsideCategory ? 'Evet' : 'Hayir',
             row.customerLastSaleDate || '',
             row.historicalDocumentCount || 0,
             Number(row.historicalQuantity || 0),
@@ -6129,10 +6524,10 @@ export class ReportsService {
 
     const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kategori Alim Kaybi');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kategori-Cari Kesintileri');
 
     const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
-    const fileName = `kategori-alim-kaybi-${data.metadata.mode}-${data.metadata.inactiveStartDate}-${data.metadata.endDate}.xlsx`;
+    const fileName = `kategori-cari-alim-kesintileri-${data.metadata.mode}-${data.metadata.inactiveStartDate}-${data.metadata.endDate}.xlsx`;
 
     return { buffer, fileName };
   }
@@ -6140,14 +6535,25 @@ export class ReportsService {
   async getCategoryOpportunityReport(options: {
     categoryCode?: string;
     customerCode?: string;
+    sectorCode?: string;
     lookbackMonths?: number;
     minPairCount?: number;
+    minOpportunityScore?: number;
+    minRecommendationCount?: number;
     limit?: number;
+    scope?: ReportRequestScope;
   }): Promise<CategoryOpportunityReportResponse> {
     const normalizedCategoryCode = normalizeReportCode(options.categoryCode);
     const normalizedCustomerCode = normalizeReportCode(options.customerCode);
+    const normalizedSectorCode = normalizeReportCode(options.sectorCode);
+    const isScopedSalesRep = options.scope?.role === UserRole.SALES_REP;
+    const scopedSectorSet = new Set(
+      getSalesRepSectorCodes(options.scope).map(normalizeReportCode)
+    );
     const lookbackMonthsRaw = Number(options.lookbackMonths);
     const minPairCountRaw = Number(options.minPairCount);
+    const minOpportunityScoreRaw = Number(options.minOpportunityScore);
+    const minRecommendationCountRaw = Number(options.minRecommendationCount);
     const limitRaw = Number(options.limit);
 
     const lookbackMonths =
@@ -6158,6 +6564,14 @@ export class ReportsService {
       Number.isFinite(minPairCountRaw) && minPairCountRaw > 0
         ? Math.min(1000, Math.floor(minPairCountRaw))
         : 2;
+    const minOpportunityScore =
+      Number.isFinite(minOpportunityScoreRaw) && minOpportunityScoreRaw > 0
+        ? minOpportunityScoreRaw
+        : null;
+    const minRecommendationCount =
+      Number.isFinite(minRecommendationCountRaw) && minRecommendationCountRaw > 0
+        ? Math.floor(minRecommendationCountRaw)
+        : null;
     const limit =
       Number.isFinite(limitRaw) && limitRaw > 0
         ? Math.min(200, Math.floor(limitRaw))
@@ -6204,6 +6618,13 @@ export class ReportsService {
       minPairCount,
       startDate: formatDateKey(lookbackStart),
       endDate: formatDateKey(reportEnd),
+      sectorCode: normalizedSectorCode || null,
+      minOpportunityScore,
+      minRecommendationCount,
+      candidateSourceProductCount: 0,
+      associationWindowStart: null,
+      associationWindowEnd: null,
+      associationUpdatedAt: null,
     };
 
     const emptyResponse = (summaryOverrides?: Partial<CategoryOpportunityReportResponse['summary']>) => ({
@@ -6213,6 +6634,9 @@ export class ReportsService {
         totalRecommendations: 0,
         scannedCustomers: 0,
         excludedBecauseAlreadyBoughtCategory: 0,
+        eligibleCustomers: 0,
+        coverageRate: 0,
+        averageOpportunityScore: 0,
         ...(summaryOverrides || {}),
       },
       metadata: metadataBase,
@@ -6235,6 +6659,59 @@ export class ReportsService {
       .map((code) => `'${escapeSqlLiteral(code)}'`)
       .join(', ');
 
+    // Start from products that can actually produce evidence for the selected
+    // category. This avoids grouping every non-category movement in Mikro.
+    const pairRows = await prisma.productComplementAuto.findMany({
+      where: {
+        relatedProductId: { in: categoryProductIds },
+        pairCount: { gte: minPairCount },
+      },
+      select: {
+        productId: true,
+        relatedProductId: true,
+        pairCount: true,
+        windowStart: true,
+        windowEnd: true,
+        updatedAt: true,
+        product: {
+          select: {
+            mikroCode: true,
+            name: true,
+          },
+        },
+        relatedProduct: {
+          select: {
+            mikroCode: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    const candidateSourceProductCodes = Array.from(
+      new Set(
+        pairRows
+          .map((row) => normalizeReportCode(row.product?.mikroCode))
+          .filter(Boolean)
+      )
+    );
+    metadataBase.candidateSourceProductCount = candidateSourceProductCodes.length;
+    if (pairRows.length > 0) {
+      const associationWindowStarts = pairRows.map((row) => row.windowStart.getTime());
+      const associationWindowEnds = pairRows.map((row) => row.windowEnd.getTime());
+      const associationUpdates = pairRows.map((row) => row.updatedAt.getTime());
+      metadataBase.associationWindowStart = formatDateKey(new Date(Math.min(...associationWindowStarts)));
+      metadataBase.associationWindowEnd = formatDateKey(new Date(Math.max(...associationWindowEnds)));
+      metadataBase.associationUpdatedAt = new Date(Math.max(...associationUpdates)).toISOString();
+    }
+
+    if (candidateSourceProductCodes.length === 0) {
+      return emptyResponse();
+    }
+    const candidateSourceInClause = candidateSourceProductCodes
+      .map((code) => `'${escapeSqlLiteral(code)}'`)
+      .join(', ');
+
     const baseConditions = [
       'sth_cins = 0',
       'sth_tip = 1',
@@ -6247,28 +6724,64 @@ export class ReportsService {
     ];
     const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
     const buildWhereClause = (extra: string[]) => [...baseConditions, ...exclusionConditions, ...extra].join(' AND ');
+    if (
+      isScopedSalesRep
+      && (
+        scopedSectorSet.size === 0
+        || (normalizedSectorCode && !scopedSectorSet.has(normalizedSectorCode))
+      )
+    ) {
+      return emptyResponse();
+    }
+    const effectiveSectorCodes = normalizedSectorCode
+      ? [normalizedSectorCode]
+      : isScopedSalesRep
+        ? Array.from(scopedSectorSet)
+        : [];
 
     await mikroService.connect();
     try {
       const sourceConditions = [
         `sth.sth_tarih >= '${startDateCompact}'`,
         `sth.sth_tarih <= '${endDateCompact}'`,
-        `RTRIM(sth.sth_stok_kod) NOT IN (${categoryInClause})`,
+        `RTRIM(sth.sth_stok_kod) IN (${candidateSourceInClause})`,
       ];
       if (normalizedCustomerCode) {
         sourceConditions.push(`RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`);
+      }
+      if (effectiveSectorCodes.length > 0) {
+        const sectorInClause = effectiveSectorCodes
+          .map((code) => `'${escapeSqlLiteral(code)}'`)
+          .join(', ');
+        sourceConditions.push(`UPPER(LTRIM(RTRIM(c.cari_sektor_kodu))) IN (${sectorInClause})`);
       }
 
       const sourceRows = await mikroService.executeQuery(`
         SELECT
           RTRIM(sth.sth_cari_kodu) as customerCode,
-          RTRIM(sth.sth_stok_kod) as productCode,
+          MAX(c.cari_unvan1) as customerName,
+          MAX(c.cari_sektor_kodu) as sectorCode,
+          CASE
+            WHEN GROUPING(sth.sth_stok_kod) = 1 THEN NULL
+            ELSE RTRIM(sth.sth_stok_kod)
+          END as productCode,
           MAX(st.sto_isim) as productName,
-          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
+          MAX(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 0 THEN sth.sth_tarih END) as lastPurchaseDate,
+          COUNT(DISTINCT CASE
+            WHEN ISNULL(sth.sth_normal_iade, 0) = 0
+              THEN CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))
+            ELSE NULL
+          END) as documentCount,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as totalAmount,
+          GROUPING(sth.sth_stok_kod) as isCustomerTotal
         FROM STOK_HAREKETLERI sth
         LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+        LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
         WHERE ${buildWhereClause(sourceConditions)}
-        GROUP BY sth.sth_cari_kodu, sth.sth_stok_kod
+        GROUP BY GROUPING SETS (
+          (sth.sth_cari_kodu, sth.sth_stok_kod),
+          (sth.sth_cari_kodu)
+        )
       `);
 
       const sourceMetricsByCustomerCode = new Map<
@@ -6279,20 +6792,46 @@ export class ReportsService {
             productCode: string;
             productName: string;
             customerDocumentCount: number;
+            customerAmount: number;
+            lastPurchaseDate: string | null;
           }
         >
       >();
+      const sourceDocumentCountByCustomerCode = new Map<string, number>();
       const sourceCodesSet = new Set<string>();
+      const mikroCustomerInfoByCode = new Map<
+        string,
+        { customerName: string | null; customerSectorCode: string | null }
+      >();
       sourceRows.forEach((row: any) => {
         const customerCode = normalizeReportCode(row.customerCode);
         const productCode = normalizeReportCode(row.productCode);
         const customerDocumentCount = Number(row.documentCount) || 0;
-        if (!customerCode || !productCode || customerDocumentCount <= 0) return;
+        if (!customerCode) return;
+        if (!mikroCustomerInfoByCode.has(customerCode)) {
+          mikroCustomerInfoByCode.set(customerCode, {
+            customerName: row.customerName || null,
+            customerSectorCode: normalizeReportCode(row.sectorCode) || null,
+          });
+        }
+        if (Number(row.isCustomerTotal) === 1) {
+          sourceDocumentCountByCustomerCode.set(customerCode, customerDocumentCount);
+          return;
+        }
+        const parsedLastPurchaseDate = row.lastPurchaseDate
+          ? new Date(row.lastPurchaseDate)
+          : null;
+        if (!productCode || customerDocumentCount <= 0) return;
         const customerMap = sourceMetricsByCustomerCode.get(customerCode) || new Map();
         customerMap.set(productCode, {
           productCode,
           productName: String(row.productName || productCode),
           customerDocumentCount,
+          customerAmount: toNumber(row.totalAmount),
+          lastPurchaseDate:
+            parsedLastPurchaseDate && !Number.isNaN(parsedLastPurchaseDate.getTime())
+            ? formatDateKey(parsedLastPurchaseDate)
+            : null,
         });
         sourceMetricsByCustomerCode.set(customerCode, customerMap);
         sourceCodesSet.add(productCode);
@@ -6330,13 +6869,25 @@ export class ReportsService {
         string,
         Map<
           string,
-          { productCode: string; productName: string; customerDocumentCount: number }
+          {
+            productCode: string;
+            productName: string;
+            customerDocumentCount: number;
+            customerAmount: number;
+            lastPurchaseDate: string | null;
+          }
         >
       >();
       sourceMetricsByCustomerCode.forEach((productsMap, customerCode) => {
         const productIdMap = new Map<
           string,
-          { productCode: string; productName: string; customerDocumentCount: number }
+          {
+            productCode: string;
+            productName: string;
+            customerDocumentCount: number;
+            customerAmount: number;
+            lastPurchaseDate: string | null;
+          }
         >();
         productsMap.forEach((source, productCode) => {
           const resolved = productIdByCode.get(productCode);
@@ -6345,6 +6896,8 @@ export class ReportsService {
             productCode: source.productCode,
             productName: resolved.name || source.productName,
             customerDocumentCount: source.customerDocumentCount,
+            customerAmount: source.customerAmount,
+            lastPurchaseDate: source.lastPurchaseDate,
           });
         });
         if (productIdMap.size > 0) {
@@ -6370,6 +6923,8 @@ export class ReportsService {
         const purchasedRows = await mikroService.executeQuery(`
           SELECT DISTINCT RTRIM(sth.sth_cari_kodu) as customerCode
           FROM STOK_HAREKETLERI sth
+          LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+          LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
           WHERE ${buildWhereClause([
             `RTRIM(sth.sth_cari_kodu) IN (${customerInClause})`,
             `RTRIM(sth.sth_stok_kod) IN (${categoryInClause})`,
@@ -6393,39 +6948,6 @@ export class ReportsService {
         });
       }
 
-      const sourceProductIds = Array.from(
-        new Set(
-          eligibleCustomerCodes.flatMap((customerCode) =>
-            Array.from(sourceByCustomerAndProductId.get(customerCode)?.keys() || [])
-          )
-        )
-      );
-      if (sourceProductIds.length === 0) {
-        return emptyResponse({
-          scannedCustomers: scannedCustomerCodes.length,
-          excludedBecauseAlreadyBoughtCategory: customersWithCategoryPurchase.size,
-        });
-      }
-
-      const pairRows = await prisma.productComplementAuto.findMany({
-        where: {
-          productId: { in: sourceProductIds },
-          relatedProductId: { in: categoryProductIds },
-          pairCount: { gte: minPairCount },
-        },
-        select: {
-          productId: true,
-          relatedProductId: true,
-          pairCount: true,
-          relatedProduct: {
-            select: {
-              mikroCode: true,
-              name: true,
-            },
-          },
-        },
-      });
-
       const customerUsers = await prisma.user.findMany({
         where: {
           role: 'CUSTOMER',
@@ -6445,7 +6967,7 @@ export class ReportsService {
           customerName: string | null;
           customerSectorCode: string | null;
         }
-      >();
+      >(mikroCustomerInfoByCode);
       customerUsers.forEach((row) => {
         const code = normalizeReportCode(row.mikroCariCode);
         if (!code) return;
@@ -6453,6 +6975,19 @@ export class ReportsService {
           customerName: row.displayName || row.name || null,
           customerSectorCode: row.sectorCode || null,
         });
+      });
+
+      const scopedEligibleCustomerCodes = eligibleCustomerCodes.filter((customerCode) => {
+        const customerSectorCode = normalizeReportCode(
+          customerInfoByCode.get(customerCode)?.customerSectorCode
+        );
+        if (
+          isScopedSalesRep
+          && (scopedSectorSet.size === 0 || !scopedSectorSet.has(customerSectorCode))
+        ) {
+          return false;
+        }
+        return !normalizedSectorCode || customerSectorCode === normalizedSectorCode;
       });
 
       const pairRowsBySourceProductId = new Map<typeof pairRows[number]['productId'], typeof pairRows>();
@@ -6465,7 +7000,7 @@ export class ReportsService {
       const customerRows: CategoryOpportunityRow[] = [];
       let totalRecommendations = 0;
 
-      eligibleCustomerCodes.forEach((customerCode) => {
+      scopedEligibleCustomerCodes.forEach((customerCode) => {
         const sourceMap = sourceByCustomerAndProductId.get(customerCode);
         if (!sourceMap || sourceMap.size === 0) return;
 
@@ -6539,6 +7074,25 @@ export class ReportsService {
 
         const customerInfo = customerInfoByCode.get(customerCode);
         const totalOpportunityScore = recommendations.reduce((sum, item) => sum + item.weightedScore, 0);
+        if (minOpportunityScore !== null && totalOpportunityScore < minOpportunityScore) return;
+        if (
+          minRecommendationCount !== null
+          && recommendations.length < minRecommendationCount
+        ) {
+          return;
+        }
+        const sourceValues = Array.from(sourceMap.values());
+        const sourceDocumentCount = sourceDocumentCountByCustomerCode.get(customerCode)
+          || sourceValues.reduce((sum, source) => sum + source.customerDocumentCount, 0);
+        const sourceRevenue = sourceValues.reduce(
+          (sum, source) => sum + source.customerAmount,
+          0
+        );
+        const lastSourcePurchaseDate = sourceValues
+          .map((source) => source.lastPurchaseDate)
+          .filter((value): value is string => Boolean(value))
+          .sort()
+          .at(-1) || null;
 
         customerRows.push({
           customerCode,
@@ -6546,6 +7100,9 @@ export class ReportsService {
           customerSectorCode: customerInfo?.customerSectorCode || null,
           totalOpportunityScore,
           recommendationCount: recommendations.length,
+          sourceDocumentCount,
+          sourceRevenue,
+          lastSourcePurchaseDate,
           recommendations,
         });
         totalRecommendations += recommendations.length;
@@ -6561,6 +7118,16 @@ export class ReportsService {
         return a.customerCode.localeCompare(b.customerCode, 'tr');
       });
       const rows = sortedRows.slice(0, limit);
+      const eligibleCustomers = scopedEligibleCustomerCodes.length;
+      const coverageRate = eligibleCustomers > 0
+        ? Math.round((sortedRows.length / eligibleCustomers) * 1000) / 10
+        : 0;
+      const averageOpportunityScore = sortedRows.length > 0
+        ? Math.round(
+            (sortedRows.reduce((sum, row) => sum + row.totalOpportunityScore, 0)
+              / sortedRows.length) * 10
+          ) / 10
+        : 0;
 
       return {
         rows,
@@ -6569,6 +7136,9 @@ export class ReportsService {
           totalRecommendations,
           scannedCustomers: scannedCustomerCodes.length,
           excludedBecauseAlreadyBoughtCategory: customersWithCategoryPurchase.size,
+          eligibleCustomers,
+          coverageRate,
+          averageOpportunityScore,
         },
         metadata: metadataBase,
       };
@@ -6586,11 +7156,13 @@ export class ReportsService {
     salesRepId?: string;
     periodMonths?: number;
     minDocumentCount?: number;
+    scope?: ReportRequestScope;
   }): Promise<{ buffer: Buffer; fileName: string }> {
     const data = await this.getComplementMissingReport({
       ...options,
       page: 1,
       limit: 100000,
+      forExport: true,
     });
 
     const formatNumber = (value: number | null | undefined) =>
@@ -6599,8 +7171,8 @@ export class ReportsService {
       Number.isFinite(value) ? Math.round((value + Number.EPSILON) * 100) / 100 : 0;
 
     const header = data.metadata.mode === 'product'
-      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Potansiyel Aylik Gelir']
-      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Potansiyel Aylik Gelir'];
+      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Fiyati Bulunan Kalemlerin Potansiyel Aylik Geliri']
+      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Fiyati Bulunan Kalemlerin Potansiyel Aylik Geliri'];
 
     const rows = data.rows.map((row) => {
       const missingList = row.missingComplements
@@ -6611,9 +7183,9 @@ export class ReportsService {
           return `${item.productCode} - ${item.productName} (${qty} x ${unitPrice} = ${revenue})`;
         })
         .join(', ');
-      const potentialRevenue = round2Local(
-        row.missingComplements.reduce((sum, item) => sum + (item.estimatedRevenue || 0), 0)
-      );
+      const potentialRevenue = row.estimatedRevenue === null
+        ? ''
+        : round2Local(row.estimatedRevenue);
       return data.metadata.mode === 'product'
         ? [
             row.customerCode || '',
@@ -6636,10 +7208,10 @@ export class ReportsService {
     const sheetData = [header, ...rows];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Tamamlayici Eksikleri');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Eksik Tamamlayici Firsatlari');
 
     const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
-    const fileName = `tamamlayici-urun-eksikleri-${data.metadata.mode}-${data.metadata.startDate}-${data.metadata.endDate}.xlsx`;
+    const fileName = `eksik-tamamlayici-urun-firsatlari-${data.metadata.mode}-${data.metadata.startDate}-${data.metadata.endDate}.xlsx`;
 
     return { buffer, fileName };
   }

@@ -746,13 +746,18 @@ export interface CustomerRecoveryRow {
     categoryName: string;
     historicalAmount: number;
     recentAmount: number;
+    historicalMonthlyAverage: number;
+    recentMonthlyAverage: number;
     lostAmount: number;
+    trendState: 'STOPPED' | 'DECLINED' | 'CONTINUING' | 'GROWN';
   } | null;
   topLostProduct: {
     productCode: string;
     productName: string;
     historicalAmount: number;
     recentAmount: number;
+    historicalMonthlyAverage: number;
+    recentMonthlyAverage: number;
     lostAmount: number;
     lastPurchaseDate: string | null;
   } | null;
@@ -981,13 +986,18 @@ export interface CustomerRecoveryDetailData {
     categoryName: string;
     historicalAmount: number;
     recentAmount: number;
+    historicalMonthlyAverage: number;
+    recentMonthlyAverage: number;
     lostAmount: number;
+    trendState: 'STOPPED' | 'DECLINED' | 'CONTINUING' | 'GROWN';
     productCount: number;
     products: Array<{
       productCode: string;
       productName: string;
       historicalAmount: number;
       recentAmount: number;
+      historicalMonthlyAverage: number;
+      recentMonthlyAverage: number;
       lostAmount: number;
       lastPurchaseDate: string | null;
     }>;
@@ -3638,10 +3648,16 @@ export const adminApi = {
           estimatedRevenue?: number | null;
         }>;
         missingCount: number;
+        estimatedRevenue: number | null;
       }>;
       summary: {
         totalRows: number;
         totalMissing: number;
+        totalEstimatedRevenue: number | null;
+        rowsWithRevenueEstimate: number;
+        pricedMissingItems: number;
+        unpricedMissingItems: number;
+        averageMissingPerRow: number;
       };
       pagination: {
         page: number;
@@ -3660,6 +3676,10 @@ export const adminApi = {
         sectorCode?: string | null;
         salesRep?: { id: string; name: string | null; email: string | null; assignedSectorCodes: string[] };
         minDocumentCount?: number | null;
+        associationSource: 'AUTO' | 'MANUAL' | 'MIXED' | 'NONE';
+        associationWindowStart: string | null;
+        associationWindowEnd: string | null;
+        associationUpdatedAt: string | null;
       };
     };
   }> => {
@@ -3685,6 +3705,9 @@ export const adminApi = {
     customerCode?: string;
     inactiveMonths?: number;
     activeCustomerMonths?: number;
+    sectorCode?: string;
+    minHistoricalDocumentCount?: number;
+    minHistoricalAmount?: number;
     page?: number;
     limit?: number;
     sortBy?:
@@ -3710,6 +3733,8 @@ export const adminApi = {
         categoryCode?: string;
         categoryName?: string;
         lastPurchaseDate: string | null;
+        daysSinceCategoryPurchase: number | null;
+        customerActiveOutsideCategory: boolean;
         historicalDocumentCount: number;
         historicalQuantity: number;
         historicalAmount: number;
@@ -3718,6 +3743,9 @@ export const adminApi = {
         totalRows: number;
         affectedCustomers: number;
         affectedCategories: number;
+        historicalRevenue: number;
+        activeOutsideCategoryCustomers: number;
+        averageInactiveDays: number | null;
       };
       pagination: {
         page: number;
@@ -3731,6 +3759,9 @@ export const adminApi = {
         inactiveStartDate: string;
         endDate: string;
         activeCustomerMonths: number | null;
+        sectorCode: string | null;
+        minHistoricalDocumentCount: number | null;
+        minHistoricalAmount: number | null;
         category?: {
           categoryCode: string;
           categoryName: string | null;
@@ -3748,6 +3779,13 @@ export const adminApi = {
     if (params.customerCode) queryParams.append('customerCode', params.customerCode);
     if (params.inactiveMonths) queryParams.append('inactiveMonths', params.inactiveMonths.toString());
     if (params.activeCustomerMonths) queryParams.append('activeCustomerMonths', params.activeCustomerMonths.toString());
+    if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
+    if (params.minHistoricalDocumentCount) {
+      queryParams.append('minHistoricalDocumentCount', params.minHistoricalDocumentCount.toString());
+    }
+    if (params.minHistoricalAmount) {
+      queryParams.append('minHistoricalAmount', params.minHistoricalAmount.toString());
+    }
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.limit) queryParams.append('limit', params.limit.toString());
     if (params.sortBy) queryParams.append('sortBy', params.sortBy);
@@ -3763,6 +3801,9 @@ export const adminApi = {
     customerCode?: string;
     inactiveMonths?: number;
     activeCustomerMonths?: number;
+    sectorCode?: string;
+    minHistoricalDocumentCount?: number;
+    minHistoricalAmount?: number;
     sortBy?:
       | 'customerCode'
       | 'customerName'
@@ -3782,6 +3823,13 @@ export const adminApi = {
     if (params.customerCode) queryParams.append('customerCode', params.customerCode);
     if (params.inactiveMonths) queryParams.append('inactiveMonths', params.inactiveMonths.toString());
     if (params.activeCustomerMonths) queryParams.append('activeCustomerMonths', params.activeCustomerMonths.toString());
+    if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
+    if (params.minHistoricalDocumentCount) {
+      queryParams.append('minHistoricalDocumentCount', params.minHistoricalDocumentCount.toString());
+    }
+    if (params.minHistoricalAmount) {
+      queryParams.append('minHistoricalAmount', params.minHistoricalAmount.toString());
+    }
     if (params.sortBy) queryParams.append('sortBy', params.sortBy);
     if (params.sortDirection) queryParams.append('sortDirection', params.sortDirection);
 
@@ -3958,8 +4006,11 @@ export const adminApi = {
   getCategoryOpportunityReport: async (params: {
     categoryCode: string;
     customerCode?: string;
+    sectorCode?: string;
     lookbackMonths?: number;
     minPairCount?: number;
+    minOpportunityScore?: number;
+    minRecommendationCount?: number;
     limit?: number;
   }): Promise<{
     success: boolean;
@@ -3970,6 +4021,9 @@ export const adminApi = {
         customerSectorCode: string | null;
         totalOpportunityScore: number;
         recommendationCount: number;
+        sourceDocumentCount: number;
+        sourceRevenue: number;
+        lastSourcePurchaseDate: string | null;
         recommendations: Array<{
           recommendedProductCode: string;
           recommendedProductName: string;
@@ -3989,6 +4043,9 @@ export const adminApi = {
         totalRecommendations: number;
         scannedCustomers: number;
         excludedBecauseAlreadyBoughtCategory: number;
+        eligibleCustomers: number;
+        coverageRate: number;
+        averageOpportunityScore: number;
       };
       metadata: {
         category: {
@@ -4001,14 +4058,28 @@ export const adminApi = {
         minPairCount: number;
         startDate: string;
         endDate: string;
+        sectorCode: string | null;
+        minOpportunityScore: number | null;
+        minRecommendationCount: number | null;
+        candidateSourceProductCount: number;
+        associationWindowStart: string | null;
+        associationWindowEnd: string | null;
+        associationUpdatedAt: string | null;
       };
     };
   }> => {
     const queryParams = new URLSearchParams();
     queryParams.append('categoryCode', params.categoryCode);
     if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
     if (params.lookbackMonths) queryParams.append('lookbackMonths', params.lookbackMonths.toString());
     if (params.minPairCount) queryParams.append('minPairCount', params.minPairCount.toString());
+    if (params.minOpportunityScore) {
+      queryParams.append('minOpportunityScore', params.minOpportunityScore.toString());
+    }
+    if (params.minRecommendationCount) {
+      queryParams.append('minRecommendationCount', params.minRecommendationCount.toString());
+    }
     if (params.limit) queryParams.append('limit', params.limit.toString());
 
     const response = await apiClient.get(`/admin/reports/category-opportunity?${queryParams.toString()}`);
