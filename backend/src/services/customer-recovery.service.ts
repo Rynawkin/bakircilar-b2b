@@ -5,6 +5,7 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import exclusionService from './exclusion.service';
 import notificationService from './notification.service';
+import { AppError, ErrorCode } from '../types/errors';
 
 type RiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 type SortBy = 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
@@ -13,6 +14,7 @@ type SeasonalityMode = 'include' | 'exclude' | 'only';
 type SeasonalityStatus = 'ON_TRACK' | 'OVERDUE' | null;
 type PurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
 type HistoricalValueSortBy = 'lostPotentialAdjusted' | 'peakAdjustedAmount' | 'totalRawAmount' | 'totalAdjustedAmount' | 'lastSaleDate' | 'maxConsecutiveActiveMonths' | 'customerName';
+type CategoryTrendState = 'STOPPED' | 'DECLINED' | 'CONTINUING' | 'GROWN';
 
 interface ReportOptions {
   recentMonths?: number;
@@ -113,13 +115,18 @@ interface RecoveryRow {
     categoryName: string;
     historicalAmount: number;
     recentAmount: number;
+    historicalMonthlyAverage: number;
+    recentMonthlyAverage: number;
     lostAmount: number;
+    trendState: CategoryTrendState;
   } | null;
   topLostProduct: {
     productCode: string;
     productName: string;
     historicalAmount: number;
     recentAmount: number;
+    historicalMonthlyAverage: number;
+    recentMonthlyAverage: number;
     lostAmount: number;
     lastPurchaseDate: string | null;
   } | null;
@@ -268,6 +275,15 @@ const median = (values: number[]) => {
 
 const parseBoolean = (value?: boolean) => Boolean(value);
 const parseLooseBoolean = (value: any) => value === true || value === 1 || String(value || '').toLowerCase() === 'true';
+const getCategoryTrendState = (
+  historicalMonthlyAverage: number,
+  recentMonthlyAverage: number
+): CategoryTrendState => {
+  if (historicalMonthlyAverage > 0 && recentMonthlyAverage <= 0) return 'STOPPED';
+  if (recentMonthlyAverage < historicalMonthlyAverage - 0.01) return 'DECLINED';
+  if (recentMonthlyAverage > historicalMonthlyAverage + 0.01) return 'GROWN';
+  return 'CONTINUING';
+};
 const TCMB_USD_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
 const USD_RATE_CACHE_MS = 60 * 60 * 1000;
 const HISTORICAL_VALUE_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -452,6 +468,46 @@ class CustomerRecoveryService {
     }
 
     return [...conditions, ...extra];
+  }
+
+  private async assertActionCustomerAccess(customerCodes: string[], context?: RequestContext) {
+    if (context?.role !== UserRole.SALES_REP) return;
+
+    const normalizedCodes = Array.from(
+      new Set(customerCodes.map(normalizeCode).filter(Boolean))
+    );
+    const assignedSectorCodes = Array.from(
+      new Set((context.assignedSectorCodes || []).map(normalizeCode).filter(Boolean))
+    );
+    if (normalizedCodes.length === 0 || assignedSectorCodes.length === 0) {
+      throw new AppError('Bu cari kapsamina erisim yetkiniz yok.', 403, ErrorCode.FORBIDDEN);
+    }
+
+    const allowedCustomers = await prisma.user.findMany({
+      where: {
+        role: UserRole.CUSTOMER,
+        parentCustomerId: null,
+        mikroCariCode: { in: normalizedCodes },
+        sectorCode: { in: assignedSectorCodes },
+      },
+      select: { mikroCariCode: true },
+    });
+    const allowedCodes = new Set(
+      allowedCustomers.map((customer) => normalizeCode(customer.mikroCariCode)).filter(Boolean)
+    );
+    if (normalizedCodes.some((code) => !allowedCodes.has(code))) {
+      throw new AppError('Bu cari kapsamina erisim yetkiniz yok.', 403, ErrorCode.FORBIDDEN);
+    }
+  }
+
+  private assertSalesRepAssignmentTarget(assignedToId: unknown, context?: RequestContext) {
+    if (
+      context?.role === UserRole.SALES_REP
+      && assignedToId
+      && String(assignedToId) !== context.userId
+    ) {
+      throw new AppError('Satis temsilcisi yalnizca kendisine takip atayabilir.', 403, ErrorCode.FORBIDDEN);
+    }
   }
 
   private async resolveCandidateCustomerCodes(
@@ -1307,6 +1363,9 @@ class CustomerRecoveryService {
       select: { mikroCode: true, name: true, category: { select: { mikroCode: true, name: true } } },
     });
     const productMap = new Map(products.map((product) => [normalizeCode(product.mikroCode), product]));
+    const recoveryByCustomer = new Map(
+      rows.map((row) => [normalizeCode(row.customerCode), row] as const)
+    );
 
     const insightsByCustomer = new Map<string, {
       topLostProduct: RecoveryRow['topLostProduct'];
@@ -1323,7 +1382,16 @@ class CustomerRecoveryService {
       const productName = product?.name || item.productName || productCode;
       const historicalAmount = toNumber(item.historicalAmount);
       const recentAmount = toNumber(item.recentAmount);
-      const lostAmount = Math.max(0, historicalAmount - recentAmount);
+      const recovery = recoveryByCustomer.get(customerCode);
+      const historicalMonthlyAverage =
+        recovery && Math.abs(recovery.historicalAmount) > Number.EPSILON
+          ? recovery.historicalAverage * (historicalAmount / recovery.historicalAmount)
+          : 0;
+      const recentMonthlyAverage =
+        recovery && Math.abs(recovery.recentAmount) > Number.EPSILON
+          ? recovery.recentAverage * (recentAmount / recovery.recentAmount)
+          : 0;
+      const lostAmount = Math.max(0, historicalMonthlyAverage - recentMonthlyAverage);
       const lastPurchaseDate = compactDateToDisplay(item.lastPurchaseDate);
       const current = insightsByCustomer.get(customerCode) || {
         topLostProduct: null,
@@ -1336,6 +1404,8 @@ class CustomerRecoveryService {
         productName,
         historicalAmount,
         recentAmount,
+        historicalMonthlyAverage,
+        recentMonthlyAverage,
         lostAmount,
         lastPurchaseDate,
       };
@@ -1359,11 +1429,20 @@ class CustomerRecoveryService {
         categoryName,
         historicalAmount: 0,
         recentAmount: 0,
+        historicalMonthlyAverage: 0,
+        recentMonthlyAverage: 0,
         lostAmount: 0,
+        trendState: 'CONTINUING' as CategoryTrendState,
       };
       category.historicalAmount += historicalAmount;
       category.recentAmount += recentAmount;
-      category.lostAmount += lostAmount;
+      category.historicalMonthlyAverage += historicalMonthlyAverage;
+      category.recentMonthlyAverage += recentMonthlyAverage;
+      category.lostAmount = Math.max(0, category.historicalMonthlyAverage - category.recentMonthlyAverage);
+      category.trendState = getCategoryTrendState(
+        category.historicalMonthlyAverage,
+        category.recentMonthlyAverage
+      );
       current.categories.set(categoryCode, category);
       insightsByCustomer.set(customerCode, current);
     });
@@ -1373,7 +1452,9 @@ class CustomerRecoveryService {
       if (insight) {
         row.topLostProduct = insight.topLostProduct;
         row.lastPurchasedProduct = insight.lastPurchasedProduct;
-        row.topLostCategory = Array.from(insight.categories.values()).sort((a, b) => b.lostAmount - a.lostAmount)[0] || null;
+        row.topLostCategory = Array.from(insight.categories.values())
+          .filter((category) => category.lostAmount > 0)
+          .sort((a, b) => b.lostAmount - a.lostAmount)[0] || null;
       }
       row.recommendedAction = this.buildRecommendedAction(row);
     });
@@ -1878,8 +1959,9 @@ class CustomerRecoveryService {
     });
   }
 
-  async getCustomerActions(customerCode: string) {
+  async getCustomerActions(customerCode: string, context?: RequestContext) {
     const code = normalizeCode(customerCode);
+    await this.assertActionCustomerAccess([code], context);
     const actions = await prisma.customerRecoveryAction.findMany({
       where: { customerCode: code },
       include: {
@@ -1939,9 +2021,11 @@ class CustomerRecoveryService {
     };
   }
 
-  async createAction(customerCode: string, input: any, authorId?: string) {
+  async createAction(customerCode: string, input: any, authorId?: string, context?: RequestContext) {
     const code = normalizeCode(customerCode);
     if (!code) throw new Error('Customer code is required');
+    await this.assertActionCustomerAccess([code], context);
+    this.assertSalesRepAssignmentTarget(input?.assignedToId, context);
     const note = String(input?.note || '').trim();
     if (!note) throw new Error('Note is required');
     const followUpDate = input?.followUpDate ? new Date(input.followUpDate) : null;
@@ -1968,9 +2052,11 @@ class CustomerRecoveryService {
     return { action };
   }
 
-  async updateAction(actionId: string, input: any, actorId?: string) {
+  async updateAction(actionId: string, input: any, actorId?: string, context?: RequestContext) {
     const existing = await prisma.customerRecoveryAction.findUnique({ where: { id: actionId } });
     if (!existing) throw new Error('Action not found');
+    await this.assertActionCustomerAccess([existing.customerCode], context);
+    this.assertSalesRepAssignmentTarget(input?.assignedToId, context);
     const status = input?.status !== undefined ? String(input.status || '').trim().toUpperCase() : undefined;
     const followUpDate = input?.followUpDate !== undefined && input.followUpDate
       ? new Date(input.followUpDate)
@@ -2000,14 +2086,16 @@ class CustomerRecoveryService {
     return { action };
   }
 
-  async bulkAssign(input: any, authorId?: string) {
+  async bulkAssign(input: any, authorId?: string, context?: RequestContext) {
     const rawCustomerCodes = Array.isArray(input?.customerCodes) ? input.customerCodes : [];
     const customerCodes: string[] = Array.from(
       new Set(rawCustomerCodes.map((value: any) => normalizeCode(value)).filter((code: string) => Boolean(code)))
     );
     if (customerCodes.length === 0) throw new Error('Customer codes are required');
+    await this.assertActionCustomerAccess(customerCodes, context);
     const assignedToId = String(input?.assignedToId || '').trim();
     if (!assignedToId) throw new Error('Assigned user is required');
+    this.assertSalesRepAssignmentTarget(assignedToId, context);
     const note = String(input?.note || 'Geri kazanim takibi icin atandi').trim();
     const followUpDate = input?.followUpDate ? new Date(input.followUpDate) : null;
     await prisma.customerRecoveryAction.createMany({
@@ -2058,8 +2146,16 @@ class CustomerRecoveryService {
         RTRIM(sth.sth_stok_kod) as productCode,
         MAX(st.sto_isim) as productName,
         MAX(sth.sth_tarih) as lastPurchaseDate,
-        SUM(CASE WHEN sth.sth_tarih < '${formatDateCompact(normalized.recentStart)}' THEN ISNULL(sth.sth_tutar, 0) ELSE 0 END) as historicalAmount,
-        SUM(CASE WHEN sth.sth_tarih >= '${formatDateCompact(normalized.recentStart)}' THEN ISNULL(sth.sth_tutar, 0) ELSE 0 END) as recentAmount
+        SUM(CASE
+          WHEN sth.sth_tarih < '${formatDateCompact(normalized.recentStart)}'
+            THEN CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END
+          ELSE 0
+        END) as historicalAmount,
+        SUM(CASE
+          WHEN sth.sth_tarih >= '${formatDateCompact(normalized.recentStart)}'
+            THEN CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END
+          ELSE 0
+        END) as recentAmount
       FROM STOK_HAREKETLERI sth WITH (NOLOCK)
       LEFT JOIN STOKLAR st WITH (NOLOCK) ON sth.sth_stok_kod = st.sto_kod
       LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON sth.sth_cari_kodu = c.cari_kod
@@ -2082,22 +2178,41 @@ class CustomerRecoveryService {
         categoryName: product?.category?.name || 'Diger',
         historicalAmount: 0,
         recentAmount: 0,
+        historicalMonthlyAverage: 0,
+        recentMonthlyAverage: 0,
         lostAmount: 0,
+        trendState: 'CONTINUING' as CategoryTrendState,
         productCount: 0,
         products: [],
       };
       const historicalAmount = toNumber(item.historicalAmount);
       const recentAmount = toNumber(item.recentAmount);
+      const historicalMonthlyAverage =
+        Math.abs(row.historicalAmount) > Number.EPSILON
+          ? row.historicalAverage * (historicalAmount / row.historicalAmount)
+          : 0;
+      const recentMonthlyAverage =
+        Math.abs(row.recentAmount) > Number.EPSILON
+          ? row.recentAverage * (recentAmount / row.recentAmount)
+          : 0;
       current.historicalAmount += historicalAmount;
       current.recentAmount += recentAmount;
-      current.lostAmount += Math.max(0, historicalAmount - recentAmount);
+      current.historicalMonthlyAverage += historicalMonthlyAverage;
+      current.recentMonthlyAverage += recentMonthlyAverage;
+      current.lostAmount = Math.max(0, current.historicalMonthlyAverage - current.recentMonthlyAverage);
+      current.trendState = getCategoryTrendState(
+        current.historicalMonthlyAverage,
+        current.recentMonthlyAverage
+      );
       current.productCount += 1;
       current.products.push({
         productCode: normalizeCode(item.productCode),
         productName: product?.name || item.productName || normalizeCode(item.productCode),
         historicalAmount,
         recentAmount,
-        lostAmount: Math.max(0, historicalAmount - recentAmount),
+        historicalMonthlyAverage,
+        recentMonthlyAverage,
+        lostAmount: Math.max(0, historicalMonthlyAverage - recentMonthlyAverage),
         lastPurchaseDate: compactDateToDisplay(item.lastPurchaseDate),
       });
       categoryMap.set(categoryCode, current);
@@ -2107,7 +2222,7 @@ class CustomerRecoveryService {
       SELECT TOP 25
         RTRIM(sth.sth_evrakno_seri) + '-' + CAST(sth.sth_evrakno_sira AS VARCHAR(30)) as documentNo,
         MAX(sth.sth_tarih) as documentDate,
-        SUM(ISNULL(sth.sth_tutar, 0)) as amount,
+        SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as amount,
         COUNT(*) as lineCount
       FROM STOK_HAREKETLERI sth WITH (NOLOCK)
       LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON sth.sth_cari_kodu = c.cari_kod
@@ -2117,7 +2232,7 @@ class CustomerRecoveryService {
       ORDER BY MAX(sth.sth_tarih) DESC
     `);
 
-    const actions = await this.getCustomerActions(code);
+    const actions = await this.getCustomerActions(code, context);
     return {
       row,
       actions: actions.actions,
@@ -2148,8 +2263,8 @@ class CustomerRecoveryService {
       'Tahmini Kayip': row.lostPotential,
       'Donemsel Mi': row.isSeasonal ? 'Evet' : 'Hayir',
       'Donemsellik Sebebi': row.seasonalityReason || '',
-      'Kayip Kategori': row.topLostCategory?.categoryName || '',
-      'Kayip Kategori Tutar': row.topLostCategory?.lostAmount || 0,
+      'En Cok Daralan Kategori': row.topLostCategory?.categoryName || '',
+      'Tahmini Aylik Daralma': row.topLostCategory?.lostAmount || 0,
       'Kayip Urun': row.topLostProduct?.productName || '',
       'Son Alinan Urun': row.lastPurchasedProduct?.productName || '',
       'Onerilen Aksiyon': row.recommendedAction || '',
@@ -2169,12 +2284,12 @@ class CustomerRecoveryService {
       'Not Sonrasi Satis': row.postActionAmount,
     }));
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Cari Geri Kazanim');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Satisi Dusen-Duran Cariler');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.summary.teamSummary), 'Temsilci Ozeti');
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     return {
       buffer,
-      fileName: `cari-geri-kazanim-${data.metadata.recentStartDate}-${data.metadata.reportEndDate}.xlsx`,
+      fileName: `satisi-dusen-veya-duran-cariler-${data.metadata.recentStartDate}-${data.metadata.reportEndDate}.xlsx`,
     };
   }
 

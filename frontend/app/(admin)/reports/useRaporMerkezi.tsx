@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { usePermissions } from '@/hooks/usePermissions';
+import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 /**
@@ -264,8 +265,8 @@ export const reports: ReportCard[] = [
   },
   {
     id: 'complement-missing',
-    title: 'Tamamlayici Urun Eksikleri',
-    description: 'Secilen urun veya cari icin tamamlayici urun eksiklerini listeler',
+    title: SALES_DECISION_REPORTS.complementMissing.title,
+    description: SALES_DECISION_REPORTS.complementMissing.description,
     icon: <Package className="h-5 w-5" />,
     href: '/reports/complement-missing',
     category: 'customer',
@@ -275,8 +276,8 @@ export const reports: ReportCard[] = [
   },
   {
     id: 'category-churn',
-    title: 'Kategori Alim Kaybi',
-    description: 'Musterinin daha once alip son X ayda almadigi kategorileri bulur',
+    title: SALES_DECISION_REPORTS.categoryChurn.title,
+    description: SALES_DECISION_REPORTS.categoryChurn.description,
     icon: <CircleDot className="h-5 w-5" />,
     href: '/reports/category-churn',
     category: 'customer',
@@ -286,8 +287,8 @@ export const reports: ReportCard[] = [
   },
   {
     id: 'customer-recovery',
-    title: 'Cari Geri Kazanim',
-    description: 'Hareketi duran veya ortalamasinin altina dusen carileri not, takip ve gelisme durumuyla yonetin',
+    title: SALES_DECISION_REPORTS.customerRecovery.title,
+    description: SALES_DECISION_REPORTS.customerRecovery.description,
     icon: <AlertTriangle className="h-5 w-5" />,
     href: '/reports/customer-recovery',
     category: 'customer',
@@ -298,8 +299,8 @@ export const reports: ReportCard[] = [
   },
   {
     id: 'category-opportunity',
-    title: 'Kategori Firsat Onerileri',
-    description: 'Cariye hic alinmamis kategori icin davranis tabanli urun onerileri uretir',
+    title: SALES_DECISION_REPORTS.categoryOpportunity.title,
+    description: SALES_DECISION_REPORTS.categoryOpportunity.description,
     icon: <Sparkles className="h-5 w-5" />,
     href: '/reports/category-opportunity',
     category: 'customer',

@@ -28,6 +28,7 @@ export interface ComplementMissingRow {
   documentCount?: number;
   missingComplements: ComplementMissingItem[];
   missingCount: number;
+  estimatedRevenue: number | null;
 }
 
 export interface ComplementMissingMetadata {
@@ -52,11 +53,20 @@ export interface ComplementMissingMetadata {
     assignedSectorCodes: string[];
   };
   minDocumentCount?: number | null;
+  associationSource: 'AUTO' | 'MANUAL' | 'MIXED' | 'NONE';
+  associationWindowStart: string | null;
+  associationWindowEnd: string | null;
+  associationUpdatedAt: string | null;
 }
 
 export interface ComplementMissingSummary {
   totalRows: number;
   totalMissing: number;
+  totalEstimatedRevenue: number | null;
+  rowsWithRevenueEstimate: number;
+  pricedMissingItems: number;
+  unpricedMissingItems: number;
+  averageMissingPerRow: number;
 }
 
 export interface ComplementMissingParams {
@@ -332,11 +342,11 @@ export function useTamamlayiciEksik() {
       const blob = await adminApi.downloadComplementMissingExport(submitted);
       const filenameBase = metadata?.baseProduct?.productCode
         || metadata?.customer?.customerCode
-        || 'tamamlayici-urun-eksikleri';
+        || 'eksik-tamamlayici-urun-firsatlari';
       const dateRange = metadata?.startDate && metadata?.endDate
         ? `${metadata.startDate}-${metadata.endDate}`
         : 'rapor';
-      const fileName = `tamamlayici-urun-eksikleri-${filenameBase}-${dateRange}.xlsx`;
+      const fileName = `eksik-tamamlayici-urun-firsatlari-${filenameBase}-${dateRange}.xlsx`;
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -407,14 +417,16 @@ export function useTamamlayiciEksik() {
       });
     }
 
-    actionRow.missingComplements.slice(0, 5).forEach((item) => {
-      if (!item.productCode) return;
-      links.push({
-        type: 'PRODUCT',
-        label: item.productName || item.productCode,
-        referenceCode: item.productCode,
+    if (matchModeValue === 'product') {
+      actionRow.missingComplements.slice(0, 5).forEach((item) => {
+        if (!item.productCode) return;
+        links.push({
+          type: 'PRODUCT',
+          label: item.productName || item.productCode,
+          referenceCode: item.productCode,
+        });
       });
-    });
+    }
 
     try {
       await adminApi.createTask({
@@ -433,6 +445,10 @@ export function useTamamlayiciEksik() {
   };
 
   const handleCreateQuote = (row: ComplementMissingRow) => {
+    if (matchModeValue !== 'product') {
+      toast.error('Kategori veya grup eslesmesinde teklif icin once somut bir urun secilmelidir');
+      return;
+    }
     const customerCodeValue = showProductTable ? row.customerCode : metadata?.customer?.customerCode;
     const productCodes = row.missingComplements.map((item) => item.productCode).filter(Boolean);
     if (!customerCodeValue || productCodes.length === 0) {

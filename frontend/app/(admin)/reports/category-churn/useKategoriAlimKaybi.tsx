@@ -36,6 +36,8 @@ export interface CategoryChurnRow {
   categoryCode?: string;
   categoryName?: string;
   lastPurchaseDate: string | null;
+  daysSinceCategoryPurchase: number | null;
+  customerActiveOutsideCategory: boolean;
   historicalDocumentCount: number;
   historicalQuantity: number;
   historicalAmount: number;
@@ -60,6 +62,9 @@ export interface CategoryChurnSummary {
   totalRows: number;
   affectedCustomers: number;
   affectedCategories: number;
+  historicalRevenue: number;
+  activeOutsideCategoryCustomers: number;
+  averageInactiveDays: number | null;
 }
 
 export interface CategoryChurnMetadata {
@@ -68,6 +73,9 @@ export interface CategoryChurnMetadata {
   inactiveStartDate: string;
   endDate: string;
   activeCustomerMonths: number | null;
+  sectorCode: string | null;
+  minHistoricalDocumentCount: number | null;
+  minHistoricalAmount: number | null;
   category?: {
     categoryCode: string;
     categoryName: string | null;
@@ -84,6 +92,9 @@ export interface SubmittedParams {
   customerCode?: string;
   inactiveMonths: number;
   activeCustomerMonths?: number;
+  sectorCode?: string;
+  minHistoricalDocumentCount?: number;
+  minHistoricalAmount?: number;
 }
 
 export { Fragment, formatCurrency };
@@ -105,6 +116,10 @@ export function useKategoriAlimKaybi() {
   const [inactiveMonths, setInactiveMonths] = useState('4');
   const [activeFilterEnabled, setActiveFilterEnabled] = useState(true);
   const [activeCustomerMonths, setActiveCustomerMonths] = useState('4');
+  const [sectorCode, setSectorCode] = useState('');
+  const [sectorOptions, setSectorOptions] = useState<string[]>([]);
+  const [minHistoricalDocumentCount, setMinHistoricalDocumentCount] = useState('2');
+  const [minHistoricalAmount, setMinHistoricalAmount] = useState('0');
 
   const [submitted, setSubmitted] = useState<SubmittedParams | null>(null);
   const [rows, setRows] = useState<CategoryChurnRow[]>([]);
@@ -120,6 +135,21 @@ export function useKategoriAlimKaybi() {
   const [openDetailKey, setOpenDetailKey] = useState<string | null>(null);
   const [detailLoadingKey, setDetailLoadingKey] = useState<string | null>(null);
   const [detailsByKey, setDetailsByKey] = useState<Record<string, CategoryChurnDetailItem[]>>({});
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .getSectorCodes()
+      .then((result) => {
+        if (active) setSectorOptions(result.sectorCodes || []);
+      })
+      .catch(() => {
+        if (active) setSectorOptions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (mode !== 'category') return;
@@ -204,6 +234,22 @@ export function useKategoriAlimKaybi() {
       activeMonthsValue = Math.floor(parsedActive);
     }
 
+    const parsedMinDocuments = Number(minHistoricalDocumentCount);
+    if (!Number.isFinite(parsedMinDocuments) || parsedMinDocuments < 1) {
+      toast.error('Minimum geçmiş evrak sayısı en az 1 olmalı');
+      return;
+    }
+    const parsedMinAmount = Number(minHistoricalAmount);
+    if (!Number.isFinite(parsedMinAmount) || parsedMinAmount < 0) {
+      toast.error('Minimum geçmiş ciro geçersiz');
+      return;
+    }
+    const sharedFilters = {
+      sectorCode: sectorCode.trim() || undefined,
+      minHistoricalDocumentCount: Math.floor(parsedMinDocuments),
+      minHistoricalAmount: parsedMinAmount > 0 ? parsedMinAmount : undefined,
+    };
+
     if (mode === 'category') {
       let normalizedCategory = categoryCode.trim().toUpperCase();
       if (!normalizedCategory && categorySearch.trim()) {
@@ -230,6 +276,7 @@ export function useKategoriAlimKaybi() {
         categoryCode: normalizedCategory,
         inactiveMonths: Math.floor(inactive),
         activeCustomerMonths: activeMonthsValue,
+        ...sharedFilters,
       });
       return;
     }
@@ -246,6 +293,7 @@ export function useKategoriAlimKaybi() {
       customerCode: normalizedCustomer,
       inactiveMonths: Math.floor(inactive),
       activeCustomerMonths: activeMonthsValue,
+      ...sharedFilters,
     });
   };
 
@@ -259,6 +307,9 @@ export function useKategoriAlimKaybi() {
         customerCode: params.customerCode,
         inactiveMonths: params.inactiveMonths,
         activeCustomerMonths: params.activeCustomerMonths,
+        sectorCode: params.sectorCode,
+        minHistoricalDocumentCount: params.minHistoricalDocumentCount,
+        minHistoricalAmount: params.minHistoricalAmount,
         page: currentPage,
         limit: 50,
         sortBy,
@@ -320,6 +371,9 @@ export function useKategoriAlimKaybi() {
         customerCode: submitted.customerCode,
         inactiveMonths: submitted.inactiveMonths,
         activeCustomerMonths: submitted.activeCustomerMonths,
+        sectorCode: submitted.sectorCode,
+        minHistoricalDocumentCount: submitted.minHistoricalDocumentCount,
+        minHistoricalAmount: submitted.minHistoricalAmount,
         sortBy,
         sortDirection,
       });
@@ -327,7 +381,7 @@ export function useKategoriAlimKaybi() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `kategori-alim-kaybi-${submitted.mode}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `kategori-cari-alim-kesintileri-${submitted.mode}-${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -415,6 +469,13 @@ export function useKategoriAlimKaybi() {
     setActiveFilterEnabled,
     activeCustomerMonths,
     setActiveCustomerMonths,
+    sectorCode,
+    setSectorCode,
+    sectorOptions,
+    minHistoricalDocumentCount,
+    setMinHistoricalDocumentCount,
+    minHistoricalAmount,
+    setMinHistoricalAmount,
     // report state
     submitted,
     rows,

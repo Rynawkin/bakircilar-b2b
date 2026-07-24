@@ -12,9 +12,12 @@ import {
   StickyNote,
   Megaphone,
   FileText,
+  CircleDollarSign,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { SalesDecisionReportGuide } from '@/components/reports/SalesDecisionReportGuide';
+import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
 import { useTamamlayiciEksik, type ComplementMissingItem } from './useTamamlayiciEksik';
 
 /**
@@ -41,6 +44,7 @@ const TABLE_HEAD_BG = '#fafbfd';
 const EMERALD = '#047857';
 const AMBER = '#b45309';
 const RED = '#b91c1c';
+const REPORT_DEFINITION = SALES_DECISION_REPORTS.complementMissing;
 
 // Tablo grid sablonu: basliklar ve satirlar ayni grid'i kullanir.
 // Kod | Ad (cari/urun moda gore) | Evrak | Eksik Tamamlayicilar | Potansiyel Aylik Gelir | Adet | Aksiyon
@@ -169,6 +173,7 @@ export default function TamamlayiciEksikNew() {
     actionNote,
     setActionNote,
     actionSaving,
+    matchModeValue,
     matchModeLabel,
     showProductMode,
     showProductTable,
@@ -186,6 +191,23 @@ export default function TamamlayiciEksikNew() {
     handleActionSubmit,
     handleCreateQuote,
   } = useTamamlayiciEksik();
+
+  const revenueEstimateAvailable = matchModeValue === 'product';
+  const associationSourceLabel = metadata?.associationSource === 'MIXED'
+    ? 'Manuel + otomatik'
+    : metadata?.associationSource === 'MANUAL'
+      ? 'Manuel tanımlar'
+      : metadata?.associationSource === 'AUTO'
+        ? 'Otomatik birlikte alım'
+        : 'İlişki kaynağı yok';
+  const formatMetadataDate = (value?: string | null, withTime = false) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('tr-TR', withTime
+      ? { dateStyle: 'short', timeStyle: 'short' }
+      : { dateStyle: 'short' });
+  };
 
   const renderMissingList = (items: ComplementMissingItem[]) => {
     if (items.length === 0) return <span style={{ color: FAINT }}>-</span>;
@@ -225,7 +247,7 @@ export default function TamamlayiciEksikNew() {
   };
 
   return (
-    <div style={{ maxWidth: 1280, margin: '0 auto', padding: 24 }}>
+    <div className="px-3 py-4 sm:p-6" style={{ maxWidth: 1280, margin: '0 auto' }}>
       {/* Breadcrumb */}
       <div
         style={{
@@ -241,7 +263,7 @@ export default function TamamlayiciEksikNew() {
           Raporlar
         </Link>
         <ChevronRight size={13} strokeWidth={2} />
-        <span style={{ color: MUTED, fontWeight: 500 }}>Tamamlayıcı Ürün Eksikleri</span>
+        <span style={{ color: MUTED, fontWeight: 500 }}>{REPORT_DEFINITION.title}</span>
       </div>
 
       {/* Header: baslik + Raporlara Don + Excel Indir / Yenile */}
@@ -257,10 +279,10 @@ export default function TamamlayiciEksikNew() {
       >
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-.02em', margin: 0, color: INK }}>
-            Tamamlayıcı Ürün Eksikleri
+            {REPORT_DEFINITION.title}
           </h1>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 5 }}>
-            Fatura ve irsaliye hareketlerine göre eksik tamamlayıcı ürünleri listeler
+            {REPORT_DEFINITION.description}
           </div>
         </div>
 
@@ -306,6 +328,8 @@ export default function TamamlayiciEksikNew() {
         </div>
       </div>
 
+      <SalesDecisionReportGuide active="complementMissing" />
+
       {/* Filtreler karti */}
       <div style={{ ...cardStyle, padding: 16, marginBottom: 16 }}>
         <div
@@ -326,14 +350,7 @@ export default function TamamlayiciEksikNew() {
           Rapor modu, temel kod ve tarih aralığı seçin
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 12,
-            alignItems: 'flex-start',
-          }}
-        >
+        <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {/* Rapor Modu */}
           <div>
             <label style={labelStyle}>Rapor Modu</label>
@@ -649,7 +666,7 @@ export default function TamamlayiciEksikNew() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
             gap: 14,
             marginBottom: 16,
           }}
@@ -692,49 +709,106 @@ export default function TamamlayiciEksikNew() {
               Min evrak: {metadata.minDocumentCount ?? '-'}
             </div>
           </div>
+
+          <div style={metaCard}>
+            <div style={{ fontSize: 11.5, color: FAINT }}>Tamamlayıcı İlişki Verisi</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: INK, marginTop: 5 }}>
+              {associationSourceLabel}
+            </div>
+            <div style={{ fontSize: 11, color: MUTED, marginTop: 3 }}>
+              Otomatik pencere: {formatMetadataDate(metadata.associationWindowStart)} - {formatMetadataDate(metadata.associationWindowEnd)}
+            </div>
+            <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>
+              Son güncelleme: {formatMetadataDate(metadata.associationUpdatedAt, true)}
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Ozet metrik kartlari (2) */}
+      {/* Ozet metrik kartlari */}
       {summary && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
-            gap: 14,
-            marginBottom: 16,
-          }}
-        >
-          <div style={summaryCard}>
-            <div style={{ fontSize: 11.5, color: FAINT }}>Toplam Kayıt</div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginTop: 6,
-              }}
-            >
-              <Users size={20} strokeWidth={2} style={{ color: PRIMARY }} />
-              <span style={{ fontSize: 24, fontWeight: 700, color: INK }}>{summary.totalRows}</span>
+        <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+              gap: 14,
+              marginBottom: revenueEstimateAvailable ? 16 : 10,
+            }}
+          >
+            <div style={summaryCard}>
+              <div style={{ fontSize: 11.5, color: FAINT }}>Toplam Kayıt</div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginTop: 6,
+                }}
+              >
+                <Users size={20} strokeWidth={2} style={{ color: PRIMARY }} />
+                <span style={{ fontSize: 24, fontWeight: 700, color: INK }}>{summary.totalRows}</span>
+              </div>
+            </div>
+
+            <div style={summaryCard}>
+              <div style={{ fontSize: 11.5, color: FAINT }}>Eksik Tamamlayıcı</div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginTop: 6,
+                }}
+              >
+                <AlertTriangle size={20} strokeWidth={2} style={{ color: AMBER }} />
+                <span style={{ fontSize: 24, fontWeight: 700, color: INK }}>{summary.totalMissing}</span>
+              </div>
+            </div>
+
+            <div style={summaryCard}>
+              <div style={{ fontSize: 11.5, color: FAINT }}>Kayıt Başına Ortalama Eksik</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                <FileText size={20} strokeWidth={2} style={{ color: PRIMARY }} />
+                <span style={{ fontSize: 24, fontWeight: 700, color: INK }}>
+                  {summary.averageMissingPerRow.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            <div style={summaryCard}>
+              <div style={{ fontSize: 11.5, color: FAINT }}>Fiyatı Bulunanların Aylık Tahmini</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                <CircleDollarSign size={20} strokeWidth={2} style={{ color: revenueEstimateAvailable ? EMERALD : FAINT }} />
+                <span style={{ fontSize: revenueEstimateAvailable ? 20 : 14, fontWeight: 700, color: revenueEstimateAvailable ? EMERALD : MUTED }}>
+                  {revenueEstimateAvailable ? formatMoney(summary.totalEstimatedRevenue) : 'Hesaplanmıyor'}
+                </span>
+              </div>
+              <div style={{ fontSize: 10.5, color: FAINT, marginTop: 5 }}>
+                {revenueEstimateAvailable
+                  ? `${summary.pricedMissingItems}/${summary.totalMissing} eksik kalemde fiyat bulundu`
+                  : 'Yalnız birebir ürün eşleşmesinde hesaplanır'}
+              </div>
             </div>
           </div>
 
-          <div style={summaryCard}>
-            <div style={{ fontSize: 11.5, color: FAINT }}>Eksik Tamamlayıcı</div>
+          {!revenueEstimateAvailable && (
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginTop: 6,
+                marginBottom: 16,
+                borderRadius: 10,
+                border: '1px solid #bfdbfe',
+                background: '#eff6ff',
+                padding: '10px 12px',
+                fontSize: 11.5,
+                lineHeight: 1.5,
+                color: '#1e3a8a',
               }}
             >
-              <AlertTriangle size={20} strokeWidth={2} style={{ color: AMBER }} />
-              <span style={{ fontSize: 24, fontWeight: 700, color: INK }}>{summary.totalMissing}</span>
+              Kategori veya grup eşleşmesi bir kapsam boşluğunu gösterir; somut ürün ve müşteri fiyatı seçilmediği için gelir tahmini üretilmez ve doğrudan teklif oluşturulamaz.
             </div>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
       {/* Tablo karti */}
@@ -800,7 +874,7 @@ export default function TamamlayiciEksikNew() {
                   )}
                   <span style={cellRight}>Evrak</span>
                   <span>Eksik Tamamlayıcılar</span>
-                  <span style={cellRight}>Potansiyel Aylık Gelir</span>
+                  <span style={cellRight}>Fiyatı Bulunan Kalemlerin Aylık Tahmini</span>
                   <span style={cellRight}>Adet</span>
                   <span style={cellRight}>Aksiyon</span>
                 </div>
@@ -808,11 +882,15 @@ export default function TamamlayiciEksikNew() {
                 {/* Rows */}
                 {rows.map((row, index) => {
                   const customerCodeValue = showProductTable ? row.customerCode : metadata?.customer?.customerCode;
-                  const canCreateQuote = Boolean(customerCodeValue) && row.missingComplements.length > 0;
-                  const hasRevenue = row.missingComplements.some((item) => Number.isFinite(item.estimatedRevenue));
-                  const rowPotentialRevenue = hasRevenue
-                    ? row.missingComplements.reduce((sum, item) => sum + (item.estimatedRevenue || 0), 0)
-                    : null;
+                  const canCreateQuote =
+                    revenueEstimateAvailable &&
+                    Boolean(customerCodeValue) &&
+                    row.missingComplements.length > 0;
+                  const quoteDisabledReason = !revenueEstimateAvailable
+                    ? 'Kategori/grup eşleşmesinde önce somut ürün seçilmelidir'
+                    : !customerCodeValue
+                      ? 'Teklif için cari kodu bulunamadı'
+                      : undefined;
 
                   return (
                     <div
@@ -856,12 +934,12 @@ export default function TamamlayiciEksikNew() {
                         </>
                       )}
                       <span style={cellRight}>{row.documentCount ?? '-'}</span>
-                      <span>{renderMissingList(row.missingComplements)}</span>
-                      <span style={{ ...cellRight, fontWeight: 700, color: rowPotentialRevenue ? EMERALD : INK }}>
-                        {formatMoney(rowPotentialRevenue)}
+                      <div>{renderMissingList(row.missingComplements)}</div>
+                      <span style={{ ...cellRight, fontWeight: 700, color: row.estimatedRevenue !== null ? EMERALD : FAINT }}>
+                        {revenueEstimateAvailable ? formatMoney(row.estimatedRevenue) : 'Hesaplanmıyor'}
                       </span>
                       <span style={{ ...cellRight, fontWeight: 700, color: PRIMARY }}>{row.missingCount}</span>
-                      <span>
+                      <div>
                         <div
                           style={{
                             display: 'flex',
@@ -890,6 +968,7 @@ export default function TamamlayiciEksikNew() {
                             type="button"
                             onClick={() => handleCreateQuote(row)}
                             disabled={!canCreateQuote}
+                            title={quoteDisabledReason}
                             style={{
                               ...rowActionBtn,
                               background: PRIMARY,
@@ -903,7 +982,7 @@ export default function TamamlayiciEksikNew() {
                             Teklif Oluştur
                           </button>
                         </div>
-                      </span>
+                      </div>
                     </div>
                   );
                 })}
