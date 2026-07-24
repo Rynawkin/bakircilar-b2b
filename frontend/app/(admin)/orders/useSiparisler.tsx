@@ -4,10 +4,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { PendingOrderForAdmin } from '@/types';
-import adminApi from '@/lib/api/admin';
+import adminApi, { CommercialListFilterOptions } from '@/lib/api/admin';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
 import { getApiErrorMessage } from '@/lib/utils/apiError';
 import { BRAND_ASSETS } from '@/lib/brand';
+import {
+  EMPTY_COMMERCIAL_LIST_FILTERS,
+  type CommercialListFilterValues,
+} from '@/components/admin/CommercialListFilters';
 import * as XLSX from 'xlsx';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
@@ -18,6 +22,20 @@ export type OrderSource = 'ALL' | 'CUSTOMER' | 'B2B';
 
 // Sunucu-tarafli sayfalama sayfa boyutu
 const ORDERS_PAGE_SIZE = 25;
+const EMPTY_FILTER_OPTIONS: CommercialListFilterOptions = {
+  sectors: [],
+  creators: [],
+  categories: [],
+  brands: [],
+};
+
+const localDayBoundaryIso = (value: string, endOfDay = false) => {
+  if (!value) return undefined;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  if (endOfDay) date.setHours(23, 59, 59, 999);
+  return date.toISOString();
+};
 
 /**
  * Siparisler ekraninin TUM mantigi (state/effect/handler/turetilmis deger).
@@ -39,6 +57,16 @@ export function useSiparisler() {
   const [sourceTab, setSourceTab] = useState<OrderSource>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [filters, setFilters] = useState<CommercialListFilterValues>({
+    ...EMPTY_COMMERCIAL_LIST_FILTERS,
+  });
+  const [debouncedFilters, setDebouncedFilters] = useState<CommercialListFilterValues>({
+    ...EMPTY_COMMERCIAL_LIST_FILTERS,
+  });
+  const [filterOptions, setFilterOptions] = useState<CommercialListFilterOptions>(EMPTY_FILTER_OPTIONS);
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const fetchRequestIdRef = useRef(0);
 
   // 3) Sunucu sayfalama state'i
   const [page, setPage] = useState(1);
@@ -59,9 +87,28 @@ export function useSiparisler() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm.trim());
+      setDebouncedFilters(filters);
     }, 350);
     return () => clearTimeout(timer);
-  }, [searchTerm]);
+  }, [filters, searchTerm]);
+
+  useEffect(() => {
+    let active = true;
+    setFilterOptionsLoading(true);
+    adminApi.getOrderFilterOptions()
+      .then((result) => {
+        if (active) setFilterOptions(result);
+      })
+      .catch((error) => {
+        console.error('Siparis filtre secenekleri yuklenemedi:', error);
+      })
+      .finally(() => {
+        if (active) setFilterOptionsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Arama/sekme/filtre degisince ilk sayfaya don
   const isFirstRender = useRef(true);
@@ -71,13 +118,34 @@ export function useSiparisler() {
       return;
     }
     setPage(1);
-  }, [activeTab, sourceTab, debouncedSearch]);
+  }, [
+    activeTab,
+    sourceTab,
+    debouncedSearch,
+    debouncedFilters.sectorCode,
+    debouncedFilters.createdById,
+    debouncedFilters.categoryId,
+    debouncedFilters.brandCode,
+    debouncedFilters.dateFrom,
+    debouncedFilters.dateTo,
+  ]);
 
   // status/source/arama/page degisince sunucudan yeniden cek
   useEffect(() => {
     fetchOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, sourceTab, debouncedSearch, page]);
+  }, [
+    activeTab,
+    sourceTab,
+    debouncedSearch,
+    debouncedFilters.sectorCode,
+    debouncedFilters.createdById,
+    debouncedFilters.categoryId,
+    debouncedFilters.brandCode,
+    debouncedFilters.dateFrom,
+    debouncedFilters.dateTo,
+    page,
+  ]);
 
   // 3.9: Sik kullanilan evrak serileri localStorage'da hatirlanir; onay diyaloglarinda otomatik doldurulur.
   const INVOICED_SERIES_KEY = 'orders.lastInvoicedSeries';
@@ -111,17 +179,26 @@ export function useSiparisler() {
   // 2) Sunucu-tarafli veri cekme. status/source/arama/page sunucuya gonderilir;
   //    gosterilen liste = sunucu `orders`. Client-side filtreleme/arama YOK.
   const fetchOrders = async () => {
+    const requestId = ++fetchRequestIdRef.current;
     const firstLoad = !hasLoadedOnceRef.current;
     if (firstLoad) setIsLoading(true);
     else setIsFetching(true);
+    setLoadError('');
     try {
       const { orders: serverOrders, pagination: serverPagination } = await adminApi.getAllOrders({
         status: activeTab,
         source: sourceTab,
         search: debouncedSearch || undefined,
+        sectorCode: debouncedFilters.sectorCode || undefined,
+        createdById: debouncedFilters.createdById || undefined,
+        categoryId: debouncedFilters.categoryId || undefined,
+        brandCode: debouncedFilters.brandCode || undefined,
+        dateFrom: localDayBoundaryIso(debouncedFilters.dateFrom),
+        dateTo: localDayBoundaryIso(debouncedFilters.dateTo, true),
         page,
         pageSize: ORDERS_PAGE_SIZE,
       });
+      if (requestId !== fetchRequestIdRef.current) return;
       setOrders(serverOrders);
       if (serverPagination) {
         setPagination(serverPagination);
@@ -135,8 +212,11 @@ export function useSiparisler() {
         });
       }
     } catch (error: any) {
+      if (requestId !== fetchRequestIdRef.current) return;
+      setLoadError(getApiErrorMessage(error, 'Siparisler yuklenemedi'));
       toast.error(getApiErrorMessage(error, 'Siparisler yuklenemedi'));
     } finally {
+      if (requestId !== fetchRequestIdRef.current) return;
       hasLoadedOnceRef.current = true;
       setIsLoading(false);
       setIsFetching(false);
@@ -148,15 +228,21 @@ export function useSiparisler() {
 
   const toggleExpanded = (orderId: string) => {
     setExpandedOrders((prev) => {
-      const next = new Set(prev);
-      if (next.has(orderId)) {
-        next.delete(orderId);
-      } else {
-        next.add(orderId);
-      }
-      return next;
+      if (prev.has(orderId)) return new Set();
+      return new Set([orderId]);
     });
   };
+
+  const updateFilter = (key: keyof CommercialListFilterValues, value: string) => {
+    setFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const clearFilters = () => {
+    setFilters({ ...EMPTY_COMMERCIAL_LIST_FILTERS });
+    setDebouncedFilters({ ...EMPTY_COMMERCIAL_LIST_FILTERS });
+  };
+
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   const goToEdit = (order: PendingOrderForAdmin) => {
     router.push(`/quotes/new?mode=order&orderId=${encodeURIComponent(order.id)}`);
@@ -1748,8 +1834,8 @@ export function useSiparisler() {
     customer: sourceTab === 'CUSTOMER' ? pagination.total : null,
     b2b: sourceTab === 'B2B' ? pagination.total : null,
   };
-  const emptyStateMessage = debouncedSearch
-    ? 'Arama ile eslesen siparis bulunamadi.'
+  const emptyStateMessage = debouncedSearch || activeFilterCount > 0
+    ? 'Arama ve filtrelerle eslesen siparis bulunamadi.'
     : activeTab === 'PENDING'
       ? 'Bekleyen siparis yok'
       : activeTab === 'APPROVED'
@@ -1779,9 +1865,17 @@ export function useSiparisler() {
     setSourceTab,
     searchTerm,
     setSearchTerm,
+    filters,
+    updateFilter,
+    clearFilters,
+    activeFilterCount,
+    filterOptions,
+    filterOptionsLoading,
     // veri / yuklenme
     isLoading,
     isFetching,
+    loadError,
+    retryFetch: fetchOrders,
     orders,
     filteredOrders,
     // sayaclar

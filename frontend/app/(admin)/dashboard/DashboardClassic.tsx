@@ -6,6 +6,7 @@ import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { EkstreModal } from '@/components/admin/EkstreModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useDashboard, DashboardFilterPeriod } from './useDashboard';
+import { OrderChangeStockComparison } from './OrderChangeStockComparison';
 
 /**
  * Klasik (mevcut) dashboard gorunumu. JSX birebir korunmustur; tum mantik useDashboard'tan gelir.
@@ -40,6 +41,8 @@ export default function DashboardClassic() {
     orderProductChangePendingCount,
     orderProductChangeLoading,
     orderProductChangeActingId,
+    orderProductChangeRefreshError,
+    orderProductChangeLiveValidationAvailable,
     approveOrderProductChange,
     rejectOrderProductChange,
     formatPercent,
@@ -240,7 +243,9 @@ export default function DashboardClassic() {
           </>
         )}
 
-        {(orderProductChangePendingCount > 0 || orderProductChangeLoading) && (
+        {(orderProductChangePendingCount > 0 ||
+          orderProductChangeLoading ||
+          Boolean(orderProductChangeRefreshError)) && (
           <Card className="mb-8 border-amber-200 bg-gradient-to-br from-amber-50 to-white shadow-lg">
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -255,8 +260,23 @@ export default function DashboardClassic() {
                 </div>
               </div>
 
+              {orderProductChangeRefreshError && (
+                <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800">
+                  {orderProductChangeRefreshError}
+                </p>
+              )}
+              {!orderProductChangeLiveValidationAvailable && (
+                <p className="rounded-xl border border-amber-200 bg-white p-3 text-xs text-amber-800">
+                  Canli Mikro satir dogrulamasi gecici olarak kullanilamiyor; yalnizca son basarili kontrolde gecerli bulunan oneriler gosteriliyor.
+                </p>
+              )}
+
               {orderProductChangeLoading ? (
                 <p className="rounded-xl bg-white p-4 text-sm font-semibold text-slate-500">Yukleniyor...</p>
+              ) : orderProductChangeRequests.length === 0 ? (
+                <p className="rounded-xl bg-white p-4 text-sm text-slate-600">
+                  Gosterilecek guncel oneri bulunmuyor.
+                </p>
               ) : (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                   {orderProductChangeRequests.map((request) => (
@@ -268,6 +288,11 @@ export default function DashboardClassic() {
                           </p>
                           <p className="text-xs text-slate-500">
                             {request.customerCode || '-'} - {request.customerName || '-'}
+                          </p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            Oneri: {formatDate(request.createdAt)} · Siparis:{' '}
+                            {request.orderDate ? formatDate(request.orderDate) : '-'} · Atanan:{' '}
+                            {request.assignedTo?.displayName || request.assignedTo?.name || '-'}
                           </p>
                         </div>
                         <p className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
@@ -288,6 +313,11 @@ export default function DashboardClassic() {
                               Giris: {formatPercent(request.sourceLastEntryMarginPercent)}
                             </span>
                           </div>
+                          <OrderChangeStockComparison
+                            created={request.sourceStockAtCreation}
+                            current={request.sourceCurrentStock}
+                            currentAsOf={request.currentStockAsOf}
+                          />
                         </div>
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
                           <p className="text-xs font-bold uppercase text-emerald-700">Onerilen urun</p>
@@ -301,6 +331,11 @@ export default function DashboardClassic() {
                               Giris: {formatPercent(request.targetLastEntryMarginPercent)}
                             </span>
                           </div>
+                          <OrderChangeStockComparison
+                            created={request.targetStockAtCreation}
+                            current={request.targetCurrentStock}
+                            currentAsOf={request.currentStockAsOf}
+                          />
                         </div>
                       </div>
 
