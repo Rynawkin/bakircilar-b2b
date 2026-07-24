@@ -18,12 +18,13 @@ import * as XLSX from 'xlsx';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { adminApi } from '../api/admin';
+import { adminApi, type VadeImportResult } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { StaffMember, VadeAssignment, VadeBalance, VadeNote } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { getApiErrorMessage } from '../utils/errors';
 import { hapticSuccess } from '../utils/haptics';
+import { parseVadeExcelWorksheet } from '../utils/vadeExcelImport';
 
 type VadeView = 'balances' | 'notes' | 'calendar' | 'assignments' | 'import';
 
@@ -34,24 +35,32 @@ type PickedExcelFile = {
   mimeType?: string | null;
 };
 
-type VadeImportRow = {
-  mikroCariCode: string;
-  pastDueBalance?: number;
-  pastDueDate?: string | null;
-  notDueBalance?: number;
-  notDueDate?: string | null;
-  totalBalance?: number;
-  valor?: number;
-  paymentTermLabel?: string | null;
-  referenceDate?: string | null;
+type ExcelImportSummary = VadeImportResult & { total: number };
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+const formatCalendarDate = (year: number, month: number, day: number) => {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    candidate.getUTCFullYear() !== year
+    || candidate.getUTCMonth() !== month - 1
+    || candidate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return `${year}-${pad2(month)}-${pad2(day)}`;
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const formatLocalCalendarDate = (date: Date) =>
+  formatCalendarDate(date.getFullYear(), date.getMonth() + 1, date.getDate());
+
+const today = () => formatLocalCalendarDate(new Date()) || '';
 
 const addDays = (days: number) => {
   const date = new Date();
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  return formatLocalCalendarDate(date) || '';
 };
 
 const n = (value: unknown, fallback = 0) => {
@@ -88,129 +97,30 @@ const cell = (value: unknown) => {
   return String(value);
 };
 
-const parseExcelNumber = (value: unknown) => {
-  if (value === null || value === undefined || value === '') return 0;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  let raw = String(value).trim();
-  if (/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(raw)) {
-    raw = raw.replace(/\./g, '').replace(',', '.');
-  } else if (/^-?\d+,\d+$/.test(raw)) {
-    raw = raw.replace(',', '.');
-  } else if (/^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$/.test(raw)) {
-    raw = raw.replace(/,/g, '');
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const parseExcelDate = (value: unknown) => {
-  if (!value) return null;
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  if (typeof value === 'number') {
-    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
-    return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
-  }
-  const raw = String(value).trim();
-  const trParts = raw.split('.');
-  if (trParts.length === 3) {
-    const [day, month, year] = trParts.map((part) => Number(part));
-    if (day && month && year) {
-      const date = new Date(Date.UTC(year, month - 1, day));
-      return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
-    }
-  }
-  const isoParts = raw.split('-');
-  if (isoParts.length === 3 && isoParts[0].length === 4) {
-    const [year, month, day] = isoParts.map((part) => Number(part));
-    if (day && month && year) {
-      const date = new Date(Date.UTC(year, month - 1, day));
-      return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
-    }
-  }
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
-};
-
-const normalizeExcelHeader = (value: unknown) =>
-  String(value ?? '')
-    .toLocaleLowerCase('tr-TR')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\u0131/g, 'i')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const findExcelColumn = (
-  headers: unknown[],
-  candidates: string[],
-  opts?: { exclude?: string[] },
-) => {
-  const targets = candidates.map(normalizeExcelHeader);
-  const excludes = (opts?.exclude || []).map(normalizeExcelHeader);
-  const normalizedHeaders = headers.map(normalizeExcelHeader);
-  const exactIndex = normalizedHeaders.findIndex((header) => targets.includes(header));
-  if (exactIndex !== -1) return exactIndex;
-  return normalizedHeaders.findIndex(
-    (header) =>
-      targets.some((target) => header.includes(target)) &&
-      !excludes.some((excluded) => header.includes(excluded)),
-  );
-};
-
-const parseVadeWorkbookRows = (worksheetData: unknown[][]): { rows: VadeImportRow[]; headers: unknown[] } => {
-  const headers = worksheetData[0] || [];
-  const codeIndex = findExcelColumn(headers, ['cari hesap kodu']);
-  const pastDueBalanceIndex = findExcelColumn(headers, ['vadesi gecen bakiye'], { exclude: ['vadesi gecen bakiye vadesi'] });
-  const pastDueDateIndex = findExcelColumn(headers, ['vadesi gecen bakiye vadesi']);
-  const notDueBalanceIndex = findExcelColumn(headers, ['vadesi gecmemis bakiye'], { exclude: ['vadesi gecmemis bakiye vadesi'] });
-  const notDueDateIndex = findExcelColumn(headers, ['vadesi gecmemis bakiye vadesi']);
-  const totalBalanceIndex = findExcelColumn(headers, ['toplam bakiye']);
-  const valorIndex = findExcelColumn(headers, ['valor']);
-  const paymentTermIndex = findExcelColumn(headers, ['cari odeme vadesi']);
-  const referenceDateIndex = findExcelColumn(headers, ['bakiyeye konu ilk evrak']);
-
-  if (codeIndex === -1) {
-    throw new Error('Cari hesap kodu kolonu bulunamadi.');
-  }
-
-  const rows: VadeImportRow[] = [];
-  for (let i = 1; i < worksheetData.length; i += 1) {
-    const row = worksheetData[i] || [];
-    const code = String(row[codeIndex] || '').trim();
-    if (!code) continue;
-
-    rows.push({
-      mikroCariCode: code,
-      pastDueBalance: pastDueBalanceIndex !== -1 ? parseExcelNumber(row[pastDueBalanceIndex]) : 0,
-      pastDueDate: pastDueDateIndex !== -1 ? parseExcelDate(row[pastDueDateIndex]) : null,
-      notDueBalance: notDueBalanceIndex !== -1 ? parseExcelNumber(row[notDueBalanceIndex]) : 0,
-      notDueDate: notDueDateIndex !== -1 ? parseExcelDate(row[notDueDateIndex]) : null,
-      totalBalance: totalBalanceIndex !== -1 ? parseExcelNumber(row[totalBalanceIndex]) : undefined,
-      valor: valorIndex !== -1 ? parseExcelNumber(row[valorIndex]) : 0,
-      paymentTermLabel: paymentTermIndex !== -1 ? String(row[paymentTermIndex] || '').trim() || null : null,
-      referenceDate: referenceDateIndex !== -1 ? parseExcelDate(row[referenceDateIndex]) : null,
-    });
-  }
-
-  if (!rows.length) {
-    throw new Error('Islenecek satir bulunamadi.');
-  }
-
-  return { rows, headers };
-};
-
 const readVadeExcelRows = async (file: PickedExcelFile) => {
   const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
-  const workbook = XLSX.read(base64, { type: 'base64', cellDates: true });
+  const workbook = XLSX.read(base64, { type: 'base64', cellDates: false });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) {
     throw new Error('Excel dosyasinda sayfa bulunamadi.');
   }
   const worksheet = workbook.Sheets[firstSheetName];
-  const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as unknown[][];
-  return parseVadeWorkbookRows(data);
+  const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    defval: '',
+    raw: true,
+  }) as unknown[][];
+  const formattedRows = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    defval: '',
+    raw: false,
+  }) as unknown[][];
+  const date1904 = workbook.Workbook?.WBProps?.date1904 === true;
+  return parseVadeExcelWorksheet(rawRows, {
+    formattedRows,
+    date1904,
+    maxHeaderRows: 50,
+  });
 };
 
 const buildBalanceRows = (rows: VadeBalance[]) => [
@@ -353,7 +263,7 @@ export function VadeScreen() {
   });
   const [excelFile, setExcelFile] = useState<PickedExcelFile | null>(null);
   const [excelPreview, setExcelPreview] = useState<{ rowCount: number; sampleCodes: string[]; headerCount: number } | null>(null);
-  const [excelImportSummary, setExcelImportSummary] = useState<{ imported: number; skipped: number; total: number } | null>(null);
+  const [excelImportSummary, setExcelImportSummary] = useState<ExcelImportSummary | null>(null);
   const actionLoadingRef = useRef(false);
   const exportingRef = useRef(false);
   const balancesSeqRef = useRef(0);
@@ -635,17 +545,20 @@ export function VadeScreen() {
         onPress: async () => {
           if (!beginAction()) return;
           try {
-            await adminApi.importVadeBalances([
-              {
-                mikroCariCode: importRow.mikroCariCode.trim(),
-                pastDueBalance: importRow.pastDueBalance ? n(importRow.pastDueBalance) : undefined,
-                pastDueDate: importRow.pastDueDate || undefined,
-                notDueBalance: importRow.notDueBalance ? n(importRow.notDueBalance) : undefined,
-                notDueDate: importRow.notDueDate || undefined,
-                totalBalance: importRow.totalBalance ? n(importRow.totalBalance) : undefined,
-                valor: importRow.valor ? n(importRow.valor) : undefined,
-              },
-            ]);
+            await adminApi.importVadeBalances(
+              [
+                {
+                  mikroCariCode: importRow.mikroCariCode.trim(),
+                  pastDueBalance: importRow.pastDueBalance ? n(importRow.pastDueBalance) : undefined,
+                  pastDueDate: importRow.pastDueDate || undefined,
+                  notDueBalance: importRow.notDueBalance ? n(importRow.notDueBalance) : undefined,
+                  notDueDate: importRow.notDueDate || undefined,
+                  totalBalance: importRow.totalBalance ? n(importRow.totalBalance) : undefined,
+                  valor: importRow.valor ? n(importRow.valor) : undefined,
+                },
+              ],
+              { mode: 'PATCH', createMissingCustomers: false },
+            );
             setImportRow({ mikroCariCode: '', pastDueBalance: '', pastDueDate: '', notDueBalance: '', notDueDate: '', totalBalance: '', valor: '' });
             await loadBalances(false);
             hapticSuccess();
@@ -717,31 +630,50 @@ export function VadeScreen() {
     }
 
     const rowCountText = excelPreview?.rowCount ? `${excelPreview.rowCount} satir` : 'secilen satirlar';
-    Alert.alert('Excel vade import', `${excelFile.name} icindeki ${rowCountText} B2B vade kayitlarina aktarilsin mi?`, [
-      { text: 'Vazgec', style: 'cancel' },
-      {
-        text: 'Import Et',
-        onPress: async () => {
-          if (!beginAction()) return;
-          try {
-            const parsed = await readVadeExcelRows(excelFile);
-            const result = await adminApi.importVadeBalances(parsed.rows);
-            setExcelPreview({
-              rowCount: parsed.rows.length,
-              sampleCodes: parsed.rows.slice(0, 4).map((row) => row.mikroCariCode),
-              headerCount: parsed.headers.length,
-            });
-            setExcelImportSummary({ imported: result.imported, skipped: result.skipped, total: parsed.rows.length });
-            await loadBalances(false);
-            hapticSuccess();
-          } catch (err: any) {
-            Alert.alert('Excel import', getApiErrorMessage(err, err?.message || 'Import tamamlanamadi.'));
-          } finally {
-            endAction();
-          }
+    Alert.alert(
+      'Excel vade import',
+      `${excelFile.name} icindeki ${rowCountText} tek islemde aktarilsin mi? Dosyada olmayan mevcut bakiyeler silinmez; B2B'de bulunmayan cariler girise kapali vade carisi olarak olusturulabilir.`,
+      [
+        { text: 'Vazgec', style: 'cancel' },
+        {
+          text: 'Import Et',
+          onPress: async () => {
+            if (!beginAction()) return;
+            try {
+              const parsed = await readVadeExcelRows(excelFile);
+              const result = await adminApi.importVadeBalances(
+                parsed.rows,
+                { mode: 'SNAPSHOT', createMissingCustomers: true },
+              );
+              setExcelPreview({
+                rowCount: parsed.rows.length,
+                sampleCodes: parsed.rows.slice(0, 4).map((row) => row.mikroCariCode),
+                headerCount: parsed.headers.length,
+              });
+              setExcelImportSummary({
+                total: parsed.rows.length,
+                imported: Number(result.imported || 0),
+                skipped: Number(result.skipped || 0),
+                createdCustomers: Number(result.createdCustomers || 0),
+                staleRemoved: Number(result.staleRemoved || 0),
+                skipReasons: result.skipReasons || {
+                  customerNotFound: 0,
+                  excludedSector: 0,
+                  duplicateCode: 0,
+                },
+                skippedRows: result.skippedRows || [],
+              });
+              await loadBalances(false);
+              hapticSuccess();
+            } catch (err: any) {
+              Alert.alert('Excel import', getApiErrorMessage(err, err?.message || 'Import tamamlanamadi.'));
+            } finally {
+              endAction();
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const getExportRows = async () => {
@@ -1091,11 +1023,24 @@ export function VadeScreen() {
         </View>
 
         {excelImportSummary ? (
-          <View style={styles.importSummary}>
-            <Metric label="Okunan" value={excelImportSummary.total} />
-            <Metric label="Aktarilan" value={excelImportSummary.imported} tone="green" />
-            <Metric label="Atlanan" value={excelImportSummary.skipped} tone={excelImportSummary.skipped ? 'amber' : undefined} />
-          </View>
+          <>
+            <View style={styles.importSummary}>
+              <Metric label="Okunan" value={excelImportSummary.total} />
+              <Metric label="Aktarilan" value={excelImportSummary.imported} tone="green" />
+              <Metric label="Yeni Cari" value={excelImportSummary.createdCustomers} tone={excelImportSummary.createdCustomers ? 'green' : undefined} />
+              <Metric label="Atlanan" value={excelImportSummary.skipped} tone={excelImportSummary.skipped ? 'amber' : undefined} />
+            </View>
+            {excelImportSummary.skipped ? (
+              <Text style={styles.helper}>
+                Atlama nedenleri: bulunamayan {excelImportSummary.skipReasons.customerNotFound}, kapsam disi {excelImportSummary.skipReasons.excludedSector}, tekrar kod {excelImportSummary.skipReasons.duplicateCode}.
+              </Text>
+            ) : null}
+            {excelImportSummary.skippedRows.length ? (
+              <Text style={styles.helper} numberOfLines={3}>
+                Ilk atlananlar: {excelImportSummary.skippedRows.slice(0, 4).map((row) => `${row.sourceRowNumber ? `${row.sourceRowNumber}. satir ` : ''}${row.mikroCariCode} (${row.reason})`).join(', ')}
+              </Text>
+            ) : null}
+          </>
         ) : null}
 
         <TouchableOpacity

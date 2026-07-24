@@ -16,7 +16,10 @@ export default function VadeExcelImportClassic() {
       <div className="container mx-auto p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-semibold">Vade Excel Import</h1>
-          <p className="text-sm text-muted-foreground">Muhasebe raporunu buradan yukleyebilirsiniz.</p>
+          <p className="text-sm text-muted-foreground">
+            Muhasebe raporundaki cariler tek işlemde güncellenir; dosyada olmayan kayıtlar silinmez.
+            B2B'de bulunmayan cariler girişe kapalı vade carisi olarak oluşturulur.
+          </p>
         </div>
 
         <Card className="p-4 space-y-4">
@@ -34,9 +37,28 @@ export default function VadeExcelImportClassic() {
             </Button>
           </div>
           {summary && (
-            <div className="text-sm">
-              <div>Aktarilan: {summary.imported}</div>
-              <div>Atlanan: {summary.skipped}</div>
+            <div className="space-y-3 text-sm">
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div>Aktarılan: {summary.imported}</div>
+                <div>Yeni cari: {summary.createdCustomers}</div>
+                <div>Atlanan: {summary.skipped}</div>
+              </div>
+              {summary.skipped > 0 && (
+                <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                  <div>
+                    Cari bulunamadı: {summary.skipReasons.customerNotFound} · Sektör kapsam dışı:{' '}
+                    {summary.skipReasons.excludedSector} · Mükerrer kod: {summary.skipReasons.duplicateCode}
+                  </div>
+                  {summary.skippedRows.slice(0, 20).map((row, index) => (
+                    <div key={`${row.sourceRowNumber ?? 'row'}-${row.mikroCariCode}-${index}`}>
+                      Satır {row.sourceRowNumber ?? '—'} · {row.mikroCariCode} · {row.reason}
+                    </div>
+                  ))}
+                  {summary.skipped > 20 && (
+                    <div>İlk 20 ayrıntı gösteriliyor; toplam {summary.skipped} atlanan satır var.</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </Card>

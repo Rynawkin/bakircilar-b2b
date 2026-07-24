@@ -4,87 +4,24 @@ import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
+import { getApiErrorMessage } from '@/lib/utils/apiError';
+import {
+  parseVadeExcelWorksheet,
+  type VadeExcelImportRow,
+  type VadeImportResult,
+} from '@/lib/vadeExcelImport';
 
 /**
- * Vade Excel Import ekraninin TUM is mantigi.
- * Klasik ve yeni gorunum bu hook'u tuketir; logic birebir korunmustur.
- * (Onceki VadeImportPage component'inin `return (` oncesindeki her sey aynen tasinmistir:
- *  Excel okuma, otomatik kolon eslesme, parse, adminApi.importVadeBalances cagrisi.)
- *
- * NOT: Bu ekran muhasebe Excel'ini okuyup backend'e (importVadeBalances) gonderir.
- * Yazma/import mantigi TEK SATIR DEGISTIRILMEMISTIR.
+ * Klasik ve yeni Vade Excel ekranlarinin dosya okuma ve snapshot import akisi.
+ * Saf kolon/tarih/sayi parser'i frontend/lib/vadeExcelImport.ts icinde tutulur.
  */
 
-export type ImportRow = {
-  mikroCariCode: string;
-  pastDueBalance?: number;
-  pastDueDate?: string | null;
-  notDueBalance?: number;
-  notDueDate?: string | null;
-  totalBalance?: number;
-  valor?: number;
-  paymentTermLabel?: string | null;
-  referenceDate?: string | null;
-};
-
-export const parseNumber = (value: any) => {
-  if (value === null || value === undefined || value === '') return 0;
-  if (typeof value === 'number') return value;
-  let str = String(value).trim();
-  if (/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(str)) {
-    str = str.replace(/\./g, '').replace(',', '.');
-  } else if (/^-?\d+,\d+$/.test(str)) {
-    str = str.replace(',', '.');
-  } else if (/^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$/.test(str)) {
-    str = str.replace(/,/g, '');
-  }
-  const parsed = Number(str);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-export const parseDateValue = (value: any) => {
-  if (!value) return null;
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  if (typeof value === 'number') {
-    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
-    return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
-  }
-  const raw = String(value).trim();
-  const parts = raw.split('.');
-  if (parts.length === 3) {
-    const [day, month, year] = parts.map((part) => Number(part));
-    if (day && month && year) {
-      const date = new Date(Date.UTC(year, month - 1, day));
-      return date.toISOString().slice(0, 10);
-    }
-  }
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
-};
-
-// Turkce-guvenli normalize: buyuk "I" (U+0130) JS toLowerCase ile "i̇" (i + birlesik nokta)
-// olur ve "TOPLAM BAKİYE" gibi basliklar "toplam bakiye" ile eslesmezdi. tr-TR lower + NFKD +
-// birlesik isaretleri temizleme + ı->i ile diakritik-duyarsiz eslesme yapiyoruz. Balans/tarih
-// kolon sirasi korundugundan (balans, tarihten once gelir) uzun hedef yine dogru kolona oturur.
-const normalizeHeader = (value: any) =>
-  String(value ?? '')
-    .toLocaleLowerCase('tr-TR')
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/ı/g, 'i')
-    .trim();
-
-export const findColumnIndex = (headers: any[], name: string) => {
-  const target = normalizeHeader(name);
-  return headers.findIndex((header) => normalizeHeader(header).includes(target));
-};
+export type ImportRow = VadeExcelImportRow;
 
 export function useVadeExcelImport() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [summary, setSummary] = useState<{ imported: number; skipped: number } | null>(null);
+  const [summary, setSummary] = useState<VadeImportResult | null>(null);
 
   const handleImport = async () => {
     if (!file) {
@@ -96,54 +33,41 @@ export function useVadeExcelImport() {
     setSummary(null);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[];
-      const headers = data[0] || [];
-
-      const codeIndex = findColumnIndex(headers, 'cari hesap kodu');
-      const pastDueBalanceIndex = findColumnIndex(headers, 'vadesi geçen bakiye');
-      const pastDueDateIndex = findColumnIndex(headers, 'vadesi geçen bakiye vadesi');
-      const notDueBalanceIndex = findColumnIndex(headers, 'vadesi geçmemiş bakiye');
-      const notDueDateIndex = findColumnIndex(headers, 'vadesi geçmemiş bakiye vadesi');
-      const totalBalanceIndex = findColumnIndex(headers, 'toplam bakiye');
-      const valorIndex = findColumnIndex(headers, 'valör');
-      const paymentTermIndex = findColumnIndex(headers, 'cari ödeme vadesi');
-      const referenceDateIndex = findColumnIndex(headers, 'bakiyeye konu ilk evrak');
-
-      if (codeIndex === -1) {
-        throw new Error('Cari hesap kodu kolonu bulunamadi');
+      // Tarihleri Date nesnesine cevirmeden seri deger olarak tutuyoruz. Boylece
+      // tarayici saat dilimi Excel gununu bir onceki UTC gunune kaydiramaz.
+      const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: false });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        throw new Error('Excel dosyasında sayfa bulunamadı');
       }
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: '',
+        raw: true,
+      }) as unknown[][];
+      const formattedRows = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: '',
+        raw: false,
+      }) as unknown[][];
+      const date1904 = Boolean(workbook.Workbook?.WBProps?.date1904);
+      const parsed = parseVadeExcelWorksheet(rawRows, {
+        formattedRows,
+        date1904,
+      });
 
-      const rows: ImportRow[] = [];
-      for (let i = 1; i < data.length; i += 1) {
-        const row = data[i];
-        const code = String(row[codeIndex] || '').trim();
-        if (!code) continue;
-
-        rows.push({
-          mikroCariCode: code,
-          pastDueBalance: pastDueBalanceIndex !== -1 ? parseNumber(row[pastDueBalanceIndex]) : 0,
-          pastDueDate: pastDueDateIndex !== -1 ? parseDateValue(row[pastDueDateIndex]) : null,
-          notDueBalance: notDueBalanceIndex !== -1 ? parseNumber(row[notDueBalanceIndex]) : 0,
-          notDueDate: notDueDateIndex !== -1 ? parseDateValue(row[notDueDateIndex]) : null,
-          totalBalance: totalBalanceIndex !== -1 ? parseNumber(row[totalBalanceIndex]) : undefined,
-          valor: valorIndex !== -1 ? parseNumber(row[valorIndex]) : 0,
-          paymentTermLabel: paymentTermIndex !== -1 ? String(row[paymentTermIndex] || '').trim() || null : null,
-          referenceDate: referenceDateIndex !== -1 ? parseDateValue(row[referenceDateIndex]) : null,
-        });
-      }
-
-      if (rows.length === 0) {
-        throw new Error('Islenecek satir bulunamadi');
-      }
-
-      const result = await adminApi.importVadeBalances(rows);
+      const result = await adminApi.importVadeBalances(parsed.rows, {
+        mode: 'SNAPSHOT',
+        createMissingCustomers: true,
+      });
       setSummary(result);
-      toast.success('Import tamamlandi');
+      toast.success(
+        `${result.imported} cari aktarıldı, ${result.createdCustomers} yeni cari oluşturuldu`,
+      );
     } catch (error: any) {
       console.error('Import error:', error);
-      toast.error(error?.message || 'Import hatasi');
+      toast.error(getApiErrorMessage(error, 'Import hatası'));
     } finally {
       setLoading(false);
     }
