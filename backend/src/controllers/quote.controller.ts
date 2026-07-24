@@ -152,7 +152,18 @@ export class QuoteController {
    */
   async getQuotes(req: Request, res: Response, next: NextFunction) {
     try {
-      const { status, search, page, pageSize } = req.query;
+      const {
+        status,
+        search,
+        sectorCode,
+        createdById,
+        categoryId,
+        brandCode,
+        dateFrom,
+        dateTo,
+        page,
+        pageSize,
+      } = req.query;
       const result = await quoteService.getQuotesForStaff(
         req.user!.userId,
         req.user!.role,
@@ -160,6 +171,12 @@ export class QuoteController {
         req.user!.assignedSectorCodes || [],
         {
           search: typeof search === 'string' ? search : undefined,
+          sectorCode: typeof sectorCode === 'string' ? sectorCode : undefined,
+          createdById: typeof createdById === 'string' ? createdById : undefined,
+          categoryId: typeof categoryId === 'string' ? categoryId : undefined,
+          brandCode: typeof brandCode === 'string' ? brandCode : undefined,
+          dateFrom: typeof dateFrom === 'string' ? dateFrom : undefined,
+          dateTo: typeof dateTo === 'string' ? dateTo : undefined,
           page: page !== undefined ? Number(page) : undefined,
           pageSize: pageSize !== undefined ? Number(pageSize) : undefined,
         }
@@ -178,6 +195,21 @@ export class QuoteController {
       } else {
         res.json({ quotes: result.quotes });
       }
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/quotes/filter-options
+   */
+  async getQuoteFilterOptions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const options = await quoteService.getQuoteFilterOptions(
+        req.user!.role,
+        req.user!.assignedSectorCodes || [],
+      );
+      res.json(options);
     } catch (error) {
       next(error);
     }

@@ -2,6 +2,7 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import notificationService from './notification.service';
 import { AppError, ErrorCode } from '../types/errors';
+import { config } from '../config';
 
 type ActorContext = {
   userId?: string | null;
@@ -17,6 +18,23 @@ type CreateRedirectRequestInput = {
   familyName?: string | null;
   note?: string | null;
   requestedById?: string | null;
+};
+
+type StockSnapshot = {
+  merkez: number;
+  topca: number;
+  hot: number;
+  total: number;
+};
+
+type ProductSnapshot = {
+  productCode: string;
+  productName: string | null;
+  currentCost: number | null;
+  lastEntryCost: number | null;
+  vatRate: number | null;
+  productId: string | null;
+  stock: StockSnapshot | null;
 };
 
 const STAFF_ROLES = new Set(['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP']);
@@ -38,21 +56,38 @@ const marginPercent = (unitPrice: number, cost?: number | null): number | null =
   if (!Number.isFinite(price) || !Number.isFinite(base) || price <= 0 || base <= 0) return null;
   return ((price - base) / base) * 100;
 };
+const createStockSnapshot = (merkez: unknown, topca: unknown, hot: unknown): StockSnapshot => {
+  const normalized = {
+    merkez: toNumber(merkez),
+    topca: toNumber(topca),
+    hot: toNumber(hot),
+  };
+  return {
+    ...normalized,
+    total: normalized.merkez + normalized.topca + normalized.hot,
+  };
+};
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const requestLineKey = (request: {
+  orderSeries?: unknown;
+  orderSequence?: unknown;
+  orderLineNo?: unknown;
+}) =>
+  `${String(request.orderSeries || '').trim().toUpperCase()}|${Math.trunc(toNumber(request.orderSequence))}|${Math.trunc(toNumber(request.orderLineNo))}`;
 
 class OrderProductChangeRequestService {
+  private liveValidationCache = new Map<
+    string,
+    { expiresAt: number; actionableIds: Set<string>; liveValidationAvailable: boolean }
+  >();
+  private lastKnownLiveActionability = new Map<
+    string,
+    { updatedAtMs: number; actionable: boolean; checkedAt: number }
+  >();
+
   private async getProductSnapshots(codesInput: string[]) {
     const codes = Array.from(new Set(codesInput.map(normalizeCode).filter(Boolean)));
-    const map = new Map<
-      string,
-      {
-        productCode: string;
-        productName: string | null;
-        currentCost: number | null;
-        lastEntryCost: number | null;
-        vatRate: number | null;
-        productId: string | null;
-      }
-    >();
+    const map = new Map<string, ProductSnapshot>();
     if (codes.length === 0) return map;
 
     const localProducts = await prisma.product.findMany({
@@ -77,6 +112,8 @@ class OrderProductChangeRequestService {
         lastEntryCost: Number.isFinite(Number(product.lastEntryPrice)) ? Number(product.lastEntryPrice) : null,
         vatRate: Number.isFinite(Number(product.vatRate)) ? Number(product.vatRate) : null,
         productId: product.id,
+        // Yerel senkron stok, "bu anda canli Mikro stogu" gibi kaydedilmez.
+        stock: null,
       });
     });
 
@@ -88,6 +125,9 @@ class OrderProductChangeRequestService {
           LTRIM(RTRIM(ISNULL(sto_isim, ''))) AS productName,
           ISNULL(sto_standartmaliyet, 0) AS currentCost,
           dbo.fn_VergiYuzde(ISNULL(sto_toptan_vergi, 0)) AS vatPercent,
+          CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) AS float) AS stockMerkez,
+          CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) AS float) AS stockTopca,
+          CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 11, 0), 0) AS float) AS stockHot,
           (
             SELECT TOP 1
               dbo.fn_StokHareketNetDeger(
@@ -135,6 +175,7 @@ class OrderProductChangeRequestService {
           lastEntryCost: toNumber(row?.lastEntryCost) || existing?.lastEntryCost || null,
           vatRate: vatPercent > 1 ? vatPercent / 100 : vatPercent || existing?.vatRate || null,
           productId: existing?.productId || null,
+          stock: createStockSnapshot(row?.stockMerkez, row?.stockTopca, row?.stockHot),
         });
       });
     } catch (error) {
@@ -150,6 +191,7 @@ class OrderProductChangeRequestService {
         lastEntryCost: null,
         vatRate: null,
         productId: null,
+        stock: null,
       });
     });
 
@@ -349,6 +391,9 @@ class OrderProductChangeRequestService {
           targetLastEntryCost: targetProduct?.lastEntryCost ?? null,
           targetCurrentMarginPercent: marginPercent(line.unitPrice, targetProduct?.currentCost),
           targetLastEntryMarginPercent: marginPercent(line.unitPrice, targetProduct?.lastEntryCost),
+          stockSnapshotAt: new Date(),
+          sourceStockAtCreation: sourceProduct?.stock ?? undefined,
+          targetStockAtCreation: targetProduct?.stock ?? undefined,
           familyId: input.familyId || null,
           familyCode: input.familyCode || null,
           familyName: input.familyName || null,
@@ -386,27 +431,318 @@ class OrderProductChangeRequestService {
     };
   }
 
+  private async resolveActionablePendingRequests(requests: any[]) {
+    const allRequestIds = new Set(requests.map((request) => String(request.id)));
+    if (requests.length === 0) {
+      return { actionableIds: allRequestIds, liveValidationAvailable: true };
+    }
+    if (config.useMockMikro) {
+      return { actionableIds: allRequestIds, liveValidationAvailable: false };
+    }
+
+    let signatureHash = 2166136261;
+    requests.forEach((request) => {
+      const signaturePart = `${request.id}:${toDate(request.updatedAt)?.getTime() || 0}|`;
+      for (let index = 0; index < signaturePart.length; index += 1) {
+        signatureHash ^= signaturePart.charCodeAt(index);
+        signatureHash = Math.imul(signatureHash, 16777619);
+      }
+    });
+    const cacheKey = `${requests.length}:${signatureHash >>> 0}`;
+    const cached = this.liveValidationCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return {
+        actionableIds: new Set(cached.actionableIds),
+        liveValidationAvailable: cached.liveValidationAvailable,
+      };
+    }
+
+    try {
+      const actionableIds = new Set<string>();
+      const chunkSize = 100;
+      for (let offset = 0; offset < requests.length; offset += chunkSize) {
+        const chunk = requests.slice(offset, offset + chunkSize);
+        const conditions = chunk
+          .map((request) => {
+            const guid = String(request.mikroLineGuid || '').trim();
+            const customerCondition = request.customerCode
+              ? ` AND LTRIM(RTRIM(ISNULL(s.sip_musteri_kod, ''))) = '${escapeSql(request.customerCode)}'`
+              : '';
+            if (GUID_PATTERN.test(guid)) {
+              return `(s.sip_Guid = CONVERT(uniqueidentifier, '${guid}')${customerCondition})`;
+            }
+            const orderSeries = String(request.orderSeries || '').trim().toUpperCase();
+            const orderSequence = Math.trunc(toNumber(request.orderSequence));
+            const orderLineNo = Math.trunc(toNumber(request.orderLineNo));
+            if (!orderSeries || orderSequence <= 0 || orderLineNo < 0) return '';
+            return `(s.sip_evrakno_seri = '${escapeSql(orderSeries)}'
+              AND s.sip_evrakno_sira = ${orderSequence}
+              AND s.sip_satirno = ${orderLineNo}${customerCondition})`;
+          })
+          .filter(Boolean);
+        if (conditions.length === 0) continue;
+
+        const rows = await mikroService.executeQuery(`
+          SELECT
+            CONVERT(varchar(36), s.sip_Guid) AS lineGuid,
+            LTRIM(RTRIM(ISNULL(s.sip_evrakno_seri, ''))) AS orderSeries,
+            CAST(ISNULL(s.sip_evrakno_sira, 0) AS int) AS orderSequence,
+            CAST(ISNULL(s.sip_satirno, 0) AS int) AS orderLineNo,
+            LTRIM(RTRIM(ISNULL(s.sip_musteri_kod, ''))) AS customerCode,
+            LTRIM(RTRIM(ISNULL(s.sip_stok_kod, ''))) AS productCode,
+            CAST(ISNULL(s.sip_kapat_fl, 0) AS int) AS isClosed,
+            CAST(ISNULL(s.sip_iptal, 0) AS int) AS isCancelled,
+            CAST(ISNULL(s.sip_miktar, 0) AS float) AS quantity,
+            CAST(ISNULL(s.sip_teslim_miktar, 0) AS float) AS deliveredQuantity
+          FROM SIPARISLER s
+          WHERE s.sip_tip = 0
+            AND (${conditions.join('\nOR ')})
+        `);
+
+        const byGuid = new Map<string, any>();
+        const byLine = new Map<string, any[]>();
+        (rows || []).forEach((row: any) => {
+          const guid = String(row?.lineGuid || '').trim().toLowerCase();
+          if (guid) byGuid.set(guid, row);
+          const lineKey = requestLineKey(row);
+          byLine.set(lineKey, [...(byLine.get(lineKey) || []), row]);
+        });
+
+        chunk.forEach((request) => {
+          const guid = String(request.mikroLineGuid || '').trim().toLowerCase();
+          const lineCandidates = byLine.get(requestLineKey(request)) || [];
+          const requestCustomerCode = normalizeCode(request.customerCode);
+          const fallbackLine = requestCustomerCode
+            ? lineCandidates.find((candidate) => normalizeCode(candidate.customerCode) === requestCustomerCode)
+            : lineCandidates.length === 1
+              ? lineCandidates[0]
+              : undefined;
+          const line = (guid ? byGuid.get(guid) : undefined) || fallbackLine;
+          if (!line) return;
+          const stillUsesSourceProduct =
+            normalizeCode(line.productCode) === normalizeCode(request.sourceProductCode);
+          const isOpen =
+            toNumber(line.isClosed) === 0 &&
+            toNumber(line.isCancelled) === 0 &&
+            toNumber(line.quantity) > toNumber(line.deliveredQuantity);
+          if (stillUsesSourceProduct && isOpen) actionableIds.add(String(request.id));
+        });
+      }
+      const result = { actionableIds, liveValidationAvailable: true };
+      const checkedAt = Date.now();
+      requests.forEach((request) => {
+        this.lastKnownLiveActionability.set(String(request.id), {
+          updatedAtMs: toDate(request.updatedAt)?.getTime() || 0,
+          actionable: actionableIds.has(String(request.id)),
+          checkedAt,
+        });
+      });
+      if (this.lastKnownLiveActionability.size > 10_000) {
+        const entriesByAge = Array.from(this.lastKnownLiveActionability.entries())
+          .sort((left, right) => right[1].checkedAt - left[1].checkedAt)
+          .slice(0, 5_000);
+        this.lastKnownLiveActionability = new Map(entriesByAge);
+      }
+      if (this.liveValidationCache.size > 100) this.liveValidationCache.clear();
+      this.liveValidationCache.set(cacheKey, {
+        expiresAt: Date.now() + 15_000,
+        actionableIds: new Set(actionableIds),
+        liveValidationAvailable: true,
+      });
+      return result;
+    } catch (error) {
+      // Mikro gecici olarak okunamiyorsa tum yerel PENDING kayitlari yeniden
+      // gorunur yapilmaz. Yalnizca ayni kayit surumu icin son basarili
+      // kontrolde actionable oldugu bilinenler stale uyarisiyla korunur.
+      console.warn('WARN: pending order product change live validation failed', error);
+      const lastKnownActionableIds = new Set(
+        requests
+          .filter((request) => {
+            const known = this.lastKnownLiveActionability.get(String(request.id));
+            return (
+              known?.actionable === true &&
+              known.updatedAtMs === (toDate(request.updatedAt)?.getTime() || 0)
+            );
+          })
+          .map((request) => String(request.id))
+      );
+      this.liveValidationCache.set(cacheKey, {
+        expiresAt: Date.now() + 5_000,
+        actionableIds: new Set(lastKnownActionableIds),
+        liveValidationAvailable: false,
+      });
+      return { actionableIds: lastKnownActionableIds, liveValidationAvailable: false };
+    }
+  }
+
+  private async readMikroLineByGuid(request: any) {
+    const guid = String(request.mikroLineGuid || '').trim();
+    if (!GUID_PATTERN.test(guid)) return null;
+    const customerCondition = request.customerCode
+      ? `AND LTRIM(RTRIM(ISNULL(s.sip_musteri_kod, ''))) = '${escapeSql(request.customerCode)}'`
+      : '';
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP 1
+        LTRIM(RTRIM(ISNULL(s.sip_stok_kod, ''))) AS productCode,
+        CAST(ISNULL(s.sip_kapat_fl, 0) AS int) AS isClosed,
+        CAST(ISNULL(s.sip_iptal, 0) AS int) AS isCancelled,
+        CAST(ISNULL(s.sip_miktar, 0) AS float) AS quantity,
+        CAST(ISNULL(s.sip_teslim_miktar, 0) AS float) AS deliveredQuantity
+      FROM SIPARISLER s
+      WHERE s.sip_tip = 0
+        AND s.sip_Guid = CONVERT(uniqueidentifier, '${escapeSql(guid)}')
+        ${customerCondition}
+    `);
+    return rows?.[0] || null;
+  }
+
+  private isMikroLineOpen(line: any) {
+    return (
+      line &&
+      toNumber(line.isClosed) === 0 &&
+      toNumber(line.isCancelled) === 0 &&
+      toNumber(line.quantity) > toNumber(line.deliveredQuantity)
+    );
+  }
+
+  private async recoverStaleProcessingRequests(assignmentWhere: Record<string, unknown>) {
+    if (config.useMockMikro) return;
+    const staleBefore = new Date(Date.now() - 5 * 60_000);
+    const staleRequests = await prisma.orderProductChangeRequest.findMany({
+      where: {
+        status: { in: ['PROCESSING', 'FINALIZING', 'RECONCILING'] },
+        updatedAt: { lt: staleBefore },
+        ...assignmentWhere,
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: 25,
+    });
+
+    for (const request of staleRequests) {
+      const lease = await prisma.orderProductChangeRequest.updateMany({
+        where: {
+          id: request.id,
+          status: request.status,
+          updatedAt: request.updatedAt,
+        },
+        data: { status: 'RECONCILING' },
+      });
+      if (lease.count !== 1) continue;
+
+      if (!request.mikroLineGuid || !GUID_PATTERN.test(request.mikroLineGuid)) {
+        await prisma.orderProductChangeRequest.updateMany({
+          where: { id: request.id, status: 'RECONCILING' },
+          data: {
+            status: 'FAILED',
+            failedReason: 'Kesintiye ugrayan islem guvenli GUID olmadigi icin otomatik uzlastirilamadi.',
+          },
+        });
+        continue;
+      }
+
+      try {
+        const line = await this.readMikroLineByGuid(request);
+        const productCode = normalizeCode(line?.productCode);
+        if (line && productCode === normalizeCode(request.targetProductCode)) {
+          await this.updateLocalOrderItem(request);
+          await prisma.orderProductChangeRequest.updateMany({
+            where: { id: request.id, status: 'RECONCILING' },
+            data: {
+              status: 'APPROVED',
+              appliedAt: new Date(),
+              failedReason: null,
+            },
+          });
+          continue;
+        }
+
+        if (
+          line &&
+          productCode === normalizeCode(request.sourceProductCode) &&
+          this.isMikroLineOpen(line)
+        ) {
+          await prisma.orderProductChangeRequest.updateMany({
+            where: { id: request.id, status: 'RECONCILING' },
+            data: {
+              status: 'PENDING',
+              decidedById: null,
+              decidedAt: null,
+              appliedAt: null,
+              failedReason: 'Kesintiye ugrayan islemde Mikro degisikligi bulunmadi; talep yeniden acildi.',
+            },
+          });
+          continue;
+        }
+
+        await prisma.orderProductChangeRequest.updateMany({
+          where: { id: request.id, status: 'RECONCILING' },
+          data: {
+            status: 'FAILED',
+            failedReason: !line
+              ? 'Kesintiye ugrayan islemin Mikro satiri artik bulunamadi.'
+              : 'Kesintiye ugrayan islemde Mikro satiri kapali veya beklenmeyen bir urunde.',
+          },
+        });
+      } catch (error) {
+        // Mikro okunamiyorsa sonucu tahmin etmeyiz; RECONCILING lease'i sonraki
+        // kontrollu read-back denemesine kadar oldugu gibi kalir.
+        console.warn(`WARN: stale product change request ${request.id} could not be reconciled`, error);
+      }
+    }
+  }
+
   async list(actor: ActorContext, options?: { status?: string; limit?: number }) {
+    if (!actor.role || !['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP'].includes(actor.role)) {
+      throw new AppError('Urun degisim taleplerini goruntuleme yetkiniz yok.', 403, ErrorCode.FORBIDDEN);
+    }
     const status = String(options?.status || 'PENDING').trim().toUpperCase();
     const limitRaw = Number(options?.limit || 25);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100) : 25;
-    const where: any = status === 'ALL' ? {} : { status };
-    if (actor.role === 'SALES_REP') {
-      where.assignedToId = actor.userId || '__none__';
-    }
-    const requests = await prisma.orderProductChangeRequest.findMany({
-      where,
+    const assignmentWhere =
+      actor.role === 'SALES_REP' ? { assignedToId: actor.userId || '__none__' } : {};
+    await this.recoverStaleProcessingRequests(assignmentWhere);
+    const include = {
+      assignedTo: { select: { id: true, name: true, displayName: true, mikroName: true, email: true } },
+      requestedBy: { select: { id: true, name: true, displayName: true, mikroName: true, email: true } },
+    } as const;
+    const pendingCandidates = await prisma.orderProductChangeRequest.findMany({
+      where: { status: 'PENDING', ...assignmentWhere },
       orderBy: [{ createdAt: 'desc' }],
-      take: limit,
-      include: {
-        assignedTo: { select: { id: true, name: true, displayName: true, mikroName: true, email: true } },
-        requestedBy: { select: { id: true, name: true, displayName: true, mikroName: true, email: true } },
-      },
+      include,
     });
-    const pendingCount = await prisma.orderProductChangeRequest.count({
-      where: actor.role === 'SALES_REP' ? { status: 'PENDING', assignedToId: actor.userId || '__none__' } : { status: 'PENDING' },
-    });
-    return { requests, pendingCount };
+    const liveValidation = await this.resolveActionablePendingRequests(pendingCandidates);
+    const actionablePending = pendingCandidates.filter((request) =>
+      liveValidation.actionableIds.has(request.id)
+    );
+
+    const baseRequests =
+      status === 'PENDING'
+        ? actionablePending.slice(0, limit)
+        : await prisma.orderProductChangeRequest.findMany({
+            where: {
+              ...(status === 'ALL' ? {} : { status }),
+              ...assignmentWhere,
+            },
+            orderBy: [{ createdAt: 'desc' }],
+            take: limit,
+            include,
+          });
+    const currentStockAsOf = new Date();
+    const productSnapshots = await this.getProductSnapshots(
+      baseRequests.flatMap((request) => [request.sourceProductCode, request.targetProductCode])
+    );
+    const requests = baseRequests.map((request) => ({
+      ...request,
+      sourceCurrentStock: productSnapshots.get(normalizeCode(request.sourceProductCode))?.stock ?? null,
+      targetCurrentStock: productSnapshots.get(normalizeCode(request.targetProductCode))?.stock ?? null,
+      currentStockAsOf,
+    }));
+
+    return {
+      requests,
+      pendingCount: actionablePending.length,
+      liveValidationAvailable: liveValidation.liveValidationAvailable,
+    };
   }
 
   private async assertCanDecide(request: any, actor: ActorContext) {
@@ -417,30 +753,79 @@ class OrderProductChangeRequestService {
   }
 
   private async updateLocalOrderItem(request: any) {
-    const localOrder = await this.findLocalOrder(request.orderNumber, request.sourceProductCode);
+    const localOrder =
+      (await this.findLocalOrder(request.orderNumber, request.sourceProductCode)) ||
+      (await this.findLocalOrder(request.orderNumber, request.targetProductCode));
     if (!localOrder) return;
     const targetProduct = await prisma.product.findUnique({
       where: { mikroCode: request.targetProductCode },
       select: { id: true, name: true },
     });
-    const item = await prisma.orderItem.findFirst({
+    const sourceItems = await prisma.orderItem.findMany({
       where: {
         orderId: localOrder.id,
         mikroCode: request.sourceProductCode,
         ...(request.orderNumber ? { mikroOrderId: request.orderNumber } : {}),
       },
       orderBy: { createdAt: 'asc' },
-      select: { id: true },
+      select: { id: true, quantity: true, unitPrice: true },
     });
-    if (!item) return;
-    await prisma.orderItem.update({
-      where: { id: item.id },
+    if (sourceItems.length === 0) {
+      const alreadyUpdated = await prisma.orderItem.findFirst({
+        where: {
+          orderId: localOrder.id,
+          mikroCode: request.targetProductCode,
+          ...(request.orderNumber ? { mikroOrderId: request.orderNumber } : {}),
+          quantity: request.quantity,
+          unitPrice: request.unitPrice,
+        },
+        select: { id: true },
+      });
+      if (alreadyUpdated) return;
+      throw new AppError(
+        'Mikro degisikligi dogrulandi ancak eslesen yerel siparis kalemi bulunamadi.',
+        409,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+
+    let candidates = sourceItems;
+    if (sourceItems.length > 1) {
+      candidates = sourceItems.filter(
+        (item) =>
+          Math.abs(toNumber(item.quantity) - toNumber(request.quantity)) < 0.000001 &&
+          Math.abs(toNumber(item.unitPrice) - toNumber(request.unitPrice)) < 0.000001
+      );
+    }
+    if (candidates.length !== 1) {
+      throw new AppError(
+        'Yerel sipariste Mikro satiriyla guvenle eslestirilemeyen birden fazla urun satiri var.',
+        409,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+
+    const updated = await prisma.orderItem.updateMany({
+      where: { id: candidates[0].id, mikroCode: request.sourceProductCode },
       data: {
         mikroCode: request.targetProductCode,
         productName: request.targetProductName || targetProduct?.name || request.targetProductCode,
         productId: targetProduct?.id || null,
       },
     });
+    if (updated.count !== 1) {
+      const readBack = await prisma.orderItem.findUnique({
+        where: { id: candidates[0].id },
+        select: { mikroCode: true },
+      });
+      if (normalizeCode(readBack?.mikroCode) !== normalizeCode(request.targetProductCode)) {
+        throw new AppError(
+          'Yerel siparis satiri degisikligi read-back ile dogrulanamadi.',
+          409,
+          ErrorCode.BAD_REQUEST
+        );
+      }
+    }
   }
 
   async approve(id: string, actor: ActorContext) {
@@ -450,79 +835,257 @@ class OrderProductChangeRequestService {
     if (request.status !== 'PENDING') {
       throw new AppError('Bu talep daha once sonuclandirilmis.', 400, ErrorCode.BAD_REQUEST);
     }
-
-    const selectWhereByGuid = request.mikroLineGuid
-      ? `s.sip_Guid = CONVERT(uniqueidentifier, '${escapeSql(request.mikroLineGuid)}')`
-      : `s.sip_evrakno_seri = '${escapeSql(request.orderSeries)}'
-          AND s.sip_evrakno_sira = ${Number(request.orderSequence)}
-          AND s.sip_satirno = ${Number(request.orderLineNo)}`;
-    const updateWhereByGuid = request.mikroLineGuid
-      ? `sip_Guid = CONVERT(uniqueidentifier, '${escapeSql(request.mikroLineGuid)}')`
-      : `sip_evrakno_seri = '${escapeSql(request.orderSeries)}'
-          AND sip_evrakno_sira = ${Number(request.orderSequence)}
-          AND sip_satirno = ${Number(request.orderLineNo)}`;
-    const lineRows = await mikroService.executeQuery(`
-      SELECT TOP 1
-        LTRIM(RTRIM(ISNULL(s.sip_stok_kod, ''))) AS productCode,
-        ISNULL(s.sip_kapat_fl, 0) AS isClosed,
-        ISNULL(s.sip_iptal, 0) AS isCancelled,
-        ISNULL(s.sip_miktar, 0) AS quantity,
-        ISNULL(s.sip_teslim_miktar, 0) AS deliveredQuantity
-      FROM SIPARISLER s WITH (NOLOCK)
-      WHERE ${selectWhereByGuid}
-    `);
-    const line = lineRows?.[0];
-    if (!line) throw new AppError('Mikro siparis satiri bulunamadi.', 404, ErrorCode.NOT_FOUND);
-    if (normalizeCode(line.productCode) !== request.sourceProductCode) {
-      throw new AppError('Mikro satirindaki urun artik kaynak urunle ayni degil.', 409, ErrorCode.BAD_REQUEST);
-    }
-    if (Boolean(line.isClosed) || Boolean(line.isCancelled) || toNumber(line.quantity) <= toNumber(line.deliveredQuantity)) {
-      throw new AppError('Mikro siparis satiri artik acik degil.', 409, ErrorCode.BAD_REQUEST);
+    if (!request.mikroLineGuid || !GUID_PATTERN.test(request.mikroLineGuid)) {
+      throw new AppError(
+        'Guvenli Mikro yazimi icin siparis satiri GUID bilgisi bulunamadi; talep yeniden olusturulmalidir.',
+        409,
+        ErrorCode.BAD_REQUEST
+      );
     }
 
-    const targetExists = await mikroService.executeQuery(`
-      SELECT TOP 1 sto_kod
-      FROM STOKLAR WITH (NOLOCK)
-      WHERE sto_kod = '${escapeSql(request.targetProductCode)}'
-    `);
-    if (!targetExists?.length) {
-      throw new AppError('Hedef stok Mikroda bulunamadi.', 404, ErrorCode.NOT_FOUND);
-    }
-
-    const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
-    const mikroUserNo = Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0 ? Math.trunc(mikroUserNoRaw) : 1;
-    await mikroService.executeQuery(`
-      UPDATE SIPARISLER
-      SET
-        sip_stok_kod = '${escapeSql(request.targetProductCode)}',
-        sip_lastup_date = GETDATE(),
-        sip_lastup_user = ${mikroUserNo}
-      WHERE ${updateWhereByGuid}
-        AND LTRIM(RTRIM(ISNULL(sip_stok_kod, ''))) = '${escapeSql(request.sourceProductCode)}'
-        AND ISNULL(sip_kapat_fl, 0) = 0
-        AND ISNULL(sip_iptal, 0) = 0
-    `);
-
-    await this.updateLocalOrderItem(request);
-    const updated = await prisma.orderProductChangeRequest.update({
-      where: { id },
+    // Ayni talebin iki kullanici/instance tarafindan approve-reject edilmesini
+    // engelle. Mikro yazisindan once karar sahipligi atomik olarak alinir.
+    const claim = await prisma.orderProductChangeRequest.updateMany({
+      where: { id, status: 'PENDING' },
       data: {
-        status: 'APPROVED',
+        status: 'PROCESSING',
         decidedById: actor.userId || null,
         decidedAt: new Date(),
-        appliedAt: new Date(),
         failedReason: null,
       },
     });
+    if (claim.count !== 1) {
+      throw new AppError('Bu talep baska bir kullanici tarafindan isleme alindi.', 409, ErrorCode.BAD_REQUEST);
+    }
 
-    await notificationService.createForUsers([request.requestedById], {
-      category: 'ORDER',
-      title: 'Urun siparis degisimi onaylandi',
-      body: `${request.orderNumber} satirinda ${request.sourceProductCode} yerine ${request.targetProductCode} uygulandi.`,
-      linkUrl: '/reports/ucarer-depo',
-    });
+    const customerSelectCondition = request.customerCode
+      ? `AND LTRIM(RTRIM(ISNULL(s.sip_musteri_kod, ''))) = '${escapeSql(request.customerCode)}'`
+      : '';
+    const customerUpdateCondition = request.customerCode
+      ? `AND LTRIM(RTRIM(ISNULL(sip_musteri_kod, ''))) = '${escapeSql(request.customerCode)}'`
+      : '';
+    const selectWhereByGuid =
+      `s.sip_Guid = CONVERT(uniqueidentifier, '${escapeSql(request.mikroLineGuid)}')
+        ${customerSelectCondition}`;
+    const updateWhereByGuid =
+      `sip_Guid = CONVERT(uniqueidentifier, '${escapeSql(request.mikroLineGuid)}')
+        ${customerUpdateCondition}`;
 
-    return updated;
+    let mikroWriteAttempted = false;
+    let mikroApplied = false;
+    let preWriteTerminal = false;
+    let claimStatus = 'PROCESSING';
+    try {
+      const lineRows = await mikroService.executeQuery(`
+        SELECT TOP 1
+          LTRIM(RTRIM(ISNULL(s.sip_stok_kod, ''))) AS productCode,
+          ISNULL(s.sip_kapat_fl, 0) AS isClosed,
+          ISNULL(s.sip_iptal, 0) AS isCancelled,
+          ISNULL(s.sip_miktar, 0) AS quantity,
+          ISNULL(s.sip_teslim_miktar, 0) AS deliveredQuantity
+        FROM SIPARISLER s
+        WHERE s.sip_tip = 0
+          AND ${selectWhereByGuid}
+      `);
+      const line = lineRows?.[0];
+      if (!line) {
+        preWriteTerminal = true;
+        throw new AppError('Mikro siparis satiri bulunamadi.', 404, ErrorCode.NOT_FOUND);
+      }
+      if (normalizeCode(line.productCode) !== request.sourceProductCode) {
+        preWriteTerminal = true;
+        throw new AppError('Mikro satirindaki urun artik kaynak urunle ayni degil.', 409, ErrorCode.BAD_REQUEST);
+      }
+      if (
+        toNumber(line.isClosed) !== 0 ||
+        toNumber(line.isCancelled) !== 0 ||
+        toNumber(line.quantity) <= toNumber(line.deliveredQuantity)
+      ) {
+        preWriteTerminal = true;
+        throw new AppError('Mikro siparis satiri artik acik degil.', 409, ErrorCode.BAD_REQUEST);
+      }
+
+      const targetExists = await mikroService.executeQuery(`
+        SELECT TOP 1 sto_kod
+        FROM STOKLAR WITH (NOLOCK)
+        WHERE sto_kod = '${escapeSql(request.targetProductCode)}'
+      `);
+      if (!targetExists?.length) {
+        throw new AppError('Hedef stok Mikroda bulunamadi.', 404, ErrorCode.NOT_FOUND);
+      }
+
+      const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+      const mikroUserNo = Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0 ? Math.trunc(mikroUserNoRaw) : 1;
+      mikroWriteAttempted = true;
+      await mikroService.executeQuery(`
+        UPDATE SIPARISLER
+        SET
+          sip_stok_kod = '${escapeSql(request.targetProductCode)}',
+          sip_lastup_date = GETDATE(),
+          sip_lastup_user = ${mikroUserNo}
+        WHERE sip_tip = 0
+          AND ${updateWhereByGuid}
+          AND LTRIM(RTRIM(ISNULL(sip_stok_kod, ''))) = '${escapeSql(request.sourceProductCode)}'
+          AND ISNULL(sip_kapat_fl, 0) = 0
+          AND ISNULL(sip_iptal, 0) = 0
+          AND ISNULL(sip_miktar, 0) > ISNULL(sip_teslim_miktar, 0)
+      `);
+
+      const readBackRows = await mikroService.executeQuery(`
+        SELECT TOP 1
+          LTRIM(RTRIM(ISNULL(s.sip_stok_kod, ''))) AS productCode
+        FROM SIPARISLER s
+        WHERE s.sip_tip = 0
+          AND ${selectWhereByGuid}
+      `);
+      if (normalizeCode(readBackRows?.[0]?.productCode) !== request.targetProductCode) {
+        throw new AppError('Mikro urun degisikligi read-back ile dogrulanamadi.', 409, ErrorCode.BAD_REQUEST);
+      }
+      mikroApplied = true;
+
+      const finalizationClaim = await prisma.orderProductChangeRequest.updateMany({
+        where: {
+          id,
+          status: claimStatus,
+          decidedById: actor.userId || null,
+        },
+        data: { status: 'FINALIZING' },
+      });
+      if (finalizationClaim.count !== 1) {
+        throw new AppError(
+          'Urun degisikligi Mikroda uygulandi ancak yerel sonlandirma lease kaybedildi.',
+          409,
+          ErrorCode.BAD_REQUEST
+        );
+      }
+      claimStatus = 'FINALIZING';
+      await this.updateLocalOrderItem(request);
+      const finalized = await prisma.orderProductChangeRequest.updateMany({
+        where: {
+          id,
+          status: claimStatus,
+          decidedById: actor.userId || null,
+        },
+        data: {
+          status: 'APPROVED',
+          decidedById: actor.userId || null,
+          decidedAt: new Date(),
+          appliedAt: new Date(),
+          failedReason: null,
+        },
+      });
+      if (finalized.count !== 1) {
+        throw new AppError(
+          'Urun degisikligi Mikroda uygulandi ancak yerel durum atomik olarak sonlandirilamadi.',
+          409,
+          ErrorCode.BAD_REQUEST
+        );
+      }
+      const updated = await prisma.orderProductChangeRequest.findUnique({ where: { id } });
+      if (!updated) {
+        throw new AppError('Sonuclandirilan urun degisim talebi okunamadi.', 409, ErrorCode.BAD_REQUEST);
+      }
+
+      notificationService.createForUsers([request.requestedById], {
+        category: 'ORDER',
+        title: 'Urun siparis degisimi onaylandi',
+        body: `${request.orderNumber} satirinda ${request.sourceProductCode} yerine ${request.targetProductCode} uygulandi.`,
+        linkUrl: '/reports/ucarer-depo',
+      }).catch((error) => {
+        console.warn('WARN: order product change approval notification failed', error);
+      });
+
+      return updated;
+    } catch (error) {
+      let failedReason =
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : 'Urun degisikligi uygulanamadi.';
+      let reconciliationState:
+        | 'NOT_ATTEMPTED'
+        | 'TARGET_CONFIRMED'
+        | 'SOURCE_OPEN'
+        | 'SOURCE_TERMINAL'
+        | 'OTHER'
+        | 'MISSING'
+        | 'UNAVAILABLE' = mikroApplied ? 'TARGET_CONFIRMED' : 'NOT_ATTEMPTED';
+
+      if (mikroWriteAttempted) {
+        try {
+          const readBackLine = await this.readMikroLineByGuid(request);
+          if (!readBackLine) {
+            reconciliationState = 'MISSING';
+          } else {
+            const readBackProduct = normalizeCode(readBackLine.productCode);
+            if (readBackProduct === normalizeCode(request.targetProductCode)) {
+              reconciliationState = 'TARGET_CONFIRMED';
+              mikroApplied = true;
+            } else if (readBackProduct === normalizeCode(request.sourceProductCode)) {
+              reconciliationState = this.isMikroLineOpen(readBackLine)
+                ? 'SOURCE_OPEN'
+                : 'SOURCE_TERMINAL';
+            } else {
+              reconciliationState = 'OTHER';
+            }
+          }
+        } catch (readBackError) {
+          if (!mikroApplied) reconciliationState = 'UNAVAILABLE';
+          console.error('ERROR: uncertain Mikro write could not be independently read back', readBackError);
+        }
+      }
+
+      if (reconciliationState === 'TARGET_CONFIRMED') {
+        try {
+          await this.updateLocalOrderItem(request);
+          const reconciled = await prisma.orderProductChangeRequest.updateMany({
+            where: { id, status: claimStatus, decidedById: actor.userId || null },
+            data: {
+              status: 'APPROVED',
+              appliedAt: new Date(),
+              failedReason: null,
+            },
+          });
+          if (reconciled.count === 1) {
+            const confirmed = await prisma.orderProductChangeRequest.findUnique({ where: { id } });
+            if (confirmed) return confirmed;
+          }
+          const alreadyFinalized = await prisma.orderProductChangeRequest.findUnique({ where: { id } });
+          if (alreadyFinalized?.status === 'APPROVED') return alreadyFinalized;
+          failedReason = `${failedReason} Mikro degisikligi read-back ile dogrulandi ancak yerel durum sonlandirilamadi.`;
+        } catch (reconciliationError) {
+          const reconciliationMessage =
+            reconciliationError instanceof Error
+              ? reconciliationError.message
+              : 'yerel uzlastirma hatasi';
+          failedReason = `${failedReason} Mikro hedef urunle dogrulandi; yerel uzlastirma basarisiz: ${reconciliationMessage}`.slice(0, 500);
+        }
+      } else if (mikroWriteAttempted) {
+        failedReason = `${failedReason} Bagimsiz read-back sonucu: ${reconciliationState}.`.slice(0, 500);
+      }
+
+      const safeToRetry =
+        (!mikroWriteAttempted && !preWriteTerminal) ||
+        reconciliationState === 'SOURCE_OPEN';
+      await prisma.orderProductChangeRequest.updateMany({
+        where: { id, status: claimStatus, decidedById: actor.userId || null },
+        data: !safeToRetry
+          ? {
+              status: 'FAILED',
+              appliedAt: mikroApplied ? new Date() : null,
+              failedReason,
+            }
+          : {
+              status: 'PENDING',
+              decidedById: null,
+              decidedAt: null,
+              appliedAt: null,
+              failedReason,
+            },
+      }).catch((stateError) => {
+        console.error('ERROR: order product change claim could not be finalized', stateError);
+      });
+      throw error;
+    }
   }
 
   async reject(id: string, actor: ActorContext, reason?: string | null) {
@@ -532,8 +1095,8 @@ class OrderProductChangeRequestService {
     if (request.status !== 'PENDING') {
       throw new AppError('Bu talep daha once sonuclandirilmis.', 400, ErrorCode.BAD_REQUEST);
     }
-    const updated = await prisma.orderProductChangeRequest.update({
-      where: { id },
+    const decision = await prisma.orderProductChangeRequest.updateMany({
+      where: { id, status: 'PENDING' },
       data: {
         status: 'REJECTED',
         rejectReason: reason || null,
@@ -541,11 +1104,17 @@ class OrderProductChangeRequestService {
         decidedAt: new Date(),
       },
     });
-    await notificationService.createForUsers([request.requestedById], {
+    if (decision.count !== 1) {
+      throw new AppError('Bu talep baska bir kullanici tarafindan isleme alindi.', 409, ErrorCode.BAD_REQUEST);
+    }
+    const updated = await prisma.orderProductChangeRequest.findUnique({ where: { id } });
+    notificationService.createForUsers([request.requestedById], {
       category: 'ORDER',
       title: 'Urun siparis degisimi reddedildi',
       body: `${request.orderNumber} satiri icin ${request.sourceProductCode} -> ${request.targetProductCode} reddedildi.`,
       linkUrl: '/reports/ucarer-depo',
+    }).catch((error) => {
+      console.warn('WARN: order product change rejection notification failed', error);
     });
     return updated;
   }

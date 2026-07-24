@@ -1377,7 +1377,17 @@ class QuoteService {
     role: string,
     status?: string,
     assignedSectorCodes: string[] = [],
-    opts: { search?: string; page?: number; pageSize?: number } = {},
+    opts: {
+      search?: string;
+      sectorCode?: string;
+      createdById?: string;
+      categoryId?: string;
+      brandCode?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      page?: number;
+      pageSize?: number;
+    } = {},
   ) {
     const where: any = {};
     if (status && status !== "ALL") {
@@ -1389,6 +1399,40 @@ class QuoteService {
       }
       where.customer = { sectorCode: { in: assignedSectorCodes } };
     }
+    const andClauses: any[] = [];
+
+    const sectorCode = String(opts.sectorCode || "").trim();
+    if (sectorCode) {
+      andClauses.push({ customer: { sectorCode } });
+    }
+    const createdById = String(opts.createdById || "").trim();
+    if (createdById) {
+      andClauses.push({ createdById });
+    }
+    const categoryId = String(opts.categoryId || "").trim();
+    const brandCode = String(opts.brandCode || "").trim();
+    if (categoryId || brandCode) {
+      const productWhere: any = {};
+      if (categoryId) productWhere.categoryId = categoryId;
+      if (brandCode) {
+        productWhere.brandCode = { equals: brandCode, mode: "insensitive" };
+      }
+      andClauses.push({
+        items: {
+          some: {
+            product: productWhere,
+          },
+        },
+      });
+    }
+    const fromDate = opts.dateFrom ? new Date(opts.dateFrom) : null;
+    const toDate = opts.dateTo ? new Date(opts.dateTo) : null;
+    const createdAt: any = {};
+    if (fromDate && !Number.isNaN(fromDate.getTime())) createdAt.gte = fromDate;
+    if (toDate && !Number.isNaN(toDate.getTime())) createdAt.lte = toDate;
+    if (Object.keys(createdAt).length > 0) {
+      where.createdAt = createdAt;
+    }
     // Sunucu-tarafli arama (tum kayitlarda): cok-token AND, her token alanlarda OR
     const searchTokens = (opts.search || "")
       .trim()
@@ -1396,32 +1440,58 @@ class QuoteService {
       .filter(Boolean)
       .slice(0, 8);
     if (searchTokens.length > 0) {
-      where.AND = searchTokens.map((tok) => ({
-        OR: [
-          { quoteNumber: { contains: tok, mode: "insensitive" } },
-          {
-            customer: {
-              OR: [
-                { name: { contains: tok, mode: "insensitive" } },
-                { displayName: { contains: tok, mode: "insensitive" } },
-                { mikroName: { contains: tok, mode: "insensitive" } },
-                { mikroCariCode: { contains: tok, mode: "insensitive" } },
-              ],
-            },
-          },
-          {
-            items: {
-              some: {
+      andClauses.push(
+        ...searchTokens.map((tok) => ({
+          OR: [
+            { quoteNumber: { contains: tok, mode: "insensitive" } },
+            { documentNo: { contains: tok, mode: "insensitive" } },
+            { mikroNumber: { contains: tok, mode: "insensitive" } },
+            { responsibleCode: { contains: tok, mode: "insensitive" } },
+            {
+              customer: {
                 OR: [
-                  { productName: { contains: tok, mode: "insensitive" } },
-                  { productCode: { contains: tok, mode: "insensitive" } },
+                  { name: { contains: tok, mode: "insensitive" } },
+                  { displayName: { contains: tok, mode: "insensitive" } },
+                  { mikroName: { contains: tok, mode: "insensitive" } },
+                  { mikroCariCode: { contains: tok, mode: "insensitive" } },
+                  { sectorCode: { contains: tok, mode: "insensitive" } },
                 ],
               },
             },
-          },
-        ],
-      }));
+            {
+              createdBy: {
+                OR: [
+                  { name: { contains: tok, mode: "insensitive" } },
+                  { email: { contains: tok, mode: "insensitive" } },
+                ],
+              },
+            },
+            {
+              items: {
+                some: {
+                  OR: [
+                    { productName: { contains: tok, mode: "insensitive" } },
+                    { productCode: { contains: tok, mode: "insensitive" } },
+                    { product: { brandCode: { contains: tok, mode: "insensitive" } } },
+                    {
+                      product: {
+                        category: {
+                          OR: [
+                            { name: { contains: tok, mode: "insensitive" } },
+                            { mikroCode: { contains: tok, mode: "insensitive" } },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        }))
+      );
     }
+    if (andClauses.length > 0) where.AND = andClauses;
     const include: any = {
         items: {
           orderBy: { lineOrder: "asc" },
@@ -1436,6 +1506,14 @@ class QuoteService {
                 lastEntryDate: true,
                 currentCost: true,
                 currentCostDate: true,
+                brandCode: true,
+                category: {
+                  select: {
+                    id: true,
+                    mikroCode: true,
+                    name: true,
+                  },
+                },
               },
             },
           },
@@ -1516,6 +1594,69 @@ class QuoteService {
       }),
     ]);
     return { quotes, total, paginated: true, page, pageSize };
+  }
+
+  async getQuoteFilterOptions(
+    role: string,
+    assignedSectorCodes: string[] = [],
+  ) {
+    if (role === "SALES_REP" && assignedSectorCodes.length === 0) {
+      return { sectors: [], creators: [], categories: [], brands: [] };
+    }
+    const visibilityWhere: any = {};
+    if (role === "SALES_REP") {
+      visibilityWhere.customer = { sectorCode: { in: assignedSectorCodes } };
+    }
+
+    const [sectorRows, creatorRows, productRows] = await Promise.all([
+      prisma.quote.findMany({
+        where: visibilityWhere,
+        select: { customer: { select: { sectorCode: true } } },
+        distinct: ["customerId"],
+      }),
+      prisma.user.findMany({
+        where: { createdQuotes: { some: visibilityWhere } },
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+          mikroName: true,
+          role: true,
+        },
+        orderBy: { name: "asc" },
+      }),
+      prisma.product.findMany({
+        where: { quoteItems: { some: { quote: visibilityWhere } } },
+        select: {
+          brandCode: true,
+          category: { select: { id: true, mikroCode: true, name: true } },
+        },
+        distinct: ["brandCode", "categoryId"],
+      }),
+    ]);
+
+    const sectors = Array.from(new Set(
+      sectorRows
+        .map((row) => String(row.customer?.sectorCode || "").trim())
+        .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, "tr"));
+    const creators = creatorRows.map((row) => ({
+      id: row.id,
+      name: row.displayName || row.mikroName || row.name,
+      role: row.role,
+    }));
+    const categories = Array.from(
+      new Map(
+        productRows
+          .filter((row) => row.category)
+          .map((row) => [row.category!.id, row.category!])
+      ).values()
+    ).sort((a, b) => a.name.localeCompare(b.name, "tr"));
+    const brands = Array.from(new Set(
+      productRows.map((row) => String(row.brandCode || "").trim()).filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, "tr"));
+
+    return { sectors, creators, categories, brands };
   }
   async getQuoteByIdForStaff(
     quoteId: string,

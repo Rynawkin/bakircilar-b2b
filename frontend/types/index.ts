@@ -175,6 +175,12 @@ export interface OrderItem {
     unit?: string | null;
     imageUrl?: string | null;
     vatRate?: number | null;
+    brandCode?: string | null;
+    category?: {
+      id: string;
+      mikroCode?: string | null;
+      name: string;
+    } | null;
   } | null;
 }
 
@@ -195,6 +201,11 @@ export interface Order {
     id: string;
     quoteNumber: string;
     createdAt: string;
+    createdBy?: {
+      id: string;
+      name: string;
+      email?: string | null;
+    } | null;
   } | null;
   customerRequest?: {
     id: string;
@@ -356,6 +367,12 @@ export interface QuoteItem {
     lastEntryDate?: string | null;
     currentCost?: number | null;
     currentCostDate?: string | null;
+    brandCode?: string | null;
+    category?: {
+      id: string;
+      mikroCode?: string | null;
+      name: string;
+    } | null;
   };
 }
 

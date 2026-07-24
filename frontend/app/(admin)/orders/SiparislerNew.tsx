@@ -10,13 +10,13 @@ import {
   Pencil,
   Check,
   MessageSquare,
-  BarChart3,
   Clock,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { OrderCardSkeleton } from '@/components/ui/Skeleton';
-import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
+import { CommercialListFilters } from '@/components/admin/CommercialListFilters';
 import { useSiparisler, OrderStatus, OrderSource } from './useSiparisler';
+import { SiparisDetayModal } from './SiparisDetayModal';
 
 const CARD = 'bg-white border border-[#e7ebf2] rounded-xl';
 
@@ -33,8 +33,15 @@ export default function SiparislerNew() {
     setSourceTab,
     searchTerm,
     setSearchTerm,
+    filters,
+    updateFilter,
+    clearFilters,
+    filterOptions,
+    filterOptionsLoading,
     isLoading,
     isFetching,
+    loadError,
+    retryFetch,
     filteredOrders,
     counts,
     sourceCounts,
@@ -64,6 +71,8 @@ export default function SiparislerNew() {
     handleOrderPdfExport,
     handleOrderExcelExport,
   } = useSiparisler();
+  const selectedDetailOrder =
+    filteredOrders.find((order) => expandedOrders.has(order.id)) || null;
 
   // Durum sekmeleri — sunucu sayfalamada yalnizca AKTIF sekmenin toplami bilinir (digerleri null).
   const statusTabs: Array<{ key: OrderStatus; label: string; count: number | null; active: string }> = [
@@ -244,27 +253,51 @@ export default function SiparislerNew() {
           </span>
         </div>
 
-        {/* Arama + Temizle */}
-        <div className={`${CARD} flex items-center gap-2.5 flex-wrap px-3.5 py-[11px] mb-4`}>
-          <div className="flex-1 min-w-[240px] flex items-center gap-2 h-[38px] border border-[#e3e8f0] rounded-lg px-3">
-            <Search width={15} height={15} stroke="#9aa6b8" strokeWidth={2} />
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cari adı, sipariş no, belge no, müşteri kodu veya ürün adı ara…"
-              className="flex-1 border-none bg-transparent outline-none text-[13px] text-[#14223b]"
-            />
+        {/* Arama + gelismis filtreler */}
+        <div className={`${CARD} px-3.5 py-[11px] mb-4`}>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex-1 min-w-[240px] flex items-center gap-2 h-[38px] border border-[#e3e8f0] rounded-lg px-3">
+              <Search width={15} height={15} stroke="#9aa6b8" strokeWidth={2} />
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Cari, sipariş, belge, sektör, oluşturan, ürün, kategori veya marka ara…"
+                className="flex-1 border-none bg-transparent outline-none text-[13px] text-[#14223b]"
+              />
+            </div>
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="bg-white border border-[#d8e0ec] rounded-lg px-3.5 h-[38px] text-[12.5px] font-medium text-[#51607a] cursor-pointer hover:bg-[#f4f6fa]"
+              >
+                Aramayı temizle
+              </button>
+            )}
           </div>
-          {searchTerm && (
+          <CommercialListFilters
+            idPrefix="orders"
+            values={filters}
+            options={filterOptions}
+            optionsLoading={filterOptionsLoading}
+            onChange={updateFilter}
+            onClear={clearFilters}
+          />
+        </div>
+
+        {loadError && (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-[12.5px] text-[#991b1b]">
+            <span className="font-semibold">Sipariş listesi güncellenemedi.</span>
+            <span className="text-[#b45353]">{loadError}</span>
             <button
               type="button"
-              onClick={() => setSearchTerm('')}
-              className="bg-white border border-[#d8e0ec] rounded-lg px-3.5 h-[38px] text-[12.5px] font-medium text-[#51607a] cursor-pointer hover:bg-[#f4f6fa]"
+              onClick={retryFetch}
+              className="ml-auto rounded-lg border border-[#fecaca] bg-white px-3 py-1.5 font-semibold hover:bg-[#fff7f7]"
             >
-              Temizle
+              Tekrar dene
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Toplu islem bari — sadece listede bekleyen siparis varken gorunur */}
         {selectablePendingOrders.length > 0 && (
@@ -326,17 +359,18 @@ export default function SiparislerNew() {
                 order.user?.mikroName ||
                 order.user?.name ||
                 '-';
-              const creatorKind: 'B2B' | 'Talep' | 'Musteri' = order.requestedBy?.name
-                ? 'B2B'
-                : order.customerRequest?.requestedBy?.name
-                  ? 'Talep'
+              const creatorKind: 'B2B' | 'Talep' | 'Musteri' = order.customerRequest?.requestedBy?.name
+                ? 'Talep'
+                : order.requestedBy?.name || order.sourceQuote
+                  ? 'B2B'
                   : 'Musteri';
-              const creatorLabel = order.requestedBy?.name
-                ? `${order.requestedBy.name} (B2B)`
-                : order.customerRequest?.requestedBy?.name
-                  ? `${order.customerRequest.requestedBy.name} (Talep)`
+              const creatorLabel = order.customerRequest?.requestedBy?.name
+                ? `${order.customerRequest.requestedBy.name} (Talep)`
+                : order.requestedBy?.name
+                  ? `${order.requestedBy.name} (B2B)`
+                  : order.sourceQuote
+                    ? `${order.sourceQuote.createdBy?.name || 'Tekliften'} (B2B)`
                   : `${customerName} (Müşteri)`;
-              const hasSorum = (order.items || []).some((it) => it.responsibilityCenter);
 
               return (
                 <div key={order.id} className={`${CARD} overflow-hidden`}>
@@ -467,7 +501,7 @@ export default function SiparislerNew() {
                         onClick={() => toggleExpanded(order.id)}
                         className="flex items-center gap-1.5 bg-transparent border-none cursor-pointer text-[12px] font-medium text-[#15356b]"
                       >
-                        {isExpanded ? 'Detayı Gizle' : 'Detayı Göster'}
+                        {isExpanded ? 'Detayı Kapat' : 'Detayı Aç'}
                         <ChevronDown
                           width={13}
                           height={13}
@@ -478,82 +512,6 @@ export default function SiparislerNew() {
                       </button>
                     </div>
                   </div>
-
-                  {/* Detay: Musteri Bilgileri + Siparis Kalemleri + onay/red tarihi */}
-                  {isExpanded && (
-                    <div className="border-t border-[#eef1f6] bg-[#fafbfd] px-[17px] py-3.5">
-                      <div className="text-[11px] font-semibold tracking-wider text-[#8b97ac] uppercase mb-2.5">
-                        Müşteri Bilgileri
-                      </div>
-                      <div className="mb-4">
-                        <CustomerInfoCard customer={order.user} />
-                      </div>
-
-                      <div className="flex items-center gap-2 mb-2.5">
-                        <span className="text-[11px] font-semibold tracking-wider text-[#8b97ac] uppercase">
-                          Sipariş Kalemleri ({order.items.length} ürün)
-                        </span>
-                        {hasSorum && (
-                          <span className="inline-flex items-center gap-1 bg-[#eef2fa] border border-[#d6e0f1] text-[#1c4585] text-[9px] font-semibold px-1.5 py-0.5 rounded-[5px]">
-                            <BarChart3 width={10} height={10} stroke="currentColor" strokeWidth={2} />
-                            Sorumluluk Merkezi
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-col gap-2">
-                        {order.items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex items-center gap-3 bg-white border border-[#eef1f6] rounded-[9px] px-3 py-2.5"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[13px] font-medium text-[#14223b]">{item.productName}</span>
-                                {item.priceType === 'INVOICED' ? (
-                                  <span className="inline-flex items-center bg-[#eef2fa] border border-[#d6e0f1] text-[#1c4585] text-[9.5px] font-semibold px-1.5 py-0.5 rounded-[5px]">
-                                    Faturalı
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center bg-[#f4f6fa] border border-[#e3e8f0] text-[#51607a] text-[9.5px] font-semibold px-1.5 py-0.5 rounded-[5px]">
-                                    Beyaz
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-[#8b97ac] font-mono mt-0.5">
-                                {item.mikroCode}
-                                {item.responsibilityCenter && (
-                                  <span className="inline-flex items-center ml-2 bg-[#f4f6fa] border border-[#e3e8f0] text-[#51607a] text-[9.5px] font-semibold px-1.5 py-0.5 rounded-[5px] font-sans">
-                                    {item.responsibilityCenter}
-                                  </span>
-                                )}
-                              </div>
-                              {item.lineNote && (
-                                <div className="text-[11px] text-[#b45309] mt-1">Not: {item.lineNote}</div>
-                              )}
-                            </div>
-                            <span className="text-[12.5px] text-[#51607a] whitespace-nowrap">
-                              {item.quantity} × {formatCurrency(item.unitPrice)}
-                            </span>
-                            <span className="text-[14px] font-semibold text-[#14223b] min-w-[96px] text-right">
-                              {formatCurrency(item.totalPrice)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {order.status === 'APPROVED' && order.approvedAt && (
-                        <div className="mt-3.5 pt-3.5 border-t border-[#eef1f6] text-center">
-                          <p className="text-[12px] text-[#047857] m-0">Onaylandı: {formatDate(order.approvedAt)}</p>
-                        </div>
-                      )}
-                      {order.status === 'REJECTED' && order.rejectedAt && (
-                        <div className="mt-3.5 pt-3.5 border-t border-[#eef1f6] text-center">
-                          <p className="text-[12px] text-[#b91c1c] m-0">Reddedildi: {formatDate(order.rejectedAt)}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
 
                   {/* Kart aksiyonlari: Proforma PDF · Excel · Duzenle · Onayla · Reddet */}
                   <div className="flex items-center gap-2 flex-wrap border-t border-[#eef1f6] px-[17px] py-[11px]">
@@ -636,6 +594,18 @@ export default function SiparislerNew() {
             </div>
           </div>
         )}
+
+        <SiparisDetayModal
+          order={selectedDetailOrder}
+          onClose={() => {
+            if (selectedDetailOrder) toggleExpanded(selectedDetailOrder.id);
+          }}
+          onEdit={openEdit}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onPdf={handleOrderPdfExport}
+          onExcel={handleOrderExcelExport}
+        />
       </div>
     </div>
   );

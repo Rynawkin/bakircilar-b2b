@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import adminApi from '@/lib/api/admin';
+import adminApi, { CommercialListFilterOptions } from '@/lib/api/admin';
 import { Quote, QuoteHistory, QuoteStatus } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -11,6 +11,10 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
 import { getApiErrorMessage } from '@/lib/utils/apiError';
 import { BRAND_ASSETS } from '@/lib/brand';
+import {
+  EMPTY_COMMERCIAL_LIST_FILTERS,
+  type CommercialListFilterValues,
+} from '@/components/admin/CommercialListFilters';
 import * as XLSX from 'xlsx';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
@@ -88,6 +92,7 @@ export const TAB_PARAM_MAP: Record<string, QuoteStatusFilter> = {
   sent: 'SENT_TO_MIKRO',
   rejected: 'REJECTED',
   accepted: 'CUSTOMER_ACCEPTED',
+  'customer-rejected': 'CUSTOMER_REJECTED',
   all: 'ALL',
 };
 
@@ -107,6 +112,8 @@ export const resolveTabParam = (value: QuoteStatusFilter): string => {
       return 'rejected';
     case 'CUSTOMER_ACCEPTED':
       return 'accepted';
+    case 'CUSTOMER_REJECTED':
+      return 'customer-rejected';
     case 'ALL':
       return 'all';
     default:
@@ -192,6 +199,20 @@ export const completeQuoteProfitSummary = (summary: ReturnType<typeof calculateQ
  * Klasik ve yeni gorunum bu hook'u kullanir; gorsel disindaki hicbir mantik degismez.
  */
 const QUOTES_PAGE_SIZE = 25;
+const EMPTY_FILTER_OPTIONS: CommercialListFilterOptions = {
+  sectors: [],
+  creators: [],
+  categories: [],
+  brands: [],
+};
+
+const localDayBoundaryIso = (value: string, endOfDay = false) => {
+  if (!value) return undefined;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  if (endOfDay) date.setHours(23, 59, 59, 999);
+  return date.toISOString();
+};
 
 export function useTeklifler() {
   const router = useRouter();
@@ -209,6 +230,16 @@ export function useTeklifler() {
   const [whatsappTemplate, setWhatsappTemplate] = useState(DEFAULT_WHATSAPP_TEMPLATE);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [filters, setFilters] = useState<CommercialListFilterValues>({
+    ...EMPTY_COMMERCIAL_LIST_FILTERS,
+  });
+  const [debouncedFilters, setDebouncedFilters] = useState<CommercialListFilterValues>({
+    ...EMPTY_COMMERCIAL_LIST_FILTERS,
+  });
+  const [filterOptions, setFilterOptions] = useState<CommercialListFilterOptions>(EMPTY_FILTER_OPTIONS);
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const fetchRequestIdRef = useRef(0);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<{ total: number; page: number; pageSize: number; totalPages: number }>({
     total: 0,
@@ -243,20 +274,58 @@ export function useTeklifler() {
   useEffect(() => {
     const handle = setTimeout(() => {
       setDebouncedSearch(searchTerm.trim());
+      setDebouncedFilters(filters);
     }, 350);
     return () => clearTimeout(handle);
-  }, [searchTerm]);
+  }, [filters, searchTerm]);
+
+  useEffect(() => {
+    let active = true;
+    setFilterOptionsLoading(true);
+    adminApi.getQuoteFilterOptions()
+      .then((result) => {
+        if (active) setFilterOptions(result);
+      })
+      .catch((error) => {
+        console.error('Teklif filtre secenekleri yuklenemedi:', error);
+      })
+      .finally(() => {
+        if (active) setFilterOptionsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Sekme veya arama degisince ilk sayfaya don.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, debouncedSearch]);
+  }, [
+    activeTab,
+    debouncedSearch,
+    debouncedFilters.sectorCode,
+    debouncedFilters.createdById,
+    debouncedFilters.categoryId,
+    debouncedFilters.brandCode,
+    debouncedFilters.dateFrom,
+    debouncedFilters.dateTo,
+  ]);
 
   // Sunucu-tarafli veri cekme: filtre/arama/sayfa degisince yeniden cek.
   useEffect(() => {
     fetchQuotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, debouncedSearch, page]);
+  }, [
+    activeTab,
+    debouncedSearch,
+    debouncedFilters.sectorCode,
+    debouncedFilters.createdById,
+    debouncedFilters.categoryId,
+    debouncedFilters.brandCode,
+    debouncedFilters.dateFrom,
+    debouncedFilters.dateTo,
+    page,
+  ]);
 
   useEffect(() => {
     const tabParam = resolveTabFilter(searchParams.get('tab'));
@@ -325,14 +394,23 @@ export function useTeklifler() {
   }, [pendingHistoryId]);
 
   const fetchQuotes = async () => {
+    const requestId = ++fetchRequestIdRef.current;
     setLoading(true);
+    setLoadError('');
     try {
       const { quotes: pageQuotes, pagination: meta } = await adminApi.getQuotes({
         status: activeTab,
         search: debouncedSearch || undefined,
+        sectorCode: debouncedFilters.sectorCode || undefined,
+        createdById: debouncedFilters.createdById || undefined,
+        categoryId: debouncedFilters.categoryId || undefined,
+        brandCode: debouncedFilters.brandCode || undefined,
+        dateFrom: localDayBoundaryIso(debouncedFilters.dateFrom),
+        dateTo: localDayBoundaryIso(debouncedFilters.dateTo, true),
         page,
         pageSize: QUOTES_PAGE_SIZE,
       });
+      if (requestId !== fetchRequestIdRef.current) return;
       setQuotes(pageQuotes || []);
       if (meta) {
         setPagination(meta);
@@ -345,11 +423,28 @@ export function useTeklifler() {
           totalPages: 1,
         });
       }
+    } catch (error) {
+      if (requestId !== fetchRequestIdRef.current) return;
+      const message = getApiErrorMessage(error, 'Teklifler yuklenemedi');
+      setLoadError(message);
+      toast.error(message);
     } finally {
+      if (requestId !== fetchRequestIdRef.current) return;
       setLoading(false);
       setInitialLoading(false);
     }
   };
+
+  const updateFilter = (key: keyof CommercialListFilterValues, value: string) => {
+    setFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const clearFilters = () => {
+    setFilters({ ...EMPTY_COMMERCIAL_LIST_FILTERS });
+    setDebouncedFilters({ ...EMPTY_COMMERCIAL_LIST_FILTERS });
+  };
+
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   const goPrev = () => {
     setPage((prev) => Math.max(1, prev - 1));
@@ -1617,13 +1712,8 @@ export function useTeklifler() {
 
   const toggleExpanded = (quoteId: string) => {
     setExpandedQuotes((prev) => {
-      const next = new Set(prev);
-      if (next.has(quoteId)) {
-        next.delete(quoteId);
-      } else {
-        next.add(quoteId);
-      }
-      return next;
+      if (prev.has(quoteId)) return new Set();
+      return new Set([quoteId]);
     });
   };
 
@@ -1638,11 +1728,12 @@ export function useTeklifler() {
   // Sekme bazli toplam sayim artik sunucuda yok. Sahte sayi gostermemek icin
   // sadece AKTIF sekmenin toplamini (pagination.total) veriyoruz; digerleri null
   // (UI bos/gizli birakir, 0 yazmaz).
-  const counts: Record<'pending' | 'sent' | 'rejected' | 'accepted' | 'all', number | null> = {
+  const counts: Record<'pending' | 'sent' | 'rejected' | 'accepted' | 'customerRejected' | 'all', number | null> = {
     pending: activeTab === 'PENDING_APPROVAL' ? pagination.total : null,
     sent: activeTab === 'SENT_TO_MIKRO' ? pagination.total : null,
     rejected: activeTab === 'REJECTED' ? pagination.total : null,
     accepted: activeTab === 'CUSTOMER_ACCEPTED' ? pagination.total : null,
+    customerRejected: activeTab === 'CUSTOMER_REJECTED' ? pagination.total : null,
     all: activeTab === 'ALL' ? pagination.total : null,
   };
 
@@ -1676,6 +1767,14 @@ export function useTeklifler() {
     // arama
     searchTerm,
     setSearchTerm,
+    filters,
+    updateFilter,
+    clearFilters,
+    activeFilterCount,
+    filterOptions,
+    filterOptionsLoading,
+    loadError,
+    retryFetch: fetchQuotes,
     // detay genisletme
     expandedQuotes,
     toggleExpanded,

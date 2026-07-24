@@ -28,6 +28,7 @@ import { EkstreModal } from '@/components/admin/EkstreModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useDashboard, DashboardFilterPeriod } from './useDashboard';
 import { MarginViolationBanner } from '@/components/admin/MarginViolationBanner';
+import { OrderChangeStockComparison } from './OrderChangeStockComparison';
 
 const CARD =
   'bg-white border border-[#e7ebf2] rounded-xl';
@@ -66,6 +67,8 @@ export default function DashboardNew() {
     orderProductChangePendingCount,
     orderProductChangeLoading,
     orderProductChangeActingId,
+    orderProductChangeRefreshError,
+    orderProductChangeLiveValidationAvailable,
     approveOrderProductChange,
     rejectOrderProductChange,
     formatPercent,
@@ -329,7 +332,9 @@ export default function DashboardNew() {
           )}
 
           {/* Onay paneli — Onaylanacak Urun Siparis Degisimleri (amber, kosullu) */}
-          {(orderProductChangePendingCount > 0 || orderProductChangeLoading) && (
+          {(orderProductChangePendingCount > 0 ||
+            orderProductChangeLoading ||
+            Boolean(orderProductChangeRefreshError)) && (
             <div className="bg-[#fffdf5] border border-[#fde68a] rounded-[14px] p-[18px] mb-[26px]">
               <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
                 <div className="flex items-center gap-2.5">
@@ -348,8 +353,23 @@ export default function DashboardNew() {
                 </span>
               </div>
 
+              {orderProductChangeRefreshError && (
+                <p className="mb-3 rounded-lg border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-[11.5px] font-medium text-[#991b1b]">
+                  {orderProductChangeRefreshError}
+                </p>
+              )}
+              {!orderProductChangeLiveValidationAvailable && (
+                <p className="mb-3 rounded-lg border border-[#fde68a] bg-white px-3 py-2 text-[11.5px] text-[#92400e]">
+                  Canlı Mikro satır doğrulaması geçici olarak kullanılamıyor; yalnızca son başarılı kontrolde geçerli bulunan öneriler gösteriliyor.
+                </p>
+              )}
+
               {orderProductChangeLoading ? (
                 <p className="rounded-xl bg-white p-4 text-[13px] font-semibold text-[#51607a] m-0">Yükleniyor...</p>
+              ) : orderProductChangeRequests.length === 0 ? (
+                <p className="m-0 rounded-xl bg-white p-4 text-[13px] text-[#51607a]">
+                  Gösterilecek güncel öneri bulunmuyor.
+                </p>
               ) : (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-3.5">
                   {orderProductChangeRequests.map((request) => (
@@ -363,6 +383,13 @@ export default function DashboardNew() {
                         </span>
                         <span className="bg-[#eef2fa] border border-[#d6e0f1] text-[#1c4585] text-[11px] font-semibold px-2 py-0.5 rounded-md">
                           {Number(request.remainingQuantity || request.quantity || 0).toLocaleString('tr-TR')} adet
+                        </span>
+                      </div>
+                      <div className="mb-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[10.5px] text-[#8b97ac]">
+                        <span>Öneri: {formatDate(request.createdAt)}</span>
+                        <span>Sipariş: {request.orderDate ? formatDate(request.orderDate) : '-'}</span>
+                        <span>
+                          Atanan: {request.assignedTo?.displayName || request.assignedTo?.name || '-'}
                         </span>
                       </div>
 
@@ -388,6 +415,11 @@ export default function DashboardNew() {
                               {formatPercent(request.sourceLastEntryMarginPercent)}
                             </b>
                           </div>
+                          <OrderChangeStockComparison
+                            created={request.sourceStockAtCreation}
+                            current={request.sourceCurrentStock}
+                            currentAsOf={request.currentStockAsOf}
+                          />
                         </div>
 
                         <ArrowRight width={18} height={18} stroke="#9aa6b8" strokeWidth={2} />
@@ -413,6 +445,11 @@ export default function DashboardNew() {
                               {formatPercent(request.targetLastEntryMarginPercent)}
                             </b>
                           </div>
+                          <OrderChangeStockComparison
+                            created={request.targetStockAtCreation}
+                            current={request.targetCurrentStock}
+                            currentAsOf={request.currentStockAsOf}
+                          />
                         </div>
                       </div>
 

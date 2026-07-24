@@ -632,6 +632,7 @@ router.delete('/customers/:id/contacts/:contactId', requirePermission('admin:cus
 // Orders - Staff for GET (filtered by sector), OrderApprover (ADMIN/SALES_REP) for approval
 router.get('/orders', requirePermission('admin:orders'), adminController.getAllOrders);
 router.get('/orders/pending', requirePermission('admin:orders'), adminController.getPendingOrders);
+router.get('/orders/filter-options', requirePermission('admin:orders'), adminController.getOrderFilterOptions);
 router.post('/orders/last-orders', requireAnyPermission(['admin:orders', 'admin:quotes']), adminController.getLastOrdersForCustomer);
 router.get('/orders/:id', requirePermission('admin:orders'), adminController.getOrderById);
 router.put('/orders/:id', requirePermission('admin:orders'), adminController.updateOrder);
@@ -652,6 +653,7 @@ router.post('/quotes/items/upload-image', requirePermission('admin:quotes'), quo
 router.post('/quotes', requirePermission('admin:quotes'), quoteController.createQuote);
 router.put('/quotes/:id', requirePermission('admin:quotes'), quoteController.updateQuote);
 router.get('/quotes', requirePermission('admin:quotes'), quoteController.getQuotes);
+router.get('/quotes/filter-options', requirePermission('admin:quotes'), quoteController.getQuoteFilterOptions);
 router.get('/quotes/line-items', requirePermission('admin:quotes'), quoteController.getQuoteLineItems);
 router.post('/quotes/line-items/close', requirePermission('admin:quotes'), quoteController.closeQuoteItems);
 router.post('/quotes/line-items/reopen', requirePermission('admin:quotes'), quoteController.reopenQuoteItems);

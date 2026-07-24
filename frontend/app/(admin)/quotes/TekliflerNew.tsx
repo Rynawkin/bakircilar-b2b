@@ -3,7 +3,6 @@
 import {
   Plus,
   Search,
-  X,
   ChevronDown,
   Download,
   FileSpreadsheet,
@@ -23,19 +22,15 @@ import {
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
+import { CommercialListFilters } from '@/components/admin/CommercialListFilters';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
-import { getPriceListDisplayLabel } from '@/lib/utils/priceLists';
 import {
   useTeklifler,
-  completeQuoteProfitSummary,
-  calculateQuoteProfitSummary,
-  formatProfitPercent,
-  getProfitTone,
   type Quote,
   type QuoteStatus,
   type QuoteStatusFilter,
 } from './useTeklifler';
+import { TeklifDetayModal } from './TeklifDetayModal';
 
 const CARD = 'bg-white border border-[#e7ebf2] rounded-xl';
 
@@ -98,6 +93,13 @@ export default function TekliflerNew() {
     handleTabChange,
     searchTerm,
     setSearchTerm,
+    filters,
+    updateFilter,
+    clearFilters,
+    filterOptions,
+    filterOptionsLoading,
+    loadError,
+    retryFetch,
     expandedQuotes,
     toggleExpanded,
     syncingQuoteId,
@@ -132,6 +134,8 @@ export default function TekliflerNew() {
     buildHistoryDetails,
     getConversionBadge,
   } = useTeklifler();
+  const selectedDetailQuote =
+    filteredQuotes.find((quote) => expandedQuotes.has(quote.id)) || null;
 
   if (initialLoading) {
     return (
@@ -148,6 +152,7 @@ export default function TekliflerNew() {
     { key: 'SENT_TO_MIKRO', label: '✅ Gönderilen', count: counts.sent, active: '#047857' },
     { key: 'REJECTED', label: '❌ Reddedilen', count: counts.rejected, active: '#b91c1c' },
     { key: 'CUSTOMER_ACCEPTED', label: '🤝 Müşteri Kabul', count: counts.accepted, active: '#047857' },
+    { key: 'CUSTOMER_REJECTED', label: '🚫 Müşteri Red', count: counts.customerRejected, active: '#b91c1c' },
     { key: 'ALL', label: '📋 Tümü', count: counts.all, active: '#14223b' },
   ];
 
@@ -206,27 +211,50 @@ export default function TekliflerNew() {
           })}
         </div>
 
-        {/* Arama + Temizle */}
-        <div className={`${CARD} flex items-center gap-2.5 flex-wrap px-3.5 py-[11px] mb-4`}>
-          <div className="flex-1 min-w-[240px] flex items-center gap-2 h-[38px] border border-[#e3e8f0] rounded-lg px-3">
-            <Search width={15} height={15} stroke="#9aa6b8" strokeWidth={2} />
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cari adı, teklif no, belge no, müşteri kodu veya ürün adı ara…"
-              className="flex-1 border-none bg-transparent outline-none text-[13px] text-[#14223b]"
-            />
+        {/* Sunucu genelinde arama + gelismis filtreler */}
+        <div className={`${CARD} px-3.5 py-[11px] mb-4`}>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-[38px] min-w-[240px] flex-1 items-center gap-2 rounded-lg border border-[#e3e8f0] px-3">
+              <Search width={15} height={15} stroke="#9aa6b8" strokeWidth={2} />
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Cari, teklif/belge no, oluşturan, sektör, kategori, marka veya ürün ara…"
+                className="flex-1 border-none bg-transparent text-[13px] text-[#14223b] outline-none"
+              />
+            </div>
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="h-[38px] rounded-lg border border-[#d8e0ec] bg-white px-3.5 text-[12.5px] font-medium text-[#51607a] hover:bg-[#f4f6fa]"
+              >
+                Aramayı temizle
+              </button>
+            )}
           </div>
-          {searchTerm && (
+          <CommercialListFilters
+            idPrefix="quotes"
+            values={filters}
+            options={filterOptions}
+            optionsLoading={filterOptionsLoading}
+            onChange={updateFilter}
+            onClear={clearFilters}
+          />
+        </div>
+
+        {loadError && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#991b1b]">
+            <span>Teklif listesi yenilenemedi. Mevcut sonuçlar korunuyor. {loadError}</span>
             <button
               type="button"
-              onClick={() => setSearchTerm('')}
-              className="bg-white border border-[#d8e0ec] rounded-lg px-3.5 h-[38px] text-[12.5px] font-medium text-[#51607a] cursor-pointer hover:bg-[#f4f6fa]"
+              onClick={retryFetch}
+              className="flex-none rounded-lg border border-[#fecaca] bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[#fff7f7]"
             >
-              Temizle
+              Yeniden dene
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Liste / bos durum / liste-ici loading */}
         {loading ? (
@@ -252,7 +280,6 @@ export default function TekliflerNew() {
               const updatedAtText = quote.updatedAt ? formatDate(quote.updatedAt) : '-';
               const createdByName = quote.createdBy?.name || '-';
               const updatedByName = quote.updatedBy?.name || createdByName || '-';
-              const profitSummary = completeQuoteProfitSummary(calculateQuoteProfitSummary(quote));
 
               return (
                 <div key={quote.id} className={`${CARD} overflow-hidden`}>
@@ -318,126 +345,6 @@ export default function TekliflerNew() {
                       </button>
                     </div>
                   </div>
-
-                  {/* Genisletilmis detay */}
-                  {isExpanded && (
-                    <div className="border-t border-[#eef1f6] bg-[#fafbfd] px-[17px] py-3.5">
-                      {quote.adminNote && (
-                        <div className="mb-3 rounded-[9px] border border-[#e7ebf2] bg-white px-3 py-2">
-                          <p className="text-[11px] font-medium text-[#8b97ac] m-0">Admin Notu</p>
-                          <p className="text-[13px] text-[#14223b] mt-1 m-0">{quote.adminNote}</p>
-                        </div>
-                      )}
-                      {quote.createdBy && (
-                        <div className="mb-3 text-[11.5px] text-[#8b97ac]">Oluşturan: {quote.createdBy.name}</div>
-                      )}
-
-                      {quote.customer && (
-                        <div className="mb-3.5">
-                          <div className="text-[11px] font-semibold tracking-wide text-[#8b97ac] uppercase mb-2.5">
-                            Müşteri Bilgileri
-                          </div>
-                          <CustomerInfoCard customer={quote.customer} />
-                        </div>
-                      )}
-
-                      <div className="text-[11px] font-semibold tracking-wide text-[#8b97ac] uppercase mb-2.5">
-                        Teklif Kalemleri ({quote.items.length} ürün)
-                      </div>
-                      <div className="flex flex-col gap-2 mb-3.5">
-                        {quote.items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex items-center gap-3 bg-white border border-[#eef1f6] rounded-[9px] px-3 py-2.5"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[13px] font-medium text-[#14223b]">{item.productName}</span>
-                                <span className="bg-[#eef2fa] border border-[#d6e0f1] text-[#1c4585] text-[10px] font-semibold px-1.5 py-0.5 rounded-md">
-                                  {item.priceSource === 'PRICE_LIST'
-                                    ? `${getPriceListDisplayLabel(item.priceListNo)} (Liste ${item.priceListNo})`
-                                    : item.priceSource === 'LAST_SALE'
-                                      ? 'Son Satış'
-                                      : 'Manuel'}
-                                </span>
-                                {item.isBlocked && (
-                                  <span className="bg-[#fffbeb] border border-[#fde68a] text-[#b45309] text-[10px] font-semibold px-1.5 py-0.5 rounded-md">
-                                    Blok
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-[#8b97ac] font-mono mt-0.5">{item.productCode}</div>
-                            </div>
-                            <span className="text-[12.5px] text-[#51607a] whitespace-nowrap">
-                              {item.quantity} × {formatCurrency(item.unitPrice)}
-                            </span>
-                            <span className="text-[14px] font-semibold text-[#14223b] min-w-[96px] text-right">
-                              {formatCurrency(item.totalPrice)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Dip Toplam Karlilik Ozeti */}
-                      <div className="rounded-xl border border-[#e7ebf2] bg-white p-3.5">
-                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-[13px] font-semibold text-[#14223b] m-0">Dip Toplam Karlılık Özeti</p>
-                          <p className="text-[11px] text-[#8b97ac] m-0">
-                            Hesap KDV hariç satış tutarı üzerinden yapılır.
-                          </p>
-                        </div>
-                        <div className="grid gap-2.5 lg:grid-cols-3">
-                          <div className="rounded-[9px] bg-[#fafbfd] border border-[#eef1f6] p-3">
-                            <p className="text-[10.5px] font-medium text-[#8b97ac] m-0">KDV Hariç Satış Toplamı</p>
-                            <p className="mt-1 text-[16px] font-semibold text-[#14223b] m-0">
-                              {formatCurrency(profitSummary.salesTotal)}
-                            </p>
-                          </div>
-                          <div className="rounded-[9px] bg-[#fafbfd] border border-[#eef1f6] p-3">
-                            <p className="text-[10.5px] font-medium text-[#8b97ac] m-0">Giriş Maliyetine Göre</p>
-                            <p className="mt-1 text-[12px] text-[#51607a] m-0">
-                              Toplam maliyet:{' '}
-                              <span className="font-semibold text-[#14223b]">
-                                {formatCurrency(profitSummary.entryCostTotal)}
-                              </span>
-                            </p>
-                            <p className={`text-[12.5px] font-semibold mt-0.5 ${getProfitTone(profitSummary.entryProfitPercent)}`}>
-                              Kâr: {formatCurrency(profitSummary.entryProfit)} ({formatProfitPercent(profitSummary.entryProfitPercent)})
-                            </p>
-                            {profitSummary.entryMissingLines > 0 && (
-                              <p className="mt-1 text-[10.5px] text-[#b45309] m-0">
-                                {profitSummary.entryMissingLines} satırda giriş maliyeti yok.
-                              </p>
-                            )}
-                          </div>
-                          <div className="rounded-[9px] bg-[#fafbfd] border border-[#eef1f6] p-3">
-                            <p className="text-[10.5px] font-medium text-[#8b97ac] m-0">Güncel Maliyete Göre</p>
-                            <p className="mt-1 text-[12px] text-[#51607a] m-0">
-                              Toplam maliyet:{' '}
-                              <span className="font-semibold text-[#14223b]">
-                                {formatCurrency(profitSummary.currentCostTotal)}
-                              </span>
-                            </p>
-                            <p className={`text-[12.5px] font-semibold mt-0.5 ${getProfitTone(profitSummary.currentProfitPercent)}`}>
-                              Kâr: {formatCurrency(profitSummary.currentProfit)} ({formatProfitPercent(profitSummary.currentProfitPercent)})
-                            </p>
-                            {profitSummary.currentMissingLines > 0 && (
-                              <p className="mt-1 text-[10.5px] text-[#b45309] m-0">
-                                {profitSummary.currentMissingLines} satırda güncel maliyet yok.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        {(profitSummary.entryMissingLines > 0 ||
-                          profitSummary.currentMissingLines > 0 ||
-                          profitSummary.manualLines > 0) && (
-                          <p className="mt-3 text-[11px] text-[#8b97ac] m-0">
-                            Maliyeti olmayan veya manuel girilen satırlar kâr hesabına dahil edilmez.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
 
                   {/* Kart aksiyonlari */}
                   <div className="flex items-center gap-1.5 flex-wrap border-t border-[#eef1f6] px-[17px] py-[11px]">
@@ -590,6 +497,18 @@ export default function TekliflerNew() {
           </div>
         </div>
       </div>
+
+      <TeklifDetayModal
+        quote={selectedDetailQuote}
+        isAdmin={isAdmin}
+        onClose={() => {
+          if (selectedDetailQuote) toggleExpanded(selectedDetailQuote.id);
+        }}
+        onEdit={(quote) => router.push(`/quotes/new?edit=${quote.id}`)}
+        onConvert={(quote) => router.push(`/quotes/convert/${quote.id}`)}
+        onApprove={handleApprove}
+        onReject={handleReject}
+      />
 
       {/* PDF Indir prompt modal — paylasilan Modal bilesenini kullanir */}
       <Modal

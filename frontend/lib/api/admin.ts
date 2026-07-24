@@ -798,11 +798,39 @@ export interface OrderProductChangeRequest {
   targetLastEntryCost?: number | null;
   targetCurrentMarginPercent?: number | null;
   targetLastEntryMarginPercent?: number | null;
+  stockSnapshotAt?: string | null;
+  sourceStockAtCreation?: StockSnapshot | null;
+  targetStockAtCreation?: StockSnapshot | null;
+  sourceCurrentStock?: StockSnapshot | null;
+  targetCurrentStock?: StockSnapshot | null;
+  currentStockAsOf?: string | null;
   familyName?: string | null;
   familyCode?: string | null;
   assignedTo?: { id: string; name?: string | null; displayName?: string | null; mikroName?: string | null; email?: string | null } | null;
   requestedBy?: { id: string; name?: string | null; displayName?: string | null; mikroName?: string | null; email?: string | null } | null;
   createdAt: string;
+}
+
+export interface StockSnapshot {
+  merkez: number;
+  topca: number;
+  hot: number;
+  total: number;
+}
+
+export interface CommercialListFilterOptions {
+  sectors: string[];
+  creators: Array<{
+    id: string;
+    name: string;
+    role?: string | null;
+  }>;
+  categories: Array<{
+    id: string;
+    name: string;
+    mikroCode?: string | null;
+  }>;
+  brands: string[];
 }
 
 export interface CustomerRecoveryReportData {
@@ -1695,6 +1723,12 @@ export const adminApi = {
       status?: string;
       source?: 'ALL' | 'CUSTOMER' | 'B2B';
       search?: string;
+      sectorCode?: string;
+      createdById?: string;
+      categoryId?: string;
+      brandCode?: string;
+      dateFrom?: string;
+      dateTo?: string;
       page?: number;
       pageSize?: number;
     }
@@ -1704,11 +1738,22 @@ export const adminApi = {
     if (opts.status && opts.status !== 'ALL') query.status = opts.status;
     if (opts.source && opts.source !== 'ALL') query.source = opts.source;
     if (opts.search) query.search = opts.search;
+    if (opts.sectorCode) query.sectorCode = opts.sectorCode;
+    if (opts.createdById) query.createdById = opts.createdById;
+    if (opts.categoryId) query.categoryId = opts.categoryId;
+    if (opts.brandCode) query.brandCode = opts.brandCode;
+    if (opts.dateFrom) query.dateFrom = opts.dateFrom;
+    if (opts.dateTo) query.dateTo = opts.dateTo;
     if (opts.page) query.page = opts.page;
     if (opts.pageSize) query.pageSize = opts.pageSize;
     const response = await apiClient.get('/admin/orders', {
       params: Object.keys(query).length ? query : undefined,
     });
+    return response.data;
+  },
+
+  getOrderFilterOptions: async (): Promise<CommercialListFilterOptions> => {
+    const response = await apiClient.get('/admin/orders/filter-options');
     return response.data;
   },
 
@@ -2298,6 +2343,12 @@ export const adminApi = {
     statusOrParams?: string | {
       status?: string;
       search?: string;
+      sectorCode?: string;
+      createdById?: string;
+      categoryId?: string;
+      brandCode?: string;
+      dateFrom?: string;
+      dateTo?: string;
       page?: number;
       pageSize?: number;
     }
@@ -2306,11 +2357,22 @@ export const adminApi = {
     const query: Record<string, any> = {};
     if (opts.status && opts.status !== 'ALL') query.status = opts.status;
     if (opts.search) query.search = opts.search;
+    if (opts.sectorCode) query.sectorCode = opts.sectorCode;
+    if (opts.createdById) query.createdById = opts.createdById;
+    if (opts.categoryId) query.categoryId = opts.categoryId;
+    if (opts.brandCode) query.brandCode = opts.brandCode;
+    if (opts.dateFrom) query.dateFrom = opts.dateFrom;
+    if (opts.dateTo) query.dateTo = opts.dateTo;
     if (opts.page) query.page = opts.page;
     if (opts.pageSize) query.pageSize = opts.pageSize;
     const response = await apiClient.get('/admin/quotes', {
       params: Object.keys(query).length ? query : undefined,
     });
+    return response.data;
+  },
+
+  getQuoteFilterOptions: async (): Promise<CommercialListFilterOptions> => {
+    const response = await apiClient.get('/admin/quotes/filter-options');
     return response.data;
   },
 
@@ -4118,7 +4180,11 @@ export const adminApi = {
   },
   getOrderProductChangeRequests: async (params?: { status?: string; limit?: number }): Promise<{
     success: boolean;
-    data: { requests: OrderProductChangeRequest[]; pendingCount: number };
+    data: {
+      requests: OrderProductChangeRequest[];
+      pendingCount: number;
+      liveValidationAvailable?: boolean;
+    };
   }> => {
     const response = await apiClient.get('/admin/order-product-change-requests', { params });
     return response.data;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { DashboardStats } from '@/types';
@@ -112,11 +112,16 @@ export function useDashboard() {
   const [orderProductChangePendingCount, setOrderProductChangePendingCount] = useState(0);
   const [orderProductChangeLoading, setOrderProductChangeLoading] = useState(false);
   const [orderProductChangeActingId, setOrderProductChangeActingId] = useState<string>('');
+  const [orderProductChangeRefreshError, setOrderProductChangeRefreshError] = useState('');
+  const [orderProductChangeLiveValidationAvailable, setOrderProductChangeLiveValidationAvailable] = useState(true);
 
   // Refs to store interval and timeout IDs for cleanup
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const statsRequestSeqRef = useRef(0);
+  const orderProductChangeRequestSeqRef = useRef(0);
+  const orderProductChangeFetchInFlightRef = useRef(false);
+  const orderProductChangeResolvedIdsRef = useRef(new Set<string>());
 
   // Cleanup function to clear polling
   const cleanupPolling = () => {
@@ -497,29 +502,62 @@ export function useDashboard() {
     }
   };
 
-  const fetchOrderProductChangeRequests = async () => {
-    setOrderProductChangeLoading(true);
+  const fetchOrderProductChangeRequests = useCallback(async (silent = false) => {
+    if (orderProductChangeFetchInFlightRef.current) return;
+    orderProductChangeFetchInFlightRef.current = true;
+    const requestSeq = orderProductChangeRequestSeqRef.current + 1;
+    orderProductChangeRequestSeqRef.current = requestSeq;
+    if (!silent) setOrderProductChangeLoading(true);
     try {
       const result = await withTimeout(
         adminApi.getOrderProductChangeRequests({ status: 'PENDING', limit: 12 }),
         8000,
         'order product change requests'
       );
-      setOrderProductChangeRequests(result.data?.requests || []);
-      setOrderProductChangePendingCount(Number(result.data?.pendingCount || 0));
-    } catch {
-      setOrderProductChangeRequests([]);
-      setOrderProductChangePendingCount(0);
+      if (orderProductChangeRequestSeqRef.current !== requestSeq) return;
+      const receivedRequests = result.data?.requests || [];
+      const visibleRequests = receivedRequests.filter(
+        (request) => !orderProductChangeResolvedIdsRef.current.has(request.id)
+      );
+      const locallyResolvedInResponse = receivedRequests.length - visibleRequests.length;
+      setOrderProductChangeRequests(visibleRequests);
+      setOrderProductChangePendingCount(
+        Math.max(0, Number(result.data?.pendingCount || 0) - locallyResolvedInResponse)
+      );
+      setOrderProductChangeLiveValidationAvailable(result.data?.liveValidationAvailable !== false);
+      setOrderProductChangeRefreshError('');
+    } catch (error) {
+      if (orderProductChangeRequestSeqRef.current !== requestSeq) return;
+      console.error('Urun degisiklik onerileri yenilenemedi:', error);
+      // Gecici ag/Mikro hatasinda son dogru listeyi koru; bos liste gostererek
+      // bekleyen islemleri yanlislikla gizleme.
+      setOrderProductChangeRefreshError('Öneriler şu anda yenilenemedi; son alınan liste gösteriliyor.');
     } finally {
-      setOrderProductChangeLoading(false);
+      if (orderProductChangeRequestSeqRef.current === requestSeq) {
+        setOrderProductChangeLoading(false);
+      }
+      orderProductChangeFetchInFlightRef.current = false;
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!user) return;
     if (!['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP'].includes(user.role)) return;
-    fetchOrderProductChangeRequests();
-  }, [user?.id, user?.role]);
+    void fetchOrderProductChangeRequests();
+
+    const refresh = () => void fetchOrderProductChangeRequests(true);
+    const intervalId = window.setInterval(refresh, 25_000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchOrderProductChangeRequests, user?.id, user?.role]);
 
   const formatPercent = (value?: number | null) => {
     const parsed = Number(value);
@@ -540,7 +578,10 @@ export function useDashboard() {
     try {
       await adminApi.approveOrderProductChangeRequest(id);
       toast.success('Urun degisimi onaylandi ve Mikro siparis satiri guncellendi.');
-      await fetchOrderProductChangeRequests();
+      orderProductChangeResolvedIdsRef.current.add(id);
+      setOrderProductChangeRequests((current) => current.filter((request) => request.id !== id));
+      setOrderProductChangePendingCount((current) => Math.max(0, current - 1));
+      await fetchOrderProductChangeRequests(true);
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Urun degisimi onaylanamadi');
     } finally {
@@ -554,7 +595,10 @@ export function useDashboard() {
     try {
       await adminApi.rejectOrderProductChangeRequest(id, reason);
       toast.success('Urun degisimi reddedildi.');
-      await fetchOrderProductChangeRequests();
+      orderProductChangeResolvedIdsRef.current.add(id);
+      setOrderProductChangeRequests((current) => current.filter((request) => request.id !== id));
+      setOrderProductChangePendingCount((current) => Math.max(0, current - 1));
+      await fetchOrderProductChangeRequests(true);
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Urun degisimi reddedilemedi');
     } finally {
@@ -613,6 +657,8 @@ export function useDashboard() {
     orderProductChangePendingCount,
     orderProductChangeLoading,
     orderProductChangeActingId,
+    orderProductChangeRefreshError,
+    orderProductChangeLiveValidationAvailable,
     approveOrderProductChange,
     rejectOrderProductChange,
     // helpers

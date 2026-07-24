@@ -2610,7 +2610,19 @@ export class AdminController {
    */
   async getAllOrders(req: Request, res: Response, next: NextFunction) {
     try {
-      const { status, source, search, page, pageSize } = req.query;
+      const {
+        status,
+        source,
+        search,
+        sectorCode,
+        createdById,
+        categoryId,
+        brandCode,
+        dateFrom,
+        dateTo,
+        page,
+        pageSize,
+      } = req.query;
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
@@ -2622,7 +2634,17 @@ export class AdminController {
       // SALES_REP ise sadece atanan sektörlerdeki müşterilerin siparişlerini göster
       if (userRole === 'SALES_REP') {
         if (assignedSectorCodes.length === 0) {
-          res.json({ orders: [] });
+          const requestedPageSize = Math.min(Math.max(1, Number(pageSize) || 25), 200);
+          const requestedPage = Math.max(1, Number(page) || 1);
+          res.json({
+            orders: [],
+            pagination: {
+              total: 0,
+              page: requestedPage,
+              pageSize: requestedPageSize,
+              totalPages: 1,
+            },
+          });
           return;
         }
         where.user = {
@@ -2631,6 +2653,60 @@ export class AdminController {
       }
 
       const andClauses: any[] = [];
+
+      const sectorCodeValue = typeof sectorCode === 'string' ? sectorCode.trim() : '';
+      if (sectorCodeValue) {
+        andClauses.push({ user: { sectorCode: sectorCodeValue } });
+      }
+
+      const createdByIdValue = typeof createdById === 'string' ? createdById.trim() : '';
+      if (createdByIdValue === '__CUSTOMER__') {
+        andClauses.push({
+          AND: [
+            { requestedById: null },
+            { customerRequest: { is: null } },
+            { sourceQuoteId: null },
+          ],
+        });
+      } else if (createdByIdValue) {
+        andClauses.push({
+          OR: [
+            { requestedById: createdByIdValue },
+            { customerRequest: { requestedById: createdByIdValue } },
+            { sourceQuote: { createdById: createdByIdValue } },
+          ],
+        });
+      }
+
+      const categoryIdValue = typeof categoryId === 'string' ? categoryId.trim() : '';
+      const brandCodeValue = typeof brandCode === 'string' ? brandCode.trim() : '';
+      if (categoryIdValue || brandCodeValue) {
+        const productWhere: any = {};
+        if (categoryIdValue) productWhere.categoryId = categoryIdValue;
+        if (brandCodeValue) {
+          productWhere.brandCode = { equals: brandCodeValue, mode: 'insensitive' };
+        }
+        andClauses.push({
+          items: {
+            some: {
+              product: productWhere,
+            },
+          },
+        });
+      }
+
+      const fromDate = typeof dateFrom === 'string' && dateFrom.trim()
+        ? new Date(dateFrom)
+        : null;
+      const toDate = typeof dateTo === 'string' && dateTo.trim()
+        ? new Date(dateTo)
+        : null;
+      const createdAtFilter: any = {};
+      if (fromDate && !Number.isNaN(fromDate.getTime())) createdAtFilter.gte = fromDate;
+      if (toDate && !Number.isNaN(toDate.getTime())) createdAtFilter.lte = toDate;
+      if (Object.keys(createdAtFilter).length > 0) {
+        where.createdAt = createdAtFilter;
+      }
 
       // Kaynak filtresi (Müşteri / B2B) - frontend sourceTab mantığıyla birebir
       if (source === 'CUSTOMER') {
@@ -2669,7 +2745,26 @@ export class AdminController {
                   { displayName: { contains: tok, mode: 'insensitive' } },
                   { mikroName: { contains: tok, mode: 'insensitive' } },
                   { mikroCariCode: { contains: tok, mode: 'insensitive' } },
+                  { sectorCode: { contains: tok, mode: 'insensitive' } },
                 ],
+              },
+            },
+            {
+              requestedBy: {
+                OR: [
+                  { name: { contains: tok, mode: 'insensitive' } },
+                  { email: { contains: tok, mode: 'insensitive' } },
+                ],
+              },
+            },
+            {
+              customerRequest: {
+                requestedBy: {
+                  OR: [
+                    { name: { contains: tok, mode: 'insensitive' } },
+                    { email: { contains: tok, mode: 'insensitive' } },
+                  ],
+                },
               },
             },
             { sourceQuote: { quoteNumber: { contains: tok, mode: 'insensitive' } } },
@@ -2680,6 +2775,17 @@ export class AdminController {
                     { productName: { contains: tok, mode: 'insensitive' } },
                     { mikroCode: { contains: tok, mode: 'insensitive' } },
                     { lineNote: { contains: tok, mode: 'insensitive' } },
+                    { product: { brandCode: { contains: tok, mode: 'insensitive' } } },
+                    {
+                      product: {
+                        category: {
+                          OR: [
+                            { name: { contains: tok, mode: 'insensitive' } },
+                            { mikroCode: { contains: tok, mode: 'insensitive' } },
+                          ],
+                        },
+                      },
+                    },
                   ],
                 },
               },
@@ -2722,7 +2828,12 @@ export class AdminController {
             },
           },
           sourceQuote: {
-            select: { id: true, quoteNumber: true, createdAt: true },
+            select: {
+              id: true,
+              quoteNumber: true,
+              createdAt: true,
+              createdBy: { select: { id: true, name: true, email: true } },
+            },
           },
           items: {
             include: {
@@ -2734,6 +2845,14 @@ export class AdminController {
                   unit: true,
                   imageUrl: true,
                   vatRate: true,
+                  brandCode: true,
+                  category: {
+                    select: {
+                      id: true,
+                      mikroCode: true,
+                      name: true,
+                    },
+                  },
                 },
               },
             },
@@ -2773,6 +2892,86 @@ export class AdminController {
           totalPages: Math.max(1, Math.ceil(orderTotal / orderSize)),
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/orders/filter-options
+   * Siparis listesinin kendi izin/sektor kapsami icindeki filtre secenekleri.
+   */
+  async getOrderFilterOptions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+      if (userRole === 'SALES_REP' && assignedSectorCodes.length === 0) {
+        return res.json({ sectors: [], creators: [], categories: [], brands: [] });
+      }
+
+      const visibilityWhere: any = {};
+      if (userRole === 'SALES_REP') {
+        visibilityWhere.user = { sectorCode: { in: assignedSectorCodes } };
+      }
+
+      const [sectorRows, creatorRows, productRows, directCustomerCount] = await Promise.all([
+        prisma.order.findMany({
+          where: visibilityWhere,
+          select: { user: { select: { sectorCode: true } } },
+          distinct: ['userId'],
+        }),
+        prisma.user.findMany({
+          where: {
+            OR: [
+              { requestedOrders: { some: visibilityWhere } },
+              { createdRequests: { some: { order: { is: visibilityWhere } } } },
+              { createdQuotes: { some: { orders: { some: visibilityWhere } } } },
+            ],
+          },
+          select: { id: true, name: true, displayName: true, mikroName: true, role: true },
+          orderBy: { name: 'asc' },
+        }),
+        prisma.product.findMany({
+          where: { orderItems: { some: { order: visibilityWhere } } },
+          select: {
+            brandCode: true,
+            category: { select: { id: true, mikroCode: true, name: true } },
+          },
+          distinct: ['brandCode', 'categoryId'],
+        }),
+        prisma.order.count({
+          where: {
+            ...visibilityWhere,
+            requestedById: null,
+            customerRequest: { is: null },
+            sourceQuoteId: null,
+          },
+        }),
+      ]);
+
+      const sectors = Array.from(new Set(
+        sectorRows.map((row) => String(row.user?.sectorCode || '').trim()).filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b, 'tr'));
+      const creators = creatorRows.map((row) => ({
+        id: row.id,
+        name: row.displayName || row.mikroName || row.name,
+        role: row.role,
+      }));
+      if (directCustomerCount > 0) {
+        creators.unshift({ id: '__CUSTOMER__', name: 'Musterinin kendisi', role: 'CUSTOMER' as any });
+      }
+      const categories = Array.from(
+        new Map(
+          productRows
+            .filter((row) => row.category)
+            .map((row) => [row.category!.id, row.category!])
+        ).values()
+      ).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+      const brands = Array.from(new Set(
+        productRows.map((row) => String(row.brandCode || '').trim()).filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b, 'tr'));
+
+      return res.json({ sectors, creators, categories, brands });
     } catch (error) {
       next(error);
     }
