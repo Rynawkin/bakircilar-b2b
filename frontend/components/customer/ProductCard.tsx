@@ -286,6 +286,9 @@ export function ProductCard({
       <Link
         href={detailHref}
         prefetch
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`${product.name} ürün detayını yeni sekmede aç`}
         className="relative block aspect-square overflow-hidden border-b border-[#eef1f6] bg-[#f4f6fa]"
       >
         {product.imageUrl ? (
@@ -338,6 +341,9 @@ export function ProductCard({
         <Link
           href={detailHref}
           prefetch
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${product.name} ürün detayını yeni sekmede aç`}
           className="line-clamp-2 min-h-[38px] text-[14px] font-medium leading-[1.35] text-[#14223b] transition-colors hover:text-primary-600"
           title={product.name}
         >

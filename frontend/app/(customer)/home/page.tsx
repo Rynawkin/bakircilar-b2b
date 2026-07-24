@@ -10,6 +10,7 @@ import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCa
 import { GiftCampaignBanner } from '@/components/customer/GiftCampaignBanner';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { formatCurrency } from '@/lib/utils/format';
+import { isProductDetailHref } from '@/lib/utils/productLinks';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import {
   Percent,
@@ -281,6 +282,7 @@ export default function CustomerHomePage() {
                 <>
                   {heroBanners.map((banner, index) => {
                     const href = bannerHref(banner);
+                    const opensProductDetail = isProductDetailHref(href);
                     const inner = (
                       <>
                         <BannerImage src={banner.imageUrl} mobileSrc={banner.mobileImageUrl} alt={banner.title} />
@@ -307,6 +309,9 @@ export default function CustomerHomePage() {
                       <Link
                         key={banner.id}
                         href={href}
+                        target={opensProductDetail ? '_blank' : undefined}
+                        rel={opensProductDetail ? 'noopener noreferrer' : undefined}
+                        aria-label={opensProductDetail ? `${banner.title} ürün detayını yeni sekmede aç` : undefined}
                         className={cls}
                         aria-hidden={index !== heroIndex}
                         tabIndex={index === heroIndex ? 0 : -1}
@@ -361,6 +366,7 @@ export default function CustomerHomePage() {
             {(() => {
               const side = sideBanners[0];
               const href = side ? bannerHref(side) : '/discounted-products';
+              const opensProductDetail = isProductDetailHref(href);
               const inner = side ? (
                 <>
                   <BannerImage src={side.imageUrl} mobileSrc={side.mobileImageUrl} alt={side.title} />
@@ -391,6 +397,9 @@ export default function CustomerHomePage() {
               return (
                 <Link
                   href={href || '/products'}
+                  target={opensProductDetail ? '_blank' : undefined}
+                  rel={opensProductDetail ? 'noopener noreferrer' : undefined}
+                  aria-label={opensProductDetail && side ? `${side.title} ürün detayını yeni sekmede aç` : undefined}
                   onClick={side ? () => logBannerClick(side) : undefined}
                   className="relative hidden aspect-[4/5] overflow-hidden rounded-2xl border border-[var(--line)] bg-[#12305c] lg:block"
                 >
@@ -403,6 +412,7 @@ export default function CustomerHomePage() {
           {/* ── SLIM STRIP (admin banner) ───────────────────────────── */}
           {stripBanners.length > 0 && stripBanners.map((banner) => {
             const href = bannerHref(banner);
+            const opensProductDetail = isProductDetailHref(href);
             const content = (banner.imageUrl || banner.mobileImageUrl) ? (
               // Kutu orani = yukleme orani: mobil 375x160, masaustu 1200x140 + min-h-[92px] -> gorsel tam gorunur
               <div className="relative aspect-[375/160] min-h-[92px] overflow-hidden rounded-[14px] border border-[#d9e2f2] sm:aspect-[1200/140]">
@@ -435,7 +445,14 @@ export default function CustomerHomePage() {
               </div>
             );
             return href ? (
-              <Link key={banner.id} href={href} onClick={() => logBannerClick(banner)}>
+              <Link
+                key={banner.id}
+                href={href}
+                target={opensProductDetail ? '_blank' : undefined}
+                rel={opensProductDetail ? 'noopener noreferrer' : undefined}
+                aria-label={opensProductDetail ? `${banner.title} ürün detayını yeni sekmede aç` : undefined}
+                onClick={() => logBannerClick(banner)}
+              >
                 {content}
               </Link>
             ) : (

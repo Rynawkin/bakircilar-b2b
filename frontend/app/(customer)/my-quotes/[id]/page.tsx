@@ -239,6 +239,9 @@ export default function QuoteDetailPage() {
                       {item.productId ? (
                         <Link
                           href={`/products/${item.productId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`${item.productName} ürün detayını yeni sekmede aç`}
                           className="font-semibold text-gray-900 break-words transition-colors hover:text-primary-700 hover:underline"
                         >
                           {item.productName}

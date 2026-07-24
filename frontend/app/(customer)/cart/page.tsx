@@ -369,7 +369,9 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
         <div className="flex flex-wrap items-center gap-3">
           <Link
             href={`/products/${item.product.id}`}
-            aria-label={`${item.product.name} ürün detayını aç`}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`${item.product.name} ürün detayını yeni sekmede aç`}
             className="h-[52px] w-[52px] flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-0)] transition-colors hover:border-primary-300"
           >
             {item.product.imageUrl ? (
@@ -385,6 +387,9 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
             <div className="flex items-center gap-2">
               <Link
                 href={`/products/${item.product.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${item.product.name} ürün detayını yeni sekmede aç`}
                 className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[var(--ink-1)] transition-colors hover:text-primary-700 hover:underline"
               >
                 {item.product.name}
@@ -397,7 +402,13 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
               {item.priceMode === 'EXCESS' && <span className="badge-success flex-shrink-0">İndirimli</span>}
             </div>
             <div className="mt-1 truncate font-mono text-[11px] text-[var(--ink-3)]">
-              <Link href={`/products/${item.product.id}`} className="hover:text-primary-700 hover:underline">
+              <Link
+                href={`/products/${item.product.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${item.product.name} ürün detayını yeni sekmede aç`}
+                className="hover:text-primary-700 hover:underline"
+              >
                 {item.product.mikroCode}
               </Link>{' '}
               · KDV %{Math.round((item.vatRate || 0) * 100)}

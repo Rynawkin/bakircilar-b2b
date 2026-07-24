@@ -6,6 +6,7 @@ import { Gift, ArrowRight } from 'lucide-react';
 import { customerApi, GiftCampaignActive } from '@/lib/api/customer';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils/format';
+import { isProductDetailHref } from '@/lib/utils/productLinks';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { GiftPreviewModal } from './GiftPreviewModal';
 
@@ -79,6 +80,7 @@ export function GiftCampaignBanner() {
           : '/products';
   const defaultScopeText = scopeType === 'MISSING_CATEGORIES' ? 'Yeni Kategorileri Gör' : 'Kampanya Ürünlerini Gör';
   const scopeButtonText = qualified ? 'Sepete Git' : campaign.buttonText || defaultScopeText;
+  const scopeTargetIsProductDetail = isProductDetailHref(scopeTarget);
 
   // Banner tik olcumu (best-effort; hata yutulur)
   const logBannerClick = () => {
@@ -194,6 +196,9 @@ export function GiftCampaignBanner() {
             {/* Buton 2: yeterlilikte sepet; aksi halde kampanya kapsamina uygun hedef */}
             <Link
               href={scopeTarget}
+              target={scopeTargetIsProductDetail ? '_blank' : undefined}
+              rel={scopeTargetIsProductDetail ? 'noopener noreferrer' : undefined}
+              aria-label={scopeTargetIsProductDetail ? `${scopeButtonText} (yeni sekmede açılır)` : undefined}
               onClick={logBannerClick}
               className="inline-flex items-center justify-center gap-1.5 rounded-[9px] bg-white/[.16] px-4 py-2.5 text-[13px] font-semibold text-white ring-1 ring-inset ring-white/35 transition-colors hover:bg-white/[.26]"
             >
@@ -220,6 +225,9 @@ export function GiftCampaignBanner() {
               <Link
                 key={p.id}
                 href={`/products/${p.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${p.name} ürün detayını yeni sekmede aç`}
                 onClick={logBannerClick}
                 className="flex w-[168px] flex-none items-center gap-2 rounded-lg bg-white/95 p-2 transition-colors hover:bg-white"
               >

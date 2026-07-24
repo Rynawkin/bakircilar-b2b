@@ -817,6 +817,9 @@ export default function ProductsPage() {
                     <Link
                       key={s.id}
                       href={`/products/${s.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`${s.name} ürün detayını yeni sekmede aç`}
                       className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-white p-3 transition-colors hover:border-[var(--line-strong)] hover:bg-[var(--surface-0)]"
                     >
                       <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-0)]">
