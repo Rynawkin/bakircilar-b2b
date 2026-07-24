@@ -42,13 +42,17 @@ type AggregateRow = {
   amount?: unknown;
 };
 
+// Live TVF definition:
+// msg_S_1219 = SATIŞ TUTARI, msg_S_0189 = TOPLAM İSKONTO.
+export const MANAGEMENT_PROFIT_REPORT_SALES_AMOUNT_COLUMN = 'msg_S_1219';
+
 const REQUIRED_LIVE_COLUMNS = [
   'CARİ SEKTÖR KODU',
   'msg_S_0136',
   'msg_S_0201',
   'msg_S_0199',
   'msg_S_0089',
-  'msg_S_0189',
+  MANAGEMENT_PROFIT_REPORT_SALES_AMOUNT_COLUMN,
 ] as const;
 
 const MAX_AGGREGATE_ROWS = 10_000;
@@ -333,7 +337,10 @@ class ManagementProfitReportMikroService {
         SELECT
           ${nextExpression} AS dimension_value,
           CONVERT(char(7), TRY_CONVERT(date, source.[msg_S_0089]), 120) AS month_key,
-          TRY_CONVERT(decimal(38, 4), source.[msg_S_0189]) AS amount
+          TRY_CONVERT(
+            decimal(38, 4),
+            source.[${MANAGEMENT_PROFIT_REPORT_SALES_AMOUNT_COLUMN}]
+          ) AS amount
         FROM dbo.STOK_MUSTERI_GRUP_SATIS_KARLILIK_KUPU(
           @startDate,
           @endDate,

@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import config from '../config';
-import managementProfitReportMikroService from './management-profit-report-mikro.service';
+import managementProfitReportMikroService, {
+  MANAGEMENT_PROFIT_REPORT_SALES_AMOUNT_COLUMN,
+} from './management-profit-report-mikro.service';
 import { DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT } from '../utils/management-profit-report-layout';
+
+test('live report maps SATIŞ TUTARI to the TVF sales amount column', () => {
+  assert.equal(MANAGEMENT_PROFIT_REPORT_SALES_AMOUNT_COLUMN, 'msg_S_1219');
+});
 
 test('mock report aggregates roots and lazy children without returning raw rows', async () => {
   const original = config.useMockMikro;
@@ -26,9 +32,12 @@ test('mock report aggregates roots and lazy children without returning raw rows'
       root.grandTotal,
       root.nodes.reduce((total, node) => total + node.grandTotal, 0)
     );
+    assert.equal(root.grandTotal, 296181);
 
     const salesSector = root.nodes.find((node) => node.value === 'SATIS');
     assert.ok(salesSector);
+    assert.equal(salesSector.grandTotal, 202681);
+    assert.equal(salesSector.amounts['2026-07'], 202681);
     const children = await managementProfitReportMikroService.query({
       period: { startDate: '2026-07-01', endDate: '2026-07-24' },
       layout: DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT,
