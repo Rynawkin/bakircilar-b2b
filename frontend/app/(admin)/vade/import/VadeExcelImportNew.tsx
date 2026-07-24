@@ -11,8 +11,10 @@ import {
   CheckCircle2,
   SkipForward,
   ListChecks,
+  UserPlus,
 } from 'lucide-react';
 import { useVadeExcelImport } from './useVadeExcelImport';
+import type { VadeImportSkipReason } from '@/lib/vadeExcelImport';
 
 /**
  * Yeni gorunum: Vade Excel Import.
@@ -58,18 +60,29 @@ const headBtn: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
-// Otomatik eslenen kolonlar (brief 4.7.6). Sadece bilgilendirme amacli; logic findColumnIndex'te.
+// Otomatik eslenen kolonlar (brief 4.7.6). Sadece bilgilendirme amacli;
+// gercek esleme frontend/lib/vadeExcelImport.ts icindeki saf parser'dadir.
 const MAPPED_COLUMNS: { label: string; hint: string; required?: boolean }[] = [
   { label: 'Cari hesap kodu', hint: '"cari hesap kodu"', required: true },
-  { label: 'Vadesi geçen bakiye', hint: '"vadesi geçen bakiye"' },
-  { label: 'Vadesi geçen bakiye vadesi', hint: '"vadesi geçen bakiye vadesi"' },
-  { label: 'Vadesi geçmemiş bakiye', hint: '"vadesi geçmemiş bakiye"' },
-  { label: 'Vadesi geçmemiş bakiye vadesi', hint: '"vadesi geçmemiş bakiye vadesi"' },
-  { label: 'Toplam bakiye', hint: '"toplam bakiye"' },
-  { label: 'Valör', hint: '"valör"' },
+  { label: 'Cari hesap adı', hint: '"cari hesap adı"', required: true },
+  { label: 'Sektör kodu', hint: '"sektör kodu"', required: true },
+  { label: 'Grup kodu', hint: '"grup kodu"', required: true },
+  { label: 'Bölge kodu', hint: '"bölge kodu"' },
+  { label: 'Vadesi geçen bakiye', hint: '"vadesi geçen bakiye"', required: true },
+  { label: 'Vadesi geçen bakiye vadesi', hint: '"vadesi geçen bakiye vadesi"', required: true },
+  { label: 'Vadesi geçmemiş bakiye', hint: '"vadesi geçmemiş bakiye"', required: true },
+  { label: 'Vadesi geçmemiş bakiye vadesi', hint: '"vadesi geçmemiş bakiye vadesi"', required: true },
+  { label: 'Toplam bakiye', hint: '"toplam bakiye"', required: true },
+  { label: 'Valör', hint: '"valör"', required: true },
   { label: 'Cari ödeme vadesi', hint: '"cari ödeme vadesi"' },
   { label: 'Bakiyeye konu ilk evrak (referans tarih)', hint: '"bakiyeye konu ilk evrak"' },
 ];
+
+const SKIP_REASON_LABELS: Record<VadeImportSkipReason, string> = {
+  CUSTOMER_NOT_FOUND: 'Cari bulunamadı',
+  EXCLUDED_SECTOR: 'Sektör kapsam dışı',
+  DUPLICATE_CODE: 'Mükerrer cari kodu',
+};
 
 export default function VadeExcelImportNew() {
   const { file, setFile, loading, summary, handleImport } = useVadeExcelImport();
@@ -122,7 +135,8 @@ export default function VadeExcelImportNew() {
             Vade Excel Import
           </h1>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 5 }}>
-            Muhasebe raporunu buradan yükleyebilirsiniz.
+            Muhasebe raporundaki cariler tek işlemde güncellenir; dosyada olmayan kayıtlar silinmez.
+            B2B&apos;de bulunmayan cariler girişe kapalı vade carisi olarak oluşturulur.
           </div>
         </div>
       </div>
@@ -281,52 +295,123 @@ export default function VadeExcelImportNew() {
         </div>
       </div>
 
-      {/* Sonuc kartlari: Aktarilan / Atlanan */}
+      {/* Snapshot sonucu ve atlama nedenleri */}
       {summary && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
-            gap: 14,
-            marginBottom: 18,
-          }}
-        >
-          <div style={{ ...cardStyle, padding: 16 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: 11.5,
-                color: FAINT,
-              }}
-            >
-              <CheckCircle2 size={15} strokeWidth={2} style={{ color: EMERALD }} />
-              Aktarılan
+        <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))',
+              gap: 14,
+              marginBottom: 14,
+            }}
+          >
+            <div style={{ ...cardStyle, padding: 16 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 11.5,
+                  color: FAINT,
+                }}
+              >
+                <CheckCircle2 size={15} strokeWidth={2} style={{ color: EMERALD }} />
+                Aktarılan
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 600, color: EMERALD, marginTop: 6 }}>
+                {summary.imported}
+              </div>
             </div>
-            <div style={{ fontSize: 22, fontWeight: 600, color: EMERALD, marginTop: 6 }}>
-              {summary.imported}
+
+            <div style={{ ...cardStyle, padding: 16 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 11.5,
+                  color: FAINT,
+                }}
+              >
+                <UserPlus size={15} strokeWidth={2} style={{ color: PRIMARY }} />
+                Yeni cari
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 600, color: PRIMARY, marginTop: 6 }}>
+                {summary.createdCustomers}
+              </div>
+            </div>
+
+            <div style={{ ...cardStyle, padding: 16 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 11.5,
+                  color: FAINT,
+                }}
+              >
+                <SkipForward size={15} strokeWidth={2} style={{ color: AMBER }} />
+                Atlanan
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 600, color: AMBER, marginTop: 6 }}>
+                {summary.skipped}
+              </div>
             </div>
           </div>
 
-          <div style={{ ...cardStyle, padding: 16 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: 11.5,
-                color: FAINT,
-              }}
-            >
-              <SkipForward size={15} strokeWidth={2} style={{ color: AMBER }} />
-              Atlanan
+          {summary.skipped > 0 && (
+            <div style={{ ...cardStyle, padding: 16, marginBottom: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: INK, marginBottom: 10 }}>
+                Atlama nedenleri
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: summary.skippedRows.length ? 12 : 0 }}>
+                <span style={{ fontSize: 11.5, color: MUTED, background: '#fff7ed', borderRadius: 999, padding: '5px 9px' }}>
+                  Cari bulunamadı: {summary.skipReasons.customerNotFound}
+                </span>
+                <span style={{ fontSize: 11.5, color: MUTED, background: '#fff7ed', borderRadius: 999, padding: '5px 9px' }}>
+                  Sektör kapsam dışı: {summary.skipReasons.excludedSector}
+                </span>
+                <span style={{ fontSize: 11.5, color: MUTED, background: '#fff7ed', borderRadius: 999, padding: '5px 9px' }}>
+                  Mükerrer kod: {summary.skipReasons.duplicateCode}
+                </span>
+              </div>
+              {summary.skippedRows.length > 0 && (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                    <thead>
+                      <tr style={{ color: FAINT, textAlign: 'left', borderBottom: `1px solid ${LINE}` }}>
+                        <th style={{ padding: '7px 8px' }}>Excel satırı</th>
+                        <th style={{ padding: '7px 8px' }}>Cari kodu</th>
+                        <th style={{ padding: '7px 8px' }}>Neden</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summary.skippedRows.slice(0, 20).map((row, index) => (
+                        <tr
+                          key={`${row.sourceRowNumber ?? 'row'}-${row.mikroCariCode}-${index}`}
+                          style={{ borderBottom: `1px solid ${SOFT_LINE}`, color: MUTED }}
+                        >
+                          <td style={{ padding: '7px 8px' }}>{row.sourceRowNumber ?? '—'}</td>
+                          <td style={{ padding: '7px 8px', fontFamily: "'Roboto Mono', monospace" }}>
+                            {row.mikroCariCode}
+                          </td>
+                          <td style={{ padding: '7px 8px' }}>{SKIP_REASON_LABELS[row.reason]}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {summary.skipped > 20 && (
+                    <div style={{ color: FAINT, fontSize: 11, marginTop: 8 }}>
+                      İlk 20 ayrıntı gösteriliyor; toplam {summary.skipped} atlanan satır var.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 600, color: AMBER, marginTop: 6 }}>
-              {summary.skipped}
-            </div>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
       {/* Otomatik kolon eslesme bilgi karti (brief 4.7.6) */}
@@ -401,8 +486,8 @@ export default function VadeExcelImportNew() {
             color: FAINT,
           }}
         >
-          Kolonlar başlık adına göre otomatik eşlenir; sıra önemli değildir. Cari hesap kodu
-          bulunamazsa import durur.
+          Başlık satırı ilk 50 satır içinde otomatik bulunur. Kolonlar önce tam başlık adına göre
+          eşlenir; sıra önemli değildir. Zorunlu kolonlardan biri bulunamazsa import veri yazmadan durur.
         </div>
       </div>
     </div>

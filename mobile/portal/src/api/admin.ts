@@ -81,6 +81,47 @@ export type GetQuotesParams = {
 
 export type QuotesPagination = OrdersPagination;
 
+export type VadeImportMode = 'SNAPSHOT' | 'PATCH';
+
+export type VadeImportRowInput = {
+  mikroCariCode: string;
+  customerName?: string | null;
+  sectorCode?: string | null;
+  groupCode?: string | null;
+  regionCode?: string | null;
+  sourceRowNumber?: number;
+  pastDueBalance?: number;
+  pastDueDate?: string | null;
+  notDueBalance?: number;
+  notDueDate?: string | null;
+  totalBalance?: number;
+  valor?: number;
+  paymentTermLabel?: string | null;
+  referenceDate?: string | null;
+};
+
+export type VadeImportOptions = {
+  mode: VadeImportMode;
+  createMissingCustomers: boolean;
+};
+
+export type VadeImportResult = {
+  imported: number;
+  skipped: number;
+  createdCustomers: number;
+  staleRemoved: number;
+  skipReasons: {
+    customerNotFound: number;
+    excludedSector: number;
+    duplicateCode: number;
+  };
+  skippedRows: Array<{
+    sourceRowNumber?: number;
+    mikroCariCode: string;
+    reason: string;
+  }>;
+};
+
 type SupplierPriceListOverrides = {
   excelSheetName?: string | null;
   excelHeaderRow?: number | null;
@@ -2303,9 +2344,9 @@ export const adminApi = {
     const response = await apiClient.delete('/admin/vade/assignments', { data });
     return response.data as { success: boolean };
   },
-  importVadeBalances: async (rows: Array<{ mikroCariCode: string; pastDueBalance?: number; pastDueDate?: string | null; notDueBalance?: number; notDueDate?: string | null; totalBalance?: number; valor?: number; paymentTermLabel?: string | null; referenceDate?: string | null }>) => {
-    const response = await apiClient.post('/admin/vade/import', { rows });
-    return response.data as { imported: number; skipped: number };
+  importVadeBalances: async (rows: VadeImportRowInput[], options: VadeImportOptions) => {
+    const response = await apiClient.post('/admin/vade/import', { rows, ...options });
+    return response.data as VadeImportResult;
   },
   triggerVadeSync: async () => {
     const response = await apiClient.post('/admin/vade/sync');

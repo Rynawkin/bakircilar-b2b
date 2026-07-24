@@ -2,8 +2,14 @@ import { Request, Response, NextFunction } from 'express';
 import { Prisma, VadeBalanceSource } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import vadeService from '../services/vade.service';
+import vadeImportService from '../services/vadeImport.service';
 import vadeSyncService from '../services/vadeSync.service';
 import config from '../config';
+import {
+  buildVadeSectorAccessWhere,
+  isExcludedVadeSectorCode,
+} from '../utils/vade-scope';
+import { collectibleVadeAmount } from '../utils/vade-balance';
 
 const parseNumber = (value: any, fallback: number) => {
   const parsed = Number(value);
@@ -26,55 +32,14 @@ const parseDateInput = (value?: string | null) => {
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-const normalizeBalanceBuckets = (balance: {
-  pastDueBalance?: number | null;
-  notDueBalance?: number | null;
-  totalBalance?: number | null;
-}) => {
-  let pastDueBalance = Number(balance.pastDueBalance ?? 0);
-  let notDueBalance = Number(balance.notDueBalance ?? 0);
-  const totalBalance = Number(balance.totalBalance ?? pastDueBalance + notDueBalance);
-
-  if (totalBalance >= 0) {
-    if (pastDueBalance < 0) {
-      notDueBalance = notDueBalance + pastDueBalance;
-      pastDueBalance = 0;
-    } else if (notDueBalance < 0) {
-      pastDueBalance = pastDueBalance + notDueBalance;
-      notDueBalance = 0;
-    }
-  }
-
-  return {
-    pastDueBalance: round2(pastDueBalance),
-    notDueBalance: round2(notDueBalance),
-  };
-};
-
 const canAccessAllSectors = (role?: string) =>
   role === 'HEAD_ADMIN' || role === 'ADMIN' || role === 'MANAGER';
-
-const EXCLUDED_SECTOR_CODES = ['DİĞER', 'DIGER', 'FATURA', 'SATICI', 'SORUNLU', 'SORUNLU CARİ', 'SORUNLU CARI'] as const;
-const normalizeSectorCode = (value?: string | null) =>
-  (value || '').trim().toLocaleUpperCase('tr-TR');
-const EXCLUDED_SECTOR_PREFIXES = EXCLUDED_SECTOR_CODES.map(normalizeSectorCode);
-const isExcludedSectorCode = (value?: string | null) => {
-  const normalized = normalizeSectorCode(value);
-  if (!normalized) return false;
-  return EXCLUDED_SECTOR_PREFIXES.some((code) =>
-    normalized === code || normalized.startsWith(code)
-  );
-};
-const buildExcludedSectorFilters = () =>
-  EXCLUDED_SECTOR_CODES.map((code) => ({
-    sectorCode: { startsWith: code, mode: 'insensitive' as const },
-  }));
 
 const getAssignedSectorCodes = (req: Request) =>
   (req.user?.assignedSectorCodes || [])
     .map((code) => String(code).trim())
     .filter(Boolean)
-    .filter((code) => !isExcludedSectorCode(code));
+    .filter((code) => !isExcludedVadeSectorCode(code));
 
 const ensureSectorAccess = async (req: Request, customerId: string) => {
   const customer = await prisma.user.findUnique({
@@ -82,7 +47,7 @@ const ensureSectorAccess = async (req: Request, customerId: string) => {
     select: { sectorCode: true },
   });
   if (!customer) return false;
-  if (isExcludedSectorCode(customer.sectorCode)) return false;
+  if (isExcludedVadeSectorCode(customer.sectorCode)) return false;
   if (canAccessAllSectors(req.user?.role)) return true;
   const assignedCodes = getAssignedSectorCodes(req);
   if (assignedCodes.length === 0) return false;
@@ -137,14 +102,8 @@ class VadeController {
 
       const where: Prisma.VadeBalanceWhereInput = {};
       const userWhere: Prisma.UserWhereInput = {};
-      const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
-      const excludedSectorFilters = buildExcludedSectorFilters();
 
-      if (excludedSectorFilters.length > 0) {
-        userWhere.NOT = { OR: excludedSectorFilters };
-      }
-
-      if (sectorCode && isExcludedSectorCode(sectorCode)) {
+      if (sectorCode && isExcludedVadeSectorCode(sectorCode)) {
         res.json({
           balances: [],
           pagination: {
@@ -208,47 +167,29 @@ class VadeController {
         }
       }
 
-      const sectorFilter: Prisma.StringFilter = {};
-      let hasSectorFilter = false;
-      if (sectorCode) {
-        sectorFilter.equals = sectorCode;
-        hasSectorFilter = true;
+      const sectorAccessWhere = buildVadeSectorAccessWhere({
+        canAccessAll: canAccessAllSectors(req.user?.role),
+        assignedSectorCodes: getAssignedSectorCodes(req),
+        requestedSectorCode: sectorCode,
+      });
+      if (!sectorAccessWhere) {
+        res.json({
+          balances: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+          },
+          summary: {
+            overdue: 0,
+            upcoming: 0,
+            total: 0,
+          },
+        });
+        return;
       }
-      if (excludedSectorCodes.length > 0) {
-        sectorFilter.notIn = excludedSectorCodes;
-        hasSectorFilter = true;
-      }
-
-      if (!canAccessAllSectors(req.user?.role)) {
-        const assignedCodes = getAssignedSectorCodes(req);
-        if (assignedCodes.length === 0) {
-          res.json({
-            balances: [],
-            pagination: {
-              page,
-              limit,
-              total: 0,
-              totalPages: 0,
-            },
-            summary: {
-              overdue: 0,
-              upcoming: 0,
-              total: 0,
-            },
-          });
-          return;
-        }
-        sectorFilter.in = assignedCodes;
-        hasSectorFilter = true;
-      }
-
-      if (hasSectorFilter) {
-        userWhere.sectorCode = sectorFilter;
-      }
-
-      if (Object.keys(userWhere).length > 0) {
-        where.user = userWhere;
-      }
+      where.user = { AND: [userWhere, sectorAccessWhere] };
 
       const orderBy: Prisma.VadeBalanceOrderByWithRelationInput[] = [];
       if (sortBy !== 'lastNoteAt') {
@@ -356,11 +297,11 @@ class VadeController {
 
       const summary = summaryRows.reduce(
         (acc, row) => {
-          const normalized = normalizeBalanceBuckets(row);
-          acc.overdue += normalized.pastDueBalance;
-          acc.upcoming += normalized.notDueBalance;
+          const pastDue = Number(row.pastDueBalance ?? 0);
+          const notDue = Number(row.notDueBalance ?? 0);
+          acc.overdue += collectibleVadeAmount(pastDue);
+          acc.upcoming += collectibleVadeAmount(notDue);
           acc.total += row.totalBalance ?? 0;
-          const pastDue = normalized.pastDueBalance;
           if (pastDue > 0) {
             overdueAmounts.push(pastDue);
             const v = row.valor ?? 0;
@@ -420,14 +361,9 @@ class VadeController {
         })) as BalanceWithNote[];
       })();
 
-      const normalizedBalances = balancesWithNotes.map((balance) => ({
-        ...balance,
-        ...normalizeBalanceBuckets(balance),
-      }));
-
-      let pagedBalances = normalizedBalances;
+      let pagedBalances = balancesWithNotes;
       if (sortBy === 'lastNoteAt') {
-        pagedBalances = [...normalizedBalances].sort((a, b) => {
+        pagedBalances = [...balancesWithNotes].sort((a, b) => {
           const aTime = a.lastNoteAt ? new Date(a.lastNoteAt).getTime() : 0;
           const bTime = b.lastNoteAt ? new Date(b.lastNoteAt).getTime() : 0;
           return sortDirection === 'asc' ? aTime - bTime : bTime - aTime;
@@ -472,32 +408,24 @@ class VadeController {
         topOverdue: [] as Array<{ id: string; code: string; name: string; sector: string; pastDue: number; valor: number }>,
       };
 
-      if (sectorCode && isExcludedSectorCode(sectorCode)) {
+      if (sectorCode && isExcludedVadeSectorCode(sectorCode)) {
         res.json(emptyPayload);
         return;
       }
 
       const where: Prisma.VadeBalanceWhereInput = { totalBalance: { gte: 0 } };
       const userWhere: Prisma.UserWhereInput = {};
-      const excludedSectorFilters = buildExcludedSectorFilters();
-      if (excludedSectorFilters.length > 0) {
-        userWhere.NOT = { OR: excludedSectorFilters };
-      }
-
-      const sectorFilter: Prisma.StringFilter = { notIn: [...EXCLUDED_SECTOR_CODES] };
-      if (sectorCode) sectorFilter.equals = sectorCode;
-
-      if (!canAccessAllSectors(req.user?.role)) {
-        const assignedCodes = getAssignedSectorCodes(req);
-        if (assignedCodes.length === 0) {
-          res.json(emptyPayload);
-          return;
-        }
-        sectorFilter.in = assignedCodes;
-      }
-      userWhere.sectorCode = sectorFilter;
       if (groupCode) userWhere.groupCode = { equals: groupCode };
-      where.user = userWhere;
+      const sectorAccessWhere = buildVadeSectorAccessWhere({
+        canAccessAll: canAccessAllSectors(req.user?.role),
+        assignedSectorCodes: getAssignedSectorCodes(req),
+        requestedSectorCode: sectorCode,
+      });
+      if (!sectorAccessWhere) {
+        res.json(emptyPayload);
+        return;
+      }
+      where.user = { AND: [userWhere, sectorAccessWhere] };
 
       const rows = await prisma.vadeBalance.findMany({
         where,
@@ -539,13 +467,14 @@ class VadeController {
       let total = 0;
 
       for (const row of rows) {
-        const norm = normalizeBalanceBuckets(row);
-        overdue += norm.pastDueBalance;
-        upcoming += norm.notDueBalance;
+        const pastDue = Number(row.pastDueBalance ?? 0);
+        const notDue = Number(row.notDueBalance ?? 0);
+        overdue += collectibleVadeAmount(pastDue);
+        upcoming += collectibleVadeAmount(notDue);
         total += row.totalBalance ?? 0;
 
-        if (norm.pastDueBalance > 0) {
-          overdueAmounts.push(norm.pastDueBalance);
+        if (pastDue > 0) {
+          overdueAmounts.push(pastDue);
           const v = row.valor ?? 0;
           const bucket =
             v <= 30 ? agingBuckets.d0_30 :
@@ -554,22 +483,22 @@ class VadeController {
             v <= 180 ? agingBuckets.d91_180 :
             v <= 365 ? agingBuckets.d181_365 :
             agingBuckets.d365plus;
-          bucket.amount += norm.pastDueBalance;
+          bucket.amount += pastDue;
           bucket.count += 1;
 
           const sec = (row.user?.sectorCode || 'Tanimsiz').trim() || 'Tanimsiz';
           const grp = (row.user?.groupCode || 'Tanimsiz').trim() || 'Tanimsiz';
           const s = sectorMap.get(sec) || { amount: 0, count: 0 };
-          s.amount += norm.pastDueBalance; s.count += 1; sectorMap.set(sec, s);
+          s.amount += pastDue; s.count += 1; sectorMap.set(sec, s);
           const g = groupMap.get(grp) || { amount: 0, count: 0 };
-          g.amount += norm.pastDueBalance; g.count += 1; groupMap.set(grp, g);
+          g.amount += pastDue; g.count += 1; groupMap.set(grp, g);
 
           overdueRows.push({
             id: row.user?.id || '',
             code: row.user?.mikroCariCode || '',
             name: row.user?.displayName || row.user?.mikroName || row.user?.name || '',
             sector: sec,
-            pastDue: norm.pastDueBalance,
+            pastDue,
             valor: row.valor ?? 0,
           });
         }
@@ -625,39 +554,20 @@ class VadeController {
 
   async getFilters(req: Request, res: Response, next: NextFunction) {
     try {
-      const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
-      const excludedSectorFilters = buildExcludedSectorFilters();
-      const sectorFilter: Prisma.StringFilter = {};
-      let hasSectorFilter = false;
-
-      if (excludedSectorCodes.length > 0) {
-        sectorFilter.notIn = excludedSectorCodes;
-        hasSectorFilter = true;
-      }
-
-      if (!canAccessAllSectors(req.user?.role)) {
-        const assignedCodes = getAssignedSectorCodes(req);
-        if (assignedCodes.length === 0) {
-          res.json({ sectorCodes: [], groupCodes: [] });
-          return;
-        }
-        sectorFilter.in = assignedCodes;
-        hasSectorFilter = true;
-      }
-
       const where: Prisma.UserWhereInput = {
         role: 'CUSTOMER',
         vadeBalance: { is: { totalBalance: { gte: 0 } } },
       };
 
-      if (excludedSectorFilters.length > 0) {
-        where.NOT = { OR: excludedSectorFilters };
+      const sectorAccessWhere = buildVadeSectorAccessWhere({
+        canAccessAll: canAccessAllSectors(req.user?.role),
+        assignedSectorCodes: getAssignedSectorCodes(req),
+      });
+      if (!sectorAccessWhere) {
+        res.json({ sectorCodes: [], groupCodes: [] });
+        return;
       }
-
-
-      if (hasSectorFilter) {
-        where.sectorCode = sectorFilter;
-      }
+      where.AND = [sectorAccessWhere];
 
       const users = await prisma.user.findMany({
         where,
@@ -717,20 +627,10 @@ class VadeController {
       const notes = await vadeService.listNotes(customerId);
       const assignments = await vadeService.listAssignmentsForCustomer(customerId);
 
-      const resolvedCustomer = customer?.vadeBalance
-        ? {
-            ...customer,
-            vadeBalance: {
-              ...customer.vadeBalance,
-              ...normalizeBalanceBuckets(customer.vadeBalance),
-            },
-          }
-        : customer;
-
       const suggested = computeSuggestedRisk(customer.vadeBalance, notes);
 
       res.json({
-        customer: resolvedCustomer,
+        customer,
         notes,
         assignments,
         suggested,
@@ -811,35 +711,15 @@ class VadeController {
         };
       }
 
-      const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
-      const excludedSectorFilters = buildExcludedSectorFilters();
-      const sectorFilter: Prisma.StringFilter = {};
-      let hasSectorFilter = false;
-      if (excludedSectorCodes.length > 0) {
-        sectorFilter.notIn = excludedSectorCodes;
-        hasSectorFilter = true;
+      const sectorAccessWhere = buildVadeSectorAccessWhere({
+        canAccessAll: canAccessAllSectors(req.user?.role),
+        assignedSectorCodes: getAssignedSectorCodes(req),
+      });
+      if (!sectorAccessWhere) {
+        res.json({ notes: [] });
+        return;
       }
-
-      if (!canAccessAllSectors(req.user?.role)) {
-        const assignedCodes = getAssignedSectorCodes(req);
-        if (assignedCodes.length === 0) {
-          res.json({ notes: [] });
-          return;
-        }
-        sectorFilter.in = assignedCodes;
-        hasSectorFilter = true;
-      }
-
-      if (hasSectorFilter) {
-        where.customer = {
-          sectorCode: sectorFilter,
-          ...(excludedSectorFilters.length > 0
-            ? { NOT: { OR: excludedSectorFilters } }
-            : {}),
-        };
-      } else if (excludedSectorFilters.length > 0) {
-        where.customer = { NOT: { OR: excludedSectorFilters } };
-      }
+      where.customer = sectorAccessWhere;
 
       const notes = await prisma.vadeNote.findMany({
         where,
@@ -946,7 +826,9 @@ class VadeController {
           assignedCodes.includes(item.customer?.sectorCode || '')
         );
       }
-      assignments = assignments.filter((item) => !isExcludedSectorCode(item.customer?.sectorCode));
+      assignments = assignments.filter(
+        (item) => !isExcludedVadeSectorCode(item.customer?.sectorCode),
+      );
 
       res.json({ assignments });
     } catch (error) {
@@ -981,65 +863,24 @@ class VadeController {
 
   async importBalances(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!canAccessAllSectors(req.user?.role)) {
+        res.status(403).json({
+          error: 'Vade Excel importu yalnizca yonetici rolleri tarafindan calistirilabilir',
+        });
+        return;
+      }
+
       const rows = req.body.rows || [];
-      const codes = rows.map((row: any) => String(row.mikroCariCode || '').trim()).filter(Boolean);
-      if (codes.length === 0) {
+      if (rows.length === 0) {
         res.status(400).json({ error: 'No rows to import' });
         return;
       }
 
-      const users = await prisma.user.findMany({
-        where: { mikroCariCode: { in: codes } },
-        select: { id: true, mikroCariCode: true, sectorCode: true },
+      const result = await vadeImportService.importRows(rows, {
+        mode: req.body.mode || 'PATCH',
+        createMissingCustomers: req.body.createMissingCustomers === true,
       });
-      const userByCode = new Map(users.map((user) => [user.mikroCariCode || '', user]));
-
-      let imported = 0;
-      let skipped = 0;
-
-      for (const row of rows) {
-        const code = String(row.mikroCariCode || '').trim();
-        const user = userByCode.get(code);
-        if (!user) {
-          skipped += 1;
-          continue;
-        }
-        if (isExcludedSectorCode(user.sectorCode)) {
-          skipped += 1;
-          continue;
-        }
-
-        const pastDueBalance = Number(row.pastDueBalance ?? 0);
-        const notDueBalance = Number(row.notDueBalance ?? 0);
-        const totalBalance =
-          row.totalBalance !== undefined && row.totalBalance !== null
-            ? Number(row.totalBalance)
-            : pastDueBalance + notDueBalance;
-
-        await vadeService.upsertBalance({
-          userId: user.id,
-          pastDueBalance,
-          pastDueDate: row.pastDueDate ?? null,
-          notDueBalance,
-          notDueDate: row.notDueDate ?? null,
-          totalBalance,
-          valor: row.valor ?? 0,
-          paymentTermLabel: row.paymentTermLabel ?? null,
-          referenceDate: row.referenceDate ?? null,
-          source: VadeBalanceSource.EXCEL,
-        });
-        imported += 1;
-      }
-
-      const settings = await prisma.settings.findFirst();
-      if (settings) {
-        await prisma.settings.update({
-          where: { id: settings.id },
-          data: { lastVadeSyncAt: new Date() },
-        });
-      }
-
-      res.json({ imported, skipped });
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -1095,12 +936,14 @@ class VadeController {
         return;
       }
 
-      const sectorFilter: Prisma.StringFilter = { notIn: [...EXCLUDED_SECTOR_CODES] };
-      if (restrict) sectorFilter.in = assigned;
-      const customerWhere: Prisma.UserWhereInput = {
-        sectorCode: sectorFilter,
-        NOT: { OR: buildExcludedSectorFilters() },
-      };
+      const customerWhere = buildVadeSectorAccessWhere({
+        canAccessAll: !restrict,
+        assignedSectorCodes: assigned,
+      });
+      if (!customerWhere) {
+        res.json({ customerBehavior: [], staffPerformance: [], days });
+        return;
+      }
 
       const notes = await prisma.vadeNote.findMany({
         where: { createdAt: { gte: since }, customer: customerWhere },

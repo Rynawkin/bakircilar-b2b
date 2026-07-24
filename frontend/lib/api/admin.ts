@@ -40,6 +40,11 @@ import {
   PaymentAttempt,
   PaymentStatus,
 } from '@/types';
+import type {
+  VadeExcelImportRow,
+  VadeImportOptions,
+  VadeImportResult,
+} from '@/lib/vadeExcelImport';
 
 type SupplierPriceListOverrides = {
   excelSheetName?: string | null;
@@ -2642,18 +2647,15 @@ export const adminApi = {
     return response.data;
   },
 
-  importVadeBalances: async (rows: Array<{
-    mikroCariCode: string;
-    pastDueBalance?: number;
-    pastDueDate?: string | null;
-    notDueBalance?: number;
-    notDueDate?: string | null;
-    totalBalance?: number;
-    valor?: number;
-    paymentTermLabel?: string | null;
-    referenceDate?: string | null;
-  }>): Promise<{ imported: number; skipped: number }> => {
-    const response = await apiClient.post('/admin/vade/import', { rows });
+  importVadeBalances: async (
+    rows: VadeExcelImportRow[],
+    options: VadeImportOptions,
+  ): Promise<VadeImportResult> => {
+    const response = await apiClient.post('/admin/vade/import', {
+      rows,
+      mode: options.mode,
+      createMissingCustomers: options.createMissingCustomers,
+    });
     return response.data;
   },
 

@@ -2,6 +2,7 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import vadeService from './vade.service';
 import { VadeBalanceSource, VadeSyncStatus } from '@prisma/client';
+import { isExcludedVadeSectorCode } from '../utils/vade-scope';
 
 type MikroVadeRow = {
   customerCode: string;
@@ -16,6 +17,19 @@ type MikroVadeRow = {
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 const normalizeAmount = (value?: number | null) => round2(Number(value || 0));
+
+export const resolveMikroVadeAmounts = (
+  pastDueBalance?: number | null,
+  notDueBalance?: number | null,
+) => {
+  const resolvedPastDueBalance = normalizeAmount(pastDueBalance);
+  const resolvedNotDueBalance = normalizeAmount(notDueBalance);
+  return {
+    pastDueBalance: resolvedPastDueBalance,
+    notDueBalance: resolvedNotDueBalance,
+    totalBalance: round2(resolvedPastDueBalance + resolvedNotDueBalance),
+  };
+};
 
 const normalizeDate = (value?: Date | null) => (value ? new Date(value) : null);
 
@@ -35,76 +49,42 @@ const calculateValor = (pastDueDate?: Date | null) => {
   return diffMs > 0 ? Math.floor(diffMs / (24 * 60 * 60 * 1000)) : 0;
 };
 
-const EXCLUDED_SECTOR_CODES = ['DİĞER', 'DIGER', 'FATURA', 'SATICI', 'SORUNLU', 'SORUNLU CARİ', 'SORUNLU CARI'] as const;
-const normalizeSectorCode = (value?: string | null) =>
-  (value || '').trim().toLocaleUpperCase('tr-TR');
-const EXCLUDED_SECTOR_PREFIXES = EXCLUDED_SECTOR_CODES.map(normalizeSectorCode);
-const isExcludedSectorCode = (value?: string | null) => {
-  const normalized = normalizeSectorCode(value);
-  if (!normalized) return false;
-  return EXCLUDED_SECTOR_PREFIXES.some((code) =>
-    normalized === code || normalized.startsWith(code)
-  );
-};
-
-const normalizeBalanceBuckets = (pastDueBalance: number, notDueBalance: number) => {
-  const rawTotalBalance = round2(pastDueBalance + notDueBalance);
-  let resolvedPastDue = pastDueBalance;
-  let resolvedNotDue = notDueBalance;
-
-  if (rawTotalBalance >= 0) {
-    if (resolvedPastDue < 0) {
-      resolvedNotDue = resolvedNotDue + resolvedPastDue;
-      resolvedPastDue = 0;
-    } else if (resolvedNotDue < 0) {
-      resolvedPastDue = resolvedPastDue + resolvedNotDue;
-      resolvedNotDue = 0;
-    }
-  }
-
-  return {
-    pastDueBalance: round2(resolvedPastDue),
-    notDueBalance: round2(resolvedNotDue),
-    totalBalance: round2(resolvedPastDue + resolvedNotDue),
-  };
-};
+export const MIKRO_VADE_QUERY = `
+  SELECT
+    c.cari_kod AS customerCode,
+    SUM(CASE
+      WHEN vt.vade_tarihi < CAST(GETDATE() AS DATE)
+      THEN CASE WHEN h.cha_tip = 0 THEN h.cha_meblag ELSE -h.cha_meblag END
+      ELSE 0
+    END) AS pastDueBalance,
+    MIN(CASE WHEN vt.vade_tarihi < CAST(GETDATE() AS DATE) THEN vt.vade_tarihi END) AS pastDueDate,
+    SUM(CASE
+      WHEN vt.vade_tarihi >= CAST(GETDATE() AS DATE)
+      THEN CASE WHEN h.cha_tip = 0 THEN h.cha_meblag ELSE -h.cha_meblag END
+      ELSE 0
+    END) AS notDueBalance,
+    MIN(CASE WHEN vt.vade_tarihi >= CAST(GETDATE() AS DATE) THEN vt.vade_tarihi END) AS notDueDate,
+    odp.odp_adi AS paymentTermLabel,
+    MIN(h.cha_tarihi) AS referenceDate
+  FROM CARI_HESAPLAR c
+  LEFT JOIN CARI_HESAP_HAREKETLERI h
+    ON h.cha_kod = c.cari_kod
+    AND ISNULL(h.cha_iptal, 0) = 0
+    AND h.cha_cari_cins = 0
+    AND h.cha_tpoz = 0
+    AND ISNULL(h.cha_meblag_ana_doviz_icin_gecersiz_fl, 0) = 0
+  OUTER APPLY (
+    SELECT dbo.fn_OpVadeTarih(h.cha_vade, h.cha_tarihi) AS vade_tarihi
+  ) vt
+  LEFT JOIN ODEME_PLANLARI odp ON odp.odp_no = ABS(c.cari_odemeplan_no)
+  WHERE c.cari_kod IS NOT NULL
+    AND c.cari_kod <> ''
+  GROUP BY c.cari_kod, odp.odp_adi
+`;
 
 class VadeSyncService {
   private async fetchMikroBalances(): Promise<MikroVadeRow[]> {
-    const query = `
-      SELECT
-        c.cari_kod AS customerCode,
-        SUM(CASE
-          WHEN vt.vade_tarihi < CAST(GETDATE() AS DATE)
-          THEN CASE WHEN h.cha_tip = 0 THEN h.cha_meblag ELSE -h.cha_meblag END
-          ELSE 0
-        END) AS pastDueBalance,
-        MAX(CASE WHEN vt.vade_tarihi < CAST(GETDATE() AS DATE) THEN vt.vade_tarihi END) AS pastDueDate,
-        SUM(CASE
-          WHEN vt.vade_tarihi >= CAST(GETDATE() AS DATE)
-          THEN CASE WHEN h.cha_tip = 0 THEN h.cha_meblag ELSE -h.cha_meblag END
-          ELSE 0
-        END) AS notDueBalance,
-        MIN(CASE WHEN vt.vade_tarihi >= CAST(GETDATE() AS DATE) THEN vt.vade_tarihi END) AS notDueDate,
-        odp.odp_adi AS paymentTermLabel,
-        MIN(h.cha_tarihi) AS referenceDate
-      FROM CARI_HESAPLAR c
-      LEFT JOIN CARI_HESAP_HAREKETLERI h
-        ON h.cha_kod = c.cari_kod
-        AND ISNULL(h.cha_iptal, 0) = 0
-        AND h.cha_cari_cins = 0
-        AND h.cha_tpoz = 0
-        AND ISNULL(h.cha_meblag_ana_doviz_icin_gecersiz_fl, 0) = 0
-      OUTER APPLY (
-        SELECT dbo.fn_OpVadeTarih(h.cha_vade, h.cha_tarihi) AS vade_tarihi
-      ) vt
-      LEFT JOIN ODEME_PLANLARI odp ON odp.odp_no = ABS(c.cari_odemeplan_no)
-      WHERE c.cari_kod IS NOT NULL
-        AND c.cari_kod <> ''
-      GROUP BY c.cari_kod, odp.odp_adi
-    `;
-
-    const rows = await (mikroService as any).executeQuery(query);
+    const rows = await (mikroService as any).executeQuery(MIKRO_VADE_QUERY);
     return rows.map((row: any) => ({
       customerCode: String(row.customerCode || '').trim(),
       pastDueBalance: row.pastDueBalance ?? 0,
@@ -149,16 +129,14 @@ class VadeSyncService {
           recordsSkipped += 1;
           continue;
         }
-        if (isExcludedSectorCode(user.sectorCode)) {
+        if (isExcludedVadeSectorCode(user.sectorCode)) {
           recordsSkipped += 1;
           continue;
         }
 
-        const rawPastDueBalance = normalizeAmount(row.pastDueBalance);
-        const rawNotDueBalance = normalizeAmount(row.notDueBalance);
-        const { pastDueBalance, notDueBalance, totalBalance } = normalizeBalanceBuckets(
-          rawPastDueBalance,
-          rawNotDueBalance,
+        const { pastDueBalance, notDueBalance, totalBalance } = resolveMikroVadeAmounts(
+          row.pastDueBalance,
+          row.notDueBalance,
         );
         const pastDueDate = normalizeDate(row.pastDueDate);
         const notDueDate = normalizeDate(row.notDueDate);

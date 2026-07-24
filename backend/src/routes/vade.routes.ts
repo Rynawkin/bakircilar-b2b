@@ -54,16 +54,23 @@ const vadeAssignmentRemoveSchema = z.object({
 
 const vadeImportSchema = z.object({
   rows: z.array(z.object({
-    mikroCariCode: z.string().min(1),
-    pastDueBalance: z.number().optional(),
-    pastDueDate: z.string().optional().nullable(),
-    notDueBalance: z.number().optional(),
-    notDueDate: z.string().optional().nullable(),
-    totalBalance: z.number().optional(),
-    valor: z.number().optional(),
-    paymentTermLabel: z.string().optional().nullable(),
-    referenceDate: z.string().optional().nullable(),
+    mikroCariCode: z.string().trim().min(1).max(80),
+    customerName: z.string().trim().max(250).optional().nullable(),
+    sectorCode: z.string().trim().max(100).optional().nullable(),
+    groupCode: z.string().trim().max(100).optional().nullable(),
+    regionCode: z.string().trim().max(100).optional().nullable(),
+    pastDueBalance: z.number().finite().optional(),
+    pastDueDate: z.string().date().optional().nullable(),
+    notDueBalance: z.number().finite().optional(),
+    notDueDate: z.string().date().optional().nullable(),
+    totalBalance: z.number().finite().optional(),
+    valor: z.number().finite().optional(),
+    paymentTermLabel: z.string().trim().max(250).optional().nullable(),
+    referenceDate: z.string().date().optional().nullable(),
+    sourceRowNumber: z.number().int().positive().optional(),
   })).min(1),
+  mode: z.enum(['PATCH', 'SNAPSHOT']).optional(),
+  createMissingCustomers: z.boolean().optional(),
 });
 
 router.get('/balances', vadeController.getBalances);
