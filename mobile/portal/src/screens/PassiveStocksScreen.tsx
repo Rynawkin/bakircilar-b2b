@@ -69,6 +69,19 @@ const lookupPlaceholder: Record<StockCreateLookupType, string> = {
   package: 'Ambalaj kodu veya adi',
 };
 
+const PUBLIC_BASE_URL = String(
+  process.env.EXPO_PUBLIC_WEB_BASE_URL ||
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    'https://www.bakircilarkampanya.com'
+).replace(/\/api\/?$/, '').replace(/\/$/, '');
+
+const resolvePublicUrl = (value?: string | null) => {
+  const url = String(value || '').trim();
+  if (!url) return null;
+  if (/^(https?:|data:|file:)/i.test(url)) return url;
+  return `${PUBLIC_BASE_URL}${url.startsWith('/') ? url : `/${url}`}`;
+};
+
 const formatCost = (value?: number) => {
   if (value == null || !Number.isFinite(value) || value <= 0) return '-';
   return `${value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
@@ -168,6 +181,8 @@ export function PassiveStocksScreen() {
   const [selectedPassive, setSelectedPassive] = useState<PassiveStockItem | null>(null);
   const [form, setForm] = useState<StockCreateInput>(defaultForm());
   const [imageAsset, setImageAsset] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
+  const [hasExistingImage, setHasExistingImage] = useState(false);
   const [previewRows, setPreviewRows] = useState<StockCreatePreviewRow[]>([]);
   const [formLoading, setFormLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -307,34 +322,47 @@ export function PassiveStocksScreen() {
   const loadPassiveForActivate = async (item: PassiveStockItem) => {
     if (formLoading || submitting) return;
     setFormLoading(true);
-    setMode('activate');
-    setSelectedPassive(item);
-    setImageAsset(null);
-    setPreviewRows([]);
-    setSelectedStockFamilyIds([]);
-    setSelectedPriceFamilyId(null);
-    setLookups(emptyLookupState());
     try {
       const response = await adminApi.getStockCreateStock(item.code);
-      const stock = response.stock || {};
+      if (!response.stock || typeof response.stock !== 'object') {
+        throw new Error('Stok detaylari alinamadi');
+      }
+      const {
+        imageUrl,
+        hasExistingImage: stockHasExistingImage,
+        stockFamilyIds,
+        priceFamilyId,
+        ...stockFields
+      } = response.stock;
+      const normalizedStockFamilyIds = Array.isArray(stockFamilyIds)
+        ? stockFamilyIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      const normalizedPriceFamilyId = priceFamilyId ? String(priceFamilyId).trim() : null;
+      const normalizedImageUrl = String(imageUrl || '').trim() || null;
+
       setForm({
-        ...defaultForm(stock.templateCode || item.code),
-        ...stock,
-        templateCode: stock.templateCode || item.code,
+        ...defaultForm(stockFields.templateCode || item.code),
+        ...stockFields,
+        templateCode: stockFields.templateCode || item.code,
         stockCode: item.code,
       });
+      setSelectedPassive(item);
+      setImageAsset(null);
+      setExistingImageUrl(normalizedImageUrl);
+      setHasExistingImage(Boolean(stockHasExistingImage || normalizedImageUrl));
+      setPreviewRows([]);
+      setSelectedStockFamilyIds(normalizedStockFamilyIds);
+      setSelectedPriceFamilyId(normalizedPriceFamilyId);
+      setLookups(emptyLookupState());
+      setMode('activate');
     } catch (err: any) {
-      setForm({
-        ...defaultForm(metadata?.defaultTemplateCode || item.code),
-        stockCode: item.code,
-        templateCode: item.code,
-        name: item.name,
-        supplierCode: item.supplierCode || '',
-        categoryCode: item.categoryCode || '',
-        currentCost: item.currentCost ? String(item.currentCost) : '',
-        costT: item.currentCost ? String(item.currentCost) : '',
-      });
-      Alert.alert('Pasif stok', getApiErrorMessage(err, 'Stok detaylari alinamadi; liste bilgisinden form acildi.'));
+      setMode('idle');
+      setSelectedPassive(null);
+      setImageAsset(null);
+      setExistingImageUrl(null);
+      setHasExistingImage(false);
+      setPreviewRows([]);
+      Alert.alert('Pasif stok', getApiErrorMessage(err, 'Stok detaylari alinamadi. Aktivasyon formu acilmadi.'));
     } finally {
       setFormLoading(false);
     }
@@ -345,6 +373,8 @@ export function PassiveStocksScreen() {
     setMode('create');
     setSelectedPassive(null);
     setImageAsset(null);
+    setExistingImageUrl(null);
+    setHasExistingImage(false);
     setPreviewRows([]);
     setSelectedStockFamilyIds([]);
     setSelectedPriceFamilyId(null);
@@ -370,6 +400,7 @@ export function PassiveStocksScreen() {
       return;
     }
     setImageAsset(asset);
+    setPreviewRows([]);
   };
 
   const buildItem = (): StockCreateInput => ({
@@ -384,6 +415,7 @@ export function PassiveStocksScreen() {
     setSelectedStockFamilyIds((prev) =>
       prev.includes(familyId) ? prev.filter((id) => id !== familyId) : [...prev, familyId]
     );
+    setPreviewRows([]);
   };
 
   const addExtraUnit = () => {
@@ -547,7 +579,7 @@ export function PassiveStocksScreen() {
     try {
       const activationCode = selectedPassive?.code || asText(form.stockCode);
       const response = mode === 'activate'
-        ? await adminApi.previewPassiveStockActivation(activationCode)
+        ? await adminApi.previewPassiveStockActivation(activationCode, buildItem())
         : await adminApi.previewStockCreate([buildItem()]);
       setPreviewRows(response.results || []);
       const row = response.results?.[0];
@@ -575,14 +607,20 @@ export function PassiveStocksScreen() {
       Alert.alert('Hata var', 'Hatali stok Mikroya yazilamaz.');
       return;
     }
-    if (mode !== 'activate' && !imageAsset) {
-      Alert.alert('Gorsel zorunlu', 'Yeni stok acmak icin gorsel secin.');
+    const imageRequired = mode === 'create' || (mode === 'activate' && !hasExistingImage);
+    if (imageRequired && !imageAsset) {
+      Alert.alert(
+        'Gorsel zorunlu',
+        mode === 'activate'
+          ? 'Bu stokta mevcut gorsel yok. Aktiflestirmeden once gorsel secin.'
+          : 'Yeni stok acmak icin gorsel secin.'
+      );
       return;
     }
 
     const title = mode === 'activate' ? 'Pasif stok aktiflestirilsin mi?' : 'Yeni stok karti acilsin mi?';
     const message = mode === 'activate'
-      ? `${selectedPassive?.code || form.stockCode} Mikroda aktif hale getirilecek. Yalnizca pasiflik durumu degisecek; diger stok bilgileri korunacak.`
+      ? `${selectedPassive?.code || form.stockCode} stok kartindaki form duzeltmeleri kaydedilecek ve mevcut kart aktif hale getirilecek. Yeni stok acilmayacak.`
       : 'Yeni stok karti Mikroda olusturulacak.';
     setSubmitConfirmOpen(true);
     Alert.alert(title, message, [
@@ -597,7 +635,23 @@ export function PassiveStocksScreen() {
           try {
             let response;
             if (mode === 'activate') {
-              response = await adminApi.activateStock(selectedPassive?.code || asText(form.stockCode));
+              const formData = new FormData();
+              if (imageAsset) {
+                formData.append('image', {
+                  uri: imageAsset.uri,
+                  name: imageAsset.name || `${selectedPassive?.code || 'stock'}.jpg`,
+                  type: imageAsset.mimeType || 'image/jpeg',
+                } as any);
+              }
+              formData.append(
+                'payload',
+                JSON.stringify({
+                  item: buildItem(),
+                  stockFamilyIds: selectedStockFamilyIds,
+                  priceFamilyId: selectedPriceFamilyId,
+                })
+              );
+              response = await adminApi.activateStock(formData);
             } else {
               const formData = new FormData();
               formData.append('image', {
@@ -616,10 +670,21 @@ export function PassiveStocksScreen() {
               response = await adminApi.createStock(formData);
             }
             hapticSuccess();
-            Alert.alert('Tamamlandi', response.stockCode ? `${response.stockCode} islendi.` : 'Islem tamamlandi.');
+            const successMessage = response.stockCode ? `${response.stockCode} islendi.` : 'Islem tamamlandi.';
+            const responseWarnings = Array.isArray(response.warnings)
+              ? response.warnings.map((warning) => String(warning || '').trim()).filter(Boolean)
+              : [];
+            Alert.alert(
+              responseWarnings.length ? 'Tamamlandi - uyarilar var' : 'Tamamlandi',
+              responseWarnings.length
+                ? `${successMessage}\n\n${responseWarnings.map((warning) => `• ${warning}`).join('\n')}`
+                : successMessage
+            );
             setMode('idle');
             setSelectedPassive(null);
             setImageAsset(null);
+            setExistingImageUrl(null);
+            setHasExistingImage(false);
             setPreviewRows([]);
             if (mode === 'activate' && search.trim().length >= 2) {
               const refreshed = await adminApi.listPassiveStocks(search.trim(), 50);
@@ -642,6 +707,8 @@ export function PassiveStocksScreen() {
     const visibleStockFamilies = stockFamilyOptions.filter((family) => familyMatches(family, stockFamilySearch)).slice(0, 16);
     const visiblePriceFamilies = priceFamilyOptions.filter((family) => familyMatches(family, priceFamilySearch)).slice(0, 16);
     const selectedPriceFamily = selectedPriceFamilyId ? priceFamilyOptions.find((family) => family.id === selectedPriceFamilyId) : null;
+    const existingImageUri = resolvePublicUrl(existingImageUrl);
+    const displayedImageUri = imageAsset?.uri || existingImageUri;
     return (
       <View style={styles.formCard}>
         <View style={styles.formHeader}>
@@ -649,31 +716,54 @@ export function PassiveStocksScreen() {
             <Text style={styles.formTitle}>{mode === 'activate' ? 'Pasif Stok Aktiflestir' : 'Yeni Stok Ac'}</Text>
             <Text style={styles.formSubtitle}>
               {mode === 'activate'
-                ? `${selectedPassive?.code || form.stockCode || '-'} - yalnizca pasiflik durumu aktif yapilir.`
+                ? `${selectedPassive?.code || form.stockCode || '-'} - alanlari duzeltip mevcut karti aktiflestirin.`
                 : `Sablon: ${form.templateCode || metadata?.defaultTemplateCode || '-'} - gorsel zorunlu.`}
             </Text>
           </View>
-          <TouchableOpacity onPress={() => setMode('idle')} disabled={submitting}>
+          <TouchableOpacity
+            onPress={() => {
+              setMode('idle');
+              setSelectedPassive(null);
+              setImageAsset(null);
+              setExistingImageUrl(null);
+              setHasExistingImage(false);
+              setPreviewRows([]);
+              setSelectedStockFamilyIds([]);
+              setSelectedPriceFamilyId(null);
+            }}
+            disabled={submitting}
+          >
             <Text style={styles.closeText}>Kapat</Text>
           </TouchableOpacity>
         </View>
 
         {formLoading ? <ActivityIndicator color={colors.primary} /> : null}
 
+        <>
         {mode === 'activate' ? (
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Aktivasyon ozeti</Text>
-            <Text style={styles.helper}>Yeni stok acilmaz. Mikroda yalnizca pasiflik durumu aktif yapilir; diger kart bilgileri korunur.</Text>
-            <TextInput style={[styles.input, styles.disabledInput]} value={selectedPassive?.code || asText(form.stockCode)} editable={false} />
-            <TextInput style={[styles.input, styles.disabledInput]} value={asText(form.name) || '-'} editable={false} />
+            <Text style={styles.label}>Aktivasyon bilgisi</Text>
+            <Text style={styles.helper}>Formdaki duzeltmeler mevcut karta yazilir ve ayni stok kodu aktiflestirilir. Yeni stok kodu uretilmez.</Text>
           </View>
-        ) : (
-          <>
+        ) : null}
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Temel bilgiler</Text>
-          <TextInput style={styles.input} value={asText(form.templateCode)} onChangeText={(value) => patchForm({ templateCode: value })} placeholder="Sablon stok kodu" placeholderTextColor={colors.textMuted} autoCapitalize="characters" />
-          {renderLookup('template', form.templateCode)}
+          {mode === 'activate' ? (
+            <TextInput
+              style={[styles.input, styles.disabledInput]}
+              value={selectedPassive?.code || asText(form.stockCode)}
+              editable={false}
+              placeholder="Stok kodu"
+              placeholderTextColor={colors.textMuted}
+            />
+          ) : (
+            <>
+              <TextInput style={styles.input} value={asText(form.templateCode)} onChangeText={(value) => patchForm({ templateCode: value })} placeholder="Sablon stok kodu" placeholderTextColor={colors.textMuted} autoCapitalize="characters" />
+              {renderLookup('template', form.templateCode)}
+            </>
+          )}
           <TextInput style={styles.input} value={asText(form.name)} onChangeText={(value) => patchForm({ name: value })} placeholder="Stok adi" placeholderTextColor={colors.textMuted} />
+          <TextInput style={styles.input} value={asText(form.shortName)} onChangeText={(value) => patchForm({ shortName: value })} placeholder="Kisa stok adi" placeholderTextColor={colors.textMuted} />
           <TextInput style={styles.input} value={asText(form.foreignName)} onChangeText={(value) => patchForm({ foreignName: value })} placeholder="Tedarikci urun kodu / yabanci isim" placeholderTextColor={colors.textMuted} />
           <View style={styles.row}>
             <TextInput style={[styles.input, styles.flex]} value={asText(form.vatRatePercent)} onChangeText={(value) => patchForm({ vatRatePercent: value, costP: costPFromCostT(form.costT, value) })} placeholder="KDV %" placeholderTextColor={colors.textMuted} keyboardType="numeric" />
@@ -754,7 +844,13 @@ export function PassiveStocksScreen() {
                 <Text style={styles.familyTitle}>Stok aileleri</Text>
                 <Text style={styles.helper}>{selectedStockFamilyIds.length} aile secili</Text>
               </View>
-              <TouchableOpacity style={styles.smallGhostButton} onPress={() => setSelectedStockFamilyIds([])}>
+              <TouchableOpacity
+                style={styles.smallGhostButton}
+                onPress={() => {
+                  setSelectedStockFamilyIds([]);
+                  setPreviewRows([]);
+                }}
+              >
                 <Text style={styles.smallGhostText}>Temizle</Text>
               </TouchableOpacity>
             </View>
@@ -790,7 +886,13 @@ export function PassiveStocksScreen() {
                 <Text style={styles.familyTitle}>Fiyat ailesi</Text>
                 <Text style={styles.helper}>{selectedPriceFamily ? selectedPriceFamily.name : 'Secili fiyat ailesi yok'}</Text>
               </View>
-              <TouchableOpacity style={styles.smallGhostButton} onPress={() => setSelectedPriceFamilyId(null)}>
+              <TouchableOpacity
+                style={styles.smallGhostButton}
+                onPress={() => {
+                  setSelectedPriceFamilyId(null);
+                  setPreviewRows([]);
+                }}
+              >
                 <Text style={styles.smallGhostText}>Yok</Text>
               </TouchableOpacity>
             </View>
@@ -805,7 +907,14 @@ export function PassiveStocksScreen() {
               const selected = selectedPriceFamilyId === family.id;
               const preview = family.members.slice(0, 3).map((item) => item.productCode).filter(Boolean).join(', ');
               return (
-                <TouchableOpacity key={family.id} style={[styles.familyRow, selected && styles.familyRowSelected]} onPress={() => setSelectedPriceFamilyId(selected ? null : family.id)}>
+                <TouchableOpacity
+                  key={family.id}
+                  style={[styles.familyRow, selected && styles.familyRowSelected]}
+                  onPress={() => {
+                    setSelectedPriceFamilyId(selected ? null : family.id);
+                    setPreviewRows([]);
+                  }}
+                >
                   <View style={styles.flex}>
                     <Text style={styles.familyName}>{family.name}</Text>
                     <Text style={styles.familyMeta}>
@@ -822,13 +931,29 @@ export function PassiveStocksScreen() {
         </View>
 
         <View style={styles.imageBox}>
-          {imageAsset?.uri ? <Image source={{ uri: imageAsset.uri }} style={styles.previewImage} resizeMode="cover" /> : <Text style={styles.emptyText}>Gorsel secilmedi.</Text>}
+          {displayedImageUri ? (
+            <Image source={{ uri: displayedImageUri }} style={styles.previewImage} resizeMode="cover" />
+          ) : (
+            <Text style={styles.emptyText}>
+              {mode === 'activate' && hasExistingImage
+                ? 'Mevcut gorsel kayitli; onizleme alinamadi.'
+                : 'Gorsel secilmedi.'}
+            </Text>
+          )}
+          <Text style={styles.helper}>
+            {imageAsset
+              ? 'Yeni gorsel secildi.'
+              : mode === 'activate' && hasExistingImage
+                ? 'Mevcut gorsel korunacak. Isterseniz yenisiyle degistirebilirsiniz.'
+                : 'Gorsel zorunlu.'}
+          </Text>
           <TouchableOpacity style={[styles.secondaryButton, submitting && styles.disabledButton]} onPress={pickImage} disabled={submitting}>
-            <Text style={styles.secondaryButtonText}>{imageAsset ? 'Gorseli Degistir' : 'Gorsel Sec'}</Text>
+            <Text style={styles.secondaryButtonText}>
+              {imageAsset || (mode === 'activate' && hasExistingImage) ? 'Gorseli Degistir' : 'Gorsel Sec'}
+            </Text>
           </TouchableOpacity>
         </View>
-          </>
-        )}
+        </>
 
         {previewStatus && (
           <View style={[styles.previewBox, previewStatus.status === 'error' && styles.previewError, previewStatus.status === 'warning' && styles.previewWarning]}>
@@ -857,7 +982,7 @@ export function PassiveStocksScreen() {
         <View style={styles.header}>
           <Text style={styles.kicker}>Stok Karti Operasyonu</Text>
           <Text style={styles.title}>Pasif Stoklar</Text>
-          <Text style={styles.subtitle}>Mikroda pasif olan stok kartlarini bulun; mevcut kartin yalnizca pasiflik durumunu aktif yapin veya ayri olarak yeni stok acin.</Text>
+          <Text style={styles.subtitle}>Mikroda pasif olan stok kartlarini bulun; eksik alanlarini tamamlayip ayni karti aktiflestirin veya ayri olarak yeni stok acin.</Text>
           <View style={styles.heroStats}>
             <View style={styles.heroStat}>
               <Text style={styles.heroStatLabel}>Sonuc</Text>
@@ -889,7 +1014,7 @@ export function PassiveStocksScreen() {
             placeholderTextColor={colors.textMuted}
             returnKeyType="search"
           />
-          <Text style={styles.helper}>Aktiflestirme formu pasif stoktan otomatik dolar; on kontrol ve gorsel zorunludur.</Text>
+          <Text style={styles.helper}>Aktiflestirme formu pasif stoktan otomatik dolar; on kontrol zorunludur, mevcut gorsel yoksa yeni gorsel secilmelidir.</Text>
         </View>
 
         {loading ? (

@@ -428,8 +428,8 @@ router.get('/stock-create/lookups/:type', requirePermission('admin:stock-create'
 router.post('/stock-create/preview', requirePermission('admin:stock-create'), stockCreateController.preview);
 router.post('/stock-create/create', requirePermission('admin:stock-create'), upload.single('image'), stockCreateController.create);
 router.get('/stock-create/passive', requirePermission('admin:stock-create'), stockCreateController.listPassiveStocks);
-// upload middleware eski kurulu mobil istemcilerin multipart aktivasyon istegini
-// gecis doneminde okuyabilmek icin korunur; controller gorseli kullanmadan siler.
+// Aktivasyon mevcut stok kartini tam form verisiyle gunceller; mevcut gorsel
+// yoksa multipart image zorunludur, varsa yeni image opsiyoneldir.
 router.post('/stock-create/activate', requirePermission('admin:stock-create'), upload.single('image'), stockCreateController.activate);
 
 router.get('/product-dimensions/products', requirePermission('admin:product-dimensions'), productDimensionsController.searchProducts);
