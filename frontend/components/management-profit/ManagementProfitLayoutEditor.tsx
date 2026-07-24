@@ -166,8 +166,8 @@ export function ManagementProfitLayoutEditor({
           <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-[2px]" />
         </TransitionChild>
 
-        <div className="fixed inset-0 overflow-y-auto">
-          <div className="flex min-h-full items-center justify-center p-4">
+        <div className="fixed inset-0 overflow-hidden lg:overflow-y-auto">
+          <div className="flex min-h-full items-end justify-center p-0 lg:items-center lg:p-4">
             <TransitionChild
               as={Fragment}
               enter="ease-out duration-200"
@@ -177,15 +177,15 @@ export function ManagementProfitLayoutEditor({
               leaveFrom="translate-y-0 opacity-100 scale-100"
               leaveTo="translate-y-3 opacity-0 scale-[0.98]"
             >
-              <DialogPanel className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-                <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
+              <DialogPanel className="flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl lg:h-auto lg:max-h-[94vh] lg:max-w-2xl lg:rounded-2xl lg:border lg:border-slate-200">
+                <div className="flex flex-none items-start justify-between border-b border-slate-200 px-4 pb-3 pt-[calc(0.875rem+env(safe-area-inset-top))] lg:px-6 lg:py-4">
                   <div>
                     <DialogTitle className="text-base font-semibold text-slate-900">
                       Rapor görünümü
                     </DialogTitle>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
                       Satır kırılımlarını ve açılış düzenini belirleyin. Tarih
-                      aralığı her girişte sunucu tarafından güncel hesaplanır.
+                      aralığı girişte seçilir ve bu görünüme kaydedilmez.
                     </p>
                   </div>
                   <button
@@ -193,13 +193,13 @@ export function ManagementProfitLayoutEditor({
                     onClick={onClose}
                     disabled={saving}
                     aria-label="Pencereyi kapat"
-                    className="ml-4 inline-flex h-9 w-9 flex-none items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                    className="ml-4 inline-flex h-11 w-11 flex-none items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50 lg:h-9 lg:w-9"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
 
-                <div className="max-h-[68vh] space-y-6 overflow-y-auto px-5 py-5 sm:px-6">
+                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4 lg:max-h-[68vh] lg:space-y-6 lg:px-6 lg:py-5">
                   <section>
                     <div className="mb-2 flex items-center justify-between">
                       <div>
@@ -233,7 +233,7 @@ export function ManagementProfitLayoutEditor({
                             disabled={index === 0}
                             title="Yukarı taşı"
                             aria-label={`${rowFieldMap.get(fieldId) || fieldId} alanını yukarı taşı`}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-slate-800 disabled:opacity-25"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-slate-800 disabled:opacity-25 lg:h-8 lg:w-8"
                           >
                             <ArrowUp className="h-4 w-4" />
                           </button>
@@ -243,7 +243,7 @@ export function ManagementProfitLayoutEditor({
                             disabled={index === draft.rowFields.length - 1}
                             title="Aşağı taşı"
                             aria-label={`${rowFieldMap.get(fieldId) || fieldId} alanını aşağı taşı`}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-slate-800 disabled:opacity-25"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-slate-800 disabled:opacity-25 lg:h-8 lg:w-8"
                           >
                             <ArrowDown className="h-4 w-4" />
                           </button>
@@ -253,7 +253,7 @@ export function ManagementProfitLayoutEditor({
                             disabled={draft.rowFields.length <= 1}
                             title="Alanı kaldır"
                             aria-label={`${rowFieldMap.get(fieldId) || fieldId} alanını kaldır`}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-25"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-25 lg:h-8 lg:w-8"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -280,7 +280,7 @@ export function ManagementProfitLayoutEditor({
                           type="button"
                           onClick={addRow}
                           disabled={!fieldToAdd}
-                          className="btn-secondary h-10 px-3"
+                          className="btn-secondary h-11 px-3 lg:h-10"
                         >
                           <Plus className="h-4 w-4" />
                           Ekle
@@ -391,34 +391,51 @@ export function ManagementProfitLayoutEditor({
                   </label>
                 </div>
 
-                <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:px-6">
+                <div className="flex flex-none items-center gap-2 border-t border-slate-200 bg-slate-50 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 lg:px-6 lg:py-4">
                   <button
                     type="button"
                     onClick={reset}
                     disabled={saving}
-                    className="btn-ghost sm:mr-auto"
+                    title="Sistem varsayılanına dön"
+                    aria-label="Sistem varsayılanına dön"
+                    className="btn-ghost h-11 w-11 flex-none px-0 lg:mr-auto lg:h-auto lg:w-auto lg:px-3"
                   >
                     <RotateCcw className="h-4 w-4" />
-                    Sistem varsayılanına dön
+                    <span className="hidden lg:inline">
+                      Sistem varsayılanına dön
+                    </span>
                   </button>
                   <button
                     type="button"
                     onClick={() => onApply(cloneLayout(draft))}
                     disabled={saving || draft.rowFields.length === 0}
-                    className="btn-secondary"
+                    className="btn-secondary h-11 min-w-0 flex-1 px-2 lg:h-auto lg:flex-none lg:px-3"
                   >
                     <Check className="h-4 w-4" />
-                    Bu oturumda uygula
+                    <span className="lg:hidden">Uygula</span>
+                    <span className="hidden lg:inline">Bu oturumda uygula</span>
                   </button>
                   {canSave && (
                     <button
                       type="button"
                       onClick={() => onSave(cloneLayout(draft))}
                       disabled={saving || draft.rowFields.length === 0}
-                      className="btn-primary"
+                      className="btn-primary h-11 min-w-0 flex-1 px-2 lg:h-auto lg:flex-none lg:px-3"
                     >
                       <Save className="h-4 w-4" />
-                      {saving ? 'Kaydediliyor…' : 'Görünümü kaydet'}
+                      {saving ? (
+                        <>
+                          <span className="lg:hidden">Kaydediliyor</span>
+                          <span className="hidden lg:inline">Kaydediliyor…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="lg:hidden">Kaydet</span>
+                          <span className="hidden lg:inline">
+                            Görünümü kaydet
+                          </span>
+                        </>
+                      )}
                     </button>
                   )}
                 </div>

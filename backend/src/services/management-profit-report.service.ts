@@ -7,11 +7,14 @@ import { prisma } from '../utils/prisma';
 import managementProfitReportMikroService from './management-profit-report-mikro.service';
 import {
   DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT,
+  isValidManagementProfitReportPeriod,
   managementProfitReportFieldCatalog,
   ManagementProfitReportLayout,
+  ManagementProfitReportPeriod,
   normalizeManagementProfitReportLayout,
   normalizeManagementProfitReportPath,
   resolveIstanbulMonthToDate,
+  resolveManagementProfitReportPeriod,
 } from '../utils/management-profit-report-layout';
 
 const LINK_STATUSES = new Set(['ACTIVE', 'PAUSED', 'REVOKED']);
@@ -38,7 +41,7 @@ type AccessSessionPayload = {
   version: number;
   userAgentHash: string;
   expiresAt: number;
-  period: ReturnType<typeof resolveIstanbulMonthToDate>;
+  period: ManagementProfitReportPeriod;
 };
 
 type LinkUpdateInput = {
@@ -117,16 +120,19 @@ class ManagementProfitReportService {
     return expected.length === derived.length && crypto.timingSafeEqual(expected, derived);
   }
 
-  private signSession(link: { id: string; sessionVersion: number }, userAgent?: string | null) {
+  private signSession(
+    link: { id: string; sessionVersion: number },
+    userAgent?: string | null,
+    period = resolveIstanbulMonthToDate()
+  ) {
     const payload: AccessSessionPayload = {
       linkId: link.id,
       version: link.sessionVersion,
       userAgentHash: this.userAgentHash(userAgent),
       expiresAt: Date.now() + ACCESS_TTL_MS,
-      // The user asked for the month-to-date period of the day on which the
-      // secure link is opened. Keep that period stable for this PIN session so
-      // /view and later drill queries cannot cross into different days/months.
-      period: resolveIstanbulMonthToDate(),
+      // Keep the server-normalized period stable for this PIN session so
+      // /view and later drill queries cannot cross into a different range.
+      period,
     };
     const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const signature = crypto
@@ -165,11 +171,7 @@ class ManagementProfitReportService {
         || !Number.isFinite(parsed.expiresAt)
         || parsed.expiresAt <= Date.now()
         || parsed.userAgentHash !== this.userAgentHash(userAgent)
-        || parsed.period?.preset !== 'ISTANBUL_MONTH_TO_DATE'
-        || parsed.period?.timeZone !== 'Europe/Istanbul'
-        || !/^\d{4}-\d{2}-01$/.test(parsed.period?.startDate || '')
-        || !/^\d{4}-\d{2}-\d{2}$/.test(parsed.period?.endDate || '')
-        || parsed.period.startDate.slice(0, 7) !== parsed.period.endDate.slice(0, 7)
+        || !isValidManagementProfitReportPeriod(parsed.period)
       ) {
         return null;
       }
@@ -505,7 +507,12 @@ class ManagementProfitReportService {
     };
   }
 
-  async authorize(rawTokenInput: unknown, pinInput: unknown, context: PublicContext) {
+  async authorize(
+    rawTokenInput: unknown,
+    pinInput: unknown,
+    context: PublicContext,
+    periodInput?: unknown
+  ) {
     const rawToken = String(rawTokenInput || '').trim();
     if (!TOKEN_PATTERN.test(rawToken)) {
       throw new AppError('Rapor bağlantısı bulunamadı.', 404, ErrorCode.NOT_FOUND);
@@ -553,12 +560,15 @@ class ManagementProfitReportService {
       );
     }
 
+    // Only normalize optional dates after the PIN is valid. The normalized
+    // period is signed into the session and never accepted by /public/query.
+    const period = resolveManagementProfitReportPeriod(periodInput);
     await this.clearPinFailures(link.id, clientHash);
     await prisma.managementProfitReportAccessAttempt.create({
       data: { linkId: link.id, clientHash, outcome: 'SUCCESS' },
     });
     return {
-      sessionToken: this.signSession(link, context.userAgent),
+      sessionToken: this.signSession(link, context.userAgent, period),
       expiresInMs: ACCESS_TTL_MS,
     };
   }

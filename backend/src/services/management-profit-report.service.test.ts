@@ -45,6 +45,32 @@ test('management report PIN and signed session guards reject tampering', async (
   );
 });
 
+test('management report signed session keeps a valid custom period fixed', () => {
+  const period = {
+    preset: 'CUSTOM',
+    startDate: '2025-01-01',
+    endDate: '2025-12-31',
+    label: '1 Ocak 2025 – 31 Aralık 2025',
+    timeZone: 'Europe/Istanbul',
+  };
+  const token = service.signSession(
+    { id: 'link-custom-period', sessionVersion: 3 },
+    'browser-a',
+    period
+  );
+  assert.deepEqual(service.decodeSession(token, 'browser-a')?.period, period);
+
+  const invalidPeriodToken = service.signSession(
+    { id: 'link-invalid-period', sessionVersion: 1 },
+    'browser-a',
+    {
+      ...period,
+      startDate: '2024-12-01',
+    }
+  );
+  assert.equal(service.decodeSession(invalidPeriodToken, 'browser-a'), null);
+});
+
 test('PIN client throttle identity cannot be split by changing User-Agent', () => {
   const first = service.clientHash({
     ip: '203.0.113.10',

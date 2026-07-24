@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DEFAULT_MANAGEMENT_PROFIT_REPORT_LAYOUT,
+  isValidManagementProfitReportPeriod,
   MANAGEMENT_PROFIT_REPORT_ROW_FIELDS,
   managementProfitReportFieldCatalog,
   normalizeManagementProfitReportLayout,
   normalizeManagementProfitReportPath,
   resolveIstanbulMonthToDate,
+  resolveManagementProfitReportPeriod,
 } from './management-profit-report-layout';
 
 test('management profit report keeps the screenshot field order as its default', () => {
@@ -102,5 +104,72 @@ test('Istanbul month-to-date follows the local day across UTC midnight', () => {
   assert.equal(
     resolveIstanbulMonthToDate(new Date('2026-12-31T21:30:00.000Z')).startDate,
     '2027-01-01'
+  );
+});
+
+test('management report custom period is normalized and limited to 12 calendar months', () => {
+  const now = new Date('2026-07-24T12:00:00.000Z');
+  assert.deepEqual(
+    resolveManagementProfitReportPeriod(undefined, now),
+    resolveIstanbulMonthToDate(now)
+  );
+  const period = resolveManagementProfitReportPeriod(
+    {
+      startDate: '2025-08-01',
+      endDate: '2026-07-24',
+    },
+    now
+  );
+  assert.deepEqual(period, {
+    preset: 'CUSTOM',
+    startDate: '2025-08-01',
+    endDate: '2026-07-24',
+    label: '1 Ağustos 2025 – 24 Temmuz 2026',
+    timeZone: 'Europe/Istanbul',
+  });
+  assert.equal(isValidManagementProfitReportPeriod(period, now), true);
+
+  assert.throws(
+    () =>
+      resolveManagementProfitReportPeriod(
+        {
+          startDate: '2025-07-01',
+          endDate: '2026-07-24',
+        },
+        now
+      ),
+    (error: any) =>
+      error?.details?.reportAccessCode === 'REPORT_PERIOD_TOO_LARGE'
+  );
+});
+
+test('management report custom period rejects incomplete, impossible, reversed and future dates', () => {
+  const now = new Date('2026-07-24T12:00:00.000Z');
+  const rejectsWith = (input: unknown, reportAccessCode: string) =>
+    assert.throws(
+      () => resolveManagementProfitReportPeriod(input, now),
+      (error: any) => error?.details?.reportAccessCode === reportAccessCode
+    );
+
+  rejectsWith({ startDate: '2026-07-01' }, 'REPORT_PERIOD_INVALID');
+  rejectsWith(
+    { startDate: '2026-02-29', endDate: '2026-03-01' },
+    'REPORT_PERIOD_INVALID'
+  );
+  rejectsWith(
+    { startDate: '2026-07-24', endDate: '2026-07-01' },
+    'REPORT_PERIOD_ORDER_INVALID'
+  );
+  rejectsWith(
+    { startDate: '2026-07-01', endDate: '2026-07-25' },
+    'REPORT_PERIOD_FUTURE_INVALID'
+  );
+  rejectsWith(
+    {
+      startDate: '2026-07-01',
+      endDate: '2026-07-24',
+      preset: 'CUSTOM',
+    },
+    'REPORT_PERIOD_INVALID'
   );
 });

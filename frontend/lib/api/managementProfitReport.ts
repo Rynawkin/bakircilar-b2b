@@ -44,16 +44,23 @@ export interface ManagementProfitField {
   label: string;
 }
 
+export interface ManagementProfitPeriodInput {
+  startDate: string;
+  endDate: string;
+}
+
+export interface ManagementProfitPeriod extends ManagementProfitPeriodInput {
+  preset: 'ISTANBUL_MONTH_TO_DATE' | 'CUSTOM';
+  label: string;
+  timeZone: 'Europe/Istanbul';
+}
+
 export interface ManagementProfitView {
   link: {
     name: string;
     canSaveLayout: boolean;
   };
-  period: {
-    startDate: string;
-    endDate: string;
-    label: string;
-  };
+  period: ManagementProfitPeriod;
   layout: ManagementProfitLayout;
   revision: number;
   fields: {
@@ -223,10 +230,14 @@ const unwrapSecretResponse = (
 };
 
 export const managementProfitPublicApi = {
-  access: (token: string, pin: string) =>
+  access: (
+    token: string,
+    pin: string,
+    period?: ManagementProfitPeriodInput
+  ) =>
     publicRequest<{ success?: boolean }>('/public/access', {
       method: 'POST',
-      body: JSON.stringify({ token, pin }),
+      body: JSON.stringify({ token, pin, ...(period ? { period } : {}) }),
     }),
 
   view: () => publicRequest<ManagementProfitView>('/public/view'),

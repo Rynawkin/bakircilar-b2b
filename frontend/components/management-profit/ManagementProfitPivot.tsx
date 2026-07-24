@@ -32,6 +32,7 @@ interface VisibleNode {
 const pathKey = (path: ManagementProfitPath) => JSON.stringify(path);
 const AUTO_EXPAND_NODE_LIMIT = 12;
 const AUTO_EXPAND_CONCURRENCY = 3;
+const MOBILE_GRAND_TOTAL_KEY = '__grand_total__';
 
 const amountValue = (value: unknown) => {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -70,6 +71,9 @@ export function ManagementProfitPivot({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [selectedMobileMetricKey, setSelectedMobileMetricKey] = useState<
+    string | null
+  >(null);
   const generationRef = useRef(0);
 
   useEffect(() => {
@@ -81,6 +85,7 @@ export function ManagementProfitPivot({
       setLoading(true);
       setError(null);
       setLoadingPaths(new Set());
+      setSelectedMobileMetricKey(null);
 
       try {
         const rootResponse = await managementProfitPublicApi.query(layout, []);
@@ -93,9 +98,14 @@ export function ManagementProfitPivot({
         const nextExpanded = new Set<string>();
         let frontier = rootResponse.nodes;
 
+        const autoExpandDepth =
+          rootResponse.months.length === 1
+            ? Math.min(1, layout.defaultExpandedDepth)
+            : 0;
+
         for (
           let depth = 0;
-          depth < Math.min(1, layout.defaultExpandedDepth);
+          depth < autoExpandDepth;
           depth += 1
         ) {
           const expandable = frontier
@@ -284,6 +294,28 @@ export function ManagementProfitPivot({
   const hierarchyLabel = layout.rowFields
     .map((field) => fieldLabels.get(field) || field)
     .join(' › ');
+  const defaultMobileMetricKey =
+    root.months.length === 1
+      ? root.months[0]?.key || MOBILE_GRAND_TOTAL_KEY
+      : layout.showGrandTotal
+        ? MOBILE_GRAND_TOTAL_KEY
+        : root.months[root.months.length - 1]?.key || MOBILE_GRAND_TOTAL_KEY;
+  const activeMobileMetricKey =
+    selectedMobileMetricKey &&
+    ((layout.showGrandTotal &&
+      selectedMobileMetricKey === MOBILE_GRAND_TOTAL_KEY) ||
+      root.months.some((month) => month.key === selectedMobileMetricKey))
+      ? selectedMobileMetricKey
+      : defaultMobileMetricKey;
+  const activeMobileMetricLabel =
+    activeMobileMetricKey === MOBILE_GRAND_TOTAL_KEY
+      ? 'Genel toplam'
+      : root.months.find((month) => month.key === activeMobileMetricKey)?.label ||
+        'Dönem';
+  const activeMobileTotal =
+    activeMobileMetricKey === MOBILE_GRAND_TOTAL_KEY
+      ? root.grandTotal
+      : monthTotals[activeMobileMetricKey];
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -301,7 +333,144 @@ export function ManagementProfitPivot({
         </div>
       )}
 
-      <div className="relative overflow-auto">
+      <div className="relative min-w-0 lg:hidden">
+        {loading && (
+          <div className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Yenileniyor
+          </div>
+        )}
+
+        <div className="min-w-0 border-b border-slate-200 bg-slate-900 px-3 py-3 text-white [@media(max-height:600px)]:py-2">
+          <div className="flex min-w-0 items-end justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-white/55 [@media(max-height:600px)]:hidden">
+                Gösterilen değer
+              </div>
+              <div className="mt-0.5 truncate text-xs font-semibold text-white/90 [@media(max-height:600px)]:mt-0">
+                {activeMobileMetricLabel}
+              </div>
+            </div>
+            <div className="min-w-0 flex-none text-right font-mono text-sm font-bold tabular-nums text-white">
+              {formatAmount(activeMobileTotal, false)}
+            </div>
+          </div>
+
+          <div
+            className="mt-3 flex max-w-full snap-x gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [@media(max-height:600px)]:mt-1.5"
+            aria-label="Gösterilecek dönem"
+            role="group"
+          >
+            {layout.showGrandTotal && (
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedMobileMetricKey(MOBILE_GRAND_TOTAL_KEY)
+                }
+                aria-pressed={
+                  activeMobileMetricKey === MOBILE_GRAND_TOTAL_KEY
+                }
+                className={`min-h-11 flex-none snap-start rounded-full border px-3.5 text-xs font-semibold transition ${
+                  activeMobileMetricKey === MOBILE_GRAND_TOTAL_KEY
+                    ? 'border-white bg-white text-slate-900'
+                    : 'border-white/20 bg-white/5 text-white/75 hover:bg-white/10'
+                }`}
+              >
+                Genel toplam
+              </button>
+            )}
+            {root.months.map((month) => {
+              const selected = activeMobileMetricKey === month.key;
+              return (
+                <button
+                  key={month.key}
+                  type="button"
+                  onClick={() => setSelectedMobileMetricKey(month.key)}
+                  aria-pressed={selected}
+                  className={`min-h-11 flex-none snap-start rounded-full border px-3.5 text-xs font-semibold transition ${
+                    selected
+                      ? 'border-white bg-white text-slate-900'
+                      : 'border-white/20 bg-white/5 text-white/75 hover:bg-white/10'
+                  }`}
+                >
+                  {month.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="min-w-0 divide-y divide-slate-200">
+          {visibleNodes.map(({ node, depth, key }) => {
+            const expanded = expandedPaths.has(key);
+            const branchLoading = loadingPaths.has(key);
+            const nodeAmount =
+              activeMobileMetricKey === MOBILE_GRAND_TOTAL_KEY
+                ? node.grandTotal
+                : node.amounts?.[activeMobileMetricKey];
+            return (
+              <div key={key} className="flex min-w-0 items-stretch bg-white">
+                <div
+                  className="flex min-w-0 flex-1 items-center py-2 pr-2"
+                  style={{ paddingLeft: `${4 + Math.min(depth, 8) * 12}px` }}
+                >
+                  {node.hasChildren ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleNode(node)}
+                      aria-expanded={expanded}
+                      aria-label={`${node.label || node.value || 'Tanımsız'} kırılımını ${expanded ? 'daralt' : 'genişlet'}`}
+                      className="mr-1 inline-flex h-11 w-11 flex-none items-center justify-center rounded-lg text-slate-500 active:bg-slate-200 active:text-slate-900"
+                    >
+                      {branchLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : expanded ? (
+                        <ChevronDown className="h-5 w-5" />
+                      ) : (
+                        <ChevronRight className="h-5 w-5" />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="mr-1 h-11 w-11 flex-none" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="line-clamp-2 break-words text-sm font-semibold leading-5 text-slate-800"
+                      title={node.label || node.value || 'Tanımsız'}
+                    >
+                      {node.label || node.value || 'Tanımsız'}
+                    </div>
+                    <div className="mt-0.5 truncate text-[10px] font-medium uppercase tracking-[0.04em] text-slate-400">
+                      {fieldLabels.get(layout.rowFields[depth]) ||
+                        layout.rowFields[depth] ||
+                        'Kırılım'}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className="flex w-[118px] flex-none items-center justify-end overflow-hidden whitespace-nowrap border-l border-slate-200 bg-slate-50 px-2 text-right font-mono text-[11px] font-semibold tabular-nums text-slate-900 max-[359px]:text-[10px] sm:w-[132px] sm:px-3 sm:text-[13px]"
+                  title={formatAmount(
+                    nodeAmount,
+                    activeMobileMetricKey !== MOBILE_GRAND_TOTAL_KEY
+                  )}
+                >
+                  {formatAmount(
+                    nodeAmount,
+                    activeMobileMetricKey !== MOBILE_GRAND_TOTAL_KEY
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {visibleNodes.length === 0 && (
+            <div className="px-5 py-14 text-center text-sm text-slate-500">
+              Seçili görünüm için kayıt bulunamadı.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="relative hidden overflow-auto lg:block">
         {loading && (
           <div className="absolute right-3 top-3 z-40 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

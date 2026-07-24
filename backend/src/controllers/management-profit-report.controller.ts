@@ -51,7 +51,8 @@ class ManagementProfitReportController {
       const result = await managementProfitReportService.authorize(
         req.body?.token,
         req.body?.pin,
-        publicContext(req)
+        publicContext(req),
+        req.body?.period
       );
       res.cookie(ACCESS_COOKIE, result.sessionToken, {
         httpOnly: true,
