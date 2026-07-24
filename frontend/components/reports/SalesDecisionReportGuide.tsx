@@ -7,6 +7,8 @@ import {
 } from '@/lib/reports/salesDecisionReports';
 
 export function SalesDecisionReportGuide({ active }: { active: SalesDecisionReportKey }) {
+  const activeReport = SALES_DECISION_REPORT_LIST.find((report) => report.key === active)!;
+
   return (
     <section
       aria-label="Satış karar raporları"
@@ -45,6 +47,38 @@ export function SalesDecisionReportGuide({ active }: { active: SalesDecisionRepo
             </Link>
           );
         })}
+      </div>
+      <div
+        className="mt-3 grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-3"
+        style={{
+          borderColor: `${activeReport.accent}33`,
+          background: `${activeReport.accent}08`,
+        }}
+      >
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">
+            Bu raporun sorusu
+          </div>
+          <div className="mt-1 text-[11.5px] leading-4 text-slate-800">
+            {activeReport.decisionQuestion}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">
+            Satıra giriş koşulu
+          </div>
+          <div className="mt-1 text-[11.5px] leading-4 text-slate-800">
+            {activeReport.inclusionRule}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">
+            İlk aksiyon
+          </div>
+          <div className="mt-1 text-[11.5px] leading-4 text-slate-800">
+            {activeReport.firstAction}
+          </div>
+        </div>
       </div>
     </section>
   );

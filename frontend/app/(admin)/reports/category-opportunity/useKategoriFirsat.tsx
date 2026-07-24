@@ -34,6 +34,7 @@ export interface OpportunityRow {
   sourceDocumentCount: number;
   sourceRevenue: number;
   lastSourcePurchaseDate: string | null;
+  daysSinceLastSourcePurchase: number | null;
   recommendations: OpportunityRecommendation[];
 }
 

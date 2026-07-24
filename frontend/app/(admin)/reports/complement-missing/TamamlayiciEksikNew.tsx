@@ -17,7 +17,12 @@ import {
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { SalesDecisionReportGuide } from '@/components/reports/SalesDecisionReportGuide';
+import {
+  ReportFreshnessBadge,
+  ReportRecency,
+} from '@/components/reports/ReportReadability';
 import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
+import { formatReportDate } from '@/lib/reports/salesDecisionReportFormat';
 import { useTamamlayiciEksik, type ComplementMissingItem } from './useTamamlayiciEksik';
 
 /**
@@ -47,8 +52,8 @@ const RED = '#b91c1c';
 const REPORT_DEFINITION = SALES_DECISION_REPORTS.complementMissing;
 
 // Tablo grid sablonu: basliklar ve satirlar ayni grid'i kullanir.
-// Kod | Ad (cari/urun moda gore) | Evrak | Eksik Tamamlayicilar | Potansiyel Aylik Gelir | Adet | Aksiyon
-const GRID = '1.1fr 1.7fr 70px 2.4fr 1.3fr 70px 150px';
+// Kod | Ad | Son baz alim | Evrak | Eksikler | Aylik tahmin | Eksik sayisi | Aksiyon
+const GRID = '1.05fr 1.55fr 1.15fr 70px 2.25fr 1.15fr 70px 150px';
 
 const cardStyle: React.CSSProperties = {
   background: '#fff',
@@ -200,24 +205,14 @@ export default function TamamlayiciEksikNew() {
       : metadata?.associationSource === 'AUTO'
         ? 'Otomatik birlikte alım'
         : 'İlişki kaynağı yok';
-  const formatMetadataDate = (value?: string | null, withTime = false) => {
-    if (!value) return '-';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString('tr-TR', withTime
-      ? { dateStyle: 'short', timeStyle: 'short' }
-      : { dateStyle: 'short' });
-  };
-
   const renderMissingList = (items: ComplementMissingItem[]) => {
     if (items.length === 0) return <span style={{ color: FAINT }}>-</span>;
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {items.map((item) => {
-          const hasEstimate =
-            Number.isFinite(item.estimatedQuantity) ||
-            Number.isFinite(item.unitPrice) ||
+          const hasPricedEstimate =
+            Number.isFinite(item.unitPrice) &&
             Number.isFinite(item.estimatedRevenue);
 
           return (
@@ -234,11 +229,18 @@ export default function TamamlayiciEksikNew() {
                 </span>
                 <span style={{ color: MUTED }}> - {item.productName}</span>
               </div>
-              {hasEstimate && (
+              {hasPricedEstimate ? (
                 <div style={{ fontSize: 10.5, color: FAINT, marginTop: 2 }}>
                   {formatQuantity(item.estimatedQuantity)} x {formatMoney(item.unitPrice)} = {formatMoney(item.estimatedRevenue)}
                 </div>
-              )}
+              ) : revenueEstimateAvailable ? (
+                <div style={{ fontSize: 10.5, color: AMBER, marginTop: 2 }}>
+                  {Number.isFinite(item.estimatedQuantity)
+                    ? `Tahmini ${formatQuantity(item.estimatedQuantity)} adet · `
+                    : ''}
+                  Fiyat bulunamadı; gelir tahminine dahil değil
+                </div>
+              ) : null}
             </div>
           );
         })}
@@ -378,7 +380,7 @@ export default function TamamlayiciEksikNew() {
                   fontFamily: 'inherit',
                 }}
               >
-                Ürün Bazlı
+                Bir Ürünü Alan Cariler
               </button>
               <button
                 type="button"
@@ -395,7 +397,7 @@ export default function TamamlayiciEksikNew() {
                   fontFamily: 'inherit',
                 }}
               >
-                Cari Bazlı
+                Bir Carinin Alım Geçmişi
               </button>
             </div>
           </div>
@@ -408,9 +410,9 @@ export default function TamamlayiciEksikNew() {
               onChange={(e) => setMatchMode(e.target.value as 'product' | 'category' | 'group')}
               style={{ ...inputStyle, cursor: 'pointer' }}
             >
-              <option value="product">Ürün Bazlı</option>
-              <option value="category">Kategori Bazlı</option>
-              <option value="group">Grup Bazlı</option>
+              <option value="product">Eksik Ürün</option>
+              <option value="category">Eksik Kategori Kapsamı</option>
+              <option value="group">Eksik Grup Kapsamı</option>
             </select>
           </div>
 
@@ -674,7 +676,7 @@ export default function TamamlayiciEksikNew() {
           <div style={metaCard}>
             <div style={{ fontSize: 11.5, color: FAINT }}>Rapor Modu</div>
             <div style={{ fontSize: 16, fontWeight: 600, color: INK, marginTop: 5 }}>
-              {metadata.mode === 'product' ? 'Ürün' : 'Cari'}
+              {metadata.mode === 'product' ? 'Bir ürünü alan cariler' : 'Bir carinin alım geçmişi'}
             </div>
             <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>Eşleşme: {matchModeLabel}</div>
           </div>
@@ -716,11 +718,19 @@ export default function TamamlayiciEksikNew() {
               {associationSourceLabel}
             </div>
             <div style={{ fontSize: 11, color: MUTED, marginTop: 3 }}>
-              Otomatik pencere: {formatMetadataDate(metadata.associationWindowStart)} - {formatMetadataDate(metadata.associationWindowEnd)}
+              Otomatik pencere: {formatReportDate(metadata.associationWindowStart)} - {formatReportDate(metadata.associationWindowEnd)}
             </div>
-            <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>
-              Son güncelleme: {formatMetadataDate(metadata.associationUpdatedAt, true)}
-            </div>
+            {metadata.associationSource === 'MANUAL' ? (
+              <div style={{ marginTop: 5, fontSize: 10.5, color: MUTED }}>
+                Manuel ilişkiler yönetici tanımıyla güncellenir; otomatik yenileme planı yoktur.
+              </div>
+            ) : metadata.associationSource === 'NONE' ? (
+              <div style={{ marginTop: 5, fontSize: 10.5, color: RED }}>
+                Kullanılabilir tamamlayıcı ilişki kaynağı bulunamadı.
+              </div>
+            ) : (
+              <ReportFreshnessBadge updatedAt={metadata.associationUpdatedAt} />
+            )}
           </div>
         </div>
       )}
@@ -813,6 +823,19 @@ export default function TamamlayiciEksikNew() {
 
       {/* Tablo karti */}
       <div style={{ ...cardStyle, overflow: 'hidden' }}>
+        {submitted && (
+          <div style={{ padding: '13px 16px', borderBottom: `1px solid ${SOFT_LINE}` }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>
+              {showProductTable
+                ? 'Baz Ürünü Alan Carilerde Eksik Tamamlayıcılar'
+                : 'Carinin Ürünlerinde Eksik Tamamlayıcılar'}
+            </div>
+            <div style={{ marginTop: 3, fontSize: 11.5, color: FAINT }}>
+              Bu liste canlı sepeti değil, seçili dönemde gerçekleşmiş alış geçmişini analiz eder;
+              mevcut alışın yanında beklenen fakat alınmayan kalemleri gösterir.
+            </div>
+          </div>
+        )}
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
             <RefreshCw
@@ -844,7 +867,7 @@ export default function TamamlayiciEksikNew() {
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>
-              <div style={{ minWidth: 1080 }}>
+              <div style={{ minWidth: 1160 }}>
                 {/* Header row */}
                 <div
                   style={{
@@ -872,10 +895,11 @@ export default function TamamlayiciEksikNew() {
                       <span>Ürün Adı</span>
                     </>
                   )}
-                  <span style={cellRight}>Evrak</span>
+                  <span>{showProductTable ? 'Baz Ürün Son Alımı' : 'Cari-Ürün Son Alımı'}</span>
+                  <span style={cellRight}>{showProductTable ? 'Baz Ürün Evrakı' : 'Cari-Ürün Evrakı'}</span>
                   <span>Eksik Tamamlayıcılar</span>
-                  <span style={cellRight}>Fiyatı Bulunan Kalemlerin Aylık Tahmini</span>
-                  <span style={cellRight}>Adet</span>
+                  <span style={cellRight}>Fiyatı Bulunanların Aylık Tahmini</span>
+                  <span style={cellRight}>Eksik Sayısı</span>
                   <span style={cellRight}>Aksiyon</span>
                 </div>
 
@@ -933,6 +957,11 @@ export default function TamamlayiciEksikNew() {
                           <span style={{ fontWeight: 500 }}>{row.productName || '-'}</span>
                         </>
                       )}
+                      <ReportRecency
+                        value={row.lastPurchaseDate}
+                        days={row.daysSinceLastPurchase}
+                        referenceDate={metadata?.endDate}
+                      />
                       <span style={cellRight}>{row.documentCount ?? '-'}</span>
                       <div>{renderMissingList(row.missingComplements)}</div>
                       <span style={{ ...cellRight, fontWeight: 700, color: row.estimatedRevenue !== null ? EMERALD : FAINT }}>
@@ -954,7 +983,7 @@ export default function TamamlayiciEksikNew() {
                             style={rowActionBtn}
                           >
                             <StickyNote size={13} strokeWidth={2} />
-                            Not Ekle
+                            Not Görevi Aç
                           </button>
                           <button
                             type="button"
@@ -962,7 +991,7 @@ export default function TamamlayiciEksikNew() {
                             style={rowActionBtn}
                           >
                             <Megaphone size={13} strokeWidth={2} />
-                            Kampanya Öner
+                            Satış Görevi Aç
                           </button>
                           <button
                             type="button"
@@ -1035,11 +1064,11 @@ export default function TamamlayiciEksikNew() {
         )}
       </div>
 
-      {/* Aksiyon Modal (Not / Kampanya) — mevcut Modal/Button bilesenleri korunur */}
+      {/* Aksiyon Modal */}
       <Modal
         isOpen={Boolean(actionType)}
         onClose={closeActionModal}
-        title={actionType === 'campaign' ? 'Kampanya Önerisi' : 'Not Ekle'}
+        title={actionType === 'campaign' ? 'Satış Görevi Aç' : 'Not Görevi Aç'}
         footer={
           <>
             <Button variant="outline" onClick={closeActionModal}>

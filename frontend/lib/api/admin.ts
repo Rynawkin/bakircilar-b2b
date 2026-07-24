@@ -3644,6 +3644,8 @@ export const adminApi = {
         productCode?: string;
         productName?: string;
         documentCount?: number;
+        lastPurchaseDate: string | null;
+        daysSinceLastPurchase: number | null;
         missingComplements: Array<{
           productCode: string;
           productName: string;
@@ -3734,6 +3736,7 @@ export const adminApi = {
         customerName?: string;
         customerSectorCode?: string | null;
         customerLastSaleDate?: string | null;
+        daysSinceCustomerLastSale: number | null;
         categoryCode?: string;
         categoryName?: string;
         lastPurchaseDate: string | null;
@@ -4028,6 +4031,7 @@ export const adminApi = {
         sourceDocumentCount: number;
         sourceRevenue: number;
         lastSourcePurchaseDate: string | null;
+        daysSinceLastSourcePurchase: number | null;
         recommendations: Array<{
           recommendedProductCode: string;
           recommendedProductName: string;

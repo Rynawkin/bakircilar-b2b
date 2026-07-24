@@ -33,6 +33,7 @@ export interface CategoryChurnRow {
   customerName?: string;
   customerSectorCode?: string | null;
   customerLastSaleDate?: string | null;
+  daysSinceCustomerLastSale: number | null;
   categoryCode?: string;
   categoryName?: string;
   lastPurchaseDate: string | null;

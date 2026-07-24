@@ -19,6 +19,7 @@ import {
   type SortBy,
 } from './useKategoriAlimKaybi';
 import { SalesDecisionReportGuide } from '@/components/reports/SalesDecisionReportGuide';
+import { ReportRecency } from '@/components/reports/ReportReadability';
 import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
 
 /**
@@ -602,7 +603,7 @@ export default function KategoriAlimKaybiNew() {
           }}
         >
           Bu ekran yalnız daha önce alınmış bir kategori-cari bağının kesilmesini gösterir.
-          Seçili kategoriyi hiç almamış cariler için “Yeni Kategori Kazandırma Fırsatları” raporunu kullanın.
+          Seçili kategoriyi hiç almamış cariler için “{SALES_DECISION_REPORTS.categoryOpportunity.title}” raporunu kullanın.
         </div>
 
         <div style={{ marginTop: 14 }}>
@@ -775,8 +776,8 @@ export default function KategoriAlimKaybiNew() {
                       <SortHead field="customerSectorCode" label="Sektör Kodu" sortBy={sortBy} sortDirection={sortDirection} onSort={handleSort} />
                     </>
                   )}
-                  <SortHead field="lastPurchaseDate" label="Son Alım Tarihi" sortBy={sortBy} sortDirection={sortDirection} onSort={handleSort} />
-                  <SortHead field="customerLastSaleDate" label="Cari Son Satış" sortBy={sortBy} sortDirection={sortDirection} onSort={handleSort} />
+                  <SortHead field="lastPurchaseDate" label="Kategori Son Alımı" sortBy={sortBy} sortDirection={sortDirection} onSort={handleSort} />
+                  <SortHead field="customerLastSaleDate" label="Cari Genel Son Satış" sortBy={sortBy} sortDirection={sortDirection} onSort={handleSort} />
                   <SortHead field="historicalDocumentCount" label="Geçmiş Evrak" align="right" sortBy={sortBy} sortDirection={sortDirection} onSort={handleSort} />
                   <SortHead field="historicalQuantity" label="Geçmiş Miktar" align="right" sortBy={sortBy} sortDirection={sortDirection} onSort={handleSort} />
                   <SortHead field="historicalAmount" label="Geçmiş Tutar" align="right" sortBy={sortBy} sortDirection={sortDirection} onSort={handleSort} />
@@ -860,22 +861,19 @@ export default function KategoriAlimKaybiNew() {
                             </span>
                           </>
                         )}
-                        <div style={{ color: MUTED }}>
-                          <div>{row.lastPurchaseDate || '-'}</div>
-                          <div
-                            style={{
-                              fontSize: 10.5,
-                              color: row.customerActiveOutsideCategory ? EMERALD : FAINT,
-                              marginTop: 2,
-                            }}
-                          >
-                            {row.daysSinceCategoryPurchase !== null
-                              ? `${row.daysSinceCategoryPurchase} gün`
-                              : '-'}
-                            {row.customerActiveOutsideCategory ? ' · diğer kategorilerde aktif' : ''}
-                          </div>
-                        </div>
-                        <span style={{ color: MUTED }}>{row.customerLastSaleDate || '-'}</span>
+                        <ReportRecency
+                          value={row.lastPurchaseDate}
+                          days={row.daysSinceCategoryPurchase}
+                          referenceDate={metadata?.endDate}
+                          status={row.customerActiveOutsideCategory
+                            ? 'diğer kategorilerde aktif'
+                            : 'kesinti döneminde genel alım yok'}
+                        />
+                        <ReportRecency
+                          value={row.customerLastSaleDate}
+                          days={row.daysSinceCustomerLastSale}
+                          referenceDate={metadata?.endDate}
+                        />
                         <span style={cellRight}>{row.historicalDocumentCount}</span>
                         <span style={cellRight}>
                           {Number(row.historicalQuantity || 0).toLocaleString('tr-TR', {

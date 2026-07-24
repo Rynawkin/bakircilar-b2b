@@ -4,7 +4,13 @@ import React from 'react';
 import Link from 'next/link';
 import { Modal } from '@/components/ui/Modal';
 import { SalesDecisionReportGuide } from '@/components/reports/SalesDecisionReportGuide';
+import { ReportRecency } from '@/components/reports/ReportReadability';
 import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
+import {
+  calculateDaysSince,
+  formatDaysAgo,
+  formatReportDate,
+} from '@/lib/reports/salesDecisionReportFormat';
 import { formatCurrency } from '@/lib/utils/format';
 import {
   ChevronRight,
@@ -68,6 +74,16 @@ const TABLE_HEAD_BG = '#fafbfd';
 const EMERALD = '#047857';
 const AMBER = '#b45309';
 const RED = '#b91c1c';
+const riskLabelDisplay: Record<string, string> = {
+  'Son donemde satis yok': 'Son dönemde satış yok',
+  'Anlamsiz dusuk hareket': 'Anlamlı satış hareketi yok',
+  'Ortalamanin altinda': 'Geçmiş ortalamanın altında',
+  'Gecen yilin ayni donemine gore dusuk': 'Geçen yılın aynı dönemine göre düşük',
+  'Donemsel ritim gecikmis': 'Dönemsel alım ritmi gecikmiş',
+  'Donemsel/ihale ritmi tolerans icinde': 'Dönemsel/ihale ritmi tolerans içinde',
+  'Eskiden sik alim yapan cari': 'Geçmişte sık alım yapan cari',
+  'Dusuk guven: az aktif ay': 'Düşük güven: az aktif ay',
+};
 const BLUE = '#1d4ed8';
 const REPORT_DEFINITION = SALES_DECISION_REPORTS.customerRecovery;
 
@@ -749,7 +765,7 @@ export default function CariGeriKazanimNew() {
                     <SortHead label="Düşme" sortBy="dropPercent" activeSort={clientSort} onSort={sort} align="right" />
                     <SortHead label="Kayıp" sortBy="lostPotential" activeSort={clientSort} onSort={sort} align="right" />
                     <span>En çok daralan kategori</span>
-                    <SortHead label="Son alım" sortBy="lastSaleDate" activeSort={clientSort} onSort={sort} />
+                    <SortHead label="Cari son satış / son ürün" sortBy="lastSaleDate" activeSort={clientSort} onSort={sort} />
                     <span>Önerilen aksiyon</span>
                     <span>Takip</span>
                     <span style={cellRight}>Detay</span>
@@ -796,14 +812,11 @@ export default function CariGeriKazanimNew() {
                               {riskTypeLabels[row.riskType]} / {row.riskScore}
                             </span>
                             <span style={{ fontSize: 10.5, color: FAINT }}>{row.confidence} güven</span>
-                            {row.isSeasonal && (
-                              <span style={{ fontSize: 10.5, fontWeight: 500, color: row.seasonalityStatus === 'OVERDUE' ? RED : BLUE }}>
-                                {row.seasonalityStatus === 'OVERDUE' ? 'Dönemsel periyot geçmiş' : 'Dönemsel/ihale ritmi'}
+                            {(row.riskLabels || []).slice(0, 2).map((label) => (
+                              <span key={label} style={{ fontSize: 10.5, color: MUTED, lineHeight: 1.25 }}>
+                                {riskLabelDisplay[label] || label}
                               </span>
-                            )}
-                            {row.purchasePattern === 'FREQUENT' && (
-                              <span style={{ fontSize: 10.5, fontWeight: 500, color: EMERALD }}>Sık alım geçmişi</span>
-                            )}
+                            ))}
                           </div>
                           {/* Gecmis ort */}
                           <span style={{ ...cellRight, fontWeight: 500, color: MUTED }}>{formatCurrency(row.historicalAverage)}</span>
@@ -830,13 +843,33 @@ export default function CariGeriKazanimNew() {
                               {row.topLostCategory ? `Tahmini aylık daralma: ${formatCurrency(row.topLostCategory.lostAmount)}` : row.seasonalityReason || '-'}
                             </div>
                           </div>
-                          {/* Son alim */}
+                          {/* Cari son satis ve son urun birbirine karistirilmadan gosterilir */}
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: 12, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.lastPurchasedProduct?.productName || ''}>
-                              {row.lastPurchasedProduct?.productName || '-'}
-                            </div>
-                            <div style={{ fontSize: 10.5, color: FAINT }}>
-                              {safeDate(row.lastPurchasedProduct?.lastPurchaseDate || row.lastSaleDate)} / {row.daysSinceLastSale ?? '-'} gün
+                            <ReportRecency
+                              value={row.lastSaleDate}
+                              days={row.daysSinceLastSale}
+                              referenceDate={metadata?.reportEndDate}
+                            />
+                            <div
+                              style={{
+                                marginTop: 5,
+                                fontSize: 10.5,
+                                color: FAINT,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                              title={row.lastPurchasedProduct?.productName || ''}
+                            >
+                              Son ürün: {row.lastPurchasedProduct?.productName || '-'}
+                              {row.lastPurchasedProduct?.lastPurchaseDate
+                                ? ` · ${formatReportDate(row.lastPurchasedProduct.lastPurchaseDate)} · ${formatDaysAgo(
+                                    calculateDaysSince(
+                                      row.lastPurchasedProduct.lastPurchaseDate,
+                                      metadata?.reportEndDate
+                                    )
+                                  )}`
+                                : ''}
                             </div>
                           </div>
                           {/* Onerilen aksiyon */}
@@ -852,6 +885,11 @@ export default function CariGeriKazanimNew() {
                             <span style={{ fontSize: 10.5, color: FAINT }}>
                               {row.openActionCount} açık, {row.overdueActionCount} geciken
                             </span>
+                            {row.nextFollowUpDate && (
+                              <span style={{ fontSize: 10.5, color: MUTED }}>
+                                Sıradaki takip: {formatReportDate(row.nextFollowUpDate)}
+                              </span>
+                            )}
                             {row.lastAction?.note && (
                               <span style={{ fontSize: 10.5, color: FAINT, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                                 Son not: {row.lastAction.note}
@@ -1035,7 +1073,12 @@ export default function CariGeriKazanimNew() {
                 <MetricCard label="Geçmiş aylık ort." value={formatCurrency(detailRow.historicalAverage)} />
                 <MetricCard label="Son dönem ort." value={formatCurrency(detailRow.recentAverage)} />
                 <MetricCard label="Tahmini kayıp" value={formatCurrency(detailRow.lostPotential)} />
-                <MetricCard label="Son satış" value={safeDate(detailRow.lastSaleDate)} />
+                <MetricCard
+                  label="Cari son satış"
+                  value={detailRow.lastSaleDate
+                    ? `${formatReportDate(detailRow.lastSaleDate)} · ${formatDaysAgo(detailRow.daysSinceLastSale)}`
+                    : '-'}
+                />
               </div>
 
               {/* Insight */}
@@ -1046,7 +1089,18 @@ export default function CariGeriKazanimNew() {
                     value={detailRow.topLostCategory?.categoryName || '-'}
                     helper={detailRow.topLostCategory ? `Tahmini aylık daralma: ${formatCurrency(detailRow.topLostCategory.lostAmount)}` : '-'}
                   />
-                  <InsightBlock label="Son alınan ürün" value={detailRow.lastPurchasedProduct?.productName || '-'} helper={safeDate(detailRow.lastPurchasedProduct?.lastPurchaseDate || detailRow.lastSaleDate)} />
+                  <InsightBlock
+                    label="Son alınan ürün"
+                    value={detailRow.lastPurchasedProduct?.productName || '-'}
+                    helper={detailRow.lastPurchasedProduct?.lastPurchaseDate
+                      ? `${formatReportDate(detailRow.lastPurchasedProduct.lastPurchaseDate)} · ${formatDaysAgo(
+                          calculateDaysSince(
+                            detailRow.lastPurchasedProduct.lastPurchaseDate,
+                            metadata?.reportEndDate
+                          )
+                        )}`
+                      : '-'}
+                  />
                   <InsightBlock
                     label={detailRow.isSeasonal ? 'Dönemsel ritim' : 'Önerilen aksiyon'}
                     value={

@@ -199,6 +199,8 @@ interface ComplementMissingRow {
   productCode?: string;
   productName?: string;
   documentCount?: number;
+  lastPurchaseDate: string | null;
+  daysSinceLastPurchase: number | null;
   missingComplements: ComplementMissingItem[];
   missingCount: number;
   estimatedRevenue: number | null;
@@ -271,6 +273,7 @@ interface CategoryChurnRow {
   customerName?: string | null;
   customerSectorCode?: string | null;
   customerLastSaleDate?: string | null;
+  daysSinceCustomerLastSale: number | null;
   categoryCode?: string;
   categoryName?: string | null;
   lastPurchaseDate: string | null;
@@ -352,6 +355,7 @@ interface CategoryOpportunityRow {
   sourceDocumentCount: number;
   sourceRevenue: number;
   lastSourcePurchaseDate: string | null;
+  daysSinceLastSourcePurchase: number | null;
   recommendations: CategoryOpportunityRecommendation[];
 }
 
@@ -604,6 +608,41 @@ const parseDateKeyToUtcDate = (dateKey: string): Date | null => {
   const match = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+};
+
+const normalizeReportDateKey = (value: unknown): string | null => {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return formatDateKey(value);
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const datePrefix = raw.match(/^(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/);
+  if (datePrefix) {
+    const date = new Date(
+      Date.UTC(Number(datePrefix[1]), Number(datePrefix[2]) - 1, Number(datePrefix[3]))
+    );
+    return Number.isNaN(date.getTime()) ? null : formatDateKey(date);
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : formatDateKey(parsed);
+};
+
+const daysSinceUtcCalendarDate = (
+  reportEnd: Date,
+  dateKey: string | null
+): number | null => {
+  if (!dateKey) return null;
+  const date = parseDateKeyToUtcDate(dateKey);
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const reportEndUtcDay = Date.UTC(
+    reportEnd.getUTCFullYear(),
+    reportEnd.getUTCMonth(),
+    reportEnd.getUTCDate()
+  );
+  return Math.max(0, Math.floor((reportEndUtcDay - date.getTime()) / 86_400_000));
 };
 
 const formatDateKeyInTimeZone = (date: Date, timeZone: string): string => {
@@ -4834,6 +4873,10 @@ export class ReportsService {
                 THEN CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))
               ELSE NULL
             END) as documentCount,
+            MAX(CASE
+              WHEN ISNULL(sth.sth_normal_iade, 0) = 0 THEN sth.sth_tarih
+              ELSE NULL
+            END) as lastPurchaseDate,
             SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity
           FROM STOK_HAREKETLERI sth
           LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
@@ -4850,6 +4893,7 @@ export class ReportsService {
           sectorCode: string | null;
           documentCount: number;
           totalQuantity: number;
+          lastPurchaseDate: string | null;
         }>();
         const customerCodes: string[] = [];
         customerRows.forEach((row: any) => {
@@ -4868,6 +4912,7 @@ export class ReportsService {
             sectorCode: sectorValue || null,
             documentCount: documentCountValue,
             totalQuantity: totalQuantityValue,
+            lastPurchaseDate: normalizeReportDateKey(row.lastPurchaseDate),
           });
           customerCodes.push(rawCode);
         });
@@ -5083,6 +5128,11 @@ export class ReportsService {
             customerCode: customerInfo.customerCode,
             customerName: customerInfo.customerName || '-',
             documentCount: customerInfo.documentCount,
+            lastPurchaseDate: customerInfo.lastPurchaseDate,
+            daysSinceLastPurchase: daysSinceUtcCalendarDate(
+              reportEnd,
+              customerInfo.lastPurchaseDate
+            ),
             missingComplements,
             missingCount: missingComplements.length,
             estimatedRevenue,
@@ -5137,6 +5187,10 @@ export class ReportsService {
               THEN CAST(sth.sth_evraktip AS VARCHAR(10)) + '|' + ISNULL(RTRIM(sth.sth_evrakno_seri), '') + '|' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))
             ELSE NULL
           END) as documentCount,
+          MAX(CASE
+            WHEN ISNULL(sth.sth_normal_iade, 0) = 0 THEN sth.sth_tarih
+            ELSE NULL
+          END) as lastPurchaseDate,
           SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as totalQuantity
         FROM STOK_HAREKETLERI sth
         LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
@@ -5159,6 +5213,7 @@ export class ReportsService {
 
       const documentCountMap = new Map<string, number>();
       const quantityMap = new Map<string, number>();
+      const lastPurchaseDateMap = new Map<string, string | null>();
       const purchasedCodes = rawData
         .map((row: any) => {
           const normalized = normalizeReportCode(row.productCode);
@@ -5168,6 +5223,7 @@ export class ReportsService {
           if (docCount <= 0 || totalQuantity <= 0) return '';
           documentCountMap.set(normalized, docCount);
           quantityMap.set(normalized, totalQuantity);
+          lastPurchaseDateMap.set(normalized, normalizeReportDateKey(row.lastPurchaseDate));
           return normalized;
         })
         .filter(Boolean);
@@ -5507,6 +5563,11 @@ export class ReportsService {
           productCode: product.mikroCode,
           productName: product.name,
           documentCount,
+          lastPurchaseDate: lastPurchaseDateMap.get(normalized) || null,
+          daysSinceLastPurchase: daysSinceUtcCalendarDate(
+            reportEnd,
+            lastPurchaseDateMap.get(normalized) || null
+          ),
           missingComplements,
           missingCount: missingComplements.length,
           estimatedRevenue,
@@ -5928,6 +5989,10 @@ export class ReportsService {
         if (!customerCode) return;
         row.customerSectorCode = sectorByCustomerCode.get(customerCode) || null;
         row.customerLastSaleDate = lastSaleByCustomerCode.get(customerCode) || null;
+        row.daysSinceCustomerLastSale = daysSinceUtcCalendarDate(
+          reportEnd,
+          row.customerLastSaleDate
+        );
 
         const lastCategoryPurchase = row.lastPurchaseDate ? new Date(`${row.lastPurchaseDate}T00:00:00Z`) : null;
         row.daysSinceCategoryPurchase =
@@ -6206,6 +6271,7 @@ export class ReportsService {
             categoryName: metadata.category?.categoryName || null,
             lastPurchaseDate: compactToDisplay(toCompactDate(row.lastPurchaseDate)),
             daysSinceCategoryPurchase: null,
+            daysSinceCustomerLastSale: null,
             customerActiveOutsideCategory: false,
             historicalDocumentCount: Number(row.documentCount) || 0,
             historicalQuantity: toNumber(row.totalQuantity),
@@ -6431,6 +6497,7 @@ export class ReportsService {
           categoryName: item.categoryName,
           lastPurchaseDate: compactToDisplay(item.lastPurchaseCompact),
           daysSinceCategoryPurchase: null,
+          daysSinceCustomerLastSale: null,
           customerActiveOutsideCategory: false,
           historicalDocumentCount: item.historicalDocumentCount,
           historicalQuantity: item.historicalQuantity,
@@ -6478,6 +6545,7 @@ export class ReportsService {
           'Gecmis Evrak',
           'Gecmis Miktar',
           'Gecmis Tutar',
+          'Cari Son Satistan Beri Gun',
         ]
       : [
           'Kategori Kodu',
@@ -6490,6 +6558,7 @@ export class ReportsService {
           'Gecmis Evrak',
           'Gecmis Miktar',
           'Gecmis Tutar',
+          'Cari Son Satistan Beri Gun',
         ];
 
     const rows = data.rows.map((row) => (
@@ -6507,6 +6576,7 @@ export class ReportsService {
             row.historicalDocumentCount || 0,
             Number(row.historicalQuantity || 0),
             Number(row.historicalAmount || 0),
+            row.daysSinceCustomerLastSale ?? '',
           ]
         : [
             row.categoryCode || '',
@@ -6519,6 +6589,7 @@ export class ReportsService {
             row.historicalDocumentCount || 0,
             Number(row.historicalQuantity || 0),
             Number(row.historicalAmount || 0),
+            row.daysSinceCustomerLastSale ?? '',
           ]
     ));
 
@@ -6818,9 +6889,6 @@ export class ReportsService {
           sourceDocumentCountByCustomerCode.set(customerCode, customerDocumentCount);
           return;
         }
-        const parsedLastPurchaseDate = row.lastPurchaseDate
-          ? new Date(row.lastPurchaseDate)
-          : null;
         if (!productCode || customerDocumentCount <= 0) return;
         const customerMap = sourceMetricsByCustomerCode.get(customerCode) || new Map();
         customerMap.set(productCode, {
@@ -6828,10 +6896,7 @@ export class ReportsService {
           productName: String(row.productName || productCode),
           customerDocumentCount,
           customerAmount: toNumber(row.totalAmount),
-          lastPurchaseDate:
-            parsedLastPurchaseDate && !Number.isNaN(parsedLastPurchaseDate.getTime())
-            ? formatDateKey(parsedLastPurchaseDate)
-            : null,
+          lastPurchaseDate: normalizeReportDateKey(row.lastPurchaseDate),
         });
         sourceMetricsByCustomerCode.set(customerCode, customerMap);
         sourceCodesSet.add(productCode);
@@ -7103,6 +7168,10 @@ export class ReportsService {
           sourceDocumentCount,
           sourceRevenue,
           lastSourcePurchaseDate,
+          daysSinceLastSourcePurchase: daysSinceUtcCalendarDate(
+            reportEnd,
+            lastSourcePurchaseDate
+          ),
           recommendations,
         });
         totalRecommendations += recommendations.length;
@@ -7171,8 +7240,8 @@ export class ReportsService {
       Number.isFinite(value) ? Math.round((value + Number.EPSILON) * 100) / 100 : 0;
 
     const header = data.metadata.mode === 'product'
-      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Fiyati Bulunan Kalemlerin Potansiyel Aylik Geliri']
-      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Fiyati Bulunan Kalemlerin Potansiyel Aylik Geliri'];
+      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Fiyati Bulunan Kalemlerin Potansiyel Aylik Geliri', 'Baz Urun Son Alim Tarihi', 'Baz Urun Son Alimdan Beri Gun']
+      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Fiyati Bulunan Kalemlerin Potansiyel Aylik Geliri', 'Urun Son Alim Tarihi', 'Urun Son Alimdan Beri Gun'];
 
     const rows = data.rows.map((row) => {
       const missingList = row.missingComplements
@@ -7194,6 +7263,8 @@ export class ReportsService {
             missingList,
             row.missingCount,
             potentialRevenue,
+            row.lastPurchaseDate || '',
+            row.daysSinceLastPurchase ?? '',
           ]
         : [
             row.productCode || '',
@@ -7202,6 +7273,8 @@ export class ReportsService {
             missingList,
             row.missingCount,
             potentialRevenue,
+            row.lastPurchaseDate || '',
+            row.daysSinceLastPurchase ?? '',
           ];
     });
 

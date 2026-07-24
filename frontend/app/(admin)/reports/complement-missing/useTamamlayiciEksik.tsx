@@ -26,6 +26,8 @@ export interface ComplementMissingRow {
   productCode?: string;
   productName?: string;
   documentCount?: number;
+  lastPurchaseDate: string | null;
+  daysSinceLastPurchase: number | null;
   missingComplements: ComplementMissingItem[];
   missingCount: number;
   estimatedRevenue: number | null;
@@ -430,9 +432,9 @@ export function useTamamlayiciEksik() {
 
     try {
       await adminApi.createTask({
-        title: actionType === 'campaign' ? 'Tamamlayici urun kampanya onerisi' : 'Tamamlayici urun notu',
+        title: actionType === 'campaign' ? 'Tamamlayici urun satis takibi' : 'Tamamlayici urun notu',
         description: descriptionParts.join('\n'),
-        type: actionType === 'campaign' ? 'FEATURE' : 'REPORT',
+        type: actionType === 'campaign' ? 'OPERATION' : 'REPORT',
         links,
       });
       toast.success('Aksiyon olusturuldu');

@@ -14,6 +14,10 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { SalesDecisionReportGuide } from '@/components/reports/SalesDecisionReportGuide';
+import {
+  ReportFreshnessBadge,
+  ReportRecency,
+} from '@/components/reports/ReportReadability';
 import { SALES_DECISION_REPORTS } from '@/lib/reports/salesDecisionReports';
 import { formatCurrency } from '@/lib/utils/format';
 import { useKategoriFirsat } from './useKategoriFirsat';
@@ -125,16 +129,6 @@ const dropdownItem: React.CSSProperties = {
 const monoStyle: React.CSSProperties = {
   fontFamily: "'Roboto Mono', monospace",
   fontSize: 11,
-};
-
-const formatMetadataDateTime = (value?: string | null) => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('tr-TR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  });
 };
 
 export default function KategoriFirsatNew() {
@@ -480,13 +474,13 @@ export default function KategoriFirsatNew() {
             {metadata.minRecommendationCount || 1}
           </div>
           <div>
-             <strong style={{ color: INK }}>İlişki kanıtı:</strong>{' '}
-             {metadata.associationWindowStart && metadata.associationWindowEnd
-               ? `${metadata.associationWindowStart} - ${metadata.associationWindowEnd}`
-               : 'Pencere bilgisi yok'}{' '}
-             · {metadata.candidateSourceProductCount} kanıt üretebilen kaynak ürün · Son güncelleme:{' '}
-             {formatMetadataDateTime(metadata.associationUpdatedAt)}
-           </div>
+            <strong style={{ color: INK }}>Birlikte satış kanıtı:</strong>{' '}
+            {metadata.associationWindowStart && metadata.associationWindowEnd
+              ? `${metadata.associationWindowStart} - ${metadata.associationWindowEnd}`
+              : 'Pencere bilgisi yok'}{' '}
+            · {metadata.candidateSourceProductCount} kanıt üretebilen kaynak ürün
+            <ReportFreshnessBadge updatedAt={metadata.associationUpdatedAt} />
+          </div>
          </div>
        )}
 
@@ -569,10 +563,10 @@ export default function KategoriFirsatNew() {
         <div style={{ ...cardStyle, overflow: 'hidden' }}>
           {/* Card header */}
           <div style={{ padding: '14px 16px', borderBottom: `1px solid ${SOFT_LINE}` }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>Cari Bazlı Öneri Listesi</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>İlk Kategori Satışı Adayları</div>
             <div style={{ fontSize: 11.5, color: FAINT, marginTop: 3 }}>
-              Seçili kategoriyi hiç almamış cariler. Kanıt skoru parasal değer değil;
-              ortak evrak gücü ile carinin kaynak ürün alış sıklığını birleştirir.
+              Yalnız seçili kategoriyi hiç almamış cariler gösterilir. Kanıt skoru parasal değer değildir;
+              birlikte satış evrakları ile carinin kanıt ürünlerini alma sıklığını birleştirir.
             </div>
           </div>
 
@@ -601,10 +595,10 @@ export default function KategoriFirsatNew() {
                   }}
                 >
                   <span>Cari</span>
-                  <span>Sektör / Kaynak Aktivite</span>
+                  <span>Sektör / Kanıt Ürünü Son Alımı</span>
                   <span style={cellRight}>Kanıt Skoru</span>
                   <span style={cellRight}>Öneri Sayısı</span>
-                  <span>Öne Çıkan Öneriler</span>
+                  <span>İlk Kategori Satışı İçin Ürünler</span>
                 </div>
 
                 {/* Rows */}
@@ -628,15 +622,17 @@ export default function KategoriFirsatNew() {
                          {row.customerName || '-'}
                        </div>
                      </div>
-                     <div style={{ color: MUTED }}>
-                       <div>{row.customerSectorCode || '-'}</div>
-                       <div style={{ fontSize: 10.5, color: FAINT, marginTop: 3 }}>
-                         Son: {row.lastSourcePurchaseDate || '-'} · {row.sourceDocumentCount} ürün-evrak sinyali
-                       </div>
-                       <div style={{ fontSize: 10.5, color: FAINT, marginTop: 2 }}>
-                         Kaynak ciro: {formatCurrency(row.sourceRevenue || 0)}
-                       </div>
-                     </div>
+                      <div style={{ color: MUTED }}>
+                        <div style={{ marginBottom: 4 }}>Sektör: {row.customerSectorCode || '-'}</div>
+                        <ReportRecency
+                          value={row.lastSourcePurchaseDate}
+                          days={row.daysSinceLastSourcePurchase}
+                          referenceDate={metadata?.endDate}
+                        />
+                        <div style={{ fontSize: 10.5, color: FAINT, marginTop: 3 }}>
+                          {row.sourceDocumentCount} kaynak evrak · Kaynak ciro: {formatCurrency(row.sourceRevenue || 0)}
+                        </div>
+                      </div>
                       <span style={{ ...cellRight, fontWeight: 700, color: PRIMARY }}>
                         {row.totalOpportunityScore}
                       </span>
@@ -672,7 +668,7 @@ export default function KategoriFirsatNew() {
                             listStyle: 'none',
                           }}
                         >
-                          Kategori detayları
+                          Neden önerildi? / İlişki kanıtı
                         </summary>
                         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                           {row.recommendations.map((item) => (
@@ -693,8 +689,8 @@ export default function KategoriFirsatNew() {
                                 <span style={{ color: INK }}> - {item.recommendedProductName}</span>
                                 <span style={{ color: FAINT }}>
                                   {' '}
-                                  (skor: {item.weightedScore}, bağlantı: {item.associationDocumentCount}, baz:{' '}
-                                  {item.sourceProductCount})
+                                  (skor: {item.weightedScore}, birlikte görülen evrak:{' '}
+                                  {item.associationDocumentCount}, kanıt ürünü: {item.sourceProductCount})
                                 </span>
                               </div>
                               <div style={{ marginTop: 5, color: MUTED }}>
@@ -703,8 +699,8 @@ export default function KategoriFirsatNew() {
                                     key={`${row.customerCode}-${item.recommendedProductCode}-${source.productCode}`}
                                     style={{ marginTop: 2 }}
                                   >
-                                    {source.productCode} - {source.productName} (ortak: {source.pairCount}, cari evrak:{' '}
-                                    {source.customerDocumentCount})
+                                    {source.productCode} - {source.productName} (birlikte satış evrakı:{' '}
+                                    {source.pairCount}, carinin kaynak evrakı: {source.customerDocumentCount})
                                   </div>
                                 ))}
                               </div>
