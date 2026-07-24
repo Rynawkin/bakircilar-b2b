@@ -4,6 +4,30 @@ const nextConfig = {
   images: {
     domains: ['localhost', '139.59.133.81'],
   },
+  async headers() {
+    return [
+      {
+        source: '/management-profit',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors 'none'",
+          },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          {
+            key: 'X-Robots-Tag',
+            value: 'noindex, nofollow, noarchive',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'private, no-store, max-age=0, must-revalidate',
+          },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     // Proxy API requests to backend to avoid CORS and Mixed Content issues
     // Use BACKEND_URL (server-side) or fallback to NEXT_PUBLIC_API_URL or localhost

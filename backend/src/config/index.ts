@@ -65,6 +65,33 @@ export const config = {
       trustServerCertificate: true,
     },
   },
+  // Patron satis/karlilik baglantisi icin opsiyonel, salt-okunur Mikro hesabi.
+  // Ayrik hesap tanimli degilse mevcut Mikro baglantisi kullanilir; endpoint
+  // yine yalniz sabit TVF ve allowlist edilmis SELECT sorgulari calistirir.
+  managementProfitReportMikro: {
+    usesDedicatedCredentials: Boolean(
+      String(process.env.MIKRO_REPORT_USER || '').trim()
+      && String(process.env.MIKRO_REPORT_PASSWORD || '').trim()
+    ),
+    allowSharedCredentials:
+      process.env.MIKRO_REPORT_ALLOW_SHARED_CREDENTIALS === 'true',
+    server: process.env.MIKRO_REPORT_SERVER || process.env.MIKRO_SERVER || '',
+    database: process.env.MIKRO_REPORT_DATABASE || process.env.MIKRO_DATABASE || '',
+    user: process.env.MIKRO_REPORT_USER || process.env.MIKRO_USER || '',
+    password: process.env.MIKRO_REPORT_PASSWORD || process.env.MIKRO_PASSWORD || '',
+    port: parseInt(process.env.MIKRO_REPORT_PORT || process.env.MIKRO_PORT || '1433', 10),
+    requestTimeout: parseInt(process.env.MIKRO_REPORT_REQUEST_TIMEOUT_MS || '120000', 10),
+    connectionTimeout: parseInt(process.env.MIKRO_REPORT_CONNECTION_TIMEOUT_MS || '10000', 10),
+    pool: {
+      max: Math.max(1, parseInt(process.env.MIKRO_REPORT_POOL_MAX || '4', 10)),
+      min: 0,
+      idleTimeoutMillis: 30000,
+    },
+    options: {
+      encrypt: false,
+      trustServerCertificate: true,
+    },
+  },
 
   // CORS
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',

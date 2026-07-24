@@ -19,6 +19,7 @@ import integrationRoutes from './integration.routes';
 import aiAssistantRoutes from './ai-assistant.routes';
 import salesCatalogRoutes from './sales-catalog.routes';
 import paymentRoutes from './payment.routes';
+import managementProfitReportRoutes from './management-profit-report.routes';
 
 const router = Router();
 
@@ -34,6 +35,7 @@ router.get('/health', (_req, res) => {
 // Routes
 router.use('/auth', authRoutes);
 router.use('/sales-catalogs', salesCatalogRoutes);
+router.use('/management-profit-report', managementProfitReportRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin/reports', reportsRoutes);

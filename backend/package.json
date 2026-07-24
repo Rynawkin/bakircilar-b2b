@@ -10,6 +10,7 @@
     "test:payments": "npm run build && node --test dist/services/nestpay-paybylink.service.test.js",
     "test:margin": "npm run build && node --test --test-force-exit dist/services/margin-report.service.test.js",
     "test:stock-create": "npm run build && node --test --test-force-exit dist/services/stock-create.service.test.js",
+    "test:management-profit": "npm run build && node --test --test-force-exit dist/utils/management-profit-report-layout.test.js dist/services/management-profit-report-mikro.service.test.js dist/services/management-profit-report.service.test.js",
     "test:vade": "npm run build && node --test --test-force-exit dist/utils/vade-import.test.js dist/utils/vade-balance.test.js dist/utils/vade-scope.test.js dist/services/vadeSync.service.test.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

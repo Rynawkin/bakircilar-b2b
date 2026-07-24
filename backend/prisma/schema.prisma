@@ -3702,6 +3702,58 @@ model SalesCatalogPriceSnapshot {
   @@index([catalogId, generatedAt])
 }
 
+// ==================== MANAGEMENT PROFIT REPORT LINKS ====================
+
+model ManagementProfitReportLink {
+  id             String   @id @default(uuid())
+  name           String
+  tokenHash      String   @unique
+  tokenHint      String
+  pinHash        String
+  status         String   @default("ACTIVE") // ACTIVE | PAUSED | REVOKED
+  canSaveLayout  Boolean  @default(true)
+  expiresAt      DateTime?
+  sessionVersion Int      @default(1)
+  viewCount      Int      @default(0)
+  lastViewedAt   DateTime?
+  createdById    String?
+  createdByName  String?
+  updatedById    String?
+  updatedByName  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  layout         ManagementProfitReportLayout?
+  accessAttempts ManagementProfitReportAccessAttempt[]
+
+  @@index([status, updatedAt])
+  @@index([expiresAt])
+}
+
+model ManagementProfitReportLayout {
+  id            String   @id @default(uuid())
+  linkId        String   @unique
+  link          ManagementProfitReportLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  schemaVersion Int      @default(1)
+  revision      Int      @default(1)
+  config        Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
+model ManagementProfitReportAccessAttempt {
+  id         String   @id @default(uuid())
+  linkId     String
+  link       ManagementProfitReportLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  clientHash String
+  outcome    String // SUCCESS | FAILURE | BLOCKED
+  createdAt  DateTime @default(now())
+
+  @@index([linkId, clientHash, createdAt])
+  @@index([createdAt])
+}
 
 
 

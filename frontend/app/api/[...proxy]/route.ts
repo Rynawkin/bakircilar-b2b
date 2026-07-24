@@ -31,6 +31,9 @@ export async function PATCH(request: NextRequest) {
 }
 
 async function proxyRequest(request: NextRequest, method: string) {
+  const isProtectedManagementReport = request.nextUrl.pathname.startsWith(
+    '/api/management-profit-report/'
+  );
   try {
     // Get the path after /api/
     const url = new URL(request.url);
@@ -77,6 +80,22 @@ async function proxyRequest(request: NextRequest, method: string) {
     const responseHeaders: Record<string, string> = {
       'Content-Type': response.headers.get('Content-Type') || 'application/json',
     };
+    // Preserve privacy/security semantics from protected public reports.
+    // These headers are intentionally allowlisted instead of forwarding every
+    // backend response header through the public proxy.
+    for (const headerName of [
+      'Cache-Control',
+      'Pragma',
+      'Expires',
+      'X-Robots-Tag',
+      'Referrer-Policy',
+      'Content-Security-Policy',
+      'X-Frame-Options',
+      'X-Content-Type-Options',
+    ]) {
+      const value = response.headers.get(headerName);
+      if (value) responseHeaders[headerName] = value;
+    }
     const location = response.headers.get('Location');
     if (location) responseHeaders.Location = location;
 
@@ -91,6 +110,23 @@ async function proxyRequest(request: NextRequest, method: string) {
     return proxiedResponse;
   } catch (error: any) {
     console.error('[Proxy] Error:', error.message);
+    if (isProtectedManagementReport) {
+      return NextResponse.json(
+        { error: 'Rapor servisine şu anda ulaşılamıyor.' },
+        {
+          status: 502,
+          headers: {
+            'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+            Pragma: 'no-cache',
+            Expires: '0',
+            'X-Robots-Tag': 'noindex, nofollow, noarchive',
+            'Referrer-Policy': 'no-referrer',
+            'X-Frame-Options': 'DENY',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        }
+      );
+    }
     return NextResponse.json(
       { error: 'Proxy error', message: error.message },
       { status: 500 }
